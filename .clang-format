@@ -1,0 +1,59 @@
+---
+BasedOnStyle: LLVM
+IndentWidth: 8
+TabWidth: 8
+UseTab: ForContinuationAndIndentation
+BreakStringLiterals : false
+AllowShortIfStatementsOnASingleLine: false
+IndentCaseLabels: false
+ColumnLimit: 100
+AllowShortFunctionsOnASingleLine: false
+AlwaysBreakAfterReturnType: AllDefinitions
+ColumnLimit: 100
+ConstructorInitializerAllOnOneLineOrOnePerLine: true
+ConstructorInitializerIndentWidth: 8
+ContinuationIndentWidth: 8
+BreakBeforeBraces: Linux
+AllowShortBlocksOnASingleLine: false
+AlignConsecutiveAssignments: false
+AlignEscapedNewlines: Right
+AlignConsecutiveMacros : true
+MaxEmptyLinesToKeep : 1
+Cpp11BracedListStyle : true
+AlignTrailingComments : true
+BreakBeforeTernaryOperators : false
+SpacesInContainerLiterals : false
+ReflowComments: true
+ForEachMacros:
+  - 'CIRBUF_FOREACH'
+  - 'LIST_FOREACH'
+  - 'LIST_FOREACH_SAFE'
+  - 'RTE_BBDEV_FOREACH'
+  - 'RTE_DEV_FOREACH'
+  - 'RTE_EAL_DEVARGS_FOREACH'
+  - 'RTE_ETH_FOREACH_DEV'
+  - 'RTE_ETH_FOREACH_DEV_OF'
+  - 'RTE_ETH_FOREACH_DEV_OWNED_BY'
+  - 'RTE_ETH_FOREACH_DEV_SIBLING'
+  - 'RTE_ETH_FOREACH_MATCHING_DEV'
+  - 'RTE_ETH_FOREACH_VALID_DEV'
+  - 'rte_graph_foreach_node'
+  - 'RTE_LCORE_FOREACH'
+  - 'RTE_LCORE_FOREACH_SLAVE'
+  - 'STAILQ_FOREACH'
+  - 'TAILQ_FOREACH'
+  - 'TAILQ_FOREACH_FROM'
+  - 'TAILQ_FOREACH_FROM_SAFE'
+  - 'TAILQ_FOREACH_REVERSE'
+  - 'TAILQ_FOREACH_REVERSE_FROM'
+  - 'TAILQ_FOREACH_REVERSE_FROM_SAFE'
+  - 'TAILQ_FOREACH_REVERSE_SAFE'
+  - 'TAILQ_FOREACH_SAFE'
+  - 'FOREACH_DEVICE_ON_PCIBUS'
+  - 'FOREACH_DEVARGS_ON_PCIBUS'
+  - 'FOREACH_DRIVER_ON_PCIBUS'
+  - 'FOREACH_DEVICE_REVERSE_ON_PCIBUS_SAFE'
+  - 'cxk_book_foreach_page'
+  - 'cxk_chapter_foreach_page'
+  - 'cxk_section_foreach_page'
+---

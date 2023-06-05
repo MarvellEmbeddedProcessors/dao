@@ -1,0 +1,14 @@
+/* Marvell CONFIDENTIAL AND PROPRIETARY NOTE
+ *
+ * This software contains information confidential and proprietary to
+ * Marvell. It shall not be reproduced in whole or in
+ * part, or transferred to other documents, or disclosed to third
+ * parties, or used for any purpose other than that for which it was
+ * obtained, without the prior written consent of Marvell.
+ *
+ * Copyright (c) 2023 Marvell. If you received this file from Marvell
+ * and you have entered into a commercial license agreement (a "Commercial License")
+ * with Marvell, the file is licensed to you under the terms of the applicable Commercial
+ * License. In the absence of such license agreement the following file is subject to
+ * Marvell's standard Limited Use License Agreement.
+ */

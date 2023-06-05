@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2023 Marvell.
+
+option('kernel_dir', type: 'string', value: '', description:
+       'Path to the kernel for building kernel modules. Headers must be in $kernel_dir.')
+option('dma_stats', type: 'boolean', value: false, description:
+       'Enable DMA statistics of DAO.')
+option('virtio_debug', type: 'boolean', value: false, description:
+       'Enable virtio debug.')
+option('platform', type: 'string', value: 'native', description:
+       'Platform to build.')
+option('enable_kmods', type: 'boolean', value: true, description:
+       'build kernel modules')

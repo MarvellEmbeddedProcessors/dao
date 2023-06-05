@@ -1,0 +1,11 @@
+.wy-side-nav-search, .wy-nav-top {
+	    background: #222c32;
+}
+
+.wy-nav-side {
+	    background: #222c32;
+}
+
+.wy-nav-content {
+	    max-width: none;
+}

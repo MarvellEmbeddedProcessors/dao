@@ -1,0 +1,53 @@
+From 6abc3a6081d12c5af41e2d8c26213ebd209e6ba0 Mon Sep 17 00:00:00 2001
+From: Shannon Nelson <shannon.nelson@amd.com>
+Date: Mon, 24 Apr 2023 15:50:29 -0700
+Subject: [PATCH 1/6] vhost_vdpa: tell vqs about the negotiated
+
+As is done in the net, iscsi, and vsock vhost support, let the vdpa vqs
+know about the features that have been negotiated.  This allows vhost
+to more safely make decisions based on the features, such as when using
+PACKED vs split queues.
+
+Signed-off-by: Shannon Nelson <shannon.nelson@amd.com>
+Acked-by: Jason Wang <jasowang@redhat.com>
+Message-Id: <20230424225031.18947-2-shannon.nelson@amd.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+---
+ drivers/vhost/vdpa.c | 13 +++++++++++++
+ 1 file changed, 13 insertions(+)
+
+diff --git a/drivers/vhost/vdpa.c b/drivers/vhost/vdpa.c
+index 166044642fd5..2c0f9c12ad55 100644
+--- a/drivers/vhost/vdpa.c
++++ b/drivers/vhost/vdpa.c
+@@ -373,7 +373,10 @@ static long vhost_vdpa_set_features(struct vhost_vdpa *v, u64 __user *featurep)
+ {
+ 	struct vdpa_device *vdpa = v->vdpa;
+ 	const struct vdpa_config_ops *ops = vdpa->config;
++	struct vhost_dev *d = &v->vdev;
++	u64 actual_features;
+ 	u64 features;
++	int i;
+ 
+ 	/*
+ 	 * It's not allowed to change the features after they have
+@@ -388,6 +391,16 @@ static long vhost_vdpa_set_features(struct vhost_vdpa *v, u64 __user *featurep)
+ 	if (vdpa_set_features(vdpa, features))
+ 		return -EINVAL;
+ 
++	/* let the vqs know what has been configured */
++	actual_features = ops->get_driver_features(vdpa);
++	for (i = 0; i < d->nvqs; ++i) {
++		struct vhost_virtqueue *vq = d->vqs[i];
++
++		mutex_lock(&vq->mutex);
++		vq->acked_features = actual_features;
++		mutex_unlock(&vq->mutex);
++	}
++
+ 	return 0;
+ }
+ 
+-- 
+2.25.1
+

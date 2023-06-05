@@ -1,0 +1,44 @@
+The DAO uses the SPDX-License -Identifiers license for the core libraries,
+applications and drivers. The kernel components are naturally GPL-2.0 licensed.
+
+Including big blocks of License headers in all files blows up the
+source code with mostly redundant information.  An additional problem
+is that even the same licenses are referred to by a number of
+slightly varying text blocks (full, abbreviated, different
+indentation, line wrapping and/or white space, with obsolete address
+information, ...) which makes validation and automatic processing a nightmare.
+
+Adding license information in this fashion, rather than adding full license
+text, can be more efficient for developers; decreases errors; and improves
+automated detection of licenses. The current set of valid, predefined SPDX
+identifiers is set forth on the SPDX License List at https://spdx.org/licenses/.
+
+DAO uses first line of the file to be SPDX tag. In case of *#!* scripts, SPDX
+tag can be placed in 2nd line of the file.
+
+For example, to label a file as subject to the Marvell-MIT license,
+the following text would be used:
+
+SPDX-License-Identifier: Marvell-MIT
+
+To label a file as Marvell-Proprietary (for proprietary code e.g., virto), the
+following text would be used:
+
+SPDX-License-Identifier: Marvell-Proprietary
+
+To label a file as GPL-2.0 (e.g., for code that runs in the kernel), the
+following text would be used:
+
+SPDX-License-Identifier: GPL-2.0
+
+Any new file contributions in DAO shall adhere to the above scheme.
+It is also being recommended to replace the existing license text in the code
+with SPDX-License-Identifiers.
+
+Any approvals shall be documented in "license/exceptions.txt" with record dates.
+
+DAO project supported licenses are:
+
+1. SPDX-License-Identifier: Marvell-MIT
+2. SPDX-License-Identifier: Marvell-Proprietary
+3. SPDX-License-Identifier: GPL-2.0

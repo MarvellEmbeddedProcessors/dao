@@ -1,0 +1,60 @@
+From bbb40de6610b40e33c51edbafa1afcea93c8fd82 Mon Sep 17 00:00:00 2001
+From: Shannon Nelson <shannon.nelson@amd.com>
+Date: Mon, 24 Apr 2023 15:50:31 -0700
+Subject: [PATCH 3/6] vhost_vdpa: support PACKED when setting-getting
+ vring_base
+
+Use the right structs for PACKED or split vqs when setting and
+getting the vring base.
+
+Fixes: 4c8cf31885f6 ("vhost: introduce vDPA-based backend")
+Signed-off-by: Shannon Nelson <shannon.nelson@amd.com>
+Message-Id: <20230424225031.18947-4-shannon.nelson@amd.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Acked-by: Jason Wang <jasowang@redhat.com>
+---
+ drivers/vhost/vdpa.c | 21 +++++++++++++++++----
+ 1 file changed, 17 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/vhost/vdpa.c b/drivers/vhost/vdpa.c
+index 2c0f9c12ad55..27a633a888a8 100644
+--- a/drivers/vhost/vdpa.c
++++ b/drivers/vhost/vdpa.c
+@@ -558,7 +558,14 @@ static long vhost_vdpa_vring_ioctl(struct vhost_vdpa *v, unsigned int cmd,
+ 		if (r)
+ 			return r;
+ 
+-		vq->last_avail_idx = vq_state.split.avail_index;
++		if (vhost_has_feature(vq, VIRTIO_F_RING_PACKED)) {
++			vq->last_avail_idx = vq_state.packed.last_avail_idx |
++					     (vq_state.packed.last_avail_counter << 15);
++			vq->last_used_idx = vq_state.packed.last_used_idx |
++					    (vq_state.packed.last_used_counter << 15);
++		} else {
++			vq->last_avail_idx = vq_state.split.avail_index;
++		}
+ 		break;
+ 	}
+ 
+@@ -576,9 +583,15 @@ static long vhost_vdpa_vring_ioctl(struct vhost_vdpa *v, unsigned int cmd,
+ 		break;
+ 
+ 	case VHOST_SET_VRING_BASE:
+-		vq_state.split.avail_index = vq->last_avail_idx;
+-		if (ops->set_vq_state(vdpa, idx, &vq_state))
+-			r = -EINVAL;
++		if (vhost_has_feature(vq, VIRTIO_F_RING_PACKED)) {
++			vq_state.packed.last_avail_idx = vq->last_avail_idx & 0x7fff;
++			vq_state.packed.last_avail_counter = !!(vq->last_avail_idx & 0x8000);
++			vq_state.packed.last_used_idx = vq->last_used_idx & 0x7fff;
++			vq_state.packed.last_used_counter = !!(vq->last_used_idx & 0x8000);
++		} else {
++			vq_state.split.avail_index = vq->last_avail_idx;
++		}
++		r = ops->set_vq_state(vdpa, idx, &vq_state);
+ 		break;
+ 
+ 	case VHOST_SET_VRING_CALL:
+-- 
+2.25.1
+

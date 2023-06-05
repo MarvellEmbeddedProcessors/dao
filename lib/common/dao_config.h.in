@@ -1,0 +1,25 @@
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright (c) 2023 Marvell
+ */
+
+#ifndef __DAO_CONFIG_H__
+#define __DAO_CONFIG_H__
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define DAO_VERSION_MAJOR "@DAO_VERSION_MAJOR@"
+#define DAO_VERSION_MINOR "@DAO_VERSION_MINOR@"
+#define DAO_VERSION_POINT "@DAO_VERSION_POINT@"
+#define DAO_VERSION_GIT   "@DAO_VERSION_GIT@"
+#define DAO_VERSION       "@DAO_VERSION@"
+
+#mesondefine DAO_DMA_STATS
+#mesondefine DAO_VIRTIO_DEBUG
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* __DAO_CONFIG_H__ */

@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2024 Marvell.
+
+PROJECT_NAME            = DPU Accelerator Offload
+USE_MDFILE_AS_MAINPAGE  = @TOPDIR@/doxy-api-index.md
+
+INPUT                   = @TOPDIR@/doxy-api-index.md \
+                          @TOPDIR@/../../lib/common \
+                          @TOPDIR@/../../lib/pem \
+                          @TOPDIR@/../../lib/portgroup \
+                          @TOPDIR@/../../lib/vfio \
+                          @TOPDIR@/../../lib/workers \
+                          @TOPDIR@/../../lib/netlink \
+                          @TOPDIR@/../../lib/virtio \
+                          @TOPDIR@/../../lib/virtio_net \
+
+FILE_PATTERNS           = dao_*.h
+
+PREDEFINED              = __DOXYGEN__ \
+                          __attribute__(x)=
+
+OPTIMIZE_OUTPUT_FOR_C   = YES
+ENABLE_PREPROCESSING    = YES
+MACRO_EXPANSION         = YES
+EXPAND_ONLY_PREDEF      = YES
+EXTRACT_STATIC          = YES
+DISTRIBUTE_GROUP_DOC    = YES
+HIDE_UNDOC_MEMBERS      = YES
+HIDE_UNDOC_CLASSES      = YES
+HIDE_SCOPE_NAMES        = YES
+GENERATE_DEPRECATEDLIST = YES
+VERBATIM_HEADERS        = NO
+ALPHABETICAL_INDEX      = NO
+
+HTML_DYNAMIC_SECTIONS   = YES
+SEARCHENGINE            = YES
+SORT_MEMBER_DOCS        = NO
+SOURCE_BROWSER          = YES
+
+OUTPUT_DIRECTORY        = @OUTPUT@
+STRIP_FROM_PATH         = @STRIP_FROM_PATH@
+GENERATE_HTML           = YES
+HTML_OUTPUT             = @HTML_OUTPUT@
+GENERATE_LATEX          = NO
+GENERATE_MAN            = NO
+
+HAVE_DOT                = NO
+
+WARN_AS_ERROR           = YES

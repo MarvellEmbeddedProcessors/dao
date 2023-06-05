@@ -1,0 +1,5 @@
+[gerrit]
+host=sj1git1.cavium.com
+port=29418
+project=IP/SW/dataplane/dpu-offload
+defaultbranch=dpu-offload-devel

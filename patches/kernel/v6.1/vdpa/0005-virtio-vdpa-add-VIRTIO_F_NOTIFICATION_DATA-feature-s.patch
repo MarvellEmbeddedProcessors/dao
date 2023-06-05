@@ -1,0 +1,115 @@
+From 74f95ca6009919a16ad2d1f4a6197cf92105df89 Mon Sep 17 00:00:00 2001
+From: Alvaro Karsz <alvaro.karsz@solid-run.com>
+Date: Thu, 13 Apr 2023 11:18:55 +0300
+Subject: [PATCH 5/6] virtio-vdpa: add VIRTIO_F_NOTIFICATION_DATA feature
+ support
+
+Add VIRTIO_F_NOTIFICATION_DATA support for vDPA transport.
+If this feature is negotiated, the driver passes extra data when kicking
+a virtqueue.
+
+A device that offers this feature needs to implement the
+kick_vq_with_data callback.
+
+kick_vq_with_data receives the vDPA device and data.
+data includes:
+16 bits vqn and 16 bits next available index for split virtqueues.
+16 bits vqs, 15 least significant bits of next available index
+and 1 bit next_wrap for packed virtqueues.
+
+This patch follows a patch [1] by Viktor Prutyanov which adds support
+for the MMIO, channel I/O and modern PCI transports.
+
+Signed-off-by: Alvaro Karsz <alvaro.karsz@solid-run.com>
+Message-Id: <20230413081855.36643-3-alvaro.karsz@solid-run.com>
+Signed-off-by: Michael S. Tsirkin <mst@redhat.com>
+Acked-by: Jason Wang <jasowang@redhat.com>
+---
+ drivers/virtio/virtio_vdpa.c | 22 +++++++++++++++++++++-
+ include/linux/vdpa.h         |  9 +++++++++
+ 2 files changed, 30 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/virtio/virtio_vdpa.c b/drivers/virtio/virtio_vdpa.c
+index 9670cc79371d..deb581e7d88a 100644
+--- a/drivers/virtio/virtio_vdpa.c
++++ b/drivers/virtio/virtio_vdpa.c
+@@ -112,6 +112,17 @@ static bool virtio_vdpa_notify(struct virtqueue *vq)
+ 	return true;
+ }
+ 
++static bool virtio_vdpa_notify_with_data(struct virtqueue *vq)
++{
++	struct vdpa_device *vdpa = vd_get_vdpa(vq->vdev);
++	const struct vdpa_config_ops *ops = vdpa->config;
++	u32 data = vring_notification_data(vq);
++
++	ops->kick_vq_with_data(vdpa, data);
++
++	return true;
++}
++
+ static irqreturn_t virtio_vdpa_config_cb(void *private)
+ {
+ 	struct virtio_vdpa_device *vd_dev = private;
+@@ -137,6 +148,7 @@ virtio_vdpa_setup_vq(struct virtio_device *vdev, unsigned int index,
+ 	struct vdpa_device *vdpa = vd_get_vdpa(vdev);
+ 	const struct vdpa_config_ops *ops = vdpa->config;
+ 	struct virtio_vdpa_vq_info *info;
++	bool (*notify)(struct virtqueue *vq) = virtio_vdpa_notify;
+ 	struct vdpa_callback cb;
+ 	struct virtqueue *vq;
+ 	u64 desc_addr, driver_addr, device_addr;
+@@ -153,6 +165,14 @@ virtio_vdpa_setup_vq(struct virtio_device *vdev, unsigned int index,
+ 	if (index >= vdpa->nvqs)
+ 		return ERR_PTR(-ENOENT);
+ 
++	/* We cannot accept VIRTIO_F_NOTIFICATION_DATA without kick_vq_with_data */
++	if (__virtio_test_bit(vdev, VIRTIO_F_NOTIFICATION_DATA)) {
++		if (ops->kick_vq_with_data)
++			notify = virtio_vdpa_notify_with_data;
++		else
++			__virtio_clear_bit(vdev, VIRTIO_F_NOTIFICATION_DATA);
++	}
++
+ 	/* Queue shouldn't already be set up. */
+ 	if (ops->get_vq_ready(vdpa, index))
+ 		return ERR_PTR(-ENOENT);
+@@ -177,7 +197,7 @@ virtio_vdpa_setup_vq(struct virtio_device *vdev, unsigned int index,
+ 	align = ops->get_vq_align(vdpa);
+ 	vq = vring_create_virtqueue(index, max_num, align, vdev,
+ 				    true, may_reduce_num, ctx,
+-				    virtio_vdpa_notify, callback, name);
++				    notify, callback, name);
+ 	if (!vq) {
+ 		err = -ENOMEM;
+ 		goto error_new_virtqueue;
+diff --git a/include/linux/vdpa.h b/include/linux/vdpa.h
+index 6d0f5e4e82c2..698e40adc002 100644
+--- a/include/linux/vdpa.h
++++ b/include/linux/vdpa.h
+@@ -143,6 +143,14 @@ struct vdpa_map_file {
+  * @kick_vq:			Kick the virtqueue
+  *				@vdev: vdpa device
+  *				@idx: virtqueue index
++ * @kick_vq_with_data:		Kick the virtqueue and supply extra data
++ *				(only if VIRTIO_F_NOTIFICATION_DATA is negotiated)
++ *				@vdev: vdpa device
++ *				@data for split virtqueue:
++ *				16 bits vqn and 16 bits next available index.
++ *				@data for packed virtqueue:
++ *				16 bits vqn, 15 least significant bits of
++ *				next available index and 1 bit next_wrap.
+  * @set_vq_cb:			Set the interrupt callback function for
+  *				a virtqueue
+  *				@vdev: vdpa device
+@@ -292,6 +300,7 @@ struct vdpa_config_ops {
+ 			      u64 device_area);
+ 	void (*set_vq_num)(struct vdpa_device *vdev, u16 idx, u32 num);
+ 	void (*kick_vq)(struct vdpa_device *vdev, u16 idx);
++	void (*kick_vq_with_data)(struct vdpa_device *vdev, u32 data);
+ 	void (*set_vq_cb)(struct vdpa_device *vdev, u16 idx,
+ 			  struct vdpa_callback *cb);
+ 	void (*set_vq_ready)(struct vdpa_device *vdev, u16 idx, bool ready);
+-- 
+2.25.1
+
