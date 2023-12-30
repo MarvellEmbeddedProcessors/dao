@@ -10,7 +10,8 @@ libraries = [
 	'virtio_net',
 	'workers',
 	'netlink',
-	'pal'
+	'pal',
+	'featurearc',
 ]
 
 enabled = []

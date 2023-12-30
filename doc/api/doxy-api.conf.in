@@ -8,6 +8,7 @@ INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/common \
                           @TOPDIR@/../../lib/pem \
                           @TOPDIR@/../../lib/portgroup \
+                          @TOPDIR@/../../lib/featurearc \
                           @TOPDIR@/../../lib/vfio \
                           @TOPDIR@/../../lib/workers \
                           @TOPDIR@/../../lib/netlink \
