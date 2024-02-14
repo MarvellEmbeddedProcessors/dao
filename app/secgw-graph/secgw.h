@@ -23,6 +23,8 @@
 #include <rte_launch.h>
 #include <rte_lcore.h>
 #include <rte_log.h>
+#include <rte_mbuf.h>
+#include <rte_mbuf_dyn.h>
 #include <rte_memcpy.h>
 #include <rte_memory.h>
 #include <rte_memzone.h>

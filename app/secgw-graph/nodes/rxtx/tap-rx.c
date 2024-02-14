@@ -11,8 +11,8 @@ typedef struct {
 } secgw_taprx_node_ctx_t;
 
 static __rte_always_inline uint16_t
-secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node,
-			      void **objs, uint16_t nb_objs)
+secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node, void **objs,
+			      uint16_t nb_objs)
 {
 	secgw_taprx_node_ctx_t *senc = (secgw_taprx_node_ctx_t *)node->ctx;
 	secgw_mbuf_devindex_dynfield_t *dynfield = NULL;
@@ -36,15 +36,13 @@ secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node,
 
 		sdev = secgw_get_device(portq->port_id);
 		n_pkts = rte_eth_rx_burst(sdev->dp_port_id, portq->rq_id,
-					  (struct rte_mbuf **)node->objs,
-					  RTE_GRAPH_BURST_SIZE);
+					  (struct rte_mbuf **)node->objs, RTE_GRAPH_BURST_SIZE);
 
 		if (!n_pkts)
 			continue;
 
 		to_next = rte_node_next_stream_get(graph, node,
-						   SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER,
-						   n_pkts);
+						   SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER, n_pkts);
 
 		bufs = (struct rte_mbuf **)node->objs;
 		n = n_pkts;
@@ -63,8 +61,7 @@ secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node,
 		total_pkts += n_pkts;
 		rte_memcpy(to_next, node->objs, n_pkts * sizeof(objs[0]));
 
-		rte_node_next_stream_put(graph, node,
-					 SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER,
+		rte_node_next_stream_put(graph, node, SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER,
 					 n_pkts);
 		dao_dbg("received %u pkts from %s", n_pkts, sdev->dev_name);
 	}
@@ -116,10 +113,11 @@ static struct rte_node_register secgw_taprx_node = {
 	.init = secgw_taprx_node_init_func,
 	.nb_edges = SECGW_SOURCE_NODE_MAX_NEXT_INDEX,
 	.next_nodes = {
-		[SECGW_SOURCE_NODE_NEXT_INDEX_ERROR_DROP] = "secgw_error-drop",
-		[SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER] = "secgw_portmapper",
-		[SECGW_SOURCE_NODE_NEXT_INDEX_IFACE_OUT] = "secgw_interface-output",
-	},
+			[SECGW_SOURCE_NODE_NEXT_INDEX_ERROR_DROP] = "secgw_error-drop",
+			[SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER] = "secgw_portmapper",
+			[SECGW_SOURCE_NODE_NEXT_INDEX_IFACE_OUT] = "secgw_interface-output",
+			[SECGW_SOURCE_NODE_NEXT_INDEX_IP4_LOOKUP] = "secgw_ip4-lookup",
+		},
 };
 
 struct rte_node_register *

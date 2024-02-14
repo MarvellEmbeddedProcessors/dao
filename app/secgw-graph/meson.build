@@ -23,6 +23,8 @@ sources += files(
 	'nodes/output/interface-output.c',
 	'nodes/net/error-drop.c',
 	'nodes/net/portmapper/port-mapper.c',
+	'nodes/net/ip4/ip4_lookup.c',
+	'nodes/net/ip4/ip4_rewrite.c',
 )
 
 # Mandatory dependency

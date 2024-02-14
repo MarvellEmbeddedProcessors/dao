@@ -7,16 +7,17 @@
 
 #define SECGW_MBUF_DEVINDEX_DYNFIELD_NAME "secgw_mbuf_devindex"
 
-#define foreach_secgw_source_node_next_index		\
-	_(ERROR_DROP, "secgw_error-drop")		\
-	_(PORTMAPPER, "secgw_portmapper")		\
-	_(IFACE_OUT, "secgw_interface-output")		\
+#define foreach_secgw_source_node_next_index                                                       \
+	_(ERROR_DROP, "secgw_error-drop")                                                          \
+	_(PORTMAPPER, "secgw_portmapper")                                                          \
+	_(IFACE_OUT, "secgw_interface-output")                                                     \
+	_(IP4_LOOKUP, "secgw_ip4-lookup")
 
 typedef enum {
 #define _(idx, nodename) SECGW_SOURCE_NODE_NEXT_INDEX_##idx,
 	foreach_secgw_source_node_next_index
 #undef _
-	SECGW_SOURCE_NODE_MAX_NEXT_INDEX,
+		SECGW_SOURCE_NODE_MAX_NEXT_INDEX,
 } secgw_source_node_next_index_t;
 
 typedef uint16_t secgw_mbuf_devindex_dynfield_t;
