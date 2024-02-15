@@ -2,12 +2,14 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <nodes/node_priv.h>
+#include <nodes/output/interface-output_priv.h>
+#include <nodes/node_api.h>
 
 int
-secgw_node_interface_out_attach_tx_node(secgw_device_t *sdev, struct rte_node_register *tx_node)
+secgw_node_interface_out_attach_tx_node(void *_sdev, struct rte_node_register *tx_node)
 {
 	struct rte_node_register *io_node = secgw_interface_out_node_get();
+	secgw_device_t *sdev = (secgw_device_t *)_sdev;
 	char node_name[256];
 	const char *name = NULL;
 	rte_edge_t edge = -1;
@@ -33,8 +35,10 @@ secgw_node_interface_out_attach_tx_node(secgw_device_t *sdev, struct rte_node_re
 	edge = rte_node_edge_update(io_node->id, RTE_EDGE_ID_INVALID, &name, 1);
 	edge = rte_node_edge_count(io_node->id) - 1;
 
-	dao_info("Attaching %s(id:%u) at edge: %u(di: %u) to %s(id: %u)",
-		 node_name, node_id, edge, sdev->device_index, io_node->name, io_node->id);
+	ip4_rewrite_set_next(sdev->device_index, edge);
+
+	secgw_dbg("Attaching %s(id:%u) at edge: %u(di: %u) to %s(id: %u)",
+		  node_name, node_id, edge, sdev->device_index, io_node->name, io_node->id);
 
 	return 0;
 }

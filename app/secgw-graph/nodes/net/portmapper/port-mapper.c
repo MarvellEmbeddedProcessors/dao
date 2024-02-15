@@ -2,7 +2,7 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <nodes/node_priv.h>
+#include <nodes/node_api.h>
 
 struct rte_node_register *secgw_portmapper_node_get(void);
 
@@ -18,7 +18,6 @@ typedef enum {
 } port_mapper_next_nodes_t;
 
 typedef struct {
-	secgw_mbuf_devindex_dynfield_t offset;
 	uint16_t last_next_index;
 } secgw_portmapper_node_ctx_t;
 
@@ -28,10 +27,11 @@ secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *nod
 {
 	secgw_portmapper_node_ctx_t *ctx = (secgw_portmapper_node_ctx_t *)node->ctx;
 	uint16_t next0, n_left, last_next_index, last_spec = 0, held = 0;
-	secgw_mbuf_devindex_dynfield_t *dyn = NULL;
+	secgw_mbuf_dynfield_t *dyn = NULL;
 	struct rte_mbuf **bufs, *mbuf0;
 	secgw_device_t *sdev = NULL;
 	void **from, **to_next;
+	uint32_t rx_port;
 
 	last_next_index = ctx->last_next_index;
 	bufs = (struct rte_mbuf **)objs;
@@ -45,14 +45,15 @@ secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *nod
 			rte_prefetch0(bufs[0]);
 
 		mbuf0 = bufs[0];
-		dyn = secgw_mbuf_devindex_dynfield(mbuf0, ctx->offset);
+		dyn = secgw_mbuf_dynfield(mbuf0);
+		rx_port = SECGW_INGRESS_PORT(dyn);
+		sdev = secgw_get_device(rx_port);
 
-		sdev = secgw_get_device((uint32_t)*dyn);
 		next0 = (sdev->paired_device_index == -1) ? PORT_MAPPER_NEXT_NODE_ERROR_DROP
 							  : PORT_MAPPER_NEXT_NODE_IFACE_OUT;
 
 		/* swap with paired device */
-		*dyn = sdev->paired_device_index;
+		SECGW_EGRESS_PORT(dyn) = sdev->paired_device_index;
 
 		if (unlikely(next0 != last_next_index)) {
 			rte_memcpy(to_next, from, last_spec * sizeof(from[0]));
@@ -60,8 +61,9 @@ secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *nod
 			to_next += last_spec;
 			held += last_spec;
 			last_spec = 0;
-			dao_dbg("sending %u pkts to node: %u", last_spec + 1, next0);
 
+			node_debug("port-mapper: sending 1 pkt from %s to node: %s", sdev->dev_name,
+				   secgw_portmapper_node_get()->next_nodes[next0]);
 			rte_node_enqueue_x1(graph, node, next0, from[0]);
 			from += 1;
 		} else {
@@ -73,7 +75,9 @@ secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *nod
 
 	if (likely(last_spec == nb_objs)) {
 		rte_node_next_stream_move(graph, node, last_next_index);
-		dao_dbg("full nb_objs: %u", nb_objs);
+		node_debug("port-mapper: sending %u pkts from %s to node: %s", nb_objs,
+			   sdev->dev_name,
+			   secgw_portmapper_node_get()->next_nodes[last_next_index]);
 		return nb_objs;
 	}
 	held += last_spec;
@@ -94,7 +98,6 @@ secgw_portmapper_node_init_func(const struct rte_graph *graph, struct rte_node *
 	RTE_SET_USED(graph);
 	RTE_SET_USED(node);
 
-	ctx->offset = secgw_mbuf_devindex_dynfield_offset;
 	ctx->last_next_index = 0;
 	return 0;
 }
@@ -102,13 +105,13 @@ secgw_portmapper_node_init_func(const struct rte_graph *graph, struct rte_node *
 static struct rte_node_register secgw_portmapper_node = {
 	.process = secgw_portmapper_node_process_func,
 	.flags = 0,
-	.name = "secgw_portmapper",
+	.name = "secgw_port-mapper",
 	.init = secgw_portmapper_node_init_func,
 	.nb_edges = PORT_MAPPER_MAX_NEXT_NODES,
 	.next_nodes = {
-		[PORT_MAPPER_NEXT_NODE_ERROR_DROP] = "secgw_error-drop",
-		[PORT_MAPPER_NEXT_NODE_IFACE_OUT] = "secgw_interface-output",
-	},
+			[PORT_MAPPER_NEXT_NODE_ERROR_DROP] = "secgw_error-drop",
+			[PORT_MAPPER_NEXT_NODE_IFACE_OUT] = "secgw_interface-output",
+		},
 };
 
 struct rte_node_register *

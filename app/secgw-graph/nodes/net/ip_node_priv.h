@@ -22,6 +22,17 @@ extern int rte_dao_logtype;
 #define node_dbg(node_name, ...)	NODE_LOG(DEBUG, node_name, __VA_ARGS__)
 
 /**
+ * @internal
+ *
+ * Get the ipv4 local node.
+ *
+ * @return
+ *   Pointer to the ipv4 local node.
+ */
+
+struct rte_node_register *ip4_local_node_get(void);
+
+/**
  * Node mbuf private data to store next hop, ttl and checksum.
  */
 struct node_mbuf_priv1 {

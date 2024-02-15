@@ -2,8 +2,7 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <nodes/node_priv.h>
-#include <dao_netlink.h>
+#include <nodes/node_api.h>
 
 const char *graph_node_patterns[] = {
 	"secgw_*",

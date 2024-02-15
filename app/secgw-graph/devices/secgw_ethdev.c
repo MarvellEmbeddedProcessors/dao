@@ -2,7 +2,7 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <nodes/node_priv.h>
+#include <nodes/node_api.h>
 
 /* Structure definitions */
 typedef struct {
@@ -26,11 +26,11 @@ secgw_ethdev_cast(secgw_device_t *sdev)
 	/* Temp: Just to verify offsetof is working */
 	assert(!offsetof(secgw_ethdev_t, sdev));
 
-	return(
-	(secgw_ethdev_t *)((uint8_t *)sdev - offsetof(secgw_ethdev_t, sdev)));
+	return ((secgw_ethdev_t *)((uint8_t *)sdev - offsetof(secgw_ethdev_t, sdev)));
 }
 
-static uint32_t overhead_len(uint32_t max_rx_pktlen, uint16_t max_mtu)
+static uint32_t
+overhead_len(uint32_t max_rx_pktlen, uint16_t max_mtu)
 {
 	uint32_t overhead_len;
 
@@ -42,21 +42,22 @@ static uint32_t overhead_len(uint32_t max_rx_pktlen, uint16_t max_mtu)
 	return overhead_len;
 }
 
-static int secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
+static int
+secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 {
 	static struct rte_eth_conf secgw_def_port_conf = {
-	.rxmode = {
-			.mq_mode = RTE_ETH_MQ_RX_RSS,
-		},
-	.rx_adv_conf = {
-			.rss_conf = {
-					.rss_key = NULL,
-					.rss_hf = RTE_ETH_RSS_IP,
-				},
-		},
-	.txmode = {
-			.mq_mode = RTE_ETH_MQ_TX_NONE,
-		},
+		.rxmode = {
+				.mq_mode = RTE_ETH_MQ_RX_RSS,
+			},
+		.rx_adv_conf = {
+				.rss_conf = {
+						.rss_key = NULL,
+						.rss_hf = RTE_ETH_RSS_IP,
+					},
+			},
+		.txmode = {
+				.mq_mode = RTE_ETH_MQ_TX_NONE,
+			},
 	};
 	const struct rte_security_capability *caps, *cap;
 	struct rte_eth_dev_info dev_info;
@@ -80,8 +81,7 @@ static int secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_co
 	/* Set rx_pktlen and MTU in peth_conf->*/
 	rx_pktlen = RTE_MIN((uint32_t)RTE_ETHER_MAX_LEN /*TODO*/, dev_info.max_rx_pktlen);
 
-	peth_conf->rxmode.mtu = rx_pktlen -
-					overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu);
+	peth_conf->rxmode.mtu = rx_pktlen - overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu);
 
 	dao_dbg("rxmode.mtu: %u, rx_pktlen: %u, ovrhd_len: %u", peth_conf->rxmode.mtu, rx_pktlen,
 		overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu));
@@ -111,9 +111,9 @@ static int secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_co
 		caps = rte_security_capabilities_get(sec_ctx);
 
 		while ((cap = &caps[iter++])->action != RTE_SECURITY_ACTION_TYPE_NONE) {
-		/*
-		 * Check Rx support for inline ESP protocol offload in tunnel mode
-		 */
+			/*
+			 * Check Rx support for inline ESP protocol offload in tunnel mode
+			 */
 			if ((cap->action == RTE_SECURITY_ACTION_TYPE_INLINE_PROTOCOL) &&
 			    (cap->ipsec.proto == RTE_SECURITY_IPSEC_SA_PROTO_ESP) &&
 			    (cap->ipsec.direction == RTE_SECURITY_IPSEC_SA_DIR_INGRESS) &&
@@ -144,7 +144,8 @@ dev_configure_fail:
 	return errno;
 }
 
-static int secgw_ethdev_queue_setup(secgw_device_t *sdev)
+static int
+secgw_ethdev_queue_setup(secgw_device_t *sdev)
 {
 	secgw_main_t *elm = secgw_get_main();
 	struct rte_mempool *app_mp = NULL;
@@ -195,6 +196,7 @@ static int secgw_ethdev_queue_setup(secgw_device_t *sdev)
 	}
 
 	sdev->tx_node = secgw_ethdevtx_node_get();
+	sdev->rx_node = secgw_ethdevrx_node_get();
 
 	return 0;
 
@@ -203,7 +205,8 @@ txq_setup_fail:
 	return -1;
 }
 
-static secgw_device_t *secgw_ethdev_alloc(void)
+static secgw_device_t *
+secgw_ethdev_alloc(void)
 {
 	secgw_ethdev_t *ethdev = NULL;
 
@@ -217,7 +220,8 @@ static secgw_device_t *secgw_ethdev_alloc(void)
 	return &ethdev->sdev;
 }
 
-static int secgw_ethdev_dealloc(secgw_device_t *sdev)
+static int
+secgw_ethdev_dealloc(secgw_device_t *sdev)
 {
 	secgw_ethdev_t *ethdev = NULL;
 
@@ -231,7 +235,8 @@ static int secgw_ethdev_dealloc(secgw_device_t *sdev)
 	return 0;
 }
 
-static int secgw_ethdev_close(secgw_device_t *sdev)
+static int
+secgw_ethdev_close(secgw_device_t *sdev)
 {
 	return rte_eth_dev_close(sdev->dp_port_id);
 }
@@ -257,6 +262,8 @@ secgw_register_ethdev(secgw_device_t **ppdev, secgw_device_register_conf_t *conf
 	}
 
 	memset(sdev, 0, sizeof(secgw_device_t));
+
+	STAILQ_INIT(&sdev->all_local_ips);
 
 	/** Create port_group for first ethdev seen */
 	if (ethdev_dpg == DAO_PORT_GROUP_INITIALIZER) {

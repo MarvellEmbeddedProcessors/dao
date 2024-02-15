@@ -24,14 +24,19 @@ typedef struct {
 	uint32_t total_devices;
 } secgw_device_register_conf_t;
 
-typedef struct {
-	/** fast path variable accesses */
+typedef struct secgw_device_ip_addr {
+	STAILQ_ENTRY(secgw_device_ip_addr) next_local_ip;
 
+	struct in6_addr local_ip_addr;
+} secgw_device_ip_addr_t;
+
+typedef struct {
 	/* ifindex for LINUX tap devices. */
 	int linux_ifindex;
 
 	/** Index in device_main->devices[] */
 	uint32_t device_index;
+
 	/**
 	 * Index in device_main->devices[] paired with each other
 	 */
@@ -41,6 +46,7 @@ typedef struct {
 
 	/** port group attached to this device */
 	dao_port_group_t port_group;
+
 	/** Index in port_group */
 	int32_t port_index;
 
@@ -50,8 +56,13 @@ typedef struct {
 	/* tx node to be connected to interface-output node */
 	struct rte_node_register *tx_node;
 
+	/* rx node for input feature */
+	struct rte_node_register *rx_node;
+
 	/** device name */
 	char dev_name[SECGW_DEVICE_NAMELEN];
+
+	STAILQ_HEAD(, secgw_device_ip_addr) all_local_ips;
 } secgw_device_t;
 
 typedef struct {

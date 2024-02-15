@@ -30,7 +30,7 @@ extern "C" {
 enum rte_node_ip4_lookup_next {
 	RTE_NODE_IP4_LOOKUP_NEXT_REWRITE,
 	/**< Rewrite node. */
-	/* RTE_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL,*/
+	RTE_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL,
 	/** IP Local node. */
 	RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP,
 	/**< Number of next nodes of lookup node. */
@@ -40,9 +40,9 @@ enum rte_node_ip4_lookup_next {
  * IP4 Local next nodes.
  */
 enum rte_node_ip4_local_next {
-	RTE_NODE_IP4_LOCAL_NEXT_UDP4_INPUT,
+	/* DOS_NODE_IP4_LOCAL_NEXT_UDP4_INPUT, */
 	/**< ip4 Local node. */
-	RTE_NODE_IP4_LOCAL_NEXT_PKT_DROP,
+	DOS_NODE_IP4_LOCAL_NEXT_PKT_DROP,
 	/**< Packet drop node. */
 };
 
@@ -82,8 +82,8 @@ struct rte_node_ip4_reassembly_cfg {
  * @return
  *   0 on success, negative otherwise.
  */
-int rte_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
-			   enum rte_node_ip4_lookup_next next_node);
+int secgw_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
+			     enum rte_node_ip4_lookup_next next_node);
 
 /**
  * Add a next hop's rewrite data.
@@ -100,8 +100,8 @@ int rte_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
  * @return
  *   0 on success, negative otherwise.
  */
-int rte_node_ip4_rewrite_add(uint16_t next_hop, uint8_t *rewrite_data, uint8_t rewrite_len,
-			     uint16_t dst_port);
+int secgw_node_ip4_rewrite_add(uint16_t next_hop, uint8_t *rewrite_data, uint8_t rewrite_len,
+			       uint16_t dst_port);
 
 /**
  * Add reassembly node configuration data.

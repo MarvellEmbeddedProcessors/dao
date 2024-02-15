@@ -2,15 +2,18 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <nodes/node_priv.h>
+#include <nodes/node_api.h>
 
-#define SECGW_MEMPOOL_CACHE_SIZE        256
+#define SECGW_MEMPOOL_CACHE_SIZE 256
 
-#define SECGW_RXQ_NUM_DESC              2048
-#define SECGW_TXQ_NUM_DESC              2048
+#define SECGW_RXQ_NUM_DESC 2048
+#define SECGW_TXQ_NUM_DESC 2048
 
 /* To support at least 8 ports */
-#define SECGW_MEMPOOL_NUM_MBUFS         (SECGW_RXQ_NUM_DESC * 8)
+#define SECGW_MEMPOOL_NUM_MBUFS (SECGW_RXQ_NUM_DESC * 8)
+
+static dao_port_group_t edpg = DAO_PORT_GROUP_INITIALIZER;
+static dao_port_group_t tdpg = DAO_PORT_GROUP_INITIALIZER;
 
 static int
 start_devices(void)
@@ -18,7 +21,6 @@ start_devices(void)
 	struct dao_ds dev_str = DS_EMPTY_INITIALIZER;
 	char link_status[RTE_ETH_LINK_MAX_STR_LEN];
 	secgw_device_t *sdev = NULL;
-	dao_portq_group_t edpg;
 	struct rte_eth_link link;
 	dao_port_t port;
 	int iter;
@@ -32,7 +34,7 @@ start_devices(void)
 		rte_eth_dev_start(sdev->dp_port_id);
 		rte_eth_promiscuous_enable(sdev->dp_port_id);
 		rte_eth_dev_set_link_up(sdev->dp_port_id);
-		dao_info("started device: %s", sdev->dev_name);
+		secgw_dbg("started device: %s", sdev->dev_name);
 	}
 
 	if (dao_port_group_get_by_name(SECGW_TAP_PORT_GROUP_NAME, &edpg) < 0)
@@ -44,7 +46,7 @@ start_devices(void)
 		rte_eth_dev_start(sdev->dp_port_id);
 		rte_eth_promiscuous_enable(sdev->dp_port_id);
 		rte_eth_dev_set_link_up(sdev->dp_port_id);
-		dao_info("started device: %s", sdev->dev_name);
+		secgw_dbg("started device: %s", sdev->dev_name);
 	}
 	for (iter = 0; iter < secgw_num_devices_get(); iter++) {
 		sdev = secgw_get_device(iter);
@@ -58,7 +60,7 @@ start_devices(void)
 		else
 			dao_ds_put_cstr(&dev_str, ", Promisc: OFF ");
 
-		dao_info("%s", dao_ds_cstr(&dev_str));
+		secgw_dbg("%s", dao_ds_cstr(&dev_str));
 		dao_ds_clear(&dev_str);
 	}
 	dao_ds_destroy(&dev_str);
@@ -117,9 +119,10 @@ register_devices(void)
 
 		/* See if room present to new device */
 		if (secgw_num_devices_get() >= (sdm->max_num_devices_allocated - 1)) {
-			sdm->devices = realloc(sdm->devices, (sizeof(secgw_device_t) *
-							      (sdm->max_num_devices_allocated +
-							       SECGW_REALLOC_NUM)));
+			sdm->devices =
+				realloc(sdm->devices,
+					(sizeof(secgw_device_t) *
+					 (sdm->max_num_devices_allocated + SECGW_REALLOC_NUM)));
 			if (!sdm->devices) {
 				dao_err("realloc fails");
 				return -1;
@@ -154,9 +157,10 @@ register_devices(void)
 		}
 		sdm->n_devices++;
 		sdev = secgw_get_device(dev_reg_conf.device_index);
-		dao_info("Added device: %s at index: %u, port_index: %d, port_id: %u",
-			 sdev->dev_name, sdev->device_index, sdev->port_index,
-			 sdev->dp_port_id);
+		RTE_VERIFY(sdev->dp_port_id == sdev->device_index);
+		secgw_dbg("Added device: %s at index: %u, port_index: %d, port_id: %u",
+			  sdev->dev_name, sdev->device_index, sdev->port_index,
+			  sdev->dp_port_id);
 	}
 
 	return (secgw_num_devices_get());
@@ -165,7 +169,7 @@ register_devices(void)
 static int
 pair_tap_to_ethdev(void)
 {
-	dao_portq_group_t edpg, tdpg;
+	struct rte_ether_addr ether;
 	secgw_device_t *sdev = NULL;
 	uint32_t n_ethdev, n_tapdev;
 	uint32_t n_common;
@@ -200,16 +204,22 @@ pair_tap_to_ethdev(void)
 		DAO_PORT_GROUP_FOREACH_PORT(tdpg, port, iter) {
 			sdev = secgw_get_device(port);
 			sdev->paired_device_index = ports[i];
-			dao_info("%s paired with %s", sdev->dev_name,
-				 (secgw_get_device(sdev->paired_device_index))->dev_name);
+			secgw_dbg("%s paired with %s", sdev->dev_name,
+				  (secgw_get_device(sdev->paired_device_index))->dev_name);
 
 			/* Add tap to portq for node polling */
 			secgw_register_active_tap(sdev, dao_workers_num_workers_get());
 
+			memset(&ether, 0, sizeof(struct rte_ether_addr));
+
+			rte_eth_macaddr_get(secgw_get_device(port)->dp_port_id, &ether);
+			rte_eth_dev_default_mac_addr_set(secgw_get_device(ports[i])->dp_port_id,
+							 &ether);
+
 			sdev = secgw_get_device(ports[i]);
 			sdev->paired_device_index = port;
-			dao_info("%s paired with %s", sdev->dev_name,
-				 (secgw_get_device(sdev->paired_device_index))->dev_name);
+			secgw_dbg("%s paired with %s", sdev->dev_name,
+				  (secgw_get_device(sdev->paired_device_index))->dev_name);
 			i++;
 		}
 	} else {
@@ -221,17 +231,22 @@ pair_tap_to_ethdev(void)
 		}
 		i = 0;
 		DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter) {
+			memset(&ether, 0, sizeof(struct rte_ether_addr));
 			sdev = secgw_get_device(port);
 			sdev->paired_device_index = ports[i];
-			dao_info("%s paired with %s", sdev->dev_name,
-				 (secgw_get_device(sdev->paired_device_index))->dev_name);
+			secgw_dbg("%s paired with %s", sdev->dev_name,
+				  (secgw_get_device(sdev->paired_device_index))->dev_name);
 
 			sdev = secgw_get_device(ports[i]);
 			sdev->paired_device_index = port;
-			dao_info("%s paired with %s", sdev->dev_name,
-				 (secgw_get_device(sdev->paired_device_index))->dev_name);
+			secgw_dbg("%s paired with %s", sdev->dev_name,
+				  (secgw_get_device(sdev->paired_device_index))->dev_name);
 			/* Add tap to portq for node polling */
 			secgw_register_active_tap(sdev, dao_workers_num_workers_get());
+
+			rte_eth_macaddr_get(secgw_get_device(ports[i])->dp_port_id, &ether);
+			rte_eth_dev_default_mac_addr_set(secgw_get_device(port)->dp_port_id,
+							 &ether);
 			i++;
 		}
 	}
@@ -239,7 +254,49 @@ pair_tap_to_ethdev(void)
 	return 0;
 }
 
-int main(int argc, char **argv)
+static int
+enable_feature_arc(void)
+{
+	dao_port_t port;
+	int iter = 0;
+
+	/* Anything coming on tap device should be punted to paired eth-dev device */
+
+	if (ip_feature_arcs_register(secgw_num_devices_get())) {
+		dao_err("IP feature arc initialization failed");
+		return -1;
+	}
+
+	if (dao_port_group_get_by_name(SECGW_ETHDEV_PORT_GROUP_NAME, &edpg) < 0) {
+		dao_err("%s port group not found", SECGW_ETHDEV_PORT_GROUP_NAME);
+		return -1;
+	}
+
+	ip_feature_punt_add(secgw_portmapper_node_get());
+
+	/* Add interface-output and error-drop features to "ip4-output" feature */
+	ip_feature_output_add(secgw_interface_out_node_get(), NULL, NULL);
+	ip_feature_output_add(secgw_errordrop_node_get(), secgw_interface_out_node_get()->name,
+			      NULL);
+
+	ip_feature_local_add(secgw_portmapper_node_get(), NULL, NULL);
+
+	/* Enable Punting on Ethernet devices which has IP enable
+	 * TODO: Move feature enable to control plane addition of local IP
+	 */
+	DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter)
+	{
+		ip_feature_punt_enable(secgw_portmapper_node_get(), port, 0);
+		ip_feature_output_enable(secgw_interface_out_node_get(), port, 0);
+		ip_feature_output_enable(secgw_errordrop_node_get(), port, 0);
+		ip_feature_local_enable(secgw_portmapper_node_get(), port, 0);
+	}
+
+	return 0;
+}
+
+int
+main(int argc, char **argv)
 {
 	secgw_numa_id_t *numa = NULL;
 	secgw_main_t *sm = NULL;
@@ -263,16 +320,14 @@ int main(int argc, char **argv)
 		snprintf(name, sizeof(name), "%s-%s-%d", "mempool", "numa", numa->numa_id);
 
 		numa->user_arg = NULL;
-		numa->user_arg = (void *)rte_pktmbuf_pool_create(name, SECGW_MEMPOOL_NUM_MBUFS,
-								 SECGW_MEMPOOL_CACHE_SIZE,
-								 RTE_CACHE_LINE_SIZE,
-								 RTE_MBUF_DEFAULT_BUF_SIZE,
-								 numa->numa_id);
+		numa->user_arg = (void *)rte_pktmbuf_pool_create(
+			name, SECGW_MEMPOOL_NUM_MBUFS, SECGW_MEMPOOL_CACHE_SIZE,
+			RTE_CACHE_LINE_SIZE, RTE_MBUF_DEFAULT_BUF_SIZE, numa->numa_id);
 
 		if (!numa->user_arg)
 			DAO_ERR_GOTO(ENOMEM, error, "rte_mempool fails for %s", name);
 
-		dao_info("Created packet mempool: %s", name);
+		secgw_dbg("Created packet mempool: %s", name);
 	}
 
 	if (register_devices() <= 0)
@@ -290,6 +345,9 @@ int main(int argc, char **argv)
 
 	if (dao_netlink_route_notifier_register(&secgw_route_ops, SECGW_TAP_PORT_GROUP_NAME) < 0)
 		DAO_ERR_GOTO(EINVAL, error, "dao route table notifier failed");
+
+	if (enable_feature_arc())
+		DAO_ERR_GOTO(EINVAL, error, "feature_arc enabling failed");
 
 	dao_dbg("Launching threads");
 	sm = secgw_get_main();

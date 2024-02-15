@@ -2,7 +2,7 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <secgw.h>
+#include <nodes/node_api.h>
 
 struct rte_node_register *secgw_errordrop_node_get(void);
 
@@ -10,11 +10,14 @@ static __rte_always_inline uint16_t
 secgw_errordrop_node_process_func(struct rte_graph *graph, struct rte_node *node,
 				  void **objs, uint16_t nb_objs)
 {
+	uint32_t rx_port;
+
 	RTE_SET_USED(graph);
 	RTE_SET_USED(node);
 
+	rx_port = SECGW_INGRESS_PORT(secgw_mbuf_dynfield((struct rte_mbuf *)objs[0]));
 	rte_pktmbuf_free_bulk((struct rte_mbuf **)objs, nb_objs);
-	dao_dbg("freed %u nb_objs", nb_objs);
+	node_debug("%s: freed %u nb_objs", secgw_get_device(rx_port)->dev_name, nb_objs);
 	return nb_objs;
 }
 

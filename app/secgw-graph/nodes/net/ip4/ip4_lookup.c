@@ -12,12 +12,21 @@
 #include <rte_ip.h>
 #include <rte_lpm.h>
 
+#include <nodes/net/ip4/ip4_lookup_priv.h>
 #include <nodes/net/ip_node_priv.h>
 
 #include <nodes/net/ip4/rte_node_ip4_api.h>
+#include <nodes/node_api.h>
 
 #define IPV4_L3FWD_LPM_MAX_RULES    1024
 #define IPV4_L3FWD_LPM_NUMBER_TBL8S (1 << 8)
+
+typedef union {
+	rte_be32_t u32;
+	struct {
+		uint8_t u8[4];
+	};
+} secgw_ip4_addr_t;
 
 /* IP4 Lookup global data struct */
 struct ip4_lookup_node_main {
@@ -51,14 +60,19 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 {
 	struct rte_lpm *lpm = IP4_LOOKUP_NODE_LPM(node->ctx);
 	const int dyn = IP4_LOOKUP_NODE_PRIV1_OFF(node->ctx);
+	secgw_ip4_addr_t *dst_ip = NULL, *src_ip = NULL;
 	struct rte_ipv4_hdr *ipv4_hdr;
+	struct rte_mbuf *mbuf = NULL;
+	struct rte_ether_hdr *e = NULL;
 	void **to_next, **from;
 	uint16_t last_spec = 0;
-	struct rte_mbuf *mbuf;
 	rte_edge_t next_index;
-	uint16_t held = 0;
+	uint16_t held = 0, ri;
 	uint32_t drop_nh;
 	int i, rc;
+
+	RTE_SET_USED(e);
+	RTE_SET_USED(ri);
 
 	/* Speculative next */
 	next_index = RTE_NODE_IP4_LOOKUP_NEXT_REWRITE;
@@ -75,18 +89,19 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 		mbuf = (struct rte_mbuf *)objs[i];
 
 		/* Extract DIP of mbuf0 */
+		e = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 		ipv4_hdr = rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *,
 						   sizeof(struct rte_ether_hdr));
+		dst_ip = (secgw_ip4_addr_t *)&ipv4_hdr->dst_addr;
+		src_ip = (secgw_ip4_addr_t *)&ipv4_hdr->src_addr;
 		/* Extract cksum, ttl as ipv4 hdr is in cache */
 		node_mbuf_priv1(mbuf, dyn)->cksum = ipv4_hdr->hdr_checksum;
 		node_mbuf_priv1(mbuf, dyn)->ttl = ipv4_hdr->time_to_live;
-
 		rc = rte_lpm_lookup(lpm, rte_be_to_cpu_32(ipv4_hdr->dst_addr), &next_hop);
 		next_hop = (rc == 0) ? next_hop : drop_nh;
-
 		node_mbuf_priv1(mbuf, dyn)->nh = (uint16_t)next_hop;
-		next_hop = next_hop >> 16;
-		next = (uint16_t)next_hop;
+		next = (uint16_t)(next_hop >> 16);
+		ri = (uint16_t)(next_hop & 0xFFFF);
 
 		if (unlikely(next_index != next)) {
 			/* Copy things successfully speculated till now */
@@ -95,10 +110,29 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 			to_next += last_spec;
 			held += last_spec;
 			last_spec = 0;
-
+			ip_debug("lookup:(%s-> ri-%u, next-%u): [%u:%u:%u:%u -> %u:%u:%u:%u]"
+				 "[%x:%x:%x:%x:%x:%x -> %x:%x:%x:%x:%x:%x]",
+				 secgw_get_device(SECGW_MBUF_INGRESS_PORT(mbuf))->dev_name,
+				 ri, next, src_ip->u8[0], src_ip->u8[1],
+				 src_ip->u8[2], src_ip->u8[3], dst_ip->u8[0],
+				 dst_ip->u8[1], dst_ip->u8[2], dst_ip->u8[3],
+				 _smac(e, 0), _smac(e, 1), _smac(e, 2),
+				 _smac(e, 3), _smac(e, 4), _smac(e, 5),
+				 _dmac(e, 0), _dmac(e, 1), _dmac(e, 2),
+				 _dmac(e, 3), _dmac(e, 4), _dmac(e, 5));
 			rte_node_enqueue_x1(graph, node, next, from[0]);
 			from += 1;
 		} else {
+			ip_debug("lookup: (%s-> ri-%u, next-%u): [%u:%u:%u:%u -> %u:%u:%u:%u]"
+				 "[%x:%x:%x:%x:%x:%x -> %x:%x:%x:%x:%x:%x]",
+				 secgw_get_device(SECGW_MBUF_INGRESS_PORT(mbuf))->dev_name,
+				 ri, next_index, src_ip->u8[0], src_ip->u8[1],
+				 src_ip->u8[2], src_ip->u8[3], dst_ip->u8[0],
+				 dst_ip->u8[1], dst_ip->u8[2], dst_ip->u8[3],
+				 _smac(e, 0), _smac(e, 1), _smac(e, 2),
+				 _smac(e, 3), _smac(e, 4), _smac(e, 5),
+				 _dmac(e, 0), _dmac(e, 1), _dmac(e, 2),
+				 _dmac(e, 3), _dmac(e, 4), _dmac(e, 5));
 			last_spec += 1;
 		}
 	}
@@ -116,8 +150,8 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 }
 
 int
-rte_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
-		       enum rte_node_ip4_lookup_next next_node)
+secgw_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
+			 enum rte_node_ip4_lookup_next next_node)
 {
 	char abuf[INET6_ADDRSTRLEN];
 	struct in_addr in;
@@ -221,10 +255,16 @@ static struct rte_node_register ip4_lookup_node = {
 
 	.nb_edges = RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP + 1,
 	.next_nodes = {
-			/*	[RTE_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL] = "ip4_local", */
+			[RTE_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL] = "secgw_ip4-local",
 			[RTE_NODE_IP4_LOOKUP_NEXT_REWRITE] = "secgw_ip4-rewrite",
-			[RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP] = "secgw_error-drop",
+			[RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP] = "secgw_port-mapper",
 		},
 };
+
+struct rte_node_register *
+ip4_lookup_node_get(void)
+{
+	return &ip4_lookup_node;
+}
 
 RTE_NODE_REGISTER(ip4_lookup_node);

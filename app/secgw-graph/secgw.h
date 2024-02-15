@@ -42,9 +42,12 @@
 #include <dao_workers.h>
 #include <dao_netlink.h>
 #include <dao_dynamic_string.h>
+#include <dao_graph_feature_arc.h>
+#include <dao_graph_feature_arc_worker.h>
 
 #include <devices/secgw_device.h>
 
+#define secgw_dbg	dao_dbg
 typedef struct secgw_numa_id {
 	STAILQ_ENTRY(secgw_numa_id) next_numa_id;
 	int numa_id;

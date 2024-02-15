@@ -2,8 +2,8 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include <secgw.h>
 #include <nodes/rxtx/rxtx_node_priv.h>
+#include <secgw.h>
 
 /* Structure definitions */
 typedef struct {
@@ -26,11 +26,11 @@ secgw_tap_cast(secgw_device_t *sdev)
 	/* Temp: Just to verify offsetof is working */
 	assert(!offsetof(secgw_tap_t, sdev));
 
-	return(
-	(secgw_tap_t *)((uint8_t *)sdev - offsetof(secgw_tap_t, sdev)));
+	return ((secgw_tap_t *)((uint8_t *)sdev - offsetof(secgw_tap_t, sdev)));
 }
 
-static uint32_t overhead_len(uint32_t max_rx_pktlen, uint16_t max_mtu)
+static uint32_t
+overhead_len(uint32_t max_rx_pktlen, uint16_t max_mtu)
 {
 	uint32_t overhead_len;
 
@@ -42,21 +42,22 @@ static uint32_t overhead_len(uint32_t max_rx_pktlen, uint16_t max_mtu)
 	return overhead_len;
 }
 
-static int secgw_tap_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
+static int
+secgw_tap_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 {
 	static struct rte_eth_conf secgw_def_port_conf = {
-	.rxmode = {
-			.mq_mode = RTE_ETH_MQ_RX_RSS,
-		},
-	.rx_adv_conf = {
-			.rss_conf = {
-					.rss_key = NULL,
-					.rss_hf = RTE_ETH_RSS_IP,
-				},
-		},
-	.txmode = {
-			.mq_mode = RTE_ETH_MQ_TX_NONE,
-		},
+		.rxmode = {
+				.mq_mode = RTE_ETH_MQ_RX_RSS,
+			},
+		.rx_adv_conf = {
+				.rss_conf = {
+						.rss_key = NULL,
+						.rss_hf = RTE_ETH_RSS_IP,
+					},
+			},
+		.txmode = {
+				.mq_mode = RTE_ETH_MQ_TX_NONE,
+			},
 	};
 	struct rte_eth_dev_info dev_info;
 	struct rte_eth_conf *ptap_conf;
@@ -78,8 +79,7 @@ static int secgw_tap_configure(secgw_device_t *sdev, secgw_device_register_conf_
 	/* Set rx_pktlen and MTU in ptap_conf->*/
 	rx_pktlen = RTE_MIN((uint32_t)RTE_ETHER_MAX_LEN /*TODO*/, dev_info.max_rx_pktlen);
 
-	ptap_conf->rxmode.mtu = rx_pktlen -
-					overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu);
+	ptap_conf->rxmode.mtu = rx_pktlen - overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu);
 
 	dao_dbg("rxmode.mtu: %u, rx_pktlen: %u, ovrhd_len: %u", ptap_conf->rxmode.mtu, rx_pktlen,
 		overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu));
@@ -114,7 +114,8 @@ dev_configure_fail:
 	return errno;
 }
 
-static int secgw_tap_queue_setup(secgw_device_t *sdev)
+static int
+secgw_tap_queue_setup(secgw_device_t *sdev)
 {
 	secgw_main_t *elm = secgw_get_main();
 	struct rte_mempool *app_mp = NULL;
@@ -171,7 +172,8 @@ txq_setup_fail:
 	return -1;
 }
 
-static secgw_device_t *secgw_tap_alloc(void)
+static secgw_device_t *
+secgw_tap_alloc(void)
 {
 	secgw_tap_t *tap = NULL;
 
@@ -185,7 +187,8 @@ static secgw_device_t *secgw_tap_alloc(void)
 	return &tap->sdev;
 }
 
-static int secgw_tap_dealloc(secgw_device_t *sdev)
+static int
+secgw_tap_dealloc(secgw_device_t *sdev)
 {
 	secgw_tap_t *tap = NULL;
 
@@ -199,7 +202,8 @@ static int secgw_tap_dealloc(secgw_device_t *sdev)
 	return 0;
 }
 
-static int secgw_tap_close(secgw_device_t *sdev)
+static int
+secgw_tap_close(secgw_device_t *sdev)
 {
 	return rte_eth_dev_close(sdev->dp_port_id);
 }
@@ -222,6 +226,8 @@ secgw_register_tap(secgw_device_t **ppdev, secgw_device_register_conf_t *conf)
 	}
 
 	memset(sdev, 0, sizeof(secgw_device_t));
+
+	STAILQ_INIT(&sdev->all_local_ips);
 
 	/** Create port_group for first tap seen */
 	if (tap_dpg == DAO_PORT_GROUP_INITIALIZER) {
@@ -322,5 +328,6 @@ secgw_register_active_tap(secgw_device_t *sdev, uint32_t num_workers)
 			portq.port_id, portq.rq_id, iter, index);
 	}
 	sdev->tx_node = secgw_taptx_node_get();
+	sdev->rx_node = secgw_taprx_node_get();
 	return 0;
 }
