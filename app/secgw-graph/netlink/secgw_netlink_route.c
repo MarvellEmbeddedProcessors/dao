@@ -4,20 +4,10 @@
 
 #include <netlink/secgw_netlink.h>
 
-typedef struct secgw_route_partial_entry {
-	STAILQ_ENTRY(secgw_route_partial_entry) next_partial_entry;
-	dao_netlink_route_ip_route_t partial_route;
-} secgw_route_partial_entry_t;
-
-/* Neighbor lists */
-typedef STAILQ_HEAD(, secgw_neigh_entry) secgw_neigh_list_head_t;
-static secgw_neigh_list_head_t secgw_neigh_list = STAILQ_HEAD_INITIALIZER(secgw_neigh_list);
-
-/* Partial routes i.e. routes with no rewrite header */
-typedef STAILQ_HEAD(, secgw_route_partial_entry) secgw_route_partial_list_head_t;
-
-static secgw_route_partial_list_head_t secgw_route_partial_list =
-	STAILQ_HEAD_INITIALIZER(secgw_route_partial_list);
+secgw_neigh_list_head_t secgw_neigh_list = STAILQ_HEAD_INITIALIZER(secgw_neigh_list);
+secgw_route_dump_list_head_t secgw_route_dump_list = STAILQ_HEAD_INITIALIZER(secgw_route_dump_list);
+secgw_route_partial_list_head_t secgw_route_partial_list =
+						STAILQ_HEAD_INITIALIZER(secgw_route_partial_list);
 
 int secgw_neigh_add_del(dao_netlink_route_ip_neigh_t *n, int is_add);
 int secgw_link_add_del(dao_netlink_route_link_t *l, int is_add);
@@ -29,8 +19,10 @@ add_lpm_route(struct in6_addr *addr, int prefixlen, rte_edge_t edge, int route_i
 	      uint8_t *rewrite_data, size_t rewrite_length, int device_id,
 	      struct dao_ds *caller_str)
 {
-	struct dao_ds *str = NULL;
+	secgw_route_dump_entry_t *rdentry  = NULL;
 	struct dao_ds _str = DS_EMPTY_INITIALIZER;
+	struct dao_ds *str = NULL;
+	dao_worker_t *dw = NULL;
 	int rc = 0;
 
 	if (caller_str)
@@ -38,12 +30,13 @@ add_lpm_route(struct in6_addr *addr, int prefixlen, rte_edge_t edge, int route_i
 	else
 		str = &_str;
 
-	if (addr) {
+	dw = dao_workers_self_worker_get();
+	if (dw && addr) {
 		dao_ds_put_cstr(str, "AddRoute: ");
 		secgw_print_ip_addr(addr, prefixlen, str);
 		dao_ds_put_format(str, " edge %u, route index %d", edge, route_index);
 
-		dao_workers_barrier_sync(dao_workers_self_worker_get());
+		dao_workers_barrier_sync(dw);
 		if (secgw_ip4_route_add(htonl(dao_in6_addr_get_mapped_ipv4(addr)), prefixlen,
 					route_index, edge)) {
 			dao_ds_put_cstr(str, " failed ");
@@ -64,8 +57,32 @@ add_lpm_route(struct in6_addr *addr, int prefixlen, rte_edge_t edge, int route_i
 				dao_ds_put_cstr(str, " added ");
 			}
 		}
-		dao_workers_barrier_release(dao_workers_self_worker_get());
+		dao_workers_barrier_release(dw);
+
+		if (!rc) {
+			rdentry = malloc(sizeof(*rdentry));
+			if (rdentry) {
+				memset(rdentry, 0, sizeof(*rdentry));
+				memcpy(&rdentry->ip_addr.addr, addr, sizeof(*addr));
+				rdentry->ip_addr.family = AF_INET;
+				rdentry->ip_addr.prefixlen = prefixlen;
+				rdentry->edge = edge;
+				rdentry->route_index = route_index;
+				rdentry->rewrite_length = rewrite_length;
+				if (rewrite_length &&
+				    (rewrite_length <= sizeof(SECGW_GRAPH_IP4_REWRITE_MAX_LEN)))
+					memcpy(&rdentry->rewrite_data, rewrite_data,
+					       rewrite_length);
+				else
+					memset(rdentry->rewrite_data, 0,
+					       SECGW_GRAPH_IP4_REWRITE_MAX_LEN);
+				rdentry->device_id = device_id;
+				STAILQ_INSERT_TAIL(&secgw_route_dump_list,
+						   rdentry, next_dump_entry);
+			}
+		}
 	}
+
 	if (!caller_str) {
 		SECGW_NL_DBG("%s", dao_ds_cstr(str));
 		dao_ds_destroy(str);
@@ -75,9 +92,11 @@ add_lpm_route(struct in6_addr *addr, int prefixlen, rte_edge_t edge, int route_i
 
 int
 secgw_neigh_find_and_add(struct in6_addr *addr, uint32_t prefixlen, uint8_t *mac, int32_t *_index,
-			 uint16_t *edge, struct secgw_neigh_entry **_neigh, int is_add)
+			 uint16_t *edge, struct secgw_neigh_entry **_neigh, int tap_device,
+			 int is_add)
 {
 	struct secgw_neigh_entry *nentry = NULL;
+	secgw_device_t *sdev = NULL;
 	int found = 0, is_ipv4;
 	rte_be32_t ip4, tmpip4;
 	int32_t index = -1;
@@ -118,10 +137,16 @@ secgw_neigh_find_and_add(struct in6_addr *addr, uint32_t prefixlen, uint8_t *mac
 	}
 	if (!found && is_add && mac && addr) {
 		nentry = malloc(sizeof(*nentry));
+		if (!nentry)
+			assert(0);
+
 		memset(nentry, 0, sizeof(*nentry));
 		memcpy(nentry->dest_ll_addr, mac, RTE_ETHER_ADDR_LEN);
 		memcpy(&nentry->ip_addr, addr, sizeof(struct in6_addr));
 		nentry->prefixlen = prefixlen;
+		sdev = secgw_get_device(tap_device);
+		if (sdev)
+			nentry->device_index = sdev->paired_device_index;
 		if (edge)
 			nentry->edge = *edge;
 
@@ -184,7 +209,7 @@ find_and_add_partial_route_addr(dao_netlink_route_ip_neigh_t *n, rte_edge_t edge
 
 		/* Return if partial route is already added with proper neigh entry */
 		if (!secgw_neigh_find_and_add(&r->dst_in6_addr, r->prefixlen, n->neigh_ll_addr,
-					      &route_index, NULL, NULL, 1)) {
+					      &route_index, NULL, NULL, n->app_if_cookie, 1)) {
 			sdev = secgw_get_device(r->app_if_cookie);
 			RTE_VERIFY(sdev->paired_device_index >= 0);
 			sdev = secgw_get_device(sdev->paired_device_index);
@@ -252,7 +277,7 @@ secgw_route_add_del(dao_netlink_route_ip_route_t *r, dao_netlink_action_t action
 		 * else put into partial route list to add later
 		 */
 		if (secgw_neigh_find_and_add(&r->via_in6_addr, r->via_addr_prefixlen, NULL,
-					     &route_index, &edge, &nentry, 0) &&
+					     &route_index, &edge, &nentry, r->app_if_cookie, 0) &&
 		    nentry) {
 			if (action == DAO_NETLINK_ACTION_ADD) {
 				memset(&rewrite_data, 0, sizeof(rewrite_data));
@@ -323,19 +348,18 @@ secgw_addr_add_del(dao_netlink_route_ip_addr_t *a, int is_add)
 		dao_ds_put_format(&str, "%s ",
 				  rtnl_addr_flags2str(a->addr_flags, buf, sizeof(buf)));
 		sdev = secgw_get_device(a->app_if_cookie);
-		if (sdev->paired_device_index < 0) {
+		if (!sdev || (sdev->paired_device_index < 0)) {
 			dao_ds_put_format(&str, "%s has no paired device...ignored ",
 					  sdev->dev_name);
 		} else {
 			if (secgw_neigh_find_and_add(&a->local_in6_addr, a->prefixlen,
 						     ether.addr_bytes, &route_index, &edge, NULL,
-						     1)) {
+						     a->app_if_cookie, 1)) {
 				dao_ds_put_format(&str, "%s duplicate addr ", sdev->dev_name);
 			} else {
 				add_lpm_route(&a->local_in6_addr, a->prefixlen, edge, route_index,
-					      NULL, 0 /* don't care */,
-					      0 /*
-		    don't care */, &str);
+					      NULL, 0 /* no rewrite length */,
+					      sdev->paired_device_index, &str);
 			}
 		}
 	} else {
@@ -389,14 +413,16 @@ secgw_neigh_add_del(dao_netlink_route_ip_neigh_t *n, int is_add)
 				  mac[3], mac[4], mac[5]);
 
 		if (!secgw_neigh_find_and_add(&n->dst_in6_addr, n->prefixlen, mac, &route_index,
-					      &edge, NULL, 0)) {
+					      &edge, NULL, n->app_if_cookie, 0)) {
 			switch (n->neigh_state) {
 			case DAO_NETLINK_NEIGHBOR_STATE_PERMANENT:
 			case DAO_NETLINK_NEIGHBOR_STATE_REACHABLE:
 			case DAO_NETLINK_NEIGHBOR_STATE_STALE:
 				/* add now when state is valid*/
 				secgw_neigh_find_and_add(&n->dst_in6_addr, n->prefixlen, mac,
-							 &route_index, &edge, NULL, 1);
+							 &route_index, &edge,
+							 NULL,
+							 n->app_if_cookie, 1);
 
 				memset(&rewrite_data, 0, sizeof(rewrite_data));
 

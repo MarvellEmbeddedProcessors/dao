@@ -32,6 +32,7 @@
 #include <rte_eal.h>
 #include <rte_graph.h>
 #include <rte_graph_worker.h>
+#include <rte_graph_worker_common.h>
 #include <rte_launch.h>
 #include <rte_lcore.h>
 #include <rte_log.h>
@@ -86,6 +87,7 @@ extern dao_netlink_xfrm_callback_ops_t secgw_xfrm_ops;
 /* Function declarations */
 int secgw_main_init(int argc, char **argv, size_t app_sz);
 int secgw_main_exit(void);
+void secgw_signal_handler(int signal);
 
 /* Static inline functions */
 static inline int

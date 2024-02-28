@@ -24,6 +24,9 @@ typedef struct secgw_worker {
 
 	/* per core graph*/
 	struct rte_graph *graph;
+
+	/* Valid on main core only */
+	struct scli_conn *cli_conn;
 } secgw_worker_t __rte_cache_aligned;
 
 int secgw_thread_cb(void *_em);

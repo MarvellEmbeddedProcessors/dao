@@ -3,6 +3,7 @@
  */
 
 #include <nodes/node_api.h>
+#include <cli_api.h>
 
 const char *graph_node_patterns[] = {
 	"secgw_*",
@@ -10,7 +11,7 @@ const char *graph_node_patterns[] = {
 
 /* worker loop */
 static inline int
-secgw_worker_loop(dao_worker_t *worker, int is_main)
+secgw_worker_loop(dao_worker_t *worker, const int is_main, const int poll_cli)
 {
 	secgw_main_t *elm = secgw_get_main();
 	struct rte_graph_param *pgp = NULL;
@@ -29,7 +30,7 @@ secgw_worker_loop(dao_worker_t *worker, int is_main)
 		snprintf(spcm->worker_name, SECGW_WORKER_NAME, "%s-%d", "main",
 			 worker->core_index);
 	else
-		snprintf(spcm->worker_name, SECGW_WORKER_NAME, "%s-%d", "secgw-wrkr",
+		snprintf(spcm->worker_name, SECGW_WORKER_NAME, "%s-%d", "wrkr",
 			 worker->core_index);
 
 	snprintf(spcm->graph_name, SECGW_GRAPH_NAME, "%s-%s", "graph", spcm->worker_name);
@@ -46,13 +47,17 @@ secgw_worker_loop(dao_worker_t *worker, int is_main)
 				     "%s: rte_graph_create() failed", spcm->graph_name);
 
 		spcm->graph = rte_graph_lookup(spcm->graph_name);
-		dao_dbg("C%d: graph %s created(%p)",
-			worker->core_index, spcm->graph_name, spcm->graph);
+		dao_dbg("C%d, W%d: graph %s created(%p)",
+			worker->core_index, worker->worker_index, spcm->graph_name, spcm);
 		//rte_graph_dump(stdout, spcm->graph_id);
 	}
 
 	while (!secgw_main_exit_requested(elm)) {
 		if (is_main) {
+			if (poll_cli) {
+				scli_conn_req_poll(spcm->cli_conn);
+				scli_conn_msg_poll(spcm->cli_conn);
+			}
 			dao_netlink_poll();
 			dao_netlink_poll_complete();
 		} else {
@@ -76,6 +81,7 @@ skip_worker_loop:
 int secgw_thread_cb(void *_em)
 {
 	dao_worker_t *worker = NULL;
+	secgw_worker_t *sgw = NULL;
 
 	RTE_SET_USED(_em);
 
@@ -86,10 +92,14 @@ int secgw_thread_cb(void *_em)
 		return -1;
 	}
 
-	if (dao_workers_is_control_worker(worker))
-		secgw_worker_loop(worker, 1);
-	else
-		secgw_worker_loop(worker, 0);
-
+	if (dao_workers_is_control_worker(worker)) {
+		RTE_VERIFY(!dao_workers_app_data_get(worker, (void **)&sgw, NULL));
+		if (sgw->cli_conn)
+			secgw_worker_loop(worker, 1, 1);
+		else
+			secgw_worker_loop(worker, 1, 0);
+	} else {
+		secgw_worker_loop(worker, 0, 0);
+	}
 	return 0;
 }

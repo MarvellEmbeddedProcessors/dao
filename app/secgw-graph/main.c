@@ -3,6 +3,8 @@
  */
 
 #include <nodes/node_api.h>
+#include <cli_api.h>
+#include <getopt.h>
 
 #define SECGW_MEMPOOL_CACHE_SIZE 256
 
@@ -12,8 +14,17 @@
 /* To support at least 8 ports */
 #define SECGW_MEMPOOL_NUM_MBUFS (SECGW_RXQ_NUM_DESC * 8)
 
+typedef struct {
+	struct scli_conn_params cli_conn_param;
+	char *cli_script_file_name;
+	bool enable_graph_stats;
+} secgw_command_args_t;
+
 static dao_port_group_t edpg = DAO_PORT_GROUP_INITIALIZER;
 static dao_port_group_t tdpg = DAO_PORT_GROUP_INITIALIZER;
+static secgw_command_args_t *secgw_command_args;
+static const char usage[] = "%s <eal-args> -- -s CLI_FILE [-i CLI_CLIENT [-p CLI_CLIENT_PORT] [--enable-graph-stats] "
+			    "[--help]\n";
 
 static int
 start_devices(void)
@@ -226,6 +237,8 @@ pair_tap_to_ethdev(void)
 		return -1;
 	}
 
+	memset(ports, 0, sizeof(ports));
+
 	/* Pair ethdevs to tap */
 	if (n_ethdev >= n_tapdev) {
 		i = 0;
@@ -277,7 +290,6 @@ pair_tap_to_ethdev(void)
 			i++;
 		}
 	}
-
 	return 0;
 }
 
@@ -324,17 +336,145 @@ enable_feature_arc(void)
 	return 0;
 }
 
-int
-main(int argc, char **argv)
+static int initialize_command_line_args(void)
+{
+	struct scli_conn_params *cparam = NULL;
+
+	if (!secgw_command_args) {
+		secgw_command_args = malloc(sizeof(*secgw_command_args));
+
+		if (!secgw_command_args) {
+			dao_err("malloc fails");
+			return -1;
+		}
+		memset(secgw_command_args, 0, sizeof(*secgw_command_args));
+
+		cparam = &secgw_command_args->cli_conn_param;
+
+		cparam->welcome = "\n\t\tWELCOME to Security Gateway App!\n\n";
+		cparam->prompt = "secgw-graph> ";
+		cparam->addr = "127.0.0.1";
+		cparam->port = 8086;
+		cparam->buf_size = 1024 * 1024;
+		cparam->msg_in_len_max = 1024;
+		cparam->msg_out_len_max = 1024 * 1024;
+		cparam->msg_handle = scli_process;
+		cparam->msg_handle_arg = NULL;
+
+		return 0;
+	}
+	return -1;
+}
+
+static int
+parse_command_line_args(int argc, char **argv, secgw_command_args_t *command_args)
+{
+	struct option lgopts[] = {
+		{"help", 0, 0, 'H'},
+		{"enable-graph-stats", 0, 0, 'g'},
+	};
+	int i_present, p_present, s_present;
+	char *app_name = argv[0];
+	int opt, option_index;
+
+	/* Parse args */
+	i_present = 0;
+	p_present = 0;
+	s_present = 0;
+
+	while ((opt = getopt_long(argc, argv, "i:p:s:", lgopts, &option_index)) != EOF) {
+		switch (opt) {
+		case 'i':
+			if (i_present) {
+				dao_err("Error: Multiple -i arguments");
+				return -1;
+			}
+			i_present = 1;
+
+			if (!strlen(optarg)) {
+				dao_err("Error: Argument for -i not provided");
+				return -1;
+			}
+
+			command_args->cli_conn_param.addr = strdup(optarg);
+			if (command_args->cli_conn_param.addr == NULL) {
+				dao_err("Error: Not enough memory");
+				return -1;
+			}
+			break;
+
+		case 'p':
+			if (p_present) {
+				dao_err("Error: Multiple -p arguments");
+				return -1;
+			}
+			p_present = 1;
+
+			if (!strlen(optarg)) {
+				dao_err("Error: Argument for -p not provided");
+				return -1;
+			}
+
+			command_args->cli_conn_param.port = (uint16_t)strtoul(optarg, NULL, 10);
+		break;
+
+		case 's':
+			if (s_present) {
+				dao_err("Error: Multiple -s arguments");
+				return -1;
+			}
+			s_present = 1;
+
+			if (!strlen(optarg)) {
+				dao_err("Error: Argument for -s not provided");
+				return -1;
+			}
+
+			command_args->cli_script_file_name = strdup(optarg);
+			if (command_args->cli_script_file_name == NULL) {
+				dao_err("Error: Not enough memory for script file name");
+				return -1;
+			}
+			break;
+
+		case 'g':
+			command_args->enable_graph_stats = true;
+			dao_warn("WARNING! Telnet session can not be accessed with"
+				 "--enable-graph-stats");
+			break;
+
+		case 'H':
+		default:
+			printf(usage, app_name);
+			return -1;
+		}
+	}
+	optind = 1; /* reset getopt lib */
+
+	return 0;
+}
+
+int main(int argc, char **argv)
 {
 	secgw_numa_id_t *numa = NULL;
+	struct scli_conn_params *cparams = NULL;
+	secgw_worker_t *sgw = NULL;
 	secgw_main_t *sm = NULL;
 	char name[256];
 	int rc;
 
 	rc = secgw_main_init(argc, argv, sizeof(secgw_worker_t));
 	if (rc < 0)
-		DAO_ERR_GOTO(rc, error, "rte_eal_init_failed: %s", argv[0]);
+		DAO_ERR_GOTO(rc, _error, "rte_eal_init_failed: %s", argv[0]);
+
+	argc -= rc;
+	argv += rc;
+
+	if (initialize_command_line_args())
+		return -1;
+
+	if (parse_command_line_args(argc, argv, secgw_command_args))
+		return -1;
 
 	if (dao_workers_num_workers_get() < 1) {
 		dao_err("Launch app on more cores, found %d workers",
@@ -343,6 +483,32 @@ main(int argc, char **argv)
 	}
 
 	sm = secgw_get_main();
+
+	if (dao_workers_app_data_get(dao_workers_self_worker_get(), (void **)&sgw, NULL))
+		DAO_ERR_GOTO(rc, _error, "app_data_get failed: %s", argv[0]);
+
+	if (!sgw)
+		return -1;
+
+	sgw->cli_conn = NULL;
+	if (secgw_command_args->cli_script_file_name) {
+		scli_init();
+		cparams = &secgw_command_args->cli_conn_param;
+		cparams->msg_handle_arg = NULL;
+
+		sgw->cli_conn = scli_conn_init(cparams);
+		if (!sgw->cli_conn)
+			DAO_ERR_GOTO(rc, _error, "sli_conn_init() failed: %s", argv[0]);
+
+		if (scli_script_process(secgw_command_args->cli_script_file_name,
+					cparams->msg_in_len_max,
+					cparams->msg_out_len_max, NULL)) {
+			DAO_ERR_GOTO(rc, error, "cli_script_process() failed: %s", argv[0]);
+		}
+		secgw_info("CLI configured %s:%u", cparams->addr, cparams->port);
+	}
+	signal(SIGINT, secgw_signal_handler);
+	signal(SIGTERM, secgw_signal_handler);
 
 	/* Create Mempool for each socket/numa id */
 	STAILQ_FOREACH(numa, &sm->secgw_main_numa_list, next_numa_id) {
@@ -386,6 +552,11 @@ main(int argc, char **argv)
 	return 0;
 
 error:
+	if (sgw && sgw->cli_conn)
+		scli_conn_free(sgw->cli_conn);
+	if (secgw_command_args->cli_script_file_name)
+		scli_exit();
+_error:
 	secgw_main_exit();
 	return rc;
 }

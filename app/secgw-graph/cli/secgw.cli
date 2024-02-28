@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2024 Marvell.
+
+show ports
+show graph
+show routes
+show neigh

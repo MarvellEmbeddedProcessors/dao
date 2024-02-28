@@ -6,7 +6,7 @@
 
 secgw_main_t *__secgw_main;
 
-static void
+void
 secgw_signal_handler(int signum)
 {
 	secgw_main_t *em = secgw_get_main();
@@ -81,10 +81,7 @@ int secgw_main_init(int argc, char **argv, size_t user_per_core_size)
 			core_mask, rte_get_main_lcore(), user_per_core_size);
 	}
 	dao_dbg("secgw_init() successful");
-	signal(SIGINT, secgw_signal_handler);
-	signal(SIGTERM, secgw_signal_handler);
-
-	return 0;
+	return rc;
 freem:
 	if (numa)
 		free(numa);

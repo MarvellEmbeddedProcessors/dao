@@ -13,6 +13,8 @@ if not DAO_BUILD_CONF.has('DAO_LIBDPDK_DEP')
 	subdir_done()
 endif
 
+subdir('cli')
+
 # Application Sources
 sources += files(
 	'main.c',
