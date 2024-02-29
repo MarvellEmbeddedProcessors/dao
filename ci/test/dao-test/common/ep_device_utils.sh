@@ -2,10 +2,9 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2024 Marvell.
 
-EP_UTILS_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
-source $EP_UTILS_SCRIPT_PATH/utils.sh
-
-find_executable "oxk-devbind-basic.sh" DEVBIND "$EP_UTILS_SCRIPT_PATH"
+DEVICE_UTILS_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
+source $DEVICE_UTILS_SCRIPT_PATH/utils.sh
+source "$DEVICE_UTILS_SCRIPT_PATH/ep_common_ops.sh"
 
 PCI_VENDOR_ID_CAVIUM="0x177d"
 
@@ -19,6 +18,11 @@ PCI_DEVID_CNXK_RVU_NPA_VF="0xa0fc"
 PCI_DEVID_CNXK_RVU_AF_VF="0xa0f8"
 PCI_DEVID_CN10K_RVU_CPT_PF="0xa0f2"
 PCI_DEVID_CN10K_RVU_CPT_VF="0xa0f3"
+PCI_DEVID_CN10K_RVU_SDP_VF="0xa0f7"
+PCI_DEVID_CN10K_RVU_DPI_PF="0xa080"
+PCI_DEVID_CN10K_RVU_DPI_VF="0xa081"
+PCI_DEVID_CN10K_RVU_ESW_PF="0xa0e0"
+
 RVU_DEV_IDS="
 $PCI_DEVID_CNXK_RVU_PF
 $PCI_DEVID_CNXK_RVU_VF
@@ -33,38 +37,117 @@ $PCI_DEVID_CN10K_RVU_CPT_VF
 "
 
 CPUPARTNUM_106XX=0xd49
+PCI_DEV_PART_105XX=0xba
+PCI_DEV_PART_106XX=0xb9
 
-function ep_device_vfio_bind()
-{
-	$DEVBIND -b vfio-pci $@
-}
+VFIO_TOKEN="9d75f7af-606e-47ff-8ae4-f459fce4a422"
 
-function ep_device_vfio_unbind()
+function ep_device_eth_interfaces_get()
 {
-	$DEVBIND -u vfio-pci $@
-}
+	local ssh_ip=$1
+	local req_ifcs=${2:-}
+	local num_ifcs=0
+	local eth_ifcs_filtered=""
+	# Get the SSH IP and the eth interface it is connected to
+	local ssh_ifc_name=$(ip -f inet addr show | grep $ssh_ip -B 1 | head -n1 | \
+				awk -F '[ :]' '{print $3}')
+	local ssh_ifc=$(cat /sys/class/net/$ssh_ifc_name/device/uevent | grep PCI_SLOT_NAME | \
+				awk -F '=' '{print $2}')
+	local eth_ifcs=$(ep_common_pcie_addr_get $PCI_DEVID_CNXK_RVU_PF all)
 
-function ep_device_hugepage_setup()
-{
-	echo "Setting up hugepages"
-	# Check for hugepages
-	if mount | grep hugetlbfs | grep none; then
-		echo "Hugepages already mounted"
-	else
-		echo "Mounting Hugepages"
-		mkdir -p /dev/huge
-		mount -t hugetlbfs none /dev/huge
+	# Filter out the eth ports that are not connected to the SSH interface
+	for e in $eth_ifcs; do
+		if [[ "$e" != "$ssh_ifc" ]]; then
+			eth_ifcs_filtered="$eth_ifcs_filtered $e"
+			num_ifcs=$((num_ifcs + 1))
+			if [[ -n $req_ifcs ]] && [[ $num_ifcs -eq $req_ifcs ]]; then
+				break
+			fi
+		fi
+	done
+	if [[ -n $req_ifcs ]] && [[ $num_ifcs -lt $req_ifcs ]]; then
+		echo "Not enough eth interfaces available"
+		exit 1
 	fi
-	echo 24 > /proc/sys/vm/nr_hugepages
-	echo 6 >/sys/kernel/mm/hugepages/hugepages-524288kB/nr_hugepages
-	echo "Done setting up hugepages"
+	echo $eth_ifcs_filtered
+}
+
+function ep_device_sdp_setup()
+{
+	local eth_ifcs=""
+	local sdp_pcie_pf
+	# This is the number of bridges/eth ports to set up.
+	# This is the number of SDP interfaces to bind per eth.
+	local num_sdp_ifcs_per_eth=2
+	local cur_sdp_idx
+	local cur_eth_idx
+	local opts
+
+	if ! opts=$(getopt \
+			-l "num-sdp-ifcs-per-eth:,eth-ifc:" \
+			-- sdp_setup ${@}); then
+		echo "Failed to parse arguments"
+		exit 1
+	fi
+
+	eval set -- "$opts"
+	while [[ $# -gt 1 ]]; do
+		case $1 in
+			--eth-ifc) shift; eth_ifcs="$eth_ifcs $1";;
+			--num-sdp-ifcs-per-eth) shift; num_sdp_ifcs_per_eth=$1;;
+			*) echo "Unknown argument $1"; exit 1;;
+		esac
+		shift
+	done
+
+	# Setting up SDP device
+	sdp_pcie_pf=$(ep_common_pcie_addr_get  $PCI_DEVID_CN10K_RVU_SDP_VF)
+
+	cur_sdp_idx=1
+	cur_eth_idx=1
+	for eth_pf in $eth_ifcs; do
+		# Bind to vfio and then create VFs
+		ep_common_bind_driver pci $eth_pf vfio-pci
+		ep_common_set_numvfs $eth_pf $num_sdp_ifcs_per_eth
+
+		for j in $(seq 1 $num_sdp_ifcs_per_eth); do
+			local eth_pcie_addr=$(get_vf_pcie_addr ${eth_pf} $j)
+			local sdp_pcie_addr=$(get_vf_pcie_addr ${sdp_pcie_pf} $cur_sdp_idx)
+
+			ep_common_bind_driver pci $sdp_pcie_addr vfio-pci
+			echo "${sdp_pcie_addr},${eth_pcie_addr} "
+			sleep 1
+			cur_sdp_idx=$((cur_sdp_idx + 1))
+		done
+	done
+}
+
+function ep_device_esw_setup()
+{
+	local num_esw_vfs=$1
+	local esw_pf_pcie
+	local cur_esw_idx
+	local esw_vfs=""
+
+	# Setting up ESW device
+	esw_pf_pcie=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_ESW_PF)
+	ep_common_bind_driver pci $esw_pf_pcie vfio-pci
+	ep_common_set_numvfs $esw_pf_pcie $num_esw_vfs
+
+	cur_esw_idx=1
+	for j in $(seq 1 $num_esw_vfs); do
+		local esw_pcie_addr=$(get_vf_pcie_addr ${esw_pf_pcie} $j)
+		esw_vfs="$esw_vfs $esw_pcie_addr"
+		cur_esw_idx=$((cur_esw_idx + 1))
+	done
+	echo $esw_vfs
 }
 
 function ep_device_dpi_setup()
 {
 	# Bind DPI devices
-	local dpi_pf=$(lspci -d :a080 | awk -e '{print $1}')
-	local dpi_vf
+	local dpi_pf=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_PF)
+	local dpi_vfs
 
 	echo "Binding DPI devices"
 	# Bind required DMA devices to vfio-pci
@@ -73,19 +156,14 @@ function ep_device_dpi_setup()
 	echo 512 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/mrrs
 	echo 256 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/mps
 
-	echo $dpi_pf > /sys/bus/pci/devices/$dpi_pf/driver/unbind || true
-	echo octeontx2-dpi > /sys/bus/pci/devices/$dpi_pf/driver_override
-	echo $dpi_pf > /sys/bus/pci/drivers_probe
+	ep_common_bind_driver pci $dpi_pf octeontx2-dpi
+	ep_common_set_numvfs $dpi_pf 32
 
-	echo 32 >/sys/bus/pci/devices/$dpi_pf/sriov_numvfs
-	dpi_vf=$(lspci -d :a081 | awk -e '{print $1}' | head -22)
-	ep_device_vfio_bind $dpi_vf
+	dpi_vfs=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 22)
+	for v in $dpi_vfs; do
+		ep_common_bind_driver pci $v vfio-pci
+	done
 	echo "Done Binding DPI devices"
-
-	# Bind required RPM VF's to vfio-pci
-	echo "Binding RPM devices"
-	ep_device_vfio_bind 0002:01:00.2 0002:01:00.1
-	echo "Done Binding RPM devices"
 }
 
 function ep_device_pem_setup()
@@ -103,42 +181,11 @@ function ep_device_pem_setup()
 			local dev_name=$(basename "$dev_path")
 
 			# Bind the device to vfio-platform driver
-			echo "vfio-platform" | tee "$dev_path/driver_override" || true
-			echo "$dev_name" | tee "/sys/bus/platform/drivers/vfio-platform/bind" || true
-
+			ep_common_bind_driver platform $dev_name vfio-platform
 			echo "Device $dev_name configured."
 		fi
 	done
 	echo "Done binding PEM/SDP regs devices"
-}
-
-function ep_device_fw_cleanup()
-{
-	set +e
-	ps -ef | grep dao-virtio-l2fwd | grep fw_launch | awk '{print $2}' | head -n1 | xargs -n1 kill -9
-	set -e
-}
-
-function ep_device_fw_launch()
-{
-	local dpi_vf
-	local cmd
-
-	ep_device_fw_cleanup
-
-	dpi_vf=$(lspci -d :a081 | awk -e '{print $1}' | head -22)
-
-	# Launch EP firmware application
-	echo "Launching EP Firwmare App"
-	local virtio_l2fwd
-	find_executable "dao-virtio-l2fwd" virtio_l2fwd "$EP_UTILS_SCRIPT_PATH/../../../../app"
-	local dpi_allow=""
-	for d in $dpi_vf; do
-		dpi_allow="$dpi_allow -a $d"
-	done
-	cmd="$virtio_l2fwd --file-prefix fw_launch -l 4-6 -a 0002:01:00.2 $dpi_allow -- -p 0x1 -v 0x1 -P"
-	echo $cmd
-	$cmd
 }
 
 function ep_device_get_cpu_partnum()
@@ -223,9 +270,44 @@ function ep_device_get_sclk()
 	echo $sclk
 }
 
+function ep_device_agent_cleanup()
+{
+	set +e
+	pkill -9 octep_cp_agent
+	rmmod pcie_marvell_cnxk_ep
+	set -e
+}
+
+function ep_device_agent_init()
+{
+	local mod=$(lsmod | grep pcie_marvell_cnxk_ep)
+	local ep_agent=$(pidof octep_cp_agent)
+	local ep_bin_dir=$EP_DIR/ep_files
+	local part=$(ep_device_get_part)
+	local agent_conf
+
+	if [[ 0x${part} == ${PCI_DEV_PART_106XX} ]]; then
+		agent_conf=$ep_bin_dir/cn106xx.cfg
+	elif [[ 0x${part} == 0x${PCI_DEV_PART_105XX} ]]; then
+		agent_conf=$ep_bin_dir/cnf105xx.cfg
+	else
+		echo "Unknown part $part"
+		exit 1
+	fi
+
+	if [[ $mod == "" ]]; then
+		insmod $ep_bin_dir/pcie-marvell-cnxk-ep.ko
+	fi
+
+	if [[ $ep_agent == "" ]]; then
+		$ep_bin_dir/octep_cp_agent \
+			$agent_conf 2>&1 > $ep_bin_dir/octep_cp_agent.log &
+	fi
+}
+
 function ep_device_get_inactive_if()
 {
-	for i in $(lspci -n -d :$PCI_DEVID_CNXK_RVU_PF | awk -e '{print $1}');	do
+	for i in $(ep_common_pcie_addr_get $PCI_DEVID_CNXK_RVU_PF all); do
 		local ethname=
 		local active=
 		if [ -d "/sys/bus/pci/devices/$i/net" ]; then
@@ -243,6 +325,12 @@ function ep_device_get_inactive_if()
 	done
 }
 
+function ep_device_get_num_cores()
+{
+	local num_cores=$(lscpu | grep "On-line CPU(s) list" | awk -F '-' '{print $3}')
+	echo $(($num_cores + 1))
+}
+
 # If this script is directly invoked from the shell execute the
 # op specified
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
@@ -250,6 +338,8 @@ if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
 	ARGS=${@:2}
 	if [[ $(type -t ep_device_$OP) == function ]]; then
 		ep_device_$OP $ARGS
+	elif [[ $(type -t ep_common_$OP) == function ]]; then
+		ep_common_$OP $ARGS
 	else
 		$OP $ARGS
 	fi

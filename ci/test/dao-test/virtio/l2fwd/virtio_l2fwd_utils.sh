@@ -208,14 +208,8 @@ function l2fwd_app_launch()
 	local l2fwd_out=$3
 	local cores="$4"
 	local app_args="$5"
-	local eal_args="
-		-a 0000:06:00.1 -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4
-		-a 0000:06:00.5 -a 0000:06:00.6 -a 0000:06:00.7 -a 0000:06:01.0
-		-a 0000:06:01.1 -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4
-		-a 0000:06:01.5 -a 0000:06:01.6 -a 0000:06:01.7 -a 0000:06:02.0
-		-a 0000:06:02.1 -a 0000:06:02.2 -a 0000:06:02.3 -a 0000:06:02.4
-		-a 0000:06:02.5 -a 0000:06:02.6
-	"
+	local dpi_vfs=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 22)
+	local eal_args=$(form_split_args "-a" $dpi_vfs)
 	local args="-l $cores -a $interface $eal_args -- $app_args"
 	local unbuffer
 
@@ -228,7 +222,8 @@ function l2fwd_app_launch()
 
 	# Wait for virtio_l2fwd to be up
 	local itr=0
-	while ! (tail -n20 $l2fwd_out | grep -q "VIRTIO_L2FWD: Entering graph main loop"); do
+
+	while ! (tail -n20 $l2fwd_out | grep -q "VIRTIO_L2FWD: Entering .* main loop"); do
 		sleep 1
 		itr=$((itr + 1))
 		if [[ itr -eq 10 ]]; then

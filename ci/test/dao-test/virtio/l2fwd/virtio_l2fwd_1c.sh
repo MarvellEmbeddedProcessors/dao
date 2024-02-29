@@ -28,7 +28,7 @@ function virtio_l2fwd_1c()
 
 	l2fwd_register_sig_handler ${DAO_TEST} $host_testpmd_pfx $l2fwd_out
 
-	ep_device_vfio_bind $if0
+	ep_common_bind_driver pci $if0 vfio-pci
 
 	# Launch virtio l2fwd
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l"; then
@@ -39,8 +39,7 @@ function virtio_l2fwd_1c()
 		return 1
 	fi
 
-	device_part=$(ep_device_op get_part)
-	ep_host_op vdpa_setup $device_part
+	ep_host_op vdpa_setup $(ep_device_get_part)
 	# Start traffic
 	l2fwd_host_start_traffic $host_testpmd_pfx
 
@@ -65,11 +64,10 @@ function virtio_l2fwd_offload_run()
 	local ff=$3
 	local tx_spcap=$4
 	local tx_mpcap=$5
-	local cmp_script=$EP_HOST_DIR/ci/test/dao-test/common/scapy/validate_pcap.py
+	local cmp_script=$EP_DIR/ci/test/dao-test/common/scapy/validate_pcap.py
 	local rpcap=/tmp/rx_multiseg.pcap
 	local tpcap
 	local itr=0
-	local device_part
 	local max_offloads=${#virtio_offloads[@]}
 	((--max_offloads))
 
@@ -119,16 +117,15 @@ function virtio_l2fwd_multiseg()
 	local l2fwd_pfx=${DAO_TEST}
 	local host_testpmd_pfx=${DAO_TEST}_testpmd_host
 	local l2fwd_out=virtio_l2fwd.${l2fwd_pfx}.out
-	local tx_mpcap=$EP_HOST_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx_mseg.pcap
-	local tx_spcap=$EP_HOST_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx.pcap
+	local tx_mpcap=$EP_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx_mseg.pcap
+	local tx_spcap=$EP_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx.pcap
 	local if0=$(ep_device_get_inactive_if)
-	local device_part
 	local k=0
 
 	failed_tests=""
 	l2fwd_register_sig_handler ${DAO_TEST} $host_testpmd_pfx $l2fwd_out
 
-	ep_device_vfio_bind $if0
+	ep_common_bind_driver pci $if0 vfio-pci
 
 	# Launch virtio l2fwd
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200"; then
@@ -139,8 +136,7 @@ function virtio_l2fwd_multiseg()
 		return 1
 	fi
 
-	device_part=$(ep_device_op get_part)
-	ep_host_op vdpa_setup $device_part
+	ep_host_op vdpa_setup $(ep_device_get_part)
 
 	virtio_l2fwd_offload_run $host_testpmd_pfx $l2fwd_out "" $tx_spcap $tx_mpcap
 
@@ -155,7 +151,7 @@ function virtio_l2fwd_multiseg()
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200 -f"; then
 		echo "Failed to launch virtio l2fwd with No fastfree"
 	else
-		ep_host_op vdpa_setup $device_part
+		ep_host_op vdpa_setup $(ep_device_get_part)
 		virtio_l2fwd_offload_run $host_testpmd_pfx $l2fwd_out "no_ff" $tx_spcap $tx_mpcap
 		ep_host_op vdpa_cleanup
 	fi
@@ -178,12 +174,11 @@ function virtio_l2fwd_guest_1c()
 	local host_pfx=${DAO_TEST}_guest
 	local l2fwd_out=virtio_l2fwd.${l2fwd_pfx}.out
 	local if0=$(ep_device_get_inactive_if)
-	local device_part
 	local args
 
 	l2fwd_register_sig_handler ${DAO_TEST} $host_pfx $l2fwd_out
 
-	ep_device_vfio_bind $if0
+	ep_common_bind_driver pci $if0 vfio-pci
 
 	# Launch virtio l2fwd
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l"; then
@@ -193,8 +188,7 @@ function virtio_l2fwd_guest_1c()
 		return 1
 	fi
 
-	device_part=$(ep_device_op get_part)
-	ep_host_op vdpa_setup $device_part
+	ep_host_op vdpa_setup $(ep_device_get_part)
 	ep_host_op_bg 220 launch_guest $host_pfx
 	local k=$?
 	if [[ "$k" != "0" ]]; then

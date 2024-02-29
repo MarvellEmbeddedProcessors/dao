@@ -3,20 +3,18 @@
 # Copyright (c) 2024 Marvell.
 
 HOST_UTILS_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
-source "$HOST_UTILS_SCRIPT_PATH/testpmd.sh"
+source "$HOST_UTILS_SCRIPT_PATH/ep_common_ops.sh"
 
-function ep_host_hugepage_setup()
+function ep_host_sdp_setup()
 {
-	echo "Setting up hugepages on host"
-	# Check for hugepages
-	if mount | grep hugetlbfs | grep none; then
-		echo "Hugepages already setup"
+	set +e # Module may be already loaded
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		insmod $EP_HOST_MODULE_DIR/octeon_ep.ko
 	else
-		mkdir /dev/huge
-		mount -t hugetlbfs none /dev/huge
+		insmod $EP_DIR/ep_files/octeon_ep.ko
 	fi
-	echo 24 > /proc/sys/vm/nr_hugepages
-	echo 2048 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+	set -e
+	sleep 5
 }
 
 function ep_host_vdpa_setup()
@@ -32,18 +30,20 @@ function ep_host_vdpa_setup()
 	modprobe vhost-vdpa
 	set +e # Module may be already loaded
 	rmmod octep_vdpa
-	insmod $EP_HOST_DIR/kmod/vdpa/octeon_ep/octep_vdpa.ko
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		insmod $EP_HOST_MODULE_DIR/octep_vdpa.ko
+	else
+		insmod $EP_DIR/kmod/vdpa/octeon_ep/octep_vdpa.ko
+	fi
 	set -e
 
-	host_pf=$(lspci -Dn -d :${part}00 | head -1 | cut -f 1 -d " ")
+	host_pf=$(ep_common_pcie_addr_get ${part}00)
 	vf_cnt=1
 	vf_cnt_max=$(cat /sys/bus/pci/devices/$host_pf/sriov_totalvfs)
 	vf_cnt=$((vf_cnt >vf_cnt_max ? vf_cnt_max : vf_cnt))
 
-	echo $host_pf > /sys/bus/pci/devices/$host_pf/driver/unbind || true
-	echo octep_vdpa > /sys/bus/pci/devices/$host_pf/driver_override
-	echo $host_pf > /sys/bus/pci/drivers_probe
-	echo $vf_cnt > /sys/bus/pci/devices/$host_pf/sriov_numvfs
+	ep_common_bind_driver pci $host_pf octep_vdpa
+	ep_common_set_numvfs $host_pf $vf_cnt
 
 	sleep 1
 	# Get the list of management devices
@@ -55,7 +55,7 @@ function ep_host_vdpa_setup()
 	done
 
 	set +x
-	sdp_vfs=$(lspci -Dn -d :${part}03 | cut -f 1 -d " ")
+	sdp_vfs=$(ep_common_pcie_addr_get ${part}03)
 	for dev in $sdp_vfs; do
 		set +e # Grep can return non-zero status
 		vdev=$(ls /sys/bus/pci/devices/$dev | grep vdpa)
@@ -66,12 +66,8 @@ function ep_host_vdpa_setup()
 		done
 		set -e
 
-		set +e # virtio vdpa driver may not be present on host
-		echo $vdev > /sys/bus/vdpa/drivers/virtio_vdpa/unbind
-		set -e
-
 		echo "Binding $vdev to vhost_vdpa"
-		echo $vdev > /sys/bus/vdpa/drivers/vhost_vdpa/bind || true
+		ep_common_bind_driver vdpa $vdev vhost_vdpa
 	done
 }
 
@@ -85,40 +81,9 @@ function ep_host_vdpa_cleanup()
 	set -e
 }
 
-function ep_host_testpmd_launch()
-{
-	local pfx=$1
-	local args=${@:2}
-	local eal_args
-	local app_args=""
-
-	for a in $args; do
-		if [[ $a == "--" ]]; then
-			eal_args=$app_args
-			app_args=""
-			continue
-		fi
-		app_args+=" $a"
-	done
-
-	echo "Launching testpmd on Host"
-	testpmd_launch $pfx "$eal_args" "$app_args"
-	echo "Launched testpmd on Host"
-}
-
-function ep_host_testpmd_stop()
-{
-	local pfx=$1
-
-	echo "Stopping testpmd on Host"
-	testpmd_quit $pfx
-	testpmd_cleanup $pfx
-	echo "Stopped testpmd on Host"
-}
-
 EP_SCP_CMD=${EP_SCP_CMD:-"scp -o LogLevel=ERROR -o ServerAliveInterval=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"}
 EP_GUEST_DIR="/root/hostshare"
-EP_GUEST_SHARE_DIR=$EP_HOST_DIR/guest
+EP_GUEST_SHARE_DIR=$EP_DIR/guest
 
 function ep_host_launch_guest()
 {
@@ -127,8 +92,8 @@ function ep_host_launch_guest()
 	local in=guest.in.$pfx
 	local out=guest.out.$pfx
 
-	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/qemu-system-x86_64 $EP_HOST_DIR/
-	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/noble-server-cloudimg-amd64.img $EP_HOST_DIR/
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/qemu-system-x86_64 $EP_DIR/
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/noble-server-cloudimg-amd64.img $EP_DIR/
 	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/bios-256k.bin /usr/share/qemu
 	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/vgabios-stdvga.bin /usr/share/qemu
 	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/efi-virtio.rom /usr/share/qemu
@@ -137,19 +102,19 @@ function ep_host_launch_guest()
 	rm -rf $EP_GUEST_SHARE_DIR
 	mkdir $EP_GUEST_SHARE_DIR
 
-	cp $EP_HOST_DIR/ci/test/dao-test/common/utils.sh $EP_GUEST_SHARE_DIR
-	cp $EP_HOST_DIR/ci/test/dao-test/common/testpmd.sh $EP_GUEST_SHARE_DIR
-	cp $EP_HOST_DIR/ci/test/dao-test/common/ep_guest_utils.sh $EP_GUEST_SHARE_DIR
+	cp $EP_DIR/ci/test/dao-test/common/utils.sh $EP_GUEST_SHARE_DIR
+	cp $EP_DIR/ci/test/dao-test/common/testpmd.sh $EP_GUEST_SHARE_DIR
+	cp $EP_DIR/ci/test/dao-test/common/ep_guest_utils.sh $EP_GUEST_SHARE_DIR
 
-	if [[ -f $EP_HOST_DIR/qemu-system-x86_64 ]]; then
-		QEMU_BIN=$EP_HOST_DIR/qemu-system-x86_64
+	if [[ -f $EP_DIR/qemu-system-x86_64 ]]; then
+		QEMU_BIN=$EP_DIR/qemu-system-x86_64
 	else
 		echo "qemu-system-x86_64 not found !!"
 		return 1
 	fi
 
-	if [[ -f $EP_HOST_DIR/noble-server-cloudimg-amd64.img ]]; then
-		VM_IMAGE=$EP_HOST_DIR/noble-server-cloudimg-amd64.img
+	if [[ -f $EP_DIR/noble-server-cloudimg-amd64.img ]]; then
+		VM_IMAGE=$EP_DIR/noble-server-cloudimg-amd64.img
 	else
 		echo "x86 QEMU cloud image not found !!"
 		return 1
@@ -289,10 +254,14 @@ function ep_host_shutdown_guest()
 # If this script is directly invoked from the shell execute the
 # op specified
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
+	source "$HOST_UTILS_SCRIPT_PATH/testpmd.sh"
+
 	OP=$1
 	ARGS=${@:2}
 	if [[ $(type -t ep_host_$OP) == function ]]; then
 		ep_host_$OP $ARGS
+	elif [[ $(type -t ep_common_$OP) == function ]]; then
+		ep_common_$OP $ARGS
 	else
 		$OP $ARGS
 	fi

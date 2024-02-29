@@ -117,7 +117,6 @@ function compile_libnl() {
 		fetch_dep https://github.com/thom311/libnl/releases/download/libnl3_7_0/$LIBNL_TARBALL.tar.gz
 	fi
 	tar xvf $LIBNL_TARBALL.tar.gz --strip-components=1
-	set -x
 	./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBNL_PREFIX_DIR
 	make;
 	make install;

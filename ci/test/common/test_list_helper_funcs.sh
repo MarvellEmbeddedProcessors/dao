@@ -5,6 +5,7 @@
 # Functions required to manipulate the test.list file.
 
 TEST_LIST=$RUN_DIR/test.list
+TEST_ENV_VARS_DYNAMIC=""
 
 function clean_test_list()
 {
@@ -26,6 +27,7 @@ function get_test_name()
 	local test_num=$1
 	local num=1
 	local info="LIST_END"
+	touch $TEST_LIST
 	while read -r testinfo; do
 		if [[ $num == $test_num ]]; then
 			info=$testinfo
@@ -41,6 +43,7 @@ function get_test_info()
 	local test_name=$1
 	local name
 	local info="LIST_END"
+	touch $TEST_LIST
 	while read -r testinfo; do
 		name=$(echo $testinfo | awk -F'#' '{print $1}')
 		if [[ $name == $test_name ]]; then
@@ -55,14 +58,14 @@ function get_test_exec_bin()
 {
 	local val
 	val=$(get_test_info $1 | awk -F'#' '{print $2}')
-	echo $val | sed "s#$BUILD_DIR#$EP_DEVICE_RUN_DIR#g"
+	echo $val | sed "s#$BUILD_DIR#$EP_DIR#g"
 }
 
 function get_test_dir()
 {
 	local val
 	val=$(get_test_info $1 | awk -F'#' '{print $3}')
-	echo $val | sed "s#$BUILD_DIR#$EP_DEVICE_RUN_DIR#g"
+	echo $val | sed "s#$BUILD_DIR#$EP_DIR#g"
 }
 
 function get_test_args()
@@ -161,7 +164,7 @@ function test_info_print()
 	extra_args=$(get_test_extra_args $name)
 	echo "Test Binary/script -> $exec_bin"
 	echo "Test Timeout -> $tmo"
-	echo "Test Environment -> $envs"
+	echo "Test Environment -> $envs $TEST_ENV_VARS_DYNAMIC"
 	echo "Test Directory -> $test_dir"
 
 	# Remove unnecessary arguments from command line
@@ -177,6 +180,11 @@ function test_info_print()
 	done
 	echo "Modified arguments -> '$args $extra_args'"
 	echo "Test Command -> $cmd"
+}
+
+function add_test_env()
+{
+	TEST_ENV_VARS_DYNAMIC+=" $@"
 }
 
 function get_test_command()
@@ -207,11 +215,6 @@ function get_test_command()
 		esac
 	done
 	cmd="cd $test_dir &&
-	     $EP_DEVICE_SUDO DEPS_PREFIX=$EP_DEVICE_DIR/deps-prefix \
-	     EP_HOST_DIR=$EP_HOST_DIR \
-	     EP_DEVICE_DIR=$EP_DEVICE_DIR \
-	     EP_SSH_CMD='$EP_SSH_CMD' \
-	     EXTRA_EP_HOST_ENV='$EXTRA_EP_HOST_ENV' $envs $EXTRA_EP_DEVICE_ENV \
-	     $exec_bin $args $extra_args"
+	     $EP_DEVICE_SUDO $TEST_ENV_VARS_DYNAMIC $envs $exec_bin $args $extra_args"
 	echo "$cmd"
 }

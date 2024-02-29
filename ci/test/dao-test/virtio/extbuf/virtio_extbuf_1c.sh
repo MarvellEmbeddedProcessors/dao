@@ -16,7 +16,7 @@ function virtio_extbuf_1c()
 
 	extbuf_register_sig_handler ${DAO_TEST} $host_testpmd_pfx $extbuf_out
 
-	ep_device_vfio_bind $if0
+	ep_common_bind_driver pci $if0 vfio-pci
 
 	# Launch virtio extbuf
 	if ! extbuf_app_launch $if0 $extbuf_pfx $extbuf_out "4-5" "-p 0x1 -v 0x1 -P -l"; then
@@ -27,8 +27,7 @@ function virtio_extbuf_1c()
 		return 1
 	fi
 
-	device_part=$(ep_device_op get_part)
-	ep_host_op vdpa_setup $device_part
+	ep_host_op vdpa_setup $(ep_device_get_part)
 
 	# Start traffic
 	extbuf_host_start_traffic $host_testpmd_pfx

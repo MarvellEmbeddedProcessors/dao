@@ -10,6 +10,14 @@ EP_TEST_RUN_SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 source $EP_TEST_RUN_SCRIPT_PATH/../dao-test/common/ep_device_utils.sh
 source $EP_TEST_RUN_SCRIPT_PATH/../dao-test/common/ep_host_utils.sh
 
+declare -A DAO_SUITE_SETUP
+declare -A DAO_SUITE_CLEANUP
+
+source $EP_TEST_RUN_SCRIPT_PATH/sync.sh
+source $EP_TEST_RUN_SCRIPT_PATH/ovs_setup.sh
+source $EP_TEST_RUN_SCRIPT_PATH/virtio_setup.sh
+source $EP_TEST_RUN_SCRIPT_PATH/unit_test_setup.sh
+
 SKIP_SYNC=${SKIP_SYNC:-}
 SKIP_EP_DEVICE_SETUP=${SKIP_EP_DEVICE_SETUP:-}
 SKIP_EP_HOST_SETUP=${SKIP_EP_HOST_SETUP:-}
@@ -17,10 +25,7 @@ EP_HOST=${EP_HOST:-?}
 EP_DEVICE=${EP_DEVICE:-?}
 EP_SSH_CMD=${EP_SSH_CMD:-"ssh"}
 EP_SCP_CMD=${EP_SCP_CMD:-"scp"}
-REMOTE_HOST="$EP_SSH_CMD $EP_HOST -n"
-REMOTE_DEVICE="$EP_SSH_CMD $EP_DEVICE -n"
-EP_DEVICE_DIR=${EP_DEVICE_DIR:-/tmp/dao}
-EP_HOST_DIR=${EP_HOST_DIR:-/tmp/dao_host}
+EP_DIR=${EP_DIR:-/tmp/dao}
 PROJECT_ROOT=${PROJECT_ROOT:-$PWD}
 BUILD_DIR=${BUILD_DIR:-$PWD/build}
 BUILD_HOST_DIR=${BUILD_HOST_DIR:-$PWD/build_host}
@@ -39,92 +44,6 @@ function save_log()
 		cp $logfile $RUN_DIR/$save_name 2>/dev/null || true
 	else
 		cp $logfile $RUN_DIR/ 2>/dev/null || true
-	fi
-}
-
-function host_sync()
-{
-	local sync="rsync -azzh --delete"
-	if [[ -n $SKIP_EP_HOST_SYNC || -n $SKIP_SYNC || -n $NO_HOST ]]; then
-		echo "Skip syncing EP host files"
-		return
-	fi
-
-	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
-		echo "Cleanup EP host files"
-		$REMOTE_HOST "rm -rf $EP_HOST_DIR"
-	fi
-
-	echo "Syncing EP host files"
-	$REMOTE_HOST "mkdir -p $EP_HOST_DIR"
-	$sync -e "$EP_SSH_CMD" -r $BUILD_HOST_DIR/* $EP_HOST:$EP_HOST_DIR
-	$sync -e "$EP_SSH_CMD" -r --exclude "ci/test/dao-tests/*" \
-		$PROJECT_ROOT/ci $EP_HOST:$EP_HOST_DIR
-}
-
-function device_sync()
-{
-	local sync="rsync -azzh --delete"
-	if [[ -n $SKIP_EP_DEVICE_SYNC || -n $SKIP_SYNC ]]; then
-		echo "Skip syncing EP device files"
-		return
-	fi
-
-	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
-		echo "Cleanup EP device files"
-		$REMOTE_DEVICE "rm -rf $EP_DEVICE_DIR"
-	fi
-
-	echo "Syncing EP device files"
-	$REMOTE_DEVICE "mkdir -p $EP_DEVICE_DIR"
-	$sync -e "$EP_SSH_CMD" -r $BUILD_DIR/* $EP_DEVICE:$EP_DEVICE_DIR
-	$sync -e "$EP_SSH_CMD" -r --exclude "ci/test/dao-tests/*" \
-		$PROJECT_ROOT/ci $EP_DEVICE:$EP_DEVICE_DIR
-	$REMOTE_DEVICE "mkdir -p $EP_DEVICE_DIR/deps-prefix"
-	$sync -e "$EP_SSH_CMD" -r $DEPS_PREFIX/* $EP_DEVICE:$EP_DEVICE_DIR/deps-prefix
-}
-
-function device_setup()
-{
-	if [[ -n $SKIP_EP_DEVICE_SETUP || -n $SKIP_SETUP ]]; then
-		echo "Skip EP device setup"
-		return
-	fi
-
-	echo "Setting up EP device for suite $DAO_SUITE"
-
-	if [[ $DAO_SUITE == "dao-virtio" ]]; then
-		ep_device_op fw_cleanup
-		ep_device_op hugepage_setup
-		ep_device_op dpi_setup
-		ep_device_op pem_setup
-	elif [[ $DAO_SUITE == "dao-unit-tests" ]]; then
-		ep_device_op hugepage_setup
-	else
-		echo "Unknown Suite : $DAO_SUITE"
-		exit 1
-	fi
-}
-
-function host_setup()
-{
-	local device_part
-	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP || -n $NO_HOST ]]; then
-		echo "Skip EP host setup"
-		return
-	fi
-
-	echo "Setting up EP Host for suite $DAO_SUITE"
-	if [[ $DAO_SUITE == "dao-virtio" ]]; then
-		device_part=$(ep_device_op get_part)
-		ep_device_op_bg 4 fw_launch
-		ep_host_op hugepage_setup
-		ep_host_op vdpa_setup $device_part
-		sleep 5
-		ep_device_op fw_cleanup
-	else
-		echo "Unknown Suite : $DAO_SUITE"
-		exit 1
 	fi
 }
 
@@ -150,7 +69,8 @@ function run_test()
 	cmd=$(get_test_command $name)
 
 	curtime=$SECONDS
-	timeout --foreground -v -k 30 -s 3 $tmo $REMOTE_DEVICE "$cmd"
+	# Can't use ep_ssh_device_cmd here as we need to run the command under timeout
+	timeout --foreground -v -k 30 -s 3 $tmo $EP_SSH_CMD $EP_DEVICE -n "$cmd"
 	res=$?
 	echo -en "\n$name completed in $((SECONDS - curtime)) seconds ... "
 	if [[ $res -eq 0 ]]; then
@@ -207,26 +127,9 @@ function test_exit()
 	trap - TERM
 	trap - ERR
 	trap - QUIT
+	trap - EXIT
 
-	if [[ -z $NO_HOST ]]; then
-		ep_host_op safe_kill $EP_HOST_DIR
-	fi
-	ep_device_op safe_kill $EP_DEVICE_DIR
-
-	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP || -n $NO_HOST ]]; then
-		echo "Skip EP host cleanup"
-	else
-		local device_part=$(ep_device_op get_part)
-		echo "Cleaning up EP Host"
-		ep_host_op vdpa_cleanup $device_part
-	fi
-
-	if [[ -z $NO_HOST ]]; then
-		ep_host_ssh_cmd 'sudo dmesg' > host_dmesg.log
-		save_log host_dmesg.log
-	fi
-	ep_device_ssh_cmd 'sudo dmesg' > device_dmesg.log
-	save_log device_dmesg.log
+	${DAO_SUITE_CLEANUP["$DAO_SUITE"]}
 
 	echo "###########################################################"
 	echo "Run time: $((SECONDS / 60)) mins $((SECONDS % 60)) secs"
@@ -258,8 +161,8 @@ trap "sig_handler QUIT NONE" QUIT
 
 host_sync
 device_sync
-device_setup
-host_setup
+remote_sync
+${DAO_SUITE_SETUP["$DAO_SUITE"]}
 run_all_tests
 
 test_exit 0 "SUCCESS: Tests Completed"

@@ -23,10 +23,10 @@ function find_executable()
 	set -e
 	if [[ $bin != "" ]]; then
 		eval "$execvar"="$bin"
-		return
+		return 0
 	fi
 	echo "Cannot find $execname"
-	exit 1
+	return 1
 }
 
 function ep_ssh_cmd()
@@ -56,12 +56,21 @@ function ep_host_ssh_cmd()
 	ep_ssh_cmd EP_HOST false 0 "$cmd"
 }
 
+function ep_host_ssh_cmd_bg()
+{
+	local wait=$1
+	local cmd=$2
+
+	ep_ssh_cmd EP_HOST true $wait "$cmd 2>&1 &"
+}
+
 function ep_host_op()
 {
 	local op=$1
 	local args=${@:2}
+	local env="EP_HOST_MODULE_DIR=$EP_HOST_MODULE_DIR $EP_HOST=$EP_HOST EP_DIR=$EP_DIR"
 
-	ep_host_ssh_cmd "sudo EP_HOST_DIR=$EP_HOST_DIR $EP_HOST_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args"
+	ep_host_ssh_cmd "$EP_HOST_SUDO $env $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args"
 }
 
 function ep_host_op_bg()
@@ -69,8 +78,41 @@ function ep_host_op_bg()
 	local wait=$1
 	local op=$2
 	local args=${@:3}
+	local env="EP_HOST_MODULE_DIR=$EP_HOST_MODULE_DIR $EP_HOST=$EP_HOST EP_DIR=$EP_DIR"
 
-	ep_ssh_cmd EP_HOST true $wait "sudo EP_HOST_DIR=$EP_HOST_DIR nohup $EP_HOST_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args 2>&1 &"
+	ep_ssh_cmd EP_HOST true $wait "$EP_HOST_SUDO $env nohup $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args 2>&1 &"
+}
+
+function ep_remote_ssh_cmd()
+{
+	local cmd=$1
+
+	ep_ssh_cmd EP_REMOTE false 0 "$cmd"
+}
+
+function ep_remote_ssh_cmd_bg()
+{
+	local wait=$1
+	local cmd=$2
+
+	ep_ssh_cmd EP_REMOTE true $wait "$cmd 2>&1 &"
+}
+
+function ep_remote_op()
+{
+	local op=$1
+	local args=${@:2}
+
+	ep_remote_ssh_cmd "$EP_REMOTE_SUDO EP_DEVICE=$EP_REMOTE EP_DIR=$EP_DIR $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args"
+}
+
+function ep_remote_op_bg()
+{
+	local wait=$1
+	local op=$2
+	local args=${@:3}
+
+	ep_ssh_cmd EP_REMOTE true $wait "$EP_REMOTE_SUDO EP_DEVICE=$EP_REMOTE EP_DIR=$EP_DIR nohup $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
 }
 
 function ep_device_ssh_cmd()
@@ -80,12 +122,20 @@ function ep_device_ssh_cmd()
 	ep_ssh_cmd EP_DEVICE false 0 "$cmd"
 }
 
+function ep_device_ssh_cmd_bg()
+{
+	local wait=$1
+	local cmd=$2
+
+	ep_ssh_cmd EP_DEVICE true $wait "$cmd 2>&1 &"
+}
+
 function ep_device_op()
 {
 	local op=$1
 	local args=${@:2}
 
-	ep_device_ssh_cmd "sudo EP_DEVICE_DIR=$EP_DEVICE_DIR $EP_DEVICE_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args"
+	ep_device_ssh_cmd "$EP_DEVICE_SUDO EP_DEVICE=$EP_DEVICE EP_DIR=$EP_DIR $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args"
 }
 
 function ep_device_op_bg()
@@ -94,7 +144,7 @@ function ep_device_op_bg()
 	local op=$2
 	local args=${@:3}
 
-	ep_ssh_cmd EP_DEVICE true $wait "sudo EP_DEVICE_DIR=$EP_DEVICE_DIR nohup $EP_DEVICE_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
+	ep_ssh_cmd EP_DEVICE true $wait "$EP_DEVICE_SUDO EP_DEVICE=$EP_DEVICE EP_DIR=$EP_DIR nohup $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
 }
 
 function test_run()
@@ -151,6 +201,8 @@ function safe_kill()
 	local pattern=$@
 	local killpids
 	local ptree=$(get_process_tree)
+	local maxwait=5
+	local elapsed=0
 
 	# Safely kill all processes which has the pattern in 'ps -ef' but
 	# make sure that the current process tree is not affected.
@@ -158,10 +210,17 @@ function safe_kill()
 	killpids=$(ps -ef | grep "$pattern" | awk '{print $2}')
 	for p in $killpids; do
 		if ! $(echo $ptree | grep -qw $p); then
-			kill -9 $p > /dev/null 2>&1
+			elapsed=0
+			while $(kill -s TERM $p > /dev/null 2>&1); do
+				sleep 1
+				elapsed=$((elapsed + 1))
+				if [[ $elapsed == $maxwait ]]; then
+					kill -9 $p > /dev/null 2>&1
+					break
+				fi
+			done
 		fi
 	done
-	set -e
 }
 
 function file_offset()
@@ -179,4 +238,44 @@ function file_search_pattern()
 	local pattern=$3
 
 	tail -c +$skip_bytes $logfile | grep -q "$pattern"
+}
+
+function get_vf_pcie_addr()
+{
+	local pcie_addr=$1
+	local vf_idx=$2
+	local base
+	local device
+	local func
+
+	base=$(echo $pcie_addr | awk -F ':' '{print $1":"$2":"}')
+	device=$(printf "%02x" $((vf_idx / 8)))
+	func=$((vf_idx % 8))
+	echo "${base}${device}.${func}"
+}
+
+function form_split_args()
+{
+	local param=$1
+	local values=${@:2}
+	local args=""
+
+	for v in $values; do
+		args+="${param} $v "
+	done
+
+	echo $args
+}
+
+function pkill_with_wait()
+{
+	local proc=$1
+
+	set +e
+	pkill -9 $proc
+	set -e
+
+	while (ps -ef | grep -v grep | grep $proc &> /dev/null); do
+		sleep 1
+	done
 }
