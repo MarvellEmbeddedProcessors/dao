@@ -12,6 +12,7 @@ libraries = [
 	'netlink',
 	'pal',
 	'featurearc',
+	'flow'
 ]
 
 enabled = []

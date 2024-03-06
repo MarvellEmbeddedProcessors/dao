@@ -60,7 +60,6 @@ warning_flags = [
 if get_option('warning_level').to_int() >= 2
 	warning_flags += [
 		# additional warnings in alphabetical order
-		'-Wcast-qual',
 		'-Wdeprecated',
 		'-Wformat-nonliteral',
 		'-Wformat-security',

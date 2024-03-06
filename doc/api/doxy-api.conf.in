@@ -6,6 +6,7 @@ USE_MDFILE_AS_MAINPAGE  = @TOPDIR@/doxy-api-index.md
 
 INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/common \
+                          @TOPDIR@/../../lib/flow \
                           @TOPDIR@/../../lib/pem \
                           @TOPDIR@/../../lib/portgroup \
                           @TOPDIR@/../../lib/featurearc \

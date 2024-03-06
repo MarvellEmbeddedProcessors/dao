@@ -33,6 +33,9 @@ The public API headers are grouped by topics
   - [portq_group]         (@ref dao_portq_group.h)
   - [portq_group_worker]  (@ref dao_portq_group_worker.h)
 
+- **flow**
+  - [flow]                (@ref dao_flow.h)
+
 - **dma helper**
   - [dma helper]          (@ref dao_dma.h)
 
