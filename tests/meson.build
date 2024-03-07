@@ -5,6 +5,7 @@ tests = [
 	'bar-rw',
 	'dpi_test',
 	'virtio-extbuf',
+	'flow-offload',
 ]
 
 # Mandatory dependency
