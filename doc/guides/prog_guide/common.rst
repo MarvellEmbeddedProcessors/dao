@@ -30,3 +30,8 @@ DAO DMA
 -------
 DAO DMA library was an abstract layer between DPDK DMA PMD and Virtio application.
 Provides set of APIs to handle different DMA operations.
+
+DAO Bitmap Helper
+-----------------
+DAO bitmap helper provides abstracted APIs to setup a bitmap, get a free index and
+return the index back to bitmap.

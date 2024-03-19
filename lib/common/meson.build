@@ -11,12 +11,14 @@ configure_file(
 
 sources = files(
 	'dma.c',
+	'dao_bitmap.c',
 	'dao_log.c',
 	'dao_util.c',
 	'dao_dynamic_string.c'
 )
 
 headers = files(
+	'dao_bitmap.h',
 	'dao_dma.h',
 	'dao_log.h',
 	'dao_util.h',
