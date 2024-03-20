@@ -35,6 +35,8 @@ sources += files(
 	'nodes/net/ip4/ip4_local.c',
 	'nodes/net/ip4/ip4_rewrite.c',
 	'nodes/net/classifier/pkt_cls.c',
+	'nodes/net/ipsec/ipsec.c',
+	'nodes/net/ipsec/ipsec_policy_output.c',
 )
 
 includes += include_directories(['.'])

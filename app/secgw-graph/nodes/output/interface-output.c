@@ -9,13 +9,13 @@ typedef struct {
 } secgw_interface_out_node_ctx_t;
 
 static __rte_always_inline uint16_t
-secgw_interface_out_node_process_func(struct rte_graph *graph, struct rte_node *node,
-				      void **objs, uint16_t nb_objs)
+secgw_interface_out_node_process_func(struct rte_graph *graph, struct rte_node *node, void **objs,
+				      uint16_t nb_objs)
 {
 	secgw_interface_out_node_ctx_t *ctx = (secgw_interface_out_node_ctx_t *)node->ctx;
 	uint16_t next0, n_left, last_next_index, last_spec = 0, held = 0;
 	secgw_mbuf_dynfield_t *dyn = NULL;
-	struct rte_mbuf **bufs, *mbuf0;
+	struct rte_mbuf **bufs, *mbuf;
 	void **from, **to_next;
 
 	last_next_index = ctx->last_next_index;
@@ -29,11 +29,11 @@ secgw_interface_out_node_process_func(struct rte_graph *graph, struct rte_node *
 		if (n_left > 2)
 			rte_prefetch0(bufs[0]);
 
-		mbuf0 = bufs[0];
-		dyn = secgw_mbuf_dynfield(mbuf0);
+		mbuf = bufs[0];
+		dyn = secgw_mbuf_dynfield(mbuf);
 
 		next0 = (uint16_t)SECGW_EGRESS_PORT(dyn);
-
+		secgw_print_mbuf(graph, node, mbuf, -1, NULL, 1, 1);
 		if (unlikely(next0 != last_next_index)) {
 			rte_memcpy(to_next, from, last_spec * sizeof(from[0]));
 			from += last_spec;

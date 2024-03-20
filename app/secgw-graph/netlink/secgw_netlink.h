@@ -8,7 +8,7 @@
 #include <arpa/inet.h>
 #include <nodes/node_api.h>
 
-#define SECGW_NL_DBG dao_info
+#define SECGW_NL_DBG dao_dbg
 /**
  * A neigh entry
  */

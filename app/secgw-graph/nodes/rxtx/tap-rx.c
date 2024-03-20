@@ -14,7 +14,6 @@ secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node, vo
 			      uint16_t nb_objs)
 {
 	secgw_taprx_node_ctx_t *senc = (secgw_taprx_node_ctx_t *)node->ctx;
-	secgw_mbuf_dynfield_t *dynfield = NULL;
 	uint16_t n_pkts, total_pkts = 0, n;
 	dao_portq_t *portq = NULL;
 	struct rte_eth_link link;
@@ -48,9 +47,8 @@ secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node, vo
 			if (n > 2)
 				rte_prefetch0(bufs[2]);
 
-			/* fill rx port  in dynamic field */
-			dynfield = secgw_mbuf_dynfield(bufs[0]);
-			SECGW_INGRESS_PORT(dynfield) = portq->port_id;
+			SECGW_MBUF_INGRESS_PORT(bufs[0]) = portq->port_id;
+			SECGW_MBUF_FEATURE(bufs[0]) = DAO_GRAPH_FEATURE_INVALID_VALUE;
 			n--;
 			bufs++;
 		}
@@ -93,11 +91,13 @@ secgw_taprx_node_init_func(const struct rte_graph *graph, struct rte_node *node)
 	/* validate */
 	worker_index = dao_workers_worker_index_get(senc->worker);
 	dao_ds_put_format(&pv_str, "W%u: Tap-rx-node Polling Vector: ", worker_index);
-	DAO_PORTQ_GROUP_FOREACH_CORE(senc->portq_group, worker_index, portq, iter) {
+
+	DAO_PORTQ_GROUP_FOREACH_CORE(senc->portq_group, worker_index, portq, iter)
 		dao_ds_put_format(&pv_str, "[P%d, Q%d], ", portq->port_id, portq->rq_id);
-	}
+
 	dao_info("%s", dao_ds_cstr(&pv_str));
 	dao_ds_destroy(&pv_str);
+
 	return 0;
 }
 

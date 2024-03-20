@@ -85,7 +85,7 @@ secgw_tap_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 		overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu));
 
 	if (ptap_conf->rxmode.mtu > RTE_ETHER_MTU) {
-		//conf->txmode.offloads |= RTE_ETH_TX_OFFLOAD_MULTI_SEGS;
+		// conf->txmode.offloads |= RTE_ETH_TX_OFFLOAD_MULTI_SEGS;
 		dao_dbg("multi-seg offload enabled");
 	}
 	if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
@@ -107,6 +107,9 @@ secgw_tap_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 	if (rc < 0)
 		DAO_ERR_GOTO(rc, dev_configure_fail, "%s: tap_dev_configure() failed with err: %d",
 			     sdev->dev_name, rc);
+
+	sdev->dpdk_rx_offload_flags = ptap_conf->rxmode.offloads;
+	sdev->dpdk_tx_offload_flags = ptap_conf->txmode.offloads;
 
 	return 0;
 
@@ -231,20 +234,18 @@ secgw_register_tap(secgw_device_t **ppdev, secgw_device_register_conf_t *conf)
 
 	/** Create port_group for first tap seen */
 	if (tap_dpg == DAO_PORT_GROUP_INITIALIZER) {
-		if (dao_port_group_create(
-			conf->name, conf->total_devices, &tap_dpg) < 0) {
+		if (dao_port_group_create(conf->name, conf->total_devices, &tap_dpg) < 0) {
 			dao_err("port_group %s create failed", conf->name);
 			return -1;
 		}
-		dao_dbg("port_group \"%s\" created with num_devices: %u",
-			conf->name, conf->total_devices);
+		dao_dbg("port_group \"%s\" created with num_devices: %u", conf->name,
+			conf->total_devices);
 	}
 
 	if (tap_dpq == DAO_PORTQ_GROUP_INITIALIZER) {
 		/** Create portq group for tap based graph node */
 		if (dao_portq_group_create(conf->name, conf->num_workers,
-					   conf->num_workers *
-					   conf->total_devices, &tap_dpq) < 0) {
+					   conf->num_workers * conf->total_devices, &tap_dpq) < 0) {
 			dao_err("port_queue_group %s create failed", conf->name);
 			return -1;
 		}
@@ -259,7 +260,7 @@ secgw_register_tap(secgw_device_t **ppdev, secgw_device_register_conf_t *conf)
 
 	dao_port_group_port_get_num(tap_dpg, &port_num);
 
-	snprintf(sdev->dev_name, SECGW_DEVICE_NAMELEN, "%s%d", conf->name, port_num);
+	snprintf(sdev->dev_name, SECGW_DEVICE_NAMELEN, "%s%d", conf->device_prefix_name, port_num);
 
 	rc = secgw_tap_configure(sdev, conf);
 	if (rc < 0) {
@@ -275,8 +276,7 @@ secgw_register_tap(secgw_device_t **ppdev, secgw_device_register_conf_t *conf)
 	}
 	dao_dbg("Queue setup done for: %s", sdev->dev_name);
 
-	rc = dao_port_group_port_add(sdev->port_group,
-				     (dao_port_t)sdev->device_index,
+	rc = dao_port_group_port_add(sdev->port_group, (dao_port_t)sdev->device_index,
 				     &sdev->port_index);
 	if (rc < 0) {
 		dao_err("dao_port_group_port_add fails");
@@ -313,8 +313,8 @@ secgw_register_active_tap(secgw_device_t *sdev, uint32_t num_workers)
 		dao_err("tap portq group not initialized");
 		return -1;
 	}
-	dao_dbg("activa_tap: %s, dp_port_id: %u, di: %u", sdev->dev_name,
-		sdev->dp_port_id, sdev->device_index);
+	dao_dbg("activa_tap: %s, dp_port_id: %u, di: %u", sdev->dev_name, sdev->dp_port_id,
+		sdev->device_index);
 
 	edev = secgw_tap_cast(sdev);
 	for (iter = 0; iter < RTE_MIN(num_workers, edev->n_rxq); iter++) {
@@ -324,8 +324,8 @@ secgw_register_active_tap(secgw_device_t *sdev, uint32_t num_workers)
 			dao_err("portq group add[%u, %u] failed", portq.port_id, portq.rq_id);
 			continue;
 		}
-		dao_dbg("portq group [%u, %u] added to core: %d at index : %u",
-			portq.port_id, portq.rq_id, iter, index);
+		dao_dbg("portq group [%u, %u] added to core: %d at index : %u", portq.port_id,
+			portq.rq_id, iter, index);
 	}
 	sdev->tx_node = secgw_taptx_node_get();
 	sdev->rx_node = secgw_taprx_node_get();

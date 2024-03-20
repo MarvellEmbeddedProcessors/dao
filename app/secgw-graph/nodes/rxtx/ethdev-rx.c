@@ -16,7 +16,6 @@ secgw_ethdevrx_node_process_func(struct rte_graph *graph, struct rte_node *node,
 				 uint16_t nb_objs)
 {
 	secgw_ethdev_node_ctx_t *senc = (secgw_ethdev_node_ctx_t *)node->ctx;
-	secgw_mbuf_dynfield_t *dynfield = NULL;
 	uint32_t n_pkts, total_pkts = 0, n;
 	dao_portq_t *portq = NULL;
 	struct rte_mbuf **bufs;
@@ -42,10 +41,8 @@ secgw_ethdevrx_node_process_func(struct rte_graph *graph, struct rte_node *node,
 			if (n > 2)
 				rte_prefetch0(bufs[2]);
 
-			/* fill sdev device_index in dynamic field */
-			dynfield = secgw_mbuf_dynfield(bufs[0]);
-			SECGW_INGRESS_PORT(dynfield) = portq->port_id;
-
+			SECGW_MBUF_INGRESS_PORT(bufs[0]) = portq->port_id;
+			SECGW_MBUF_FEATURE(bufs[0]) = DAO_GRAPH_FEATURE_INVALID_VALUE;
 			n--;
 			bufs++;
 		}

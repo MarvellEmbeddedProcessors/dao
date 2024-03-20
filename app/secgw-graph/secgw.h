@@ -5,18 +5,30 @@
 #ifndef _APP_SECGW_GRAPH_SECGW_H_
 #define _APP_SECGW_GRAPH_SECGW_H_
 
-#include <errno.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stddef.h>
-#include <signal.h>
 #include <assert.h>
+#include <errno.h>
+#include <signal.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
 
-#include <rte_config.h>
+#include <rte_atomic.h>
+#include <rte_bitmap.h>
+#include <rte_byteorder.h>
 #include <rte_common.h>
+#include <rte_compat.h>
+#include <rte_config.h>
 #include <rte_cycles.h>
-#include <rte_spinlock.h>
+#include <rte_ethdev.h>
+#include <rte_ether.h>
+#include <rte_hexdump.h>
+#include <rte_ipsec.h>
+#include <rte_malloc.h>
+#include <rte_pmd_cnxk.h>
+
+#include <rte_crypto_sym.h>
+#include <rte_cycles.h>
 #include <rte_eal.h>
 #include <rte_graph.h>
 #include <rte_graph_worker.h>
@@ -30,24 +42,25 @@
 #include <rte_memzone.h>
 #include <rte_per_lcore.h>
 #include <rte_prefetch.h>
-#include <rte_ethdev.h>
-#include <rte_crypto_sym.h>
-#include <rte_security.h>
+#include <rte_spinlock.h>
 
 #include <dao_log.h>
 #include <dao_util.h>
 
-#include <dao_port_group.h>
-#include <dao_portq_group_worker.h>
-#include <dao_workers.h>
-#include <dao_netlink.h>
 #include <dao_dynamic_string.h>
 #include <dao_graph_feature_arc.h>
 #include <dao_graph_feature_arc_worker.h>
+#include <dao_netlink.h>
+#include <dao_port_group.h>
+#include <dao_portq_group_worker.h>
+#include <dao_workers.h>
 
 #include <devices/secgw_device.h>
 
-#define secgw_dbg	dao_dbg
+#define secgw_dbg dao_dbg
+#define secgw_info dao_info
+#define secgw_err dao_err
+
 typedef struct secgw_numa_id {
 	STAILQ_ENTRY(secgw_numa_id) next_numa_id;
 	int numa_id;
@@ -62,7 +75,7 @@ typedef struct {
 	secgw_device_main_t device_main;
 
 	/* List of numa nodes supported by system */
-	STAILQ_HEAD(, secgw_numa_id)secgw_main_numa_list;
+	STAILQ_HEAD(, secgw_numa_id) secgw_main_numa_list;
 } secgw_main_t;
 
 /* External function declarations */
@@ -81,12 +94,14 @@ secgw_main_exit_requested(secgw_main_t *em)
 	return em->datapath_exit_requested;
 }
 
-static inline secgw_main_t *secgw_get_main(void)
+static inline secgw_main_t *
+secgw_get_main(void)
 {
 	return __secgw_main;
 }
 
-static inline secgw_device_main_t *secgw_get_device_main(void)
+static inline secgw_device_main_t *
+secgw_get_device_main(void)
 {
 	secgw_main_t *em = __secgw_main;
 
@@ -96,19 +111,27 @@ static inline secgw_device_main_t *secgw_get_device_main(void)
 	return NULL;
 }
 
-static inline int32_t secgw_num_devices_get(void)
+static inline int32_t
+secgw_num_devices_get(void)
 {
 	secgw_device_main_t *sdm = secgw_get_device_main();
 
-	return sdm->n_devices;
+	if (sdm)
+		return sdm->n_devices;
+	else
+		return 0;
 }
 
-static inline secgw_device_t *secgw_get_device(uint32_t index_in_device_main)
+static inline secgw_device_t *
+secgw_get_device(uint32_t index_in_device_main)
 {
 	secgw_device_main_t *sdm = secgw_get_device_main();
 
-	RTE_VERIFY(index_in_device_main < (uint32_t)sdm->n_devices);
-
-	return sdm->devices[index_in_device_main];
+	if (sdm) {
+		RTE_VERIFY(index_in_device_main < (uint32_t)sdm->n_devices);
+		return sdm->devices[index_in_device_main];
+	} else {
+		return NULL;
+	}
 }
 #endif

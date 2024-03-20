@@ -5,8 +5,39 @@
 #ifndef __APP_SECGW_GRAPH_NODES_NET_NODE_PRIV_H__
 #define __APP_SECGW_GRAPH_NODES_NET_NODE_PRIV_H__
 
-#include <dao_log.h>
+#include <rte_bitmap.h>
+#include <rte_bitops.h>
 #include <rte_common.h>
+#include <rte_config.h>
+#include <rte_crypto_sym.h>
+#include <rte_cycles.h>
+#include <rte_eal.h>
+#include <rte_ethdev.h>
+#include <rte_graph.h>
+#include <rte_graph_worker.h>
+#include <rte_launch.h>
+#include <rte_lcore.h>
+#include <rte_log.h>
+#include <rte_malloc.h>
+#include <rte_memcpy.h>
+#include <rte_memory.h>
+#include <rte_memzone.h>
+#include <rte_per_lcore.h>
+#include <rte_prefetch.h>
+#include <rte_security.h>
+#include <rte_spinlock.h>
+
+#include <dao_log.h>
+#include <dao_util.h>
+
+#include <dao_dynamic_string.h>
+#include <dao_graph_feature_arc.h>
+#include <dao_graph_feature_arc_worker.h>
+#include <dao_netlink.h>
+#include <dao_port_group.h>
+#include <dao_portq_group_worker.h>
+#include <dao_workers.h>
+
 #include <rte_mbuf.h>
 #include <rte_mbuf_dyn.h>
 

@@ -43,8 +43,8 @@ static uint16_t
 secgw_ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *node, void **objs,
 				    uint16_t nb_objs)
 {
-	uint16_t next0, n_left, last_next_index, last_spec = 0, held = 0;
 	secgw_ip4_local_node_ctx_t *ctx = (secgw_ip4_local_node_ctx_t *)node->ctx;
+	uint16_t next0, n_left, last_next_index, last_spec = 0, held = 0;
 	dao_graph_feature_t feature = DAO_GRAPH_FEATURE_INVALID_VALUE;
 	rte_edge_t edge = SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP;
 	struct dao_graph_feature_arc *arc = NULL;
@@ -53,6 +53,9 @@ secgw_ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *no
 	void **from, **to_next;
 	uint32_t rx_port;
 	int64_t data;
+#ifdef SECGW_DEBUG_PKT_TRACE
+	char __pkt_trace[1024], *pkt_trace = NULL;
+#endif
 
 	last_next_index = ctx->last_next_index;
 	bufs = (struct rte_mbuf **)objs;
@@ -72,14 +75,21 @@ secgw_ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *no
 
 		next0 = SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP;
 
+#ifdef SECGW_DEBUG_PKT_TRACE
+		pkt_trace = NULL;
+#endif
 		if (dao_graph_feature_arc_has_feature(arc, rx_port, &feature)) {
 			dao_graph_feature_arc_first_feature_data_get(arc, feature, rx_port, &edge,
 								     &data);
-			node_debug("ip_local: itf: %u, feature slot : %d enabled at edge: %u",
-				   rx_port, feature, edge);
 			next0 = edge;
+#ifdef SECGW_DEBUG_PKT_TRACE
+			pkt_trace = __pkt_trace;
+			sprintf(pkt_trace, "feature slot: %u at edge: %u", feature, edge);
 		}
-
+		secgw_print_mbuf(graph, node, mbuf0, next0, pkt_trace, 0, 0);
+#else
+		}
+#endif
 		if (unlikely(next0 != last_next_index)) {
 			rte_memcpy(to_next, from, last_spec * sizeof(from[0]));
 			from += last_spec;

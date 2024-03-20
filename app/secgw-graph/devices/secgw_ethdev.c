@@ -48,6 +48,10 @@ secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 	static struct rte_eth_conf secgw_def_port_conf = {
 		.rxmode = {
 				.mq_mode = RTE_ETH_MQ_RX_RSS,
+				.offloads = RTE_ETH_RX_OFFLOAD_IPV4_CKSUM |
+					    RTE_ETH_RX_OFFLOAD_UDP_CKSUM |
+					    RTE_ETH_RX_OFFLOAD_TCP_CKSUM |
+					    RTE_ETH_RX_OFFLOAD_SECURITY
 			},
 		.rx_adv_conf = {
 				.rss_conf = {
@@ -57,6 +61,10 @@ secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 			},
 		.txmode = {
 				.mq_mode = RTE_ETH_MQ_TX_NONE,
+				.offloads = RTE_ETH_TX_OFFLOAD_IPV4_CKSUM |
+					    RTE_ETH_TX_OFFLOAD_UDP_CKSUM |
+					    RTE_ETH_TX_OFFLOAD_TCP_CKSUM |
+					    RTE_ETH_TX_OFFLOAD_SECURITY
 			},
 	};
 	const struct rte_security_capability *caps, *cap;
@@ -76,22 +84,26 @@ secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 	/* get underlying dp port id and get device_info */
 	rte_eth_dev_info_get(sdev->dp_port_id, &dev_info);
 
+	dao_info("%s: Rx/Tx offloads capa: [0x%lx, 0x%lx]", sdev->dev_name,
+		 dev_info.rx_offload_capa, dev_info.tx_offload_capa);
+
 	memcpy(peth_conf, &secgw_def_port_conf, sizeof(struct rte_eth_conf));
+
+	/* Common offloads b/w device capability and what we want */
+	peth_conf->txmode.offloads &= dev_info.tx_offload_capa;
+	peth_conf->rxmode.offloads &= dev_info.rx_offload_capa;
 
 	/* Set rx_pktlen and MTU in peth_conf->*/
 	rx_pktlen = RTE_MIN((uint32_t)RTE_ETHER_MAX_LEN /*TODO*/, dev_info.max_rx_pktlen);
-
 	peth_conf->rxmode.mtu = rx_pktlen - overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu);
 
-	dao_dbg("rxmode.mtu: %u, rx_pktlen: %u, ovrhd_len: %u", peth_conf->rxmode.mtu, rx_pktlen,
+	dao_dbg("%s: rxmode.mtu: %u, rx_pktlen: %u, ovrhd_len: %u",
+		sdev->dev_name, peth_conf->rxmode.mtu, rx_pktlen,
 		overhead_len(dev_info.max_rx_pktlen, dev_info.max_mtu));
 
-	if (peth_conf->rxmode.mtu > RTE_ETHER_MTU) {
-		//conf->txmode.offloads |= RTE_ETH_TX_OFFLOAD_MULTI_SEGS;
-		dao_dbg("multi-seg offload enabled");
-	}
-	if (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE)
-		peth_conf->txmode.offloads |= RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+	/* For now disable multi-seg and fast free */
+	peth_conf->txmode.offloads &= ~RTE_ETH_TX_OFFLOAD_MULTI_SEGS;
+	peth_conf->txmode.offloads &= ~RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
 
 	peth_conf->rx_adv_conf.rss_conf.rss_hf &= dev_info.flow_type_rss_offloads;
 
@@ -105,8 +117,8 @@ secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 	ethdev->n_rxq_desc = conf->num_rx_desc;
 
 	/* Check rte_security offloads */
-	if ((dev_info.rx_offload_capa & RTE_ETH_RX_OFFLOAD_SECURITY) &&
-	    (dev_info.tx_offload_capa & RTE_ETH_TX_OFFLOAD_SECURITY)) {
+	if ((peth_conf->rxmode.offloads & RTE_ETH_RX_OFFLOAD_SECURITY) &&
+	    (peth_conf->txmode.offloads & RTE_ETH_TX_OFFLOAD_SECURITY)) {
 		sec_ctx = rte_eth_dev_get_sec_ctx(sdev->dp_port_id);
 		caps = rte_security_capabilities_get(sec_ctx);
 
@@ -118,7 +130,7 @@ secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 			    (cap->ipsec.proto == RTE_SECURITY_IPSEC_SA_PROTO_ESP) &&
 			    (cap->ipsec.direction == RTE_SECURITY_IPSEC_SA_DIR_INGRESS) &&
 			    (cap->ipsec.mode == RTE_SECURITY_IPSEC_SA_MODE_TUNNEL)) {
-				//peth_conf->rxmode.offloads |= RTE_ETH_RX_OFFLOAD_SECURITY;
+				sdev->device_flags |= SECGW_HW_RX_OFFLOAD_INLINE_IPSEC;
 				dao_dbg("%s supports inline Rx ESP offload", sdev->dev_name);
 			}
 			/*
@@ -128,16 +140,35 @@ secgw_ethdev_configure(secgw_device_t *sdev, secgw_device_register_conf_t *conf)
 			    (cap->ipsec.proto == RTE_SECURITY_IPSEC_SA_PROTO_ESP) &&
 			    (cap->ipsec.direction == RTE_SECURITY_IPSEC_SA_DIR_EGRESS) &&
 			    (cap->ipsec.mode == RTE_SECURITY_IPSEC_SA_MODE_TUNNEL)) {
-				//peth_conf->txmode.offloads |= RTE_ETH_TX_OFFLOAD_SECURITY;
+				sdev->device_flags |= SECGW_HW_TX_OFFLOAD_INLINE_IPSEC;
 				dao_dbg("%s supports inline Rx ESP offload", sdev->dev_name);
 			}
 		}
 	}
+retry_configure:
 	/* configure device */
 	rc = rte_eth_dev_configure(sdev->dp_port_id, ethdev->n_rxq, ethdev->n_txq, peth_conf);
-	if (rc < 0)
+	if (rc < 0) {
+		dao_err(" %s configure failed with rxoffload: 0x%lx, txoffload: 0x%lx",
+			sdev->dev_name, peth_conf->rxmode.offloads, peth_conf->txmode.offloads);
+		if ((peth_conf->txmode.offloads & RTE_ETH_TX_OFFLOAD_SECURITY) ||
+		    (peth_conf->txmode.offloads & RTE_ETH_TX_OFFLOAD_SECURITY)) {
+			peth_conf->txmode.offloads &= ~RTE_ETH_TX_OFFLOAD_SECURITY;
+			peth_conf->rxmode.offloads &= ~RTE_ETH_RX_OFFLOAD_SECURITY;
+			sdev->device_flags &= ~SECGW_HW_RX_OFFLOAD_INLINE_IPSEC;
+			sdev->device_flags &= ~SECGW_HW_TX_OFFLOAD_INLINE_IPSEC;
+			dao_err("retrying %s configure with rxofflaod: [0x%lx, txoffload: 0x%lx]",
+				sdev->dev_name, peth_conf->rxmode.offloads,
+				peth_conf->txmode.offloads);
+			goto retry_configure;
+		}
 		DAO_ERR_GOTO(rc, dev_configure_fail, "%s: eth_dev_configure() failed with err: %d",
 			     sdev->dev_name, rc);
+	}
+	sdev->dpdk_rx_offload_flags = peth_conf->rxmode.offloads;
+	sdev->dpdk_tx_offload_flags = peth_conf->txmode.offloads;
+	dao_info("%s configured with Rx/Tx offloads [0x%lx, 0x%lx], Flags: 0x%x", sdev->dev_name,
+		 sdev->dpdk_rx_offload_flags, sdev->dpdk_tx_offload_flags, sdev->device_flags);
 	return 0;
 
 dev_configure_fail:
@@ -158,7 +189,12 @@ secgw_ethdev_queue_setup(secgw_device_t *sdev)
 	dao_dbg("Configuring queue setup for (%d): %s", sdev->dp_port_id, sdev->dev_name);
 
 	/* Fetch app specific device structure */
+	if (!sdev)
+		return -1;
+
 	ethdev = secgw_ethdev_cast(sdev);
+	if (!ethdev)
+		return -1;
 
 	/* get underlying dp port id and get device_info */
 	rte_eth_dev_info_get(sdev->dp_port_id, &dev_info);
@@ -211,13 +247,12 @@ secgw_ethdev_alloc(void)
 	secgw_ethdev_t *ethdev = NULL;
 
 	ethdev = malloc(sizeof(secgw_ethdev_t));
-	if (!ethdev) {
-		dao_err("secge_ethdev alloc fails");
-		return NULL;
+	if (ethdev) {
+		memset(ethdev, 0, sizeof(*ethdev));
+		return &ethdev->sdev;
 	}
-	memset(ethdev, 0, sizeof(*ethdev));
-
-	return &ethdev->sdev;
+	dao_err("secge_ethdev alloc fails");
+	return NULL;
 }
 
 static int
@@ -267,13 +302,12 @@ secgw_register_ethdev(secgw_device_t **ppdev, secgw_device_register_conf_t *conf
 
 	/** Create port_group for first ethdev seen */
 	if (ethdev_dpg == DAO_PORT_GROUP_INITIALIZER) {
-		if (dao_port_group_create(
-			conf->name, conf->total_devices, &ethdev_dpg) < 0) {
+		if (dao_port_group_create(conf->name, conf->total_devices, &ethdev_dpg) < 0) {
 			dao_err("port_group %s create failed", conf->name);
 			return -1;
 		}
-		dao_dbg("port_group \"%s\" created with num_devices: %u",
-			conf->name, conf->total_devices);
+		dao_dbg("port_group \"%s\" created with num_devices: %u", conf->name,
+			conf->total_devices);
 	}
 
 	if (ethdev_dpq == DAO_PORTQ_GROUP_INITIALIZER) {
@@ -295,7 +329,7 @@ secgw_register_ethdev(secgw_device_t **ppdev, secgw_device_register_conf_t *conf
 
 	dao_port_group_port_get_num(ethdev_dpg, &port_num);
 
-	snprintf(sdev->dev_name, SECGW_DEVICE_NAMELEN, "%s-%d", conf->name, port_num);
+	snprintf(sdev->dev_name, SECGW_DEVICE_NAMELEN, "%s-%d", conf->device_prefix_name, port_num);
 
 	rc = secgw_ethdev_configure(sdev, conf);
 	if (rc < 0) {
@@ -319,12 +353,11 @@ secgw_register_ethdev(secgw_device_t **ppdev, secgw_device_register_conf_t *conf
 			dao_err("portq group add[%u, %u] failed", portq.port_id, portq.rq_id);
 			continue;
 		}
-		dao_dbg("portq group [%u, %u] added to core: %d at index: %u",
-			portq.port_id, portq.rq_id, iter, index);
+		dao_dbg("portq group [%u, %u] added to core: %d at index: %u", portq.port_id,
+			portq.rq_id, iter, index);
 	}
 
-	rc = dao_port_group_port_add(sdev->port_group,
-				     (dao_port_t)sdev->device_index,
+	rc = dao_port_group_port_add(sdev->port_group, (dao_port_t)sdev->device_index,
 				     &sdev->port_index);
 	if (rc < 0) {
 		dao_err("dao_port_group_port_add fails");

@@ -7,13 +7,23 @@
 struct rte_node_register *secgw_errordrop_node_get(void);
 
 static __rte_always_inline uint16_t
-secgw_errordrop_node_process_func(struct rte_graph *graph, struct rte_node *node,
-				  void **objs, uint16_t nb_objs)
+secgw_errordrop_node_process_func(struct rte_graph *graph, struct rte_node *node, void **objs,
+				  uint16_t nb_objs)
 {
+#ifdef SECGW_DEBUG_PKT_TRACE
+	struct rte_mbuf *mbuf = NULL;
+	uint16_t n_left = 0;
+#endif
 	uint32_t rx_port;
 
 	RTE_SET_USED(graph);
 	RTE_SET_USED(node);
+#ifdef SECGW_DEBUG_PKT_TRACE
+	while (n_left < nb_objs) {
+		mbuf = (struct rte_mbuf *)objs[n_left++];
+		secgw_print_mbuf(graph, node, mbuf, -1, NULL, 0, 1);
+	}
+#endif
 
 	rx_port = SECGW_INGRESS_PORT(secgw_mbuf_dynfield((struct rte_mbuf *)objs[0]));
 	rte_pktmbuf_free_bulk((struct rte_mbuf **)objs, nb_objs);

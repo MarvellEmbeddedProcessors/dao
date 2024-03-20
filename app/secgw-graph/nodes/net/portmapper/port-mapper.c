@@ -6,15 +6,15 @@
 
 struct rte_node_register *secgw_portmapper_node_get(void);
 
-#define foreach_port_mapper_node_next_index		\
-	_(ERROR_DROP,  "secgw_error-drop")		\
-	_(IFACE_OUT,  "secgw_interface-output")		\
+#define foreach_port_mapper_node_next_index                                                        \
+	_(ERROR_DROP, "secgw_error-drop")                                                          \
+	_(IFACE_OUT, "secgw_interface-output")
 
 typedef enum {
 #define _(m, s) PORT_MAPPER_NEXT_NODE_##m,
 	foreach_port_mapper_node_next_index
 #undef _
-	PORT_MAPPER_MAX_NEXT_NODES,
+		PORT_MAPPER_MAX_NEXT_NODES,
 } port_mapper_next_nodes_t;
 
 typedef struct {
@@ -22,8 +22,8 @@ typedef struct {
 } secgw_portmapper_node_ctx_t;
 
 static __rte_always_inline uint16_t
-secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *node,
-				   void **objs, uint16_t nb_objs)
+secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *node, void **objs,
+				   uint16_t nb_objs)
 {
 	secgw_portmapper_node_ctx_t *ctx = (secgw_portmapper_node_ctx_t *)node->ctx;
 	uint16_t next0, n_left, last_next_index, last_spec = 0, held = 0;
@@ -49,11 +49,12 @@ secgw_portmapper_node_process_func(struct rte_graph *graph, struct rte_node *nod
 		rx_port = SECGW_INGRESS_PORT(dyn);
 		sdev = secgw_get_device(rx_port);
 
-		next0 = (sdev->paired_device_index == -1) ? PORT_MAPPER_NEXT_NODE_ERROR_DROP
-							  : PORT_MAPPER_NEXT_NODE_IFACE_OUT;
+		next0 = (sdev->paired_device_index == -1) ? PORT_MAPPER_NEXT_NODE_ERROR_DROP :
+							    PORT_MAPPER_NEXT_NODE_IFACE_OUT;
 
 		/* swap with paired device */
 		SECGW_EGRESS_PORT(dyn) = sdev->paired_device_index;
+		// secgw_print_mbuf(graph, node, mbuf0, next0, NULL, 1, 0);
 
 		if (unlikely(next0 != last_next_index)) {
 			rte_memcpy(to_next, from, last_spec * sizeof(from[0]));

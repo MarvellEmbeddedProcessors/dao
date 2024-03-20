@@ -28,7 +28,8 @@ start_devices(void)
 	if (dao_port_group_get_by_name(SECGW_ETHDEV_PORT_GROUP_NAME, &edpg) < 0)
 		return -1;
 
-	DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter) {
+	DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter)
+	{
 		sdev = secgw_get_device(port);
 
 		rte_eth_dev_start(sdev->dp_port_id);
@@ -40,7 +41,8 @@ start_devices(void)
 	if (dao_port_group_get_by_name(SECGW_TAP_PORT_GROUP_NAME, &edpg) < 0)
 		return -1;
 
-	DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter) {
+	DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter)
+	{
 		sdev = secgw_get_device(port);
 
 		rte_eth_dev_start(sdev->dp_port_id);
@@ -89,12 +91,19 @@ connect_interface_output_next_nodes(void)
 static int
 register_devices(void)
 {
+	char _dev_name[36], deviceid_name[64], *tstr = NULL;
 	secgw_device_main_t *sdm = secgw_get_device_main();
 	secgw_device_register_conf_t dev_reg_conf = {0};
 	uint16_t iter = 0, total_devices;
 	struct rte_eth_dev_info devinfo;
 	secgw_device_t *sdev = NULL;
+	char *dev_name = NULL;
+	int rc = -1;
 
+	if (!sdm)
+		return -1;
+
+	dev_name = (char *)_dev_name;
 	total_devices = rte_eth_dev_count_avail();
 	dao_dbg("Total available devices: %d detected", total_devices);
 
@@ -134,6 +143,7 @@ register_devices(void)
 
 		if (strstr(devinfo.driver_name, "tap")) {
 			dev_reg_conf.name = (const char *)SECGW_TAP_PORT_GROUP_NAME;
+			dev_reg_conf.device_prefix_name = (const char *)SECGW_TAP_PORT_GROUP_NAME;
 			/*
 			 * tap driver insist to have equal number of rxqs and txqs
 			 * So no tap queue for Main-core for now
@@ -147,28 +157,52 @@ register_devices(void)
 			}
 		} else {
 			dev_reg_conf.name = (const char *)SECGW_ETHDEV_PORT_GROUP_NAME;
+			dev_reg_conf.device_prefix_name =
+				(const char *)SECGW_ETHDEV_PORT_GROUP_NAME;
+			tstr = strstr(rte_dev_bus_info(devinfo.device), "device_id");
+			rc = -1;
+			if (tstr)
+				rc = sscanf(tstr, SECGW_PCI_DEV_STR, deviceid_name);
+
+#define _(id, bus, str)									\
+			else if (!strcmp(deviceid_name, bus)) {				\
+				strcpy(dev_name, str);					\
+			}
+
+			if (rc < 0)
+				strcpy(dev_name, "eth");
+
+			foreach_octeon_device_bus_info
+#undef _
+			dev_reg_conf.device_prefix_name = (const char *)dev_name;
 			dev_reg_conf.num_rx_queues = dao_workers_num_workers_get();
 			dev_reg_conf.num_tx_queues = dao_workers_num_workers_get();
-			if (secgw_register_ethdev(&sdm->devices[sdm->n_devices],
-						  &dev_reg_conf) < 0) {
+			if (secgw_register_ethdev(&sdm->devices[sdm->n_devices], &dev_reg_conf) <
+			    0) {
 				dao_err("secgw_register_ethdev failed");
 				continue;
+			}
+			/* Disable inline IPsec for SDP devices */
+			if (strstr((sdm->devices[sdm->n_devices])->dev_name, "sdp")) {
+				(sdm->devices[sdm->n_devices])->device_flags &=
+					~SECGW_HW_RX_OFFLOAD_INLINE_IPSEC;
+				(sdm->devices[sdm->n_devices])->device_flags &=
+					~SECGW_HW_TX_OFFLOAD_INLINE_IPSEC;
 			}
 		}
 		sdm->n_devices++;
 		sdev = secgw_get_device(dev_reg_conf.device_index);
 		RTE_VERIFY(sdev->dp_port_id == sdev->device_index);
 		secgw_dbg("Added device: %s at index: %u, port_index: %d, port_id: %u",
-			  sdev->dev_name, sdev->device_index, sdev->port_index,
-			  sdev->dp_port_id);
+			  sdev->dev_name, sdev->device_index, sdev->port_index, sdev->dp_port_id);
 	}
-
 	return (secgw_num_devices_get());
 }
 
 static int
 pair_tap_to_ethdev(void)
 {
+	int32_t ports[RTE_MAX_ETHPORTS];
 	struct rte_ether_addr ether;
 	secgw_device_t *sdev = NULL;
 	uint32_t n_ethdev, n_tapdev;
@@ -194,18 +228,14 @@ pair_tap_to_ethdev(void)
 
 	/* Pair ethdevs to tap */
 	if (n_ethdev >= n_tapdev) {
-		int32_t ports[n_ethdev];
-
 		i = 0;
-		DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter) {
+		DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter)
 			ports[i++] = port;
-		}
 		i = 0;
-		DAO_PORT_GROUP_FOREACH_PORT(tdpg, port, iter) {
+		DAO_PORT_GROUP_FOREACH_PORT(tdpg, port, iter)
+		{
 			sdev = secgw_get_device(port);
 			sdev->paired_device_index = ports[i];
-			secgw_dbg("%s paired with %s", sdev->dev_name,
-				  (secgw_get_device(sdev->paired_device_index))->dev_name);
 
 			/* Add tap to portq for node polling */
 			secgw_register_active_tap(sdev, dao_workers_num_workers_get());
@@ -218,29 +248,26 @@ pair_tap_to_ethdev(void)
 
 			sdev = secgw_get_device(ports[i]);
 			sdev->paired_device_index = port;
-			secgw_dbg("%s paired with %s", sdev->dev_name,
-				  (secgw_get_device(sdev->paired_device_index))->dev_name);
+			secgw_info("%s paired with %s", sdev->dev_name,
+				   (secgw_get_device(sdev->paired_device_index))->dev_name);
 			i++;
 		}
 	} else {
-		int32_t ports[n_tapdev];
+		i = 0;
+		DAO_PORT_GROUP_FOREACH_PORT(tdpg, port, iter)
+			ports[i++] = port;
 
 		i = 0;
-		DAO_PORT_GROUP_FOREACH_PORT(tdpg, port, iter) {
-			ports[i++] = port;
-		}
-		i = 0;
-		DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter) {
+		DAO_PORT_GROUP_FOREACH_PORT(edpg, port, iter)
+		{
 			memset(&ether, 0, sizeof(struct rte_ether_addr));
 			sdev = secgw_get_device(port);
 			sdev->paired_device_index = ports[i];
-			secgw_dbg("%s paired with %s", sdev->dev_name,
-				  (secgw_get_device(sdev->paired_device_index))->dev_name);
 
 			sdev = secgw_get_device(ports[i]);
 			sdev->paired_device_index = port;
-			secgw_dbg("%s paired with %s", sdev->dev_name,
-				  (secgw_get_device(sdev->paired_device_index))->dev_name);
+			secgw_info("%s paired with %s", sdev->dev_name,
+				   (secgw_get_device(sdev->paired_device_index))->dev_name);
 			/* Add tap to portq for node polling */
 			secgw_register_active_tap(sdev, dao_workers_num_workers_get());
 
@@ -275,7 +302,9 @@ enable_feature_arc(void)
 	ip_feature_punt_add(secgw_portmapper_node_get());
 
 	/* Add interface-output and error-drop features to "ip4-output" feature */
-	ip_feature_output_add(secgw_interface_out_node_get(), NULL, NULL);
+	ip_feature_output_add(secgw_ipsec_policy_output_node_get(), NULL, NULL);
+	ip_feature_output_add(secgw_interface_out_node_get(),
+			      secgw_ipsec_policy_output_node_get()->name, NULL);
 	ip_feature_output_add(secgw_errordrop_node_get(), secgw_interface_out_node_get()->name,
 			      NULL);
 

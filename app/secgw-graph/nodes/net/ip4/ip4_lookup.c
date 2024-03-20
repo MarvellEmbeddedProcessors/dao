@@ -20,13 +20,6 @@
 #define IPV4_L3FWD_LPM_MAX_RULES    1024
 #define IPV4_L3FWD_LPM_NUMBER_TBL8S (1 << 8)
 
-typedef union {
-	rte_be32_t u32;
-	struct {
-		uint8_t u8[4];
-	};
-} secgw_ip4_addr_t;
-
 /* IP4 Lookup global data struct */
 struct secgw_ip4_lookup_node_main {
 	struct rte_lpm *lpm_tbl[RTE_MAX_NUMA_NODES];
@@ -43,10 +36,9 @@ int secgw_mbuf_priv1_dynfield_offset = -1;
 
 static struct secgw_ip4_lookup_node_main secgw_ip4_lookup_nm;
 
-#define SECGW_IP4_LOOKUP_NODE_LPM(ctx)			\
-	(((struct secgw_ip4_lookup_node_ctx *)ctx)->lpm)
+#define SECGW_IP4_LOOKUP_NODE_LPM(ctx) (((struct secgw_ip4_lookup_node_ctx *)ctx)->lpm)
 
-#define SECGW_IP4_LOOKUP_NODE_PRIV1_OFF(ctx)		\
+#define SECGW_IP4_LOOKUP_NODE_PRIV1_OFF(ctx)                                                       \
 	(((struct secgw_ip4_lookup_node_ctx *)ctx)->mbuf_priv1_off)
 
 static uint16_t
@@ -55,10 +47,11 @@ secgw_ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *n
 {
 	struct rte_lpm *lpm = SECGW_IP4_LOOKUP_NODE_LPM(node->ctx);
 	const int dyn = SECGW_IP4_LOOKUP_NODE_PRIV1_OFF(node->ctx);
-	secgw_ip4_addr_t *dst_ip = NULL, *src_ip = NULL;
+#ifdef SECGW_DEBUG_PKT_TRACE
+	char __pkt_trace[256], *pkt_trace = NULL;
+#endif
 	struct rte_ipv4_hdr *ipv4_hdr;
 	struct rte_mbuf *mbuf = NULL;
-	struct rte_ether_hdr *e = NULL;
 	void **to_next, **from;
 	uint16_t last_spec = 0;
 	rte_edge_t next_index;
@@ -66,8 +59,10 @@ secgw_ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *n
 	uint32_t drop_nh;
 	int i, rc;
 
-	RTE_SET_USED(e);
 	RTE_SET_USED(ri);
+#ifdef SECGW_DEBUG_PKT_TRACE
+	pkt_trace = (char *)__pkt_trace;
+#endif
 
 	/* Speculative next */
 	next_index = SECGW_NODE_IP4_LOOKUP_NEXT_REWRITE;
@@ -84,11 +79,8 @@ secgw_ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *n
 		mbuf = (struct rte_mbuf *)objs[i];
 
 		/* Extract DIP of mbuf0 */
-		e = rte_pktmbuf_mtod(mbuf, struct rte_ether_hdr *);
 		ipv4_hdr = rte_pktmbuf_mtod_offset(mbuf, struct rte_ipv4_hdr *,
 						   sizeof(struct rte_ether_hdr));
-		dst_ip = (secgw_ip4_addr_t *)&ipv4_hdr->dst_addr;
-		src_ip = (secgw_ip4_addr_t *)&ipv4_hdr->src_addr;
 		/* Extract cksum, ttl as ipv4 hdr is in cache */
 		secgw_mbuf_priv1(mbuf, dyn)->cksum = ipv4_hdr->hdr_checksum;
 		secgw_mbuf_priv1(mbuf, dyn)->ttl = ipv4_hdr->time_to_live;
@@ -105,29 +97,17 @@ secgw_ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *n
 			to_next += last_spec;
 			held += last_spec;
 			last_spec = 0;
-			ip_debug("lookup:(%s-> ri-%u, next-%u): [%u:%u:%u:%u -> %u:%u:%u:%u]"
-				 "[%x:%x:%x:%x:%x:%x -> %x:%x:%x:%x:%x:%x]",
-				 secgw_get_device(SECGW_MBUF_INGRESS_PORT(mbuf))->dev_name,
-				 ri, next, src_ip->u8[0], src_ip->u8[1],
-				 src_ip->u8[2], src_ip->u8[3], dst_ip->u8[0],
-				 dst_ip->u8[1], dst_ip->u8[2], dst_ip->u8[3],
-				 _smac(e, 0), _smac(e, 1), _smac(e, 2),
-				 _smac(e, 3), _smac(e, 4), _smac(e, 5),
-				 _dmac(e, 0), _dmac(e, 1), _dmac(e, 2),
-				 _dmac(e, 3), _dmac(e, 4), _dmac(e, 5));
+#ifdef SECGW_DEBUG_PKT_TRACE
+			sprintf(pkt_trace, "ri:%u, next-%u", ri, next);
+			secgw_print_mbuf(graph, node, mbuf, next, pkt_trace, 0, 0);
+#endif
 			rte_node_enqueue_x1(graph, node, next, from[0]);
 			from += 1;
 		} else {
-			ip_debug("lookup: (%s-> ri-%u, next-%u): [%u:%u:%u:%u -> %u:%u:%u:%u]"
-				 "[%x:%x:%x:%x:%x:%x -> %x:%x:%x:%x:%x:%x]",
-				 secgw_get_device(SECGW_MBUF_INGRESS_PORT(mbuf))->dev_name,
-				 ri, next_index, src_ip->u8[0], src_ip->u8[1],
-				 src_ip->u8[2], src_ip->u8[3], dst_ip->u8[0],
-				 dst_ip->u8[1], dst_ip->u8[2], dst_ip->u8[3],
-				 _smac(e, 0), _smac(e, 1), _smac(e, 2),
-				 _smac(e, 3), _smac(e, 4), _smac(e, 5),
-				 _dmac(e, 0), _dmac(e, 1), _dmac(e, 2),
-				 _dmac(e, 3), _dmac(e, 4), _dmac(e, 5));
+#ifdef SECGW_DEBUG_PKT_TRACE
+			sprintf(pkt_trace, "ri:%u, next-%u", ri, next_index);
+			secgw_print_mbuf(graph, node, mbuf, next_index, pkt_trace, 0, 0);
+#endif
 			last_spec += 1;
 		}
 	}
@@ -220,8 +200,9 @@ secgw_ip4_lookup_node_init(const struct rte_graph *graph, struct rte_node *node)
 			socket = rte_lcore_to_socket_id(lcore_id);
 			rc = setup_lpm(&secgw_ip4_lookup_nm, socket);
 			if (rc) {
-				secgw_node_err("ip4_lookup", "Failed to setup lpm tbl for sock %u, rc=%d",
-					       socket, rc);
+				secgw_node_err("ip4_lookup",
+					       "Failed to setup lpm tbl for sock %u, rc=%d", socket,
+					       rc);
 				return rc;
 			}
 		}
