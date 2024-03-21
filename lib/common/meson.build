@@ -24,5 +24,6 @@ headers = files(
 	'dao_util.h',
 	'dao_net.h',
 	'dao_dynamic_string.h',
-	'dao_version.h'
+	'dao_version.h',
+	'dao_assert.h',
 )

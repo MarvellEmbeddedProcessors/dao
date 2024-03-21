@@ -76,4 +76,8 @@ extern int rte_dao_logtype;
 		goto label;                                                                        \
 	} while (0)
 
+#define dao_exit(...)                                                                              \
+	rte_exit(EXIT_FAILURE,                                                                     \
+		 RTE_FMT(RTE_FMT_HEAD(__VA_ARGS__, ) "\n", RTE_FMT_TAIL(__VA_ARGS__, )))
+
 #endif /* __DAO_LOG_H__ */

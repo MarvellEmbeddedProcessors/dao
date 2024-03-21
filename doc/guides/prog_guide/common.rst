@@ -35,3 +35,8 @@ DAO Bitmap Helper
 -----------------
 DAO bitmap helper provides abstracted APIs to setup a bitmap, get a free index and
 return the index back to bitmap.
+
+DAO Assert Helper
+-----------------
+DAO assert helper provides macros for assertions in user test cases. These assertions can
+be normal i.e. reporting as an error, or fatal i.e. causing test to abort.
