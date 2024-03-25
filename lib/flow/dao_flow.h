@@ -15,11 +15,13 @@
 
 /** Flow offloading configuration structure */
 struct dao_flow_offload_config {
-#define DAO_FLOW_OFFLOAD_HW_OFFLOAD BIT_ULL(0)
+#define DAO_FLOW_HW_OFFLOAD_ENABLE RTE_BIT64(0)
 	/** Different features supported */
 	uint32_t feature;
 	/** Key exchange profiles supported */
 	uint32_t kex_profile;
+	/** Flow aging timeout */
+	uint32_t aging_tmo;
 };
 
 /** DAO flow handle */
@@ -28,6 +30,8 @@ struct dao_flow {
 	struct acl_rule_data *arule;
 	/** ACL rule id */
 	uint32_t acl_rule_id;
+	/** HW offload rule info */
+	struct hw_offload_flow *hflow;
 	/** Port ID for which rule is installed */
 	uint16_t port_id;
 	/** Table ID to which rule is installed */

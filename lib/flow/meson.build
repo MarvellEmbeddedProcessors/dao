@@ -3,7 +3,8 @@
 
 sources = files(
 	'dao_flow.c',
-	'flow_acl.c'
+	'flow_acl.c',
+	'flow_hw_offload.c',
 )
 
 headers = files(

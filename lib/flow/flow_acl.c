@@ -187,10 +187,10 @@ fail:
 }
 
 int
-acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs)
+acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
+		uint32_t *result)
 {
 	uint16_t key_size = get_rule_size();
-	uint32_t result[nb_objs];
 	uint8_t *data[nb_objs];
 	struct rte_mbuf *mbuf;
 	int i;
@@ -646,6 +646,7 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 
 	acl_tbl->num_rules++;
 	acl_tbl->action[rule_data->rule->data.userdata].rule_data = rule_data;
+	rule_data->rule_idx = rule_data->rule->data.userdata;
 	rte_spinlock_unlock(&acl_tbl->ctx_lock);
 
 	rte_acl_dump(acl_tbl->ctx);

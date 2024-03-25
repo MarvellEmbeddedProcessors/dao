@@ -83,6 +83,7 @@ struct acl_rule_data *acl_create_rule(struct acl_table *acl_tbl, const struct rt
 				      struct rte_flow_error *error);
 
 uint32_t acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule);
-int acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs);
+int acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
+		    uint32_t *result);
 
 #endif /* __FLOW_ACL_PRIV_H__ */
