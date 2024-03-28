@@ -346,6 +346,11 @@ static irqreturn_t octep_vdpa_intr_handler(int irq, void *data)
 	struct octep_hw *oct_hw = data;
 	int i;
 
+	if (unlikely(oct_hw->config_cb.callback && vp_ioread8(oct_hw->isr))) {
+		vp_iowrite8(0, oct_hw->isr);
+		oct_hw->config_cb.callback(oct_hw->config_cb.private);
+	}
+
 	for (i = 0; i < oct_hw->nr_vring; i++) {
 		if (oct_hw->vqs[i].cb.callback && *oct_hw->vqs[i].cb_notify_addr) {
 			*oct_hw->vqs[i].cb_notify_addr = 0;
