@@ -4,6 +4,7 @@ cpp = ['ccache', 'aarch64-marvell-linux-gnu-cpp']
 ar = 'aarch64-marvell-linux-gnu-gcc-ar'
 strip = 'aarch64-marvell-linux-gnu-strip'
 pkgconfig = 'pkg-config'
+#exe_wrapper = '/tmp/exe_wrapper.sh'
 
 [host_machine]
 system = 'linux'

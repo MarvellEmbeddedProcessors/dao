@@ -6,7 +6,6 @@
 set -euo pipefail
 
 function help() {
-	set +x
 	echo "Klocwork Check"
 	echo ""
 	echo "Usage:"
@@ -22,7 +21,6 @@ function help() {
 	echo "--jobs | -j                  : Number of parallel jobs [Default: 4]"
 	echo "--project-root | -p          : dpu-offload Project root [Default: PWD]"
 	echo "--help | -h                  : Print this help and exit"
-	set -x
 }
 
 SCRIPT_NAME="$(basename "$0")"
@@ -81,7 +79,7 @@ PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$DEPS_DIR/lib/pkgconfig meson $BUILD_DIR --cros
 
 rm -rf .kwlp .kwps
 kwcheck create
-kwcheck set license.host=llic5-02.marvell.com license.port=33138
+kwcheck set license.host=llic5-01.marvell.com license.port=33138
 
 # List of directories to ignore in klocwork checks
 IGNORE_FILES=""
