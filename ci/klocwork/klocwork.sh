@@ -6,7 +6,6 @@
 set -euo pipefail
 
 function help() {
-	set +x
 	echo "Klocwork Check"
 	echo ""
 	echo "Usage:"
@@ -22,7 +21,6 @@ function help() {
 	echo "--jobs | -j                  : Number of parallel jobs [Default: 4]"
 	echo "--project-root | -p          : dpu-offload Project root [Default: PWD]"
 	echo "--help | -h                  : Print this help and exit"
-	set -x
 }
 
 SCRIPT_NAME="$(basename "$0")"

@@ -74,3 +74,6 @@ foreach comp : DAO_MODULES_DISABLED
 endforeach
 msg += '\n\n================\n'
 message(msg)
+
+# DAO tests
+subdir('ci/test/dao-test')

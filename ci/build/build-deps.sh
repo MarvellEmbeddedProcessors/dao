@@ -63,7 +63,6 @@ function clone_dpdk() {
 }
 
 function build_dpdk() {
-	set -x
 	local plat=$1
 	local verbose=
 
@@ -95,7 +94,6 @@ function build_dpdk() {
 
 	ninja -C $BUILD_DPDK_DIR-$plat -j $MAKE_J $verbose
 	ninja -C $BUILD_DPDK_DIR-$plat -j $MAKE_J $verbose install
-	set +x
 }
 
 # Building DPDK
