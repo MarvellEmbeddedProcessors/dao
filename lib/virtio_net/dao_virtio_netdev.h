@@ -12,6 +12,7 @@
 #define __INCLUDE_DAO_VIRTIO_NET_H__
 
 #include <dao_virtio.h>
+#include <dao_util.h>
 
 #include <spec/virtio_net.h>
 
@@ -40,8 +41,19 @@ struct dao_virtio_netdev_link_info {
 struct dao_virtio_netdev_conf {
 	/** PEM device ID */
 	uint16_t pem_devid;
-	/** Default dequeue mempool */
-	struct rte_mempool *pool;
+	/** Config flags */
+#define DAO_VIRTIO_NETDEV_EXTBUF DAO_BIT_ULL(0)
+	uint16_t flags;
+	union {
+		struct {
+			/** Default dequeue mempool */
+			struct rte_mempool *pool;
+		};
+		/** Valid when DOS_VIRTIO_NETDEV_EXTBUF is set in flags */
+		struct {
+			uint16_t dataroom_size;
+		};
+	};
 	/** Vchan to use for this virtio dev */
 	uint16_t dma_vchan;
 	/** Auto free enabled/disabled */
@@ -109,6 +121,8 @@ typedef int (*dao_virtio_netdev_mac_add_cb_t)(uint16_t devid, struct virtio_net_
 typedef int (*dao_virtio_netdev_mq_cfg_t)(uint16_t devid, bool qmap_set);
 /** VLAN filter add callback */
 typedef int (*dao_virtio_netdev_vlan_t)(uint16_t devid, uint16_t vlan_tci);
+typedef int (*dao_virtio_netdev_extbuf_get)(uint16_t devid, void *buffs[], uint16_t nb_buffs);
+typedef int (*dao_virtio_netdev_extbuf_put)(uint16_t devid, void *buffs[], uint16_t nb_buffs);
 
 /** Virtio net device callbacks */
 struct dao_virtio_netdev_cbs {
@@ -130,6 +144,10 @@ struct dao_virtio_netdev_cbs {
 	dao_virtio_netdev_vlan_t vlan_add;
 	/** VLAN filter del callback */
 	dao_virtio_netdev_vlan_t vlan_del;
+	/** Alloc extbuf */
+	dao_virtio_netdev_extbuf_get extbuf_get;
+	/** Free extbuf */
+	dao_virtio_netdev_extbuf_put extbuf_put;
 };
 
 /* End of structure dao_virtio_netdev_cbs. */
