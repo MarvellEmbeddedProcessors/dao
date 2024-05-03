@@ -4,6 +4,7 @@
 tests = [
 	'bar-rw',
 	'dpi_test',
+	'virtio-extbuf',
 ]
 
 # Mandatory dependency
@@ -14,6 +15,9 @@ endif
 default_cflags = machine_args
 default_cflags += ['-DALLOW_EXPERIMENTAL_API']
 default_cflags += ['-DALLOW_INTERNAL_API']
+default_cflags += ['-g']
+default_cflags += ['-pthread']
+default_cflags += ['-D_GNU_SOURCE']
 
 foreach test: tests
     name = test
