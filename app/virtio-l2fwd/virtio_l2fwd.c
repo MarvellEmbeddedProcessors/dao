@@ -1842,6 +1842,37 @@ vlan_reset(uint16_t virtio_devid)
 }
 
 static int
+hash_report_enable(uint16_t virtio_devid)
+{
+	uint64_t enable_hash_report, rx_offloads;
+	struct rte_eth_conf *local_port_conf;
+	uint16_t virt_q_count, portid;
+	int rc;
+
+	enable_hash_report = dao_virtio_netdev_feature_bits_get(virtio_devid) & 0x200000000000000;
+
+	portid = virtio_map[virtio_devid].id;
+	local_port_conf = &eth_dev_conf[portid];
+	virt_q_count = eth_dev_q_count[portid];
+
+	rx_offloads = local_port_conf->rxmode.offloads;
+
+	rx_offloads &= ~(RTE_ETH_RX_OFFLOAD_RSS_HASH);
+	if (enable_hash_report & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
+		rx_offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
+
+	if (local_port_conf->rxmode.offloads == rx_offloads) {
+		APP_INFO("No change in rx_offload , Skipping port %d reconfig\n", portid);
+		return 0;
+	}
+
+	local_port_conf->rxmode.offloads = rx_offloads;
+
+	rc = reconfig_ethdev(portid, virt_q_count);
+	return rc;
+}
+
+static int
 chksum_offload_configure(uint16_t virtio_devid)
 {
 	uint64_t csum_offload, tx_offloads, rx_offloads;
@@ -2048,6 +2079,8 @@ virtio_dev_status_cb(uint16_t virtio_devid, uint8_t status)
 	case VIRTIO_DEV_DRIVER_OK:
 		/* Configure checksum offload */
 		chksum_offload_configure(virtio_devid);
+		/*Configure to report hash */
+		hash_report_enable(virtio_devid);
 
 		/* Get active virt queue count */
 		virt_q_count = dao_virtio_netdev_queue_count(virtio_devid);

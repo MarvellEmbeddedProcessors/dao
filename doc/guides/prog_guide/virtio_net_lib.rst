@@ -34,6 +34,7 @@ VirtIO-net Feature Bits:
 * VIRTIO_NET_F_CSUM
 * VIRTIO_NET_F_GUEST_CSUM
 * VIRTIO_NET_F_MTU
+* VIRTIO_NET_F_HASH_REPORT
 
 Here are some notes about VirtIO-net features:
 
