@@ -19,11 +19,12 @@
 struct flow_global_cfg;
 
 struct hw_offload_flow {
+	uint32_t cam_idx;
+	int32_t ctr_idx;
 	struct rte_flow_action *actions;
 	struct rte_flow_item *pattern;
 	struct rte_flow_attr *attr;
 	struct rte_flow *flow;
-	uint16_t id;
 	bool offloaded;
 };
 

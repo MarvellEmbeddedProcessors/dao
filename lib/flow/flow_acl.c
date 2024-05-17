@@ -9,136 +9,10 @@
 
 #include "dao_util.h"
 
-struct acl_pkt_hdr {
-	struct rte_ether_hdr eth;
-	struct rte_flow_item_ipv4 ipv4;
-	struct rte_flow_item_udp udp;
-	struct rte_flow_item_vxlan vxlan;
-	struct rte_ether_hdr ieth;
-	struct rte_flow_item_ipv4 iipv4;
-} __attribute((packed));
-
-struct rte_acl_field_def rule_defs[] = {
-	/* Table Id */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 1,
-		.field_index = 0,
-		.input_index = 0,
-		.offset = 0,
-	},
-	/* First 4B DMAC */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 4,
-		.field_index = 1,
-		.input_index = 1,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, eth.dst_addr),
-	},
-	/* Last 2B DMAC */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 2,
-		.input_index = 2,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, eth.dst_addr) + 4,
-	},
-	/* 2B Padding */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 3,
-		.input_index = 2,
-		.offset = 0,
-	},
-	/* First 4B SMAC */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 4,
-		.field_index = 4,
-		.input_index = 3,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, eth.src_addr),
-	},
-	/* Last 2B SMAC */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 5,
-		.input_index = 4,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, eth.src_addr) + 4,
-	},
-	/* 2B Padding */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 6,
-		.input_index = 4,
-		.offset = 0,
-	},
-	/* ETHERTYPE */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 7,
-		.input_index = 5,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, eth.ether_type),
-	},
-	/* 2B Padding */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 8,
-		.input_index = 5,
-		.offset = 0,
-	},
-	/* SIP */
-	{
-		.type = RTE_ACL_FIELD_TYPE_MASK,
-		.size = 4,
-		.field_index = 9,
-		.input_index = 6,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, ipv4.hdr.src_addr),
-	},
-	/* DIP */
-	{
-		.type = RTE_ACL_FIELD_TYPE_MASK,
-		.size = 4,
-		.field_index = 10,
-		.input_index = 7,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, ipv4.hdr.dst_addr),
-	},
-	/* Proto ID */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 1,
-		.field_index = 11,
-		.input_index = 8,
-		.offset = 1 + offsetof(struct acl_pkt_hdr, ipv4.hdr.next_proto_id),
-	},
-	/* 1B Padding */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 1,
-		.field_index = 12,
-		.input_index = 8,
-		.offset = 0,
-	},
-	/* 2B Padding */
-	{
-		.type = RTE_ACL_FIELD_TYPE_BITMASK,
-		.size = 2,
-		.field_index = 13,
-		.input_index = 8,
-		.offset = 0,
-	},
-};
-
-RTE_ACL_RULE_DEF(acl_rule, RTE_DIM(rule_defs));
-
 static int
 get_rule_size(void)
 {
-	return RTE_ACL_RULE_SZ(RTE_DIM(rule_defs));
+	return RTE_ACL_RULE_SZ(RTE_DIM(ovs_kex_acl_defs));
 }
 
 static int
@@ -186,272 +60,58 @@ fail:
 	return errno;
 }
 
+static int
+acl_lookup_process(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
+		   uint32_t *result)
+{
+	uint8_t key_buf[nb_objs][ACL_X4_RULE_DEF_SIZE * 4];
+	uint8_t *data[nb_objs];
+	int i, j, rc;
+
+	memset(data, 0, nb_objs);
+	memset(key_buf, 0, nb_objs * ACL_X4_RULE_DEF_SIZE * 4);
+
+	j = 0;
+	for (i = 0; i < nb_objs; i++) {
+		if (objs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
+			continue;
+		acl_tbl->prfl_ops->key_generation(objs[i], 0, (uint8_t *)&key_buf[j] + 4);
+		key_buf[j][0] = acl_tbl->tbl_id;
+		data[j] = (uint8_t *)key_buf[j];
+		j++;
+	}
+
+	/* ctx, data, results, num, category */
+	rte_spinlock_lock(&acl_tbl->ctx_lock);
+	rc = rte_acl_classify(acl_tbl->ctx, (const uint8_t **)data, result, j,
+			      ACL_DEFAULT_MAX_CATEGORIES);
+	rte_spinlock_unlock(&acl_tbl->ctx_lock);
+	return rc;
+}
+
 int
 acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
 		uint32_t *result)
 {
-	uint16_t key_size = get_rule_size();
-	uint8_t *data[nb_objs];
-	struct rte_mbuf *mbuf;
 	int i;
 
-	memset(result, 0, nb_objs * sizeof(uint32_t));
-	for (i = 0; i < nb_objs; i++) {
-		uint8_t *data_p;
-		uint8_t *buf;
-		uint16_t lkp_id = 0;
+	if (!acl_tbl)
+		return ACL_RULE_TBL_INVALID;
+	if (!acl_tbl->ctx)
+		return ACL_RULE_CTX_INVALID;
+	if (!acl_tbl->num_rules)
+		return ACL_RULE_EMPTY;
+	if (!objs)
+		return ACL_RULE_OBJ_INVALID;
 
-		data[i] = calloc(1, sizeof(uint8_t) * key_size);
-		data_p = data[i];
-		mbuf = (struct rte_mbuf *)objs[i];
-		buf = rte_pktmbuf_mtod(mbuf, uint8_t *);
-
-		*(uint16_t *)data_p = lkp_id;
-		data_p += sizeof(uint8_t);
-
-		memcpy(data_p, buf, mbuf->data_len);
-	}
-	rte_spinlock_lock(&acl_tbl->ctx_lock);
-	rte_acl_classify(acl_tbl->ctx, (const uint8_t **)data, result, nb_objs,
-			 ACL_DEFAULT_MAX_CATEGORIES);
-	rte_spinlock_unlock(&acl_tbl->ctx_lock);
+	acl_lookup_process(acl_tbl, objs, nb_objs, result);
 	for (i = 0; i < nb_objs; i++) {
 		if (result[i] && acl_tbl->num_rules)
 			acl_flow_action_execute(acl_tbl, result[i], objs[i]);
-		free(data[i]);
 	}
 
 	return 0;
 }
-
-static const struct rte_flow_item *
-skip_void_and_any_items(const struct rte_flow_item *pattern)
-{
-	while ((pattern->type == RTE_FLOW_ITEM_TYPE_VOID) ||
-	       (pattern->type == RTE_FLOW_ITEM_TYPE_ANY))
-		pattern++;
-
-	return pattern;
-}
-
-static int
-parse_la(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_ETH)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Copy 4B DMAC */
-	rule->field[1].value.u32 =
-		RTE_BE32(*(const uint32_t *)(spec + offsetof(struct rte_ether_hdr, dst_addr)));
-	rule->field[1].mask_range.u32 =
-		RTE_BE32(*(const uint32_t *)(mask + offsetof(struct rte_ether_hdr, dst_addr)));
-
-	/* Copy remaining 2B DMAC */
-	rule->field[2].value.u16 =
-		RTE_BE16(*(const uint16_t *)(spec + offsetof(struct rte_ether_hdr, dst_addr) + 4));
-	rule->field[2].mask_range.u16 =
-		RTE_BE16(*(const uint16_t *)(mask + offsetof(struct rte_ether_hdr, dst_addr) + 4));
-	/* 2B Padding */
-	rule->field[3].value.u16 = 0;
-	rule->field[3].mask_range.u16 = 0;
-
-	/* Copy 4B SMAC */
-	rule->field[4].value.u32 =
-		RTE_BE32(*(const uint32_t *)(spec + offsetof(struct rte_ether_hdr, src_addr)));
-	rule->field[4].mask_range.u32 =
-		RTE_BE32(*(const uint32_t *)(mask + offsetof(struct rte_ether_hdr, src_addr)));
-
-	/* Copy remaining 2B DMAC */
-	rule->field[5].value.u16 =
-		RTE_BE16(*(const uint16_t *)(spec + offsetof(struct rte_ether_hdr, src_addr) + 4));
-	rule->field[5].mask_range.u16 =
-		RTE_BE16(*(const uint16_t *)(mask + offsetof(struct rte_ether_hdr, src_addr) + 4));
-	/* 2B Padding */
-	rule->field[6].value.u16 = 0;
-	rule->field[6].mask_range.u16 = 0;
-
-	/* Copy 2B ETHERTYPE */
-	rule->field[7].value.u16 =
-		RTE_BE16(*(const uint16_t *)(spec + offsetof(struct rte_ether_hdr, ether_type)));
-	rule->field[7].mask_range.u16 =
-		*(const uint16_t *)(mask + offsetof(struct rte_ether_hdr, ether_type));
-
-	/* 2B Padding */
-	rule->field[8].value.u16 = 0;
-	rule->field[8].mask_range.u16 = 0;
-	pi->pattern++;
-
-	return 0;
-}
-
-static int
-parse_lb(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_VLAN)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Copy 2B VID */
-	rule->field[3].value.u16 =
-		*(const uint16_t *)(spec + offsetof(struct rte_vlan_hdr, vlan_tci));
-	rule->field[3].mask_range.u16 =
-		*(const uint16_t *)(mask + offsetof(struct rte_vlan_hdr, vlan_tci));
-	pi->pattern++;
-	return 0;
-}
-
-static int
-parse_lc(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_IPV4)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Copy 4B SIP */
-	rule->field[9].value.u32 = RTE_BE32(
-		*(const uint32_t *)(spec + offsetof(struct rte_flow_item_ipv4, hdr.src_addr)));
-	rule->field[9].mask_range.u32 =
-		*(const uint32_t *)(mask + offsetof(struct rte_flow_item_ipv4, hdr.src_addr));
-
-	/* Copy 4B DIP */
-	rule->field[10].value.u32 = RTE_BE32(
-		*(const uint64_t *)(spec + offsetof(struct rte_flow_item_ipv4, hdr.dst_addr)));
-	rule->field[10].mask_range.u32 =
-		*(const uint64_t *)(mask + offsetof(struct rte_flow_item_ipv4, hdr.dst_addr));
-	pi->pattern++;
-	return 0;
-}
-
-static int
-parse_ld(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_UDP)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Protocol value */
-	rule->field[6].value.u8 = 0x11;
-	rule->field[6].mask_range.u8 = 0xff;
-
-	/* Copy 4B SPORT+DPORT */
-	rule->field[8].value.u32 =
-		*(const uint32_t *)(spec + offsetof(struct rte_flow_item_udp, hdr.src_port));
-	rule->field[8].mask_range.u32 =
-		*(const uint32_t *)(mask + offsetof(struct rte_flow_item_udp, hdr.src_port));
-	pi->pattern++;
-	return 0;
-}
-
-static int
-parse_le(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_VXLAN)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Copy 4B VNI */
-	rule->field[9].value.u32 =
-		*(const uint32_t *)(spec + offsetof(struct rte_flow_item_vxlan, vni));
-	rule->field[9].mask_range.u32 =
-		*(const uint32_t *)(mask + offsetof(struct rte_flow_item_vxlan, vni));
-	pi->pattern++;
-	return 0;
-}
-
-static int
-parse_lf(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_ETH)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Copy 6B DMAC + 2B SMAC */
-	rule->field[10].value.u64 =
-		*(const uint64_t *)(spec + offsetof(struct rte_ether_hdr, dst_addr));
-	rule->field[10].mask_range.u64 =
-		*(const uint64_t *)(mask + offsetof(struct rte_ether_hdr, dst_addr));
-
-	/* Copy remaining 4B SMAC */
-	rule->field[11].value.u32 = *(const uint32_t *)(spec + 8);
-	rule->field[11].mask_range.u32 = *(const uint32_t *)(mask + 8);
-
-	/* Copy 2B ETHERTYPE */
-	rule->field[12].value.u16 =
-		*(const uint16_t *)(spec + offsetof(struct rte_ether_hdr, ether_type));
-	rule->field[12].mask_range.u16 =
-		*(const uint16_t *)(mask + offsetof(struct rte_ether_hdr, ether_type));
-	pi->pattern++;
-	return 0;
-}
-
-static int
-parse_lg(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	const struct rte_flow_item *pattern = pi->pattern;
-	const uint8_t *spec, *mask;
-	uint8_t none_data[100] = {0};
-
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_IPV4)
-		return 0;
-
-	spec = pattern->spec ? (const uint8_t *)pattern->spec : none_data;
-	mask = pattern->mask ? (const uint8_t *)pattern->mask : none_data;
-
-	/* Copy 2B FRAGOFFSET */
-	rule->field[13].value.u16 = *(
-		const uint16_t *)(spec + offsetof(struct rte_flow_item_ipv4, hdr.fragment_offset));
-	rule->field[13].mask_range.u16 = *(
-		const uint16_t *)(mask + offsetof(struct rte_flow_item_ipv4, hdr.fragment_offset));
-	pi->pattern++;
-	return 0;
-}
-
-static int
-parse_lh(struct acl_parse_info *pi, struct acl_rule *rule)
-{
-	RTE_SET_USED(pi);
-	RTE_SET_USED(rule);
-	return 0;
-}
-
-typedef int (*parse_stage_func_t)(struct acl_parse_info *pi, struct acl_rule *rule);
 
 static int
 acl_populate_action(const struct rte_flow_action actions[], struct acl_actions *acl_act)
@@ -527,36 +187,18 @@ fail:
 	return errno;
 }
 
-static int
-acl_parse_pattern(const struct rte_flow_item pattern[], struct acl_table *acl_tbl,
-		  struct acl_rule_data *rule_data)
+static void
+acl_rule_prepare(struct acl_rule_data *rule_data, struct parsed_flow *flow)
 {
-	RTE_SET_USED(acl_tbl);
-	struct acl_parse_info pi;
-	parse_stage_func_t parse_stage_funcs[] = {
-		parse_la, parse_lb, parse_lc, parse_ld, parse_le, parse_lf, parse_lg, parse_lh,
-	};
-	uint8_t layer = 0;
-	int rc;
+	uint32_t *parsed_data = (uint32_t *)&flow->parsed_data;
+	uint32_t *parsed_data_mask = (uint32_t *)&flow->parsed_data_mask;
+	int i;
 
-	while (pattern->type != RTE_FLOW_ITEM_TYPE_END && layer < RTE_DIM(parse_stage_funcs)) {
-		pattern = skip_void_and_any_items(pattern);
-
-		pi.pattern = pattern;
-		rc = parse_stage_funcs[layer](&pi, rule_data->rule);
-		if (rc != 0)
-			DAO_ERR_GOTO(rc, fail, "Failed to parse layer %d: err %d", layer, rc);
-		layer++;
-		pattern = pi.pattern;
+	for (i = 1; i <= ACL_X4_RULE_DEF_SIZE - 1; i++) {
+		rule_data->rule->field[i].value.u32 = rte_be_to_cpu_32(parsed_data[i - 1]);
+		rule_data->rule->field[i].mask_range.u32 =
+			rte_be_to_cpu_32(parsed_data_mask[i - 1]);
 	}
-
-	pattern = skip_void_and_any_items(pattern);
-	if (pattern->type != RTE_FLOW_ITEM_TYPE_END)
-		return -EINVAL;
-
-	return 0;
-fail:
-	return errno;
 }
 
 struct acl_rule_data *
@@ -568,6 +210,7 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 	struct rte_acl_config acl_build_param;
 	struct acl_rule_data *rule_data;
 	char name[RTE_ACL_NAMESIZE];
+	struct parsed_flow *flow;
 	struct rte_acl_param param;
 	int rc, action;
 
@@ -603,6 +246,15 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 		TAILQ_INIT(&acl_tbl->flow_list);
 	}
 
+	flow = flow_parse(&gbl_cfg->parser, attr, pattern, actions);
+	if (flow == NULL)
+		return NULL;
+
+	/* Parse action */
+	action = acl_parse_action(actions, acl_tbl);
+	if (action < 0)
+		DAO_ERR_GOTO(action, free, "Failed to parse actions %d", action);
+
 	rule_data = rte_zmalloc("acl_rule_data", sizeof(struct acl_rule_data), RTE_CACHE_LINE_SIZE);
 	if (!rule_data)
 		DAO_ERR_GOTO(-ENOMEM, free, "Failed to allocate rule_data memory");
@@ -611,18 +263,9 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 	if (!rule_data->rule)
 		DAO_ERR_GOTO(-ENOMEM, free_rule_data, "Failed to allocate rule memory");
 
+	acl_rule_prepare(rule_data, flow);
 	rule_data->rule->field[0].value.u8 = acl_tbl->tbl_id;
 	rule_data->rule->field[0].mask_range.u8 = 0xff;
-
-	/* Parse pattern */
-	rc = acl_parse_pattern(pattern, acl_tbl, rule_data);
-	if (rc)
-		DAO_ERR_GOTO(rc, free_rule, "Failed to parse patterns %d", rc);
-
-	/* Parse action */
-	action = acl_parse_action(actions, acl_tbl);
-	if (action < 0)
-		DAO_ERR_GOTO(action, free_rule, "Failed to parse actions %d", action);
 
 	rule_data->rule->data.priority = attr->priority + 1;
 	rule_data->rule->data.category_mask = -1;
@@ -637,8 +280,8 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 	memset(&acl_build_param, 0, sizeof(acl_build_param));
 
 	acl_build_param.num_categories = ACL_DEFAULT_MAX_CATEGORIES;
-	acl_build_param.num_fields = RTE_DIM(rule_defs);
-	memcpy(&acl_build_param.defs, rule_defs, sizeof(rule_defs));
+	acl_build_param.num_fields = RTE_DIM(ovs_kex_acl_defs);
+	memcpy(&acl_build_param.defs, ovs_kex_acl_defs, sizeof(ovs_kex_acl_defs));
 
 	rc = rte_acl_build(acl_tbl->ctx, &acl_build_param);
 	if (rc)
@@ -670,7 +313,10 @@ fail:
 int
 acl_global_config_init(struct flow_global_cfg *gbl_cfg)
 {
+	struct acl_config_per_port *acl_cfg_prt;
 	struct acl_global_config *acl_gbl;
+	struct acl_table *acl_tbl;
+	int i, j;
 
 	acl_gbl = rte_zmalloc("acl_global_config", sizeof(struct acl_global_config),
 			      RTE_CACHE_LINE_SIZE);
@@ -678,7 +324,20 @@ acl_global_config_init(struct flow_global_cfg *gbl_cfg)
 		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
 
 	gbl_cfg->acl_gbl = acl_gbl;
+	/* Initialize global ACL configuration */
+	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
+		acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[i];
+		if (!acl_cfg_prt)
+			DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", i);
 
+		for (j = 0; j < ACL_MAX_PORT_TABLES; j++) {
+			acl_tbl = &acl_cfg_prt->acl_tbl[j];
+			if (!acl_tbl)
+				DAO_ERR_GOTO(-EINVAL, fail,
+					     "Failed to get table for tbl_id %d, port id %d", j, i);
+			acl_tbl->prfl_ops = gbl_cfg->prfl_ops;
+		}
+	}
 	return 0;
 fail:
 	return errno;
@@ -774,8 +433,8 @@ acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule)
 		/* Perform builds */
 		memset(&acl_build_param, 0, sizeof(acl_build_param));
 		acl_build_param.num_categories = ACL_DEFAULT_MAX_CATEGORIES;
-		acl_build_param.num_fields = RTE_DIM(rule_defs);
-		memcpy(&acl_build_param.defs, rule_defs, sizeof(rule_defs));
+		acl_build_param.num_fields = RTE_DIM(ovs_kex_acl_defs);
+		memcpy(&acl_build_param.defs, ovs_kex_acl_defs, sizeof(ovs_kex_acl_defs));
 		rc = rte_acl_build(ctx, &acl_build_param);
 		if (rc)
 			DAO_ERR_GOTO(rc, fail, "Failed to build acl context %d", rc);
@@ -790,6 +449,7 @@ acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule)
 	TAILQ_REMOVE(&acl_tbl->flow_list, rule, next);
 	tid = acl_tbl->action[0].index;
 	acl_tbl->action[0].index = rule->rule->data.userdata;
+	memset(&acl_tbl->action[rule->rule->data.userdata], 0, sizeof(struct acl_actions));
 	acl_tbl->action[rule->rule->data.userdata].index = tid;
 	dao_dbg("	After deleted - index made free %d, earlier free index was %d",
 		acl_tbl->action[0].index, tid);

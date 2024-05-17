@@ -92,6 +92,20 @@ fail:
 	return NULL;
 }
 
+static void
+parse_profile_setup(struct flow_global_cfg *gbl_cfg, struct dao_flow_offload_config *config)
+{
+	if (strncmp(config->parse_profile, "ovs", DAO_FLOW_PROFILE_NAME_MAX) == 0) {
+		gbl_cfg->prfl_ops = &ovs_prfl_ops;
+		gbl_cfg->parse_prfl = &ovs_kex_profile;
+	} else if (strncmp(config->parse_profile, "default", DAO_FLOW_PROFILE_NAME_MAX) == 0) {
+		gbl_cfg->prfl_ops = &default_prfl_ops;
+		gbl_cfg->parse_prfl = &default_kex_profile;
+	} else {
+		dao_err("Invalid parse profile name %s", config->parse_profile);
+	}
+}
+
 int
 dao_flow_init(struct dao_flow_offload_config *config)
 {
@@ -103,6 +117,7 @@ dao_flow_init(struct dao_flow_offload_config *config)
 	if (!gbl_cfg)
 		DAO_ERR_GOTO(-ENOMEM, error, "Failed to reserve mem for main_cfg");
 
+	parse_profile_setup(gbl_cfg, config);
 	rc = acl_global_config_init(gbl_cfg);
 	if (rc)
 		DAO_ERR_GOTO(rc, fail, "Failed to initialize acl ctx map");
@@ -114,6 +129,8 @@ dao_flow_init(struct dao_flow_offload_config *config)
 	/* If user enabled HW offloading configuration */
 	if (config->feature & DAO_FLOW_HW_OFFLOAD_ENABLE)
 		gbl_cfg->hw_offload_enabled = true;
+
+	flow_parser_init(&gbl_cfg->parser, gbl_cfg->parse_prfl);
 
 	/* If user provide timeout, else use DEFAULT aging timeout */
 	gbl_cfg->aging_tmo = config->aging_tmo ? config->aging_tmo : FLOW_DEFAULT_AGING_TIMEOUT;
@@ -223,9 +240,10 @@ dao_flow_lookup(uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs)
 		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d", tbl_id,
 			     port_id);
 
+	memset(result, 0, nb_objs * sizeof(uint32_t));
 	rc = acl_flow_lookup(acl_tbl, objs, nb_objs, result);
 	if (rc)
-		DAO_ERR_GOTO(rc, fail, "Failed to lookup for a flow");
+		return rc;
 
 	for (i = 0; i < nb_objs; i++) {
 		if (result[i]) {

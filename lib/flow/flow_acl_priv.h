@@ -5,11 +5,6 @@
 #ifndef __FLOW_ACL_PRIV_H__
 #define __FLOW_ACL_PRIV_H__
 
-#define ACL_DEFAULT_MAX_CATEGORIES 1
-#define ACL_MAX_RULES_PER_CTX      (4 * 1024)
-#define ACL_MAX_PORT_TABLES        10
-#define ACL_MAX_NUM_CTX            1
-
 #include <stddef.h>
 
 #include <rte_acl.h>
@@ -19,6 +14,132 @@
 
 #include "dao_log.h"
 
+#include "flow_parser_priv.h"
+
+#define ACL_DEFAULT_MAX_CATEGORIES 1
+#define ACL_MAX_RULES_PER_CTX      (4 * 1024)
+#define ACL_MAX_PORT_TABLES        10
+#define ACL_MAX_NUM_CTX            1
+
+#define ACL_X4_RULE_DEF_SIZE 15
+
+enum acl_rule_error {
+	ACL_RULE_CTX_INVALID = -3001,
+	ACL_RULE_OBJ_INVALID = -3002,
+	ACL_RULE_TBL_INVALID = -3003,
+	ACL_RULE_EMPTY	     = -3004,
+};
+
+static struct rte_acl_field_def ovs_kex_acl_defs[ACL_X4_RULE_DEF_SIZE] = {
+	{
+		// Padding. Ignore
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 1,
+		.field_index = 0,
+		.input_index = 0,
+		.offset = 0,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 1,
+		.input_index = 1,
+		.offset = 4,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 2,
+		.input_index = 2,
+		.offset = 8,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 3,
+		.input_index = 3,
+		.offset = 12,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 4,
+		.input_index = 4,
+		.offset = 16,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 5,
+		.input_index = 5,
+		.offset = 20,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 6,
+		.input_index = 6,
+		.offset = 24,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 7,
+		.input_index = 7,
+		.offset = 28,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 8,
+		.input_index = 8,
+		.offset = 32,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 9,
+		.input_index = 9,
+		.offset = 36,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 10,
+		.input_index = 10,
+		.offset = 40,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 11,
+		.input_index = 11,
+		.offset = 44,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 12,
+		.input_index = 12,
+		.offset = 48,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 13,
+		.input_index = 13,
+		.offset = 52,
+	},
+	{
+		.type = RTE_ACL_FIELD_TYPE_BITMASK,
+		.size = 4,
+		.field_index = 14,
+		.input_index = 14,
+		.offset = 56,
+	},
+};
+
+RTE_ACL_RULE_DEF(acl_rule, RTE_DIM(ovs_kex_acl_defs));
 /* Forward declaration */
 struct flow_global_cfg;
 struct acl_rule;
@@ -57,6 +178,7 @@ struct acl_table {
 	struct rte_acl_ctx *ctx;
 	struct acl_actions *action;
 	uint32_t size;
+	struct parse_profile_ops *prfl_ops;
 	/* Spinlock */
 	rte_spinlock_t ctx_lock;
 

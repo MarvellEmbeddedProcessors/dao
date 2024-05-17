@@ -6,6 +6,8 @@ sources = files(
 	'flow_acl.c',
 	'flow_hw_offload.c',
         'flow_parser.c',
+        'ovs_profile.c',
+        'default_profile.c',
 )
 
 headers = files(

@@ -148,6 +148,7 @@ hw_offload_flow_reserve(struct hw_offload_config_per_port *hw_off_cfg,
 		DAO_ERR_GOTO(rc, fail, "Failed to append aging action");
 
 	hflow->offloaded = false;
+	hflow->ctr_idx = -1;
 
 	return hflow;
 fail:
@@ -160,6 +161,7 @@ hw_offload_flow_create(struct hw_offload_config_per_port *hw_off_cfg, struct hw_
 {
 	struct rte_flow *flow = NULL;
 	struct rte_flow_error error;
+	struct parsed_flow *pflow;
 	int rc;
 
 	/* Validate the flow */
@@ -174,6 +176,10 @@ hw_offload_flow_create(struct hw_offload_config_per_port *hw_off_cfg, struct hw_
 		DAO_ERR_GOTO(-EINVAL, fail, "RTE Flow creation failed");
 
 	hflow->flow = flow;
+	pflow = (struct parsed_flow *)flow;
+	hflow->cam_idx = pflow->cam_idx;
+	if (pflow->use_ctr)
+		hflow->ctr_idx = pflow->ctr_idx;
 	hflow->offloaded = true;
 	hw_off_cfg->num_rules++;
 	dao_dbg("Offloading new hflow %p flow %p to hardware, num_rule %d", hflow, flow,
@@ -217,6 +223,8 @@ hw_offload_flow_destroy(struct hw_offload_config_per_port *hw_off_cfg,
 		hw_off_cfg->num_rules--;
 	}
 
+	hflow->ctr_idx = -1;
+	hflow->offloaded = false;
 	rte_free(hflow->actions);
 	rte_free(hflow->pattern);
 	rte_free(hflow);

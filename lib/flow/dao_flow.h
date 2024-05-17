@@ -13,13 +13,16 @@
 
 #include <rte_flow.h>
 
+/** Key exchange profile name maximum length */
+#define DAO_FLOW_PROFILE_NAME_MAX 60
+
 /** Flow offloading configuration structure */
 struct dao_flow_offload_config {
 #define DAO_FLOW_HW_OFFLOAD_ENABLE RTE_BIT64(0)
 	/** Different features supported */
 	uint32_t feature;
 	/** Key exchange profiles supported */
-	uint32_t kex_profile;
+	char parse_profile[DAO_FLOW_PROFILE_NAME_MAX];
 	/** Flow aging timeout */
 	uint32_t aging_tmo;
 };
