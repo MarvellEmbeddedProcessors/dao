@@ -14,11 +14,13 @@ struct virtio_net_queue {
 	uint16_t q_sz;
 	uint16_t dma_vchan;
 	uint16_t netdev_id;
+	uint8_t virtio_hdr_sz;
 	uint8_t auto_free;
 
 	/* Slow path */
 	struct dao_virtio_netdev *dao_netdev __rte_cache_aligned;
 	uint16_t qid;
+	uint32_t rss_hf;
 
 	/* Read-Write worker. */
 	uint16_t pend_sd_mbuf __rte_cache_aligned;
@@ -145,7 +147,8 @@ VIRTIO_NET_DEQ_FASTPATH_MODES
 #define VIRTIO_NET_ENQ_OFFLOAD_NOFF     RTE_BIT64(0)
 #define VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM RTE_BIT64(1)
 #define VIRTIO_NET_ENQ_OFFLOAD_MSEG     RTE_BIT64(2)
-#define VIRTIO_NET_ENQ_OFFLOAD_LAST     RTE_BIT64(2)
+#define VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT RTE_BIT64(3)
+#define VIRTIO_NET_ENQ_OFFLOAD_LAST     RTE_BIT64(3)
 
 /* Flags to control enqueue function.
  * Defining it from backwards to denote its been
@@ -156,16 +159,25 @@ VIRTIO_NET_DEQ_FASTPATH_MODES
 #define NOFF_F VIRTIO_NET_ENQ_OFFLOAD_NOFF
 #define CSUM_F VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM
 #define MSEG_F VIRTIO_NET_ENQ_OFFLOAD_MSEG
+#define HRP_F VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT
 
 #define VIRTIO_NET_ENQ_FASTPATH_MODES                                                              \
 	T(no_offload, VIRTIO_NET_ENQ_OFFLOAD_NONE)                                                 \
 	T(no_ff, NOFF_F)                                                                           \
 	T(cksum, CSUM_F)                                                                           \
 	T(mseg, MSEG_F)                                                                            \
+	T(hash_report, HRP_F)                                                                      \
 	T(no_ff_cksum, NOFF_F | CSUM_F)                                                            \
 	T(no_ff_mseg, NOFF_F | MSEG_F)                                                             \
+	T(no_ff_hash_report, NOFF_F | HRP_F)                                                       \
 	T(cksum_mseg, CSUM_F | MSEG_F)                                                             \
-	T(no_ff_cksum_mseg, NOFF_F | CSUM_F | MSEG_F)
+	T(cksum_hash_report, CSUM_F | HRP_F)                                                       \
+	T(mseg_hash_report, MSEG_F | HRP_F)                                                        \
+	T(no_ff_cksum_mseg, NOFF_F | CSUM_F | MSEG_F)                                              \
+	T(no_ff_cksum_hash_report, NOFF_F | CSUM_F | HRP_F)                                        \
+	T(no_ff_mseg_hash_report, NOFF_F | MSEG_F | HRP_F)                                         \
+	T(cksum_mseg_hash_report, CSUM_F | MSEG_F | HRP_F)                                         \
+	T(no_ff_cksum_mseg_hash_report, NOFF_F | CSUM_F | MSEG_F | HRP_F)
 
 #define T(name, flags)                                                                             \
 	uint16_t virtio_net_enq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);         \

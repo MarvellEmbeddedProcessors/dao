@@ -46,14 +46,13 @@ process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *me
 {
 	uint64_t *sd_desc_base = q->sd_desc_base;
 	struct rte_mbuf **mbuf_arr = q->mbuf_arr;
-	uint16_t q_sz = q->q_sz, vhdr_sz;
+	uint16_t vhdr_sz = q->virtio_hdr_sz;
 	uint16_t off = *qoff, cnt, moff;
 	uint32_t slen, dlen, buf_len;
 	uint64_t d_flags, avail;
 	struct rte_mbuf *m_next;
+	uint16_t q_sz = q->q_sz;
 	uintptr_t hdr;
-
-	vhdr_sz = sizeof(struct virtio_net_hdr);
 
 	slen = mbuf->pkt_len + vhdr_sz;
 	if (flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF)
@@ -126,9 +125,11 @@ static __rte_always_inline int
 push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	      struct rte_mbuf **mbufs, uint16_t nb_mbufs, const uint16_t flags)
 {
+	uint64x2_t rss0, rss1, rss2, rss3, d01, d23, rss0213;
 	uint64x2_t flags01, flags23, len01, len23;
 	struct rte_mbuf **mbuf_arr = q->mbuf_arr;
 	uint64_t *mbuf0, *mbuf1, *mbuf2, *mbuf3;
+	uint16_t virtio_hdr_sz = q->virtio_hdr_sz;
 	uint64_t *sd_desc_base = q->sd_desc_base;
 	uint64_t *data0, *data1, *data2, *data3;
 	uint16_t off = DESC_OFF(q->last_off);
@@ -142,6 +143,8 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	uint32x4_t ol_flags, xlen, ylen;
 	uint64x2_t xflags01, xflags23;
 	uint64x2_t vdst[4], vsrc[4];
+	uint32x4_t hash_f, hash_rpt;
+	uint32_t rss_hf = q->rss_hf;
 	struct virtio_net_hdr *hdr;
 	uint64x2_t xtmp0, xtmp1;
 	uint16_t used = 0, i = 0;
@@ -164,8 +167,8 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	count = nb_mbufs & ~(0x3u);
 	for (i = 0; i < count; ) {
 		const uint64x2_t net_hdr_off = {
-			sizeof(struct virtio_net_hdr),
-			sizeof(struct virtio_net_hdr)
+			virtio_hdr_sz,
+			virtio_hdr_sz
 		};
 		const uint64x2_t xflags = {
 			~(VIRT_PACKED_RING_DESC_F_USED | (RTE_BIT64(32) - 1)),
@@ -290,6 +293,33 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 			*data3 = 0;
 		}
 
+		if (flags & VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT) {
+			rss0 = vld1q_u32((uint32_t *)mbuf0 + 11);
+			rss1 = vld1q_u32((uint32_t *)mbuf1 + 11);
+			rss2 = vld1q_u32((uint32_t *)mbuf2 + 11);
+			rss3 = vld1q_u32((uint32_t *)mbuf3 + 11);
+
+			d01 = vzip1q_u64(rss0, rss1);
+			d23 = vzip1q_u64(rss2, rss3);
+
+			/* d01 elements are stored in even places  for transposet instr*/
+			/* d23 elements are stored in odd places  for transposet instr*/
+			rss0213 = vtrn1q_u32(d01, d23);
+
+			const uint32x4_t def_hash_val = vdupq_n_u32(0);
+
+			hash_f = vdupq_n_u32(rss_hf);
+			hash_rpt = vandq_u32(vcgtq_u32(rss0213, def_hash_val), hash_f);
+
+			d01 = vtrn1q_u32(rss0213, hash_rpt);
+			d23 = vtrn2q_u32(rss0213, hash_rpt);
+
+			*(uint64_t *)((uint32_t *)data0 + 3) = vgetq_lane_u64(d01, 0);
+			*(uint64_t *)((uint32_t *)data1 + 3) = vgetq_lane_u64(d01, 1);
+			*(uint64_t *)((uint32_t *)data2 + 3) = vgetq_lane_u64(d23, 0);
+			*(uint64_t *)((uint32_t *)data3 + 3) = vgetq_lane_u64(d23, 1);
+		}
+
 		*(uint32_t *)(data0 + 1) = 0x10000;
 		*(uint32_t *)(data1 + 1) = 0x10000;
 		*(uint32_t *)(data2 + 1) = 0x10000;
@@ -369,7 +399,7 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 
 		/* Add Virtio header */
 		hdr = rte_pktmbuf_mtod_offset((struct rte_mbuf *)mbuf0, struct virtio_net_hdr*,
-					      -sizeof(struct virtio_net_hdr));
+					      -(virtio_hdr_sz));
 		hdr->flags = 0;
 		hdr->gso_type = 0;
 		hdr->gso_size = 0;
@@ -384,9 +414,14 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 			hdr->flags = 0;
 		}
 
+		if (flags & VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT) {
+			hdr->hash_value = ((struct rte_mbuf *)mbuf0)->hash.rss;
+			hdr->hash_report = hdr->hash_value ? rss_hf : 0;
+		}
+
 		d_flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
 		buf_len = d_flags & (RTE_BIT64(32) - 1);
-		len = ((struct rte_mbuf *)mbuf0)->pkt_len + sizeof(struct virtio_net_hdr);
+		len = ((struct rte_mbuf *)mbuf0)->pkt_len + virtio_hdr_sz;
 
 		if (flags & VIRTIO_NET_ENQ_OFFLOAD_MSEG) {
 			nb_enq = len % buf_len ? len/buf_len + 1 : len/buf_len;
