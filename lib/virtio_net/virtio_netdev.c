@@ -24,6 +24,10 @@ static int
 net_rss_setup(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
 {
 	struct virtio_net_ctrl_rss *rss = (struct virtio_net_ctrl_rss *)ctrl_cmd->data;
+	uint32_t max_vqs = netdev->dev.max_virtio_queues - 1;
+	struct virtio_net_queue *queue;
+	uint32_t i;
+	int rc;
 
 	if (user_cbs.rss_cb == NULL)
 		return -ENOTSUP;
@@ -39,7 +43,16 @@ net_rss_setup(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
 	/* Update the core map to requested number of queues and
 	 * configure rss.
 	 */
-	return user_cbs.rss_cb(netdev->dev.dev_id, rss);
+	rc = user_cbs.rss_cb(netdev->dev.dev_id, rss);
+	if (!rc) {
+		for (i = 0; i < max_vqs; i++) {
+			queue = netdev->qs[i];
+			if (queue)
+				queue->rss_hf = rss->hash_types;
+		}
+	}
+
+	return rc;
 }
 
 static int
@@ -173,6 +186,7 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	uint32_t max_vqs = netdev->dev.max_virtio_queues - 1;
 	struct virtio_dev *dev = &netdev->dev;
 	struct virtio_queue_conf *q_conf;
+	struct virtio_net_hdr *vnet_hdr;
 	struct virtio_net_queue *queue;
 	bool cb_enabled = false;
 	uint32_t shadow_area;
@@ -232,6 +246,13 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	dao_netdev->qs[queue_id] = queue;
 	queue->dao_netdev = dao_netdev;
 	queue->netdev_id = netdev->dev.dev_id;
+
+	if (dev->feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
+		queue->virtio_hdr_sz = offsetof(struct virtio_net_hdr, padding_reserved) +
+				       sizeof(vnet_hdr->padding_reserved);
+	else
+		queue->virtio_hdr_sz = offsetof(struct virtio_net_hdr, num_buffers) +
+				       sizeof(vnet_hdr->num_buffers);
 
 	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
 	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
@@ -465,6 +486,10 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 			dao_netdev->mgmt_fn_id |= VIRTIO_NET_DESC_MANAGE_MSEG;
 		}
 
+		dao_netdev->enq_fn_id &= ~VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT;
+		if (dev->feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
+			dao_netdev->enq_fn_id |= VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT;
+
 		return user_cbs.status_cb(netdev->dev.dev_id, status);
 	} else if (status == VIRTIO_DEV_RESET) {
 		struct virtio_net_queue *q;
@@ -544,7 +569,7 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	feature_bits = RTE_BIT64(VIRTIO_NET_F_CTRL_VQ) | RTE_BIT64(VIRTIO_NET_F_MQ) |
 		       RTE_BIT64(VIRTIO_NET_F_RSS) | RTE_BIT64(VIRTIO_NET_F_CTRL_RX) |
 		       RTE_BIT64(VIRTIO_NET_F_STATUS) | RTE_BIT64(VIRTIO_NET_F_MAC) |
-		       RTE_BIT64(VIRTIO_NET_F_MRG_RXBUF);
+		       RTE_BIT64(VIRTIO_NET_F_MRG_RXBUF) | RTE_BIT64(VIRTIO_NET_F_HASH_REPORT);
 
 	/* Enable add MAC support */
 	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CTRL_MAC_ADDR);

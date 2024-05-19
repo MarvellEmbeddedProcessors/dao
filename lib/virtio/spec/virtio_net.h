@@ -27,6 +27,7 @@
 #define VIRTIO_NET_F_GUEST_ANNOUNCE 21 /** Guest can announce device on the network */
 #define VIRTIO_NET_F_MQ             22 /** Device supports Receive Flow Steering */
 #define VIRTIO_NET_F_CTRL_MAC_ADDR  23 /** Set MAC address */
+#define VIRTIO_NET_F_HASH_REPORT    57 /** Set HASH REPORT */
 #define VIRTIO_NET_F_RSS            60 /** RSS supported */
 
 /**  Virtio RSS hash types */
@@ -102,6 +103,12 @@ struct virtio_net_hdr {
 	rte_le16_t csum_offset;
 	/** Number of buffers of packet */
 	rte_le16_t num_buffers;
+	/** hash value of packet */
+	rte_le32_t hash_value;
+	/** hash report of packet */
+	rte_le16_t hash_report;
+	/** padding reserved of packet */
+	rte_le16_t padding_reserved;
 } __rte_packed;
 
 #define VIRTIO_NET_CTRL_MQ 4
