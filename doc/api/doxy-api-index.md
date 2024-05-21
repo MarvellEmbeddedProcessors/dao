@@ -43,3 +43,6 @@ The public API headers are grouped by topics
 - **virtio**
   - [virtio]              (@ref dao_virtio.h)
   - [virtio_net]          (@ref dao_virtio_netdev.h)
+
+- **Dao helper**
+  - [helper]              (@ref daoh_helper.h)

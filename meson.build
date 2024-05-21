@@ -37,6 +37,7 @@ if host_machine.cpu_family() == 'aarch64'
 	if DAO_BUILD_CONF.has('DAO_LIBDPDK_DEP')
 		subdir('lib')
 		subdir('app')
+		subdir('helper')
 		subdir('tests')
 	endif
 endif

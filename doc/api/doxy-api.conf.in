@@ -13,8 +13,9 @@ INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/netlink \
                           @TOPDIR@/../../lib/virtio \
                           @TOPDIR@/../../lib/virtio_net \
+                          @TOPDIR@/../../helper \
 
-FILE_PATTERNS           = dao_*.h
+FILE_PATTERNS           = dao*.h
 
 PREDEFINED              = __DOXYGEN__ \
                           __attribute__(x)=
