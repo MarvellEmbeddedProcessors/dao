@@ -510,15 +510,15 @@ is_host_port(uint16_t portid)
 }
 
 uint16_t
-ood_ethdev_port_pair_get(struct ood_ethdev_host_mac_map *host_mac_map, uint16_t portid)
+ood_ethdev_port_pair_get(ood_ethdev_host_mac_map_t *host_mac_map, uint16_t portid)
 {
 	uint16_t i;
 
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		if (host_mac_map[i].host_port == portid)
-			return host_mac_map[i].mac_port;
-		if (host_mac_map[i].mac_port == portid)
-			return host_mac_map[i].host_port;
+	for (i = 0; i < (RTE_MAX_ETHPORTS / 2); i++) {
+		if (host_mac_map[i].host_port.port_id == portid)
+			return host_mac_map[i].mac_port.port_id;
+		if (host_mac_map[i].mac_port.port_id == portid)
+			return host_mac_map[i].host_port.port_id;
 	}
 
 	return i;
@@ -535,7 +535,7 @@ ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg)
 	ood_lcore_param_t *lcore_prm;
 	ood_ethdev_param_t *eth_prm;
 	ood_config_param_t *cfg_prm;
-	int rc, i = 0;
+	int rc, idx = 0, i = 0;
 
 	eth_prm = ood_main_cfg->eth_prm;
 	cfg_prm = ood_main_cfg->cfg_prm;
@@ -579,29 +579,56 @@ ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg)
 
 	/* populate destination port details */
 	if (cfg_prm->nb_port_pair_params) {
-		uint16_t idx, p, portid2;
+		uint16_t p, portid2;
 
-		for (idx = i = 0; idx < (cfg_prm->nb_port_pair_params << 1); (idx = idx + 2), i++) {
+		for (idx = i = 0;
+		     (idx < (cfg_prm->nb_port_pair_params << 1) &&
+		      (i < cfg_prm->nb_port_pair_params));
+		     (idx = idx + 2), i++) {
 			p = idx & 1;
 			portid = cfg_prm->port_pair_param[idx >> 1].port[p];
 			portid2 = cfg_prm->port_pair_param[idx >> 1].port[p ^ 1];
 
-			eth_prm->host_mac_map[i].host_port =
+			eth_prm->host_mac_map[i].host_port.port_id =
 				is_host_port(portid) ? portid : portid2;
-			eth_prm->host_mac_map[i].mac_port = is_host_port(portid) ? portid2 : portid;
+
+			eth_prm->host_mac_map[i].mac_port.port_id =
+				is_host_port(portid) ? portid2 : portid;
+
+			rte_eth_dev_get_name_by_port(eth_prm->host_mac_map[i].host_port.port_id,
+						     if_name);
+			eth_prm->host_mac_map[i].host_port.hw_func =
+				dao_pci_bdf_to_hw_func(if_name);
+
+			rte_eth_dev_get_name_by_port(eth_prm->host_mac_map[i].mac_port.port_id,
+						     if_name);
+			eth_prm->host_mac_map[i].mac_port.hw_func = dao_pci_bdf_to_hw_func(if_name);
+
+			dao_info("MAC Port ID %d (%s) -> Host Port ID %d",
+				 eth_prm->host_mac_map[i].mac_port.port_id, if_name,
+				 eth_prm->host_mac_map[i].host_port.port_id);
 		}
 	} else {
 		/* TODO revisit, should be removed */
-		uint16_t idx = 0;
 		RTE_ETH_FOREACH_DEV(portid) {
 			if (portid == ood_repr_get_eswitch_portid(ood_main_cfg))
 				continue;
 
 			if (nb_ports_in_mask % 2) {
-				eth_prm->host_mac_map[idx].host_port =
+				eth_prm->host_mac_map[idx].host_port.port_id =
 					is_host_port(portid) ? portid : last_port;
-				eth_prm->host_mac_map[idx].mac_port =
+				eth_prm->host_mac_map[idx].mac_port.port_id =
 					is_host_port(portid) ? last_port : portid;
+
+				rte_eth_dev_get_name_by_port(
+					eth_prm->host_mac_map[idx].host_port.port_id, if_name);
+				eth_prm->host_mac_map[idx].host_port.hw_func =
+					dao_pci_bdf_to_hw_func(if_name);
+
+				rte_eth_dev_get_name_by_port(
+					eth_prm->host_mac_map[idx].mac_port.port_id, if_name);
+				eth_prm->host_mac_map[idx].mac_port.hw_func =
+					dao_pci_bdf_to_hw_func(if_name);
 			} else {
 				last_port = portid;
 			}
@@ -611,33 +638,29 @@ ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg)
 		}
 		if (nb_ports_in_mask % 2) {
 			dao_warn("Notice: odd number of ports in portmask.");
-			if (is_host_port(last_port))
-				eth_prm->host_mac_map[idx].host_port = last_port;
-			else
-				eth_prm->host_mac_map[idx].mac_port = last_port;
+			rte_eth_dev_get_name_by_port(last_port, if_name);
+			if (is_host_port(last_port)) {
+				eth_prm->host_mac_map[idx].host_port.port_id = last_port;
+				eth_prm->host_mac_map[idx].host_port.hw_func =
+					dao_pci_bdf_to_hw_func(if_name);
+			} else {
+				eth_prm->host_mac_map[idx].mac_port.port_id = last_port;
+				eth_prm->host_mac_map[idx].mac_port.hw_func =
+					dao_pci_bdf_to_hw_func(if_name);
+			}
 		}
 		cfg_prm->nb_port_pair_params = nb_ports_in_mask / 2;
 	}
+	eth_prm->nb_ports = idx;
 
 	/* Port pairs together represents VF representor ports */
 	ood_repr_set_nb_representors(ood_main_cfg, cfg_prm->nb_port_pair_params);
 
-	RTE_ETH_FOREACH_DEV(portid) {
-		if (portid == ood_repr_get_eswitch_portid(ood_main_cfg))
-			continue;
-		rte_eth_dev_get_name_by_port(portid, if_name);
-		eth_prm->hw_func[i++] = dao_pci_bdf_to_hw_func(if_name);
-		dao_info("MAC Port ID %d (%s) -> Host Port ID %d",
-			 eth_prm->host_mac_map[portid].mac_port, if_name,
-			 eth_prm->host_mac_map[portid].host_port);
-	}
-	eth_prm->nb_ports = i;
-
 	/* Normal forwarding table setup */
 	ood_main_cfg->graph_prm->fm_ctrl_cfg.nb_ports = nb_ports;
 	for (portid = 0; portid < cfg_prm->nb_port_pair_params; portid++) {
-		host_port = eth_prm->host_mac_map[portid].host_port;
-		mac_port = eth_prm->host_mac_map[portid].mac_port;
+		host_port = eth_prm->host_mac_map[portid].host_port.port_id;
+		mac_port = eth_prm->host_mac_map[portid].mac_port.port_id;
 
 		ood_main_cfg->graph_prm->fm_ctrl_cfg.host_mac_map[host_port] = mac_port;
 		ood_main_cfg->graph_prm->fm_ctrl_cfg.host_mac_map[mac_port] = host_port;

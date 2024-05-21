@@ -37,23 +37,27 @@
 /* Forward declaration */
 struct ood_main_cfg_data;
 
-struct ood_ethdev_host_mac_map {
-	uint16_t mac_port;
-	uint16_t host_port;
+struct ood_ethdev_port_info {
+	uint16_t port_id;
+	uint16_t hw_func;
 };
+
+typedef struct ood_ethdev_host_mac_map {
+	struct ood_ethdev_port_info mac_port;
+	struct ood_ethdev_port_info host_port;
+} ood_ethdev_host_mac_map_t;
 
 typedef struct ood_ethdev_param {
 	int numa_on; /**< NUMA is enabled by default. */
 	struct rte_mempool *pktmbuf_pool[RTE_MAX_ETHPORTS][OOD_NB_SOCKETS];
 	/* list of enabled ports */
-	struct ood_ethdev_host_mac_map host_mac_map[RTE_MAX_ETHPORTS];
-	uint16_t hw_func[RTE_MAX_ETHPORTS];
+	ood_ethdev_host_mac_map_t host_mac_map[RTE_MAX_ETHPORTS / 2];
 	uint16_t nb_ports;
 } ood_ethdev_param_t;
 
 int ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg);
 int ood_config_port_max_pkt_len(ood_config_param_t *cfg_prm, struct rte_eth_conf *conf,
 				struct rte_eth_dev_info *dev_info);
-uint16_t ood_ethdev_port_pair_get(struct ood_ethdev_host_mac_map *host_mac_map, uint16_t portid);
+uint16_t ood_ethdev_port_pair_get(ood_ethdev_host_mac_map_t *host_mac_map, uint16_t portid);
 
 #endif /* __OOD_ETH_INIT_H__ */

@@ -259,7 +259,7 @@ ood_control_channel_init(struct ood_main_cfg_data *ood_main_cfg)
 	ood_repr_param_t *repr_prm;
 	ood_ethdev_param_t *eth_prm;
 	ood_config_param_t *cfg_prm;
-	struct ood_ethdev_host_mac_map *host_mac_lkp_tbl;
+	ood_ethdev_host_mac_map_t *host_mac_lkp_tbl;
 	int i, nb_port;
 
 	eth_prm = ood_main_cfg->eth_prm;
@@ -272,8 +272,8 @@ ood_control_channel_init(struct ood_main_cfg_data *ood_main_cfg)
 
 	for (i = 0; i < nb_port; i++) {
 		repr_qid = i;
-		rep_map[repr_qid].host_port = host_mac_lkp_tbl[i].host_port;
-		rep_map[repr_qid].mac_port = host_mac_lkp_tbl[i].mac_port;
+		rep_map[repr_qid].host_port = host_mac_lkp_tbl[i].host_port.port_id;
+		rep_map[repr_qid].mac_port = host_mac_lkp_tbl[i].mac_port.port_id;
 		/* Linked list for storing host and mac ports */
 		STAILQ_INIT(&rep_map[repr_qid].flow_list);
 	}

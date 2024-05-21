@@ -219,15 +219,16 @@ populate_ready_msg(struct ood_main_cfg_data *ood_main_cfg, void *buffer, uint32_
 	uint32_t len;
 
 	eth_prm = ood_main_cfg->eth_prm;
-	total_sz = sz + (eth_prm->nb_ports * sizeof(uint16_t));
+	total_sz = sz + ((eth_prm->nb_ports / 2) * sizeof(uint16_t));
 	populate_command(buffer, length, OOD_MSG_READY, total_sz);
 
 	len = *length;
 	/* Populate ready message data */
 	rdata = rte_zmalloc("Ready", total_sz, 0);
 	rdata->val = 1;
-	rdata->nb_ports = eth_prm->nb_ports;
-	rte_memcpy(rdata->data, eth_prm->hw_func, eth_prm->nb_ports * sizeof(uint16_t));
+	rdata->nb_ports = eth_prm->nb_ports / 2;
+	for (int i = 0; i < rdata->nb_ports; i++)
+		rdata->data[i] = eth_prm->host_mac_map[i].mac_port.hw_func;
 
 	rte_memcpy(RTE_PTR_ADD(buffer, len), rdata, total_sz);
 
@@ -281,7 +282,7 @@ populate_exit_msg(struct ood_main_cfg_data *ood_main_cfg, void *buffer, uint32_t
 	uint32_t len;
 
 	eth_prm = ood_main_cfg->eth_prm;
-	total_sz = sz + (eth_prm->nb_ports * sizeof(uint16_t));
+	total_sz = sz + ((eth_prm->nb_ports / 2) * sizeof(uint16_t));
 	populate_command(buffer, length, OOD_MSG_EXIT, total_sz);
 
 	len = *length;
@@ -289,8 +290,10 @@ populate_exit_msg(struct ood_main_cfg_data *ood_main_cfg, void *buffer, uint32_t
 	/* Populate exit message data */
 	edata = rte_zmalloc("Exit", total_sz, 0);
 	edata->val = 1;
-	edata->nb_ports = eth_prm->nb_ports;
-	rte_memcpy(edata->data, eth_prm->hw_func, eth_prm->nb_ports * sizeof(uint16_t));
+	edata->nb_ports = eth_prm->nb_ports / 2;
+	for (int i = 0; i < edata->nb_ports; i++)
+		edata->data[i] = eth_prm->host_mac_map[i].mac_port.hw_func;
+
 	rte_memcpy(RTE_PTR_ADD(buffer, len), edata, total_sz);
 
 	len += total_sz;
