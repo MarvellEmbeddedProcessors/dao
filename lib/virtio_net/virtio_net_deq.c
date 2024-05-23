@@ -2,6 +2,7 @@
  * Copyright (c) 2024 Marvell.
  */
 
+#include <rte_ip.h>
 #include <rte_vect.h>
 
 #include "dao_virtio_netdev.h"
@@ -16,8 +17,16 @@ dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[VIRTIO_NET_DEQ_OFFLOAD_LAST << 1]
 #undef R
 };
 
-#define IPV4_UDP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_UDP_CKSUM)
-#define IPV4_TCP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM)
+#define TX_IPV4_UDP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_UDP_CKSUM)
+#define TX_IPV4_TCP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM)
+
+#define TX_IPV4_TCP_GSO_OFFLOAD                                                                    \
+	(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM |                   \
+	 RTE_MBUF_F_TX_TCP_SEG)
+
+#define TX_IPV6_TCP_GSO_OFFLOAD                                                                    \
+	(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV6 | RTE_MBUF_F_TX_TCP_CKSUM |                   \
+	 RTE_MBUF_F_TX_TCP_SEG)
 
 void
 virtio_net_flush_deq(struct virtio_net_queue *q)
@@ -72,6 +81,7 @@ post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_
 	struct virtio_net_hdr *hdr;
 	uint64_t ol_flags, dflags;
 	int count, i, num = 0;
+	uint16_t l3_len = 0;
 
 	doff = vdupq_n_u64(data_off);
 	mbuf_arr = q->mbuf_arr;
@@ -134,6 +144,12 @@ post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_
 		hdr2 = vld1q_u32((void *)vgetq_lane_u64(hdr23, 0));
 		hdr3 = vld1q_u32((void *)vgetq_lane_u64(hdr23, 1));
 
+		/* If at least one buffer has gso type set, go to scalar processing */
+		if (flags & VIRTIO_NET_DEQ_OFFLOAD_GSO) {
+			if ((hdr0[0] & 0XFF00) || (hdr1[0] & 0XFF00) || (hdr2[0] & 0XFF00) ||
+			    (hdr3[0] & 0XFF00))
+				break;
+		}
 		/* Combine 4 packet headers into single 128 bit */
 		d0 = vtrn1q_u32(hdr0, hdr1);
 		d1 = vtrn1q_u32(hdr2, hdr3);
@@ -266,12 +282,28 @@ skip_csum:
 
 		if (flags & VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM) {
 			hdr = (struct virtio_net_hdr *)((uintptr_t)mbuf0 + data_off);
+			ol_flags = 0;
 			if (hdr->csum_start && hdr->csum_offset) {
-				ol_flags = (hdr->csum_offset == 6) ? IPV4_UDP_OFFLOAD :
-								     IPV4_TCP_OFFLOAD;
+				ol_flags = (hdr->csum_offset == 6) ? TX_IPV4_UDP_OFFLOAD :
+								     TX_IPV4_TCP_OFFLOAD;
+				l3_len = sizeof(struct rte_ipv4_hdr);
+				if (flags & VIRTIO_NET_DEQ_OFFLOAD_GSO) {
+					if (hdr->gso_type != VIRTIO_NET_HDR_GSO_NONE) {
+						mbuf0->tso_segsz = hdr->gso_size;
+						mbuf0->l4_len = hdr->hdr_len - hdr->csum_start;
+
+						if (hdr->gso_type == VIRTIO_NET_HDR_GSO_TCPV4) {
+							ol_flags = TX_IPV4_TCP_GSO_OFFLOAD;
+						} else if (hdr->gso_type ==
+							   VIRTIO_NET_HDR_GSO_TCPV6) {
+							l3_len = sizeof(struct rte_ipv6_hdr);
+							ol_flags = TX_IPV6_TCP_GSO_OFFLOAD;
+						}
+					}
+				}
+				mbuf0->l3_len = l3_len;
+				mbuf0->l2_len = hdr->csum_start - l3_len;
 				mbuf0->ol_flags |= ol_flags;
-				mbuf0->l2_len = hdr->csum_start - 20;
-				mbuf0->l3_len = 20;
 			}
 		}
 		last_off = (last_off + 1) & (q_sz - 1);

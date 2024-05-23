@@ -462,6 +462,7 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 	struct dao_virtio_netdev *dao_netdev;
 	struct virtio_net_queue *queue;
 	bool cb_enabled = false;
+	uint16_t gso_offload;
 	uint8_t csum_offload;
 	int event_flag, i;
 	int rc;
@@ -495,8 +496,15 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 		csum_offload = dev->drv_feature_bits_lo & 0xFF;
 		dao_netdev->deq_fn_id &= ~VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM;
 		dao_netdev->enq_fn_id &= ~VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM;
-		if (csum_offload & RTE_BIT64(VIRTIO_NET_F_CSUM))
+		dao_netdev->deq_fn_id &= ~VIRTIO_NET_DEQ_OFFLOAD_GSO;
+		if (csum_offload & RTE_BIT64(VIRTIO_NET_F_CSUM)) {
 			dao_netdev->deq_fn_id |= VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM;
+
+			gso_offload = dev->drv_feature_bits_lo & 0XFFFF;
+			if (gso_offload & RTE_BIT64(VIRTIO_NET_F_HOST_TSO4) ||
+			    gso_offload & RTE_BIT64(VIRTIO_NET_F_HOST_TSO6))
+				dao_netdev->deq_fn_id |= VIRTIO_NET_DEQ_OFFLOAD_GSO;
+		}
 		if (csum_offload & RTE_BIT64(VIRTIO_NET_F_GUEST_CSUM))
 			dao_netdev->enq_fn_id |= VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM;
 
@@ -607,6 +615,7 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	/* Enable Checksum offload capability */
 	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CSUM) | RTE_BIT64(VIRTIO_NET_F_GUEST_CSUM);
 
+	feature_bits |= (RTE_BIT64(VIRTIO_NET_F_HOST_TSO4) | RTE_BIT64(VIRTIO_NET_F_HOST_TSO6));
 	if (conf->mtu) {
 		feature_bits |= RTE_BIT64(VIRTIO_NET_F_MTU);
 		dev_cfg->mtu = conf->mtu;

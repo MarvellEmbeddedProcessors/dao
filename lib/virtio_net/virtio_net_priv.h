@@ -116,7 +116,8 @@ virtio_netdev_to_dao(struct virtio_netdev *netdev)
 #define VIRTIO_NET_DEQ_OFFLOAD_NONE     (0)
 #define VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM RTE_BIT64(0)
 #define VIRTIO_NET_DEQ_OFFLOAD_NOINOR   RTE_BIT64(1)
-#define VIRTIO_NET_DEQ_OFFLOAD_LAST     RTE_BIT64(1)
+#define VIRTIO_NET_DEQ_OFFLOAD_GSO      RTE_BIT64(2)
+#define VIRTIO_NET_DEQ_OFFLOAD_LAST     RTE_BIT64(2)
 
 /* Flags to control dequeue function.
  * Defining it from backwards to denote its been
@@ -126,12 +127,17 @@ virtio_netdev_to_dao(struct virtio_netdev *netdev)
 
 #define D_CSUM_F    VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM
 #define D_NOORDER_F VIRTIO_NET_DEQ_OFFLOAD_NOINOR
+#define D_GSO_F     VIRTIO_NET_DEQ_OFFLOAD_GSO
 
 #define VIRTIO_NET_DEQ_FASTPATH_MODES                                                              \
 	R(no_offload, VIRTIO_NET_DEQ_OFFLOAD_NONE)                                                 \
 	R(cksum, D_CSUM_F)                                                                         \
 	R(noinorder, D_NOORDER_F)                                                                  \
-	R(noinorder_csum, D_NOORDER_F | D_CSUM_F)
+	R(gso, D_GSO_F)                                                                            \
+	R(noinorder_csum, D_NOORDER_F | D_CSUM_F)                                                  \
+	R(cksum_gso, D_CSUM_F | D_GSO_F)                                                           \
+	R(noinorder_gso, D_NOORDER_F | D_GSO_F)                                                    \
+	R(noinorder_csum_gso, D_NOORDER_F | D_CSUM_F | D_GSO_F)
 
 #define R(name, flags)                                                                             \
 	uint16_t virtio_net_deq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);         \
