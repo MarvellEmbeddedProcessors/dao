@@ -8,5 +8,5 @@ Release Notes
     :maxdepth: 1
     :numbered:
 
-    release_24_04
+    release_24_05
     known_issues
