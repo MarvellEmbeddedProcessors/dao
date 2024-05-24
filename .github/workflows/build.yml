@@ -50,13 +50,14 @@ jobs:
           echo "PKG_VERSION_NAME=`cat VERSION`" >> "${PWD}/artifacts/env"
           echo "DPDK_PKG_VERSION=`cat DPDK_VERSION | grep RELEASE_VERSION | awk -F'=' '{print $2}'`" >> "${PWD}/artifacts/env"
           echo "DPDK_BASE_PKG_VERSION=`cat DPDK_VERSION | grep BASE_VERSION | awk -F'=' '{print $2}' | awk -F'.' '{print $1"."$2}'`" >> "${PWD}/artifacts/env"
+          source "${PWD}/artifacts/env"
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
           echo "NIGHTLY=${NIGHTLY}" >> $GITHUB_OUTPUT
+          echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> $GITHUB_OUTPUT
       - uses: robinraju/release-downloader@v1.10
         with:
           repository: "MarvellEmbeddedProcessors/marvell-dpdk"
-          latest: ${{ steps.version.outputs.NIGHTLY }}
-          tag: ${{ steps.version.outputs.NIGHTLY == 'true' && '' || steps.version.outputs.DPDK_PKG_VERSION }}
+          tag: "${{ steps.version.outputs.DPDK_PKG_VERSION }}"
           fileName: "*.deb"
       - uses: uraimo/run-on-arch-action@v2.7.2
         name: Build DAO and generate package
@@ -121,8 +122,6 @@ jobs:
           echo $PKG_POSTFIX
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
           [[ "$PKG_POSTFIX" == "-latest" ]] && TAG=latest || TAG=${PKG_VERSION_NAME}
-          echo $DPDK_PKG_VERSION
-          echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> $GITHUB_OUTPUT
           echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
       - name: Upload debian package as artifact
         uses: actions/upload-artifact@v4.3.1
@@ -154,4 +153,4 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.PPA_REPO_SECRET }}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
-            -d '{"event_type":"dispatch-event", "client_payload": {"package" : "dao", "tag": "${{ steps.artifacts.outputs.TAG }}", "dpdk_tag" : "${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}", "has_dpdk" : "true"}}'
+            -d '{"event_type":"dispatch-event", "client_payload": {"package" : "dao", "tag": "${{ steps.artifacts.outputs.TAG }}", "dpdk_tag" : "${{ steps.version.outputs.DPDK_PKG_VERSION }}", "has_dpdk" : "true"}}'
