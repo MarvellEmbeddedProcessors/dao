@@ -19,6 +19,7 @@ IGNORE_FILES=(
 	"DPDK_VERSION"
 	"VERSION"
 	"doc/guides/custom.css"
+	"README.md"
 )
 
 IGNORE_DIRECTORIES=(
