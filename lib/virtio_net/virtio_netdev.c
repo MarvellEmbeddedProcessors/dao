@@ -17,7 +17,7 @@ dao_net_desc_manage_fn_t dao_net_desc_manage_fns[VIRTIO_NET_DESC_MANAGE_LAST << 
 #undef M
 };
 
-static struct dao_virtio_netdev_cbs user_cbs;
+struct dao_virtio_netdev_cbs user_cbs;
 int virtio_netdev_clear_queue_info(struct virtio_netdev *netdev);
 
 static int
@@ -183,11 +183,15 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	if (queue_id >= max_vqs)
 		return -EINVAL;
 
-	/* Calculate first segment pkt data space */
-	buf_len = netdev->pool->elt_size;
-	buf_len -= sizeof(struct rte_mbuf);
-	buf_len -= RTE_PKTMBUF_HEADROOM;
-	buf_len -= rte_pktmbuf_priv_size(netdev->pool);
+	if (!(netdev->flags & DAO_VIRTIO_NETDEV_EXTBUF)) {
+		/* Calculate first segment pkt data space */
+		buf_len = netdev->pool->elt_size;
+		buf_len -= sizeof(struct rte_mbuf);
+		buf_len -= RTE_PKTMBUF_HEADROOM;
+		buf_len -= rte_pktmbuf_priv_size(netdev->pool);
+	} else {
+		buf_len = netdev->dataroom_size;
+	}
 
 	q_conf = &dev->queue_conf[queue_id];
 	if (!q_conf->queue_enable || netdev->qs[queue_id] != NULL)
@@ -205,13 +209,15 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 
 	queue->desc_base = (((uint64_t)q_conf->queue_desc_hi << 32) | (q_conf->queue_desc_lo));
 	queue->q_sz = q_conf->queue_size;
-	queue->mp = netdev->pool;
-	queue->buf_len = buf_len;
-	/* Populate data offset along with queue for fast path purpose */
-	queue->data_off = (sizeof(struct rte_mbuf));
-	queue->data_off += RTE_PKTMBUF_HEADROOM;
-	queue->data_off += rte_pktmbuf_priv_size(netdev->pool);
+	if (!(netdev->flags & DAO_VIRTIO_NETDEV_EXTBUF)) {
+		queue->mp = netdev->pool;
+		/* Populate data offset along with queue for fast path purpose */
+		queue->data_off = (sizeof(struct rte_mbuf));
+		queue->data_off += RTE_PKTMBUF_HEADROOM;
+		queue->data_off += rte_pktmbuf_priv_size(netdev->pool);
+	}
 
+	queue->buf_len = buf_len;
 	queue->notify_addr = (uint32_t *)(dev->notify_base + (queue_id * dev->notify_off_mltpr));
 	queue->mbuf_arr = (struct rte_mbuf **)((uintptr_t)(queue + 1) + shadow_area);
 	/* Initial queue wrap counter is 1 as per spec? */
@@ -224,6 +230,8 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	queue->dma_vchan = dev->dma_vchan;
 	netdev->qs[queue_id] = queue;
 	dao_netdev->qs[queue_id] = queue;
+	queue->dao_netdev = dao_netdev;
+	queue->netdev_id = netdev->dev.dev_id;
 
 	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
 	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
@@ -255,24 +263,32 @@ virtio_netdev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 static __rte_always_inline uint16_t
 virtio_netdev_flush_enq_queue(struct virtio_netdev *netdev, uint16_t qid)
 {
+	struct dao_virtio_netdev *dao_netdev = virtio_netdev_to_dao(netdev);
 	void *q = netdev->qs[qid];
 
 	if (unlikely(!q))
 		return 0;
 
-	virtio_net_flush_enq(q);
+	if (!(dao_netdev->mgmt_fn_id & VIRTIO_NET_DESC_MANAGE_EXTBUF))
+		virtio_net_flush_enq(q);
+	else
+		virtio_net_flush_enq_ext(q);
 	return 0;
 }
 
 static __rte_always_inline uint16_t
 virtio_netdev_flush_deq_queue(struct virtio_netdev *netdev, uint16_t qid)
 {
+	struct dao_virtio_netdev *dao_netdev = virtio_netdev_to_dao(netdev);
 	void *q = netdev->qs[qid];
 
 	if (unlikely(!q))
 		return 0;
 
-	virtio_net_flush_deq(q);
+	if (!(dao_netdev->mgmt_fn_id & VIRTIO_NET_DESC_MANAGE_EXTBUF))
+		virtio_net_flush_deq(q);
+	else
+		virtio_net_flush_deq_ext(q);
 	return 0;
 }
 
@@ -508,7 +524,12 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	dev->dev_type = VIRTIO_DEV_TYPE_NET;
 	dev->pem_devid = conf->pem_devid;
 	dev->dma_vchan = conf->dma_vchan;
-	netdev->pool = conf->pool;
+	if (!(conf->flags & DAO_VIRTIO_NETDEV_EXTBUF))
+		netdev->pool = conf->pool;
+	else
+		netdev->dataroom_size = conf->dataroom_size;
+
+	netdev->flags = conf->flags;
 	netdev->reta_size = conf->reta_size;
 	netdev->hash_key_size = conf->hash_key_size;
 	netdev->auto_free_en = conf->auto_free_en;
@@ -551,6 +572,10 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	/* Enable SW freeing if auto free is disabled */
 	if (!netdev->auto_free_en)
 		virtio_netdev->enq_fn_id = VIRTIO_NET_ENQ_OFFLOAD_NOFF;
+
+	virtio_netdev->mgmt_fn_id &= ~VIRTIO_NET_DESC_MANAGE_EXTBUF;
+	if (conf->flags & DAO_VIRTIO_NETDEV_EXTBUF)
+		virtio_netdev->mgmt_fn_id |= VIRTIO_NET_DESC_MANAGE_EXTBUF;
 
 	/* One time setup */
 	dev_cbs[VIRTIO_DEV_TYPE_NET].dev_status = virtio_netdev_status_cb;

@@ -13,6 +13,7 @@ struct virtio_net_queue {
 	uint16_t buf_len;
 	uint16_t q_sz;
 	uint16_t dma_vchan;
+	uint16_t netdev_id;
 	uint8_t auto_free;
 
 	/* Slow path */
@@ -43,7 +44,10 @@ struct virtio_net_queue {
 	/* Mempool to use for DMA inbound */
 	struct rte_mempool *mp;
 	/* TODO avoid indirection */
-	struct rte_mbuf **mbuf_arr;
+	union {
+		struct rte_mbuf **mbuf_arr;
+		void **extbuf_arr;
+	};
 	uintptr_t driver_area;
 	uintptr_t sd_driver_area;
 	/* Shadow Ring space */
@@ -53,7 +57,14 @@ struct virtio_net_queue {
 struct virtio_netdev {
 	struct virtio_dev dev;
 	uint16_t vq_pairs_set; /* CTRL_MQ_VQ_PAIRS_SET */
-	struct rte_mempool *pool;
+	/* config flags */
+	uint16_t flags;
+	union {
+		/** Default dequeue mempool */
+		struct rte_mempool *pool;
+		/** Valid when DOS_VIRTIO_NETDEV_EXTBUF is set */
+		uint16_t dataroom_size;
+	};
 	bool auto_free_en;
 	uint16_t reta_size;
 	uint16_t hash_key_size;
@@ -62,8 +73,12 @@ struct virtio_netdev {
 	struct virtio_net_queue *qs[DAO_VIRTIO_MAX_QUEUES] __rte_cache_aligned;
 };
 
+extern struct dao_virtio_netdev_cbs user_cbs;
+
 void virtio_net_flush_enq(struct virtio_net_queue *q);
 void virtio_net_flush_deq(struct virtio_net_queue *q);
+void virtio_net_flush_enq_ext(struct virtio_net_queue *q);
+void virtio_net_flush_deq_ext(struct virtio_net_queue *q);
 void virtio_net_desc_validate(struct virtio_net_queue *q, uint16_t start, uint16_t count,
 			      bool avail, bool used);
 
@@ -101,14 +116,24 @@ virtio_netdev_to_dao(struct virtio_netdev *netdev)
 #define VIRTIO_NET_DEQ_OFFLOAD_NOINOR   RTE_BIT64(1)
 #define VIRTIO_NET_DEQ_OFFLOAD_LAST     RTE_BIT64(1)
 
+/* Flags to control dequeue function.
+ * Defining it from backwards to denote its been
+ * not used as offload flags to pick function
+ */
+#define VIRTIO_NET_DEQ_EXTBUF RTE_BIT64(15)
+
+#define D_CSUM_F    VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM
+#define D_NOORDER_F VIRTIO_NET_DEQ_OFFLOAD_NOINOR
+
 #define VIRTIO_NET_DEQ_FASTPATH_MODES                                                              \
 	R(no_offload, VIRTIO_NET_DEQ_OFFLOAD_NONE)                                                 \
-	R(cksum, VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM)                                                  \
-	R(noinorder, VIRTIO_NET_DEQ_OFFLOAD_NOINOR)                                                \
-	R(noinorder_csum, VIRTIO_NET_DEQ_OFFLOAD_NOINOR | VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM)
+	R(cksum, D_CSUM_F)                                                                         \
+	R(noinorder, D_NOORDER_F)                                                                  \
+	R(noinorder_csum, D_NOORDER_F | D_CSUM_F)
 
 #define R(name, flags)                                                                             \
-	uint16_t virtio_net_deq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);
+	uint16_t virtio_net_deq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);         \
+	uint16_t virtio_net_deq_ext_##name(void *q, void **pkts, uint16_t nb_pkts);
 
 VIRTIO_NET_DEQ_FASTPATH_MODES
 #undef R
@@ -116,25 +141,35 @@ VIRTIO_NET_DEQ_FASTPATH_MODES
 /*
  * Virtio Net Tx Offloads
  */
-#define VIRTIO_NET_ENQ_OFFLOAD_NONE (0)
-#define VIRTIO_NET_ENQ_OFFLOAD_NOFF RTE_BIT64(0)
+#define VIRTIO_NET_ENQ_OFFLOAD_NONE     (0)
+#define VIRTIO_NET_ENQ_OFFLOAD_NOFF     RTE_BIT64(0)
 #define VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM RTE_BIT64(1)
-#define VIRTIO_NET_ENQ_OFFLOAD_MSEG RTE_BIT64(2)
-#define VIRTIO_NET_ENQ_OFFLOAD_LAST RTE_BIT64(2)
+#define VIRTIO_NET_ENQ_OFFLOAD_MSEG     RTE_BIT64(2)
+#define VIRTIO_NET_ENQ_OFFLOAD_LAST     RTE_BIT64(2)
+
+/* Flags to control enqueue function.
+ * Defining it from backwards to denote its been
+ * not used as offload flags to pick function
+ */
+#define VIRTIO_NET_ENQ_EXTBUF RTE_BIT64(15)
+
+#define NOFF_F VIRTIO_NET_ENQ_OFFLOAD_NOFF
+#define CSUM_F VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM
+#define MSEG_F VIRTIO_NET_ENQ_OFFLOAD_MSEG
 
 #define VIRTIO_NET_ENQ_FASTPATH_MODES                                                              \
 	T(no_offload, VIRTIO_NET_ENQ_OFFLOAD_NONE)                                                 \
-	T(no_ff, VIRTIO_NET_ENQ_OFFLOAD_NOFF)                                                      \
-	T(cksum, VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM)                                                  \
-	T(mseg, VIRTIO_NET_ENQ_OFFLOAD_MSEG)                                                       \
-	T(no_ff_cksum, VIRTIO_NET_ENQ_OFFLOAD_NOFF | VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM)              \
-	T(no_ff_mseg, VIRTIO_NET_ENQ_OFFLOAD_NOFF | VIRTIO_NET_ENQ_OFFLOAD_MSEG)                   \
-	T(cksum_mseg, VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM | VIRTIO_NET_ENQ_OFFLOAD_MSEG)               \
-	T(no_ff_cksum_mseg, VIRTIO_NET_ENQ_OFFLOAD_NOFF | VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM |        \
-	  VIRTIO_NET_ENQ_OFFLOAD_MSEG)
+	T(no_ff, NOFF_F)                                                                           \
+	T(cksum, CSUM_F)                                                                           \
+	T(mseg, MSEG_F)                                                                            \
+	T(no_ff_cksum, NOFF_F | CSUM_F)                                                            \
+	T(no_ff_mseg, NOFF_F | MSEG_F)                                                             \
+	T(cksum_mseg, CSUM_F | MSEG_F)                                                             \
+	T(no_ff_cksum_mseg, NOFF_F | CSUM_F | MSEG_F)
 
 #define T(name, flags)                                                                             \
-	uint16_t virtio_net_enq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);
+	uint16_t virtio_net_enq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);         \
+	uint16_t virtio_net_enq_ext_##name(void *q, void **pkts, uint16_t nb_pkts);
 
 VIRTIO_NET_ENQ_FASTPATH_MODES
 #undef T
@@ -142,22 +177,66 @@ VIRTIO_NET_ENQ_FASTPATH_MODES
 /*
  * Virtio net descriptor management ops
  */
-#define VIRTIO_NET_DESC_MANAGE_DEF		(0)
-#define VIRTIO_NET_DESC_MANAGE_NOINORDER	RTE_BIT64(0)
-#define VIRTIO_NET_DESC_MANAGE_MSEG		RTE_BIT64(1)
-#define VIRTIO_NET_DESC_MANAGE_LAST		RTE_BIT64(1)
+#define VIRTIO_NET_DESC_MANAGE_DEF       (0)
+#define VIRTIO_NET_DESC_MANAGE_NOINORDER RTE_BIT64(0)
+#define VIRTIO_NET_DESC_MANAGE_MSEG      RTE_BIT64(1)
+#define VIRTIO_NET_DESC_MANAGE_EXTBUF    RTE_BIT64(2)
+#define VIRTIO_NET_DESC_MANAGE_LAST      RTE_BIT64(2)
+
+#define M_NOORDER_F VIRTIO_NET_DESC_MANAGE_NOINORDER
+#define M_MSEG_F    VIRTIO_NET_DESC_MANAGE_MSEG
+#define M_EBUF_F    VIRTIO_NET_DESC_MANAGE_EXTBUF
 
 #define VIRTIO_NET_DESC_MANAGE_MODES                                                               \
 	M(def, VIRTIO_NET_DESC_MANAGE_DEF)                                                         \
-	M(noinorder, VIRTIO_NET_DESC_MANAGE_NOINORDER)                                             \
-	M(mseg, VIRTIO_NET_DESC_MANAGE_MSEG)                                                       \
-	M(noinorder_mseg, VIRTIO_NET_DESC_MANAGE_MSEG | VIRTIO_NET_DESC_MANAGE_NOINORDER)
+	M(noinorder, M_NOORDER_F)                                                                  \
+	M(mseg, M_MSEG_F)                                                                          \
+	M(extbuf, M_EBUF_F)                                                                        \
+	M(noinorder_mseg, M_MSEG_F | M_NOORDER_F)                                                  \
+	M(noinorder_extbuf, M_NOORDER_F | M_EBUF_F)                                                \
+	M(mseg_extbuf, M_MSEG_F | M_EBUF_F)                                                        \
+	M(noinorder_mseg_extbuf, M_MSEG_F | M_NOORDER_F | M_EBUF_F)
 
-#define M(name, flags)                                                                             \
-	int virtio_net_desc_manage_##name(uint16_t devid, uint16_t qp_count);
+#define M(name, flags) int virtio_net_desc_manage_##name(uint16_t devid, uint16_t qp_count);
 
 VIRTIO_NET_DESC_MANAGE_MODES
 #undef M
+
+static __rte_always_inline void
+free_extbufs(struct virtio_net_queue *q, uint16_t off, uint16_t q_sz, uint16_t num, uint16_t flags)
+{
+	uint8_t netdev_id = q->netdev_id;
+	void **extbuf = q->extbuf_arr;
+	uint16_t cnt;
+
+	RTE_SET_USED(flags);
+
+	cnt = (off + num) > q_sz ? q_sz - off : num;
+	user_cbs.extbuf_put(netdev_id, extbuf + off, cnt);
+	off = (off + cnt) & (q_sz - 1);
+	cnt = num - cnt;
+	if (cnt)
+		user_cbs.extbuf_put(netdev_id, extbuf + off, cnt);
+}
+
+static __rte_always_inline uint16_t
+alloc_extbufs(struct virtio_net_queue *q, uint16_t off, uint16_t q_sz, uint16_t num)
+{
+	uint8_t netdev_id = q->netdev_id;
+	void **extbuf = q->extbuf_arr;
+	uint16_t cnt;
+
+	cnt = (off + num) > q_sz ? q_sz - off : num;
+	if (user_cbs.extbuf_get(netdev_id, extbuf + off, cnt) < 0)
+		return 0;
+
+	off = (off + cnt) & (q_sz - 1);
+	cnt = num - cnt;
+	if (cnt && user_cbs.extbuf_get(netdev_id, extbuf + off, cnt) < 0)
+		num -= cnt;
+
+	return num;
+}
 
 static __rte_always_inline uint16_t
 alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint16_t off, uint16_t q_sz,
@@ -251,7 +330,6 @@ fetch_deq_desc_prep(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2
 	int i, j = 0;
 	int nb_desc;
 
-	RTE_SET_USED(flags);
 	pend_sd_desc = q->pend_sd_desc;
 	sd_desc_off = q->sd_desc_off;
 
@@ -279,7 +357,12 @@ fetch_deq_desc_prep(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2
 	/* Allocate required mbufs */
 	off = DESC_OFF(sd_desc_off);
 	mbuf_arr = q->mbuf_arr;
-	nb_desc = alloc_mbufs(mbuf_arr, q->mp, off, q_sz, nb_desc);
+
+	if (flags & VIRTIO_NET_DESC_MANAGE_EXTBUF)
+		nb_desc = alloc_extbufs(q, off, q_sz, nb_desc);
+	else
+		nb_desc = alloc_mbufs(mbuf_arr, q->mp, off, q_sz, nb_desc);
+
 	if (unlikely(!nb_desc))
 		return 0;
 
@@ -444,9 +527,14 @@ mark_enq_compl(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev, 
 	/* Validate descriptor */
 	VIRTIO_NET_DESC_CHECK(q, start, desc_off_diff(end, start, q_sz), true, true);
 
-	if (unlikely(!q->auto_free))
-		free_mbufs(q->mbuf_arr, DESC_OFF(start), q_sz, desc_off_diff(end, start, q_sz),
-			   flags);
+	if (unlikely(!q->auto_free)) {
+		if (flags & VIRTIO_NET_DESC_MANAGE_EXTBUF)
+			free_extbufs(q, DESC_OFF(start), q_sz, desc_off_diff(end, start, q_sz),
+				     flags);
+		else
+			free_mbufs(q->mbuf_arr, DESC_OFF(start), q_sz,
+				   desc_off_diff(end, start, q_sz), flags);
+	}
 
 	pend = desc_off_diff_no_wrap(end, start, q_sz);
 

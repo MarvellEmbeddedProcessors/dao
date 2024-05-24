@@ -86,6 +86,14 @@ struct dao_virtio_netdev {
 	uint8_t reserved[DAO_VIRTIO_NETDEV_MEM_SZ];
 };
 
+/** Virtio net header for external buffers */
+struct dao_virtio_net_hdr {
+	/** Array of virtio descriptor data */
+	uint64_t desc_data[2];
+	/** Virtio net header */
+	struct virtio_net_hdr hdr;
+};
+
 /** Virtio net devices */
 extern struct dao_virtio_netdev dao_virtio_netdevs[];
 
@@ -103,6 +111,15 @@ extern dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[];
 extern dao_virtio_net_enq_fn_t dao_virtio_net_enq_fns[];
 /** Array of management functions */
 extern dao_net_desc_manage_fn_t dao_net_desc_manage_fns[];
+
+/** Dequeue external buf function */
+typedef uint16_t (*dao_virtio_net_deq_ext_fn_t)(void *q, void **vbufs, uint16_t nb_bufs);
+/** Enqueue external buf function */
+typedef uint16_t (*dao_virtio_net_enq_ext_fn_t)(void *q, void **vbufs, uint16_t nb_bufs);
+/** Array of dequeue external buf functions */
+extern dao_virtio_net_deq_ext_fn_t dao_virtio_net_deq_ext_fns[];
+/** Array of enqueue external buf functions */
+extern dao_virtio_net_enq_ext_fn_t dao_virtio_net_enq_ext_fns[];
 
 /** Device status callback */
 typedef int (*dao_virtio_netdev_rss_cb_t)(uint16_t devid, struct virtio_net_ctrl_rss *rss);
@@ -317,6 +334,64 @@ dao_virtio_net_enqueue_burst(uint16_t devid, uint16_t qid,
 	enq_fn = dao_virtio_net_enq_fns[netdev->enq_fn_id];
 
 	return (*enq_fn)(q, mbufs, nb_mbufs);
+}
+
+/**
+ * Virtio netdev receive raw buffers from Host
+ *
+ * @param devid
+ *    Virtio net device ID.
+ * @param qid
+ *    Virtio queue id in range of { 1, 3, 5, ... N + 1} as they are host Tx queue id's.
+ * @param vbufs
+ *    Array to store buffer pointers of received packets.
+ * @param nb_bufs
+ *    Size of buffer array.
+ * @return
+ *    Number of buffers received from host.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_net_dequeue_burst_ext(uint16_t devid, uint16_t qid, void **vbufs, uint16_t nb_bufs)
+{
+	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
+	dao_virtio_net_deq_ext_fn_t deq_fn;
+	void *q = netdev->qs[qid];
+
+	if (unlikely(!q))
+		return 0;
+
+	deq_fn = dao_virtio_net_deq_ext_fns[netdev->deq_fn_id];
+
+	return (*deq_fn)(q, vbufs, nb_bufs);
+}
+
+/**
+ * Virtio netdev send raw buffers to Host
+ *
+ * @param devid
+ *    Virtio net device ID.
+ * @param qid
+ *    Virtio queue id in range of { 0, 2, 4, ... N } as they are host Rx queue id's.
+ * @param vbufs
+ *    Array of buffer pointers to send to host.
+ * @param nb_bufs
+ *    Number of buffers to send.
+ * @return
+ *    Number of buffers sent to host.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_net_enqueue_burst_ext(uint16_t devid, uint16_t qid, void **vbufs, uint16_t nb_bufs)
+{
+	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
+	dao_virtio_net_enq_ext_fn_t enq_fn;
+	void *q = netdev->qs[qid];
+
+	if (unlikely(!q))
+		return 0;
+
+	enq_fn = dao_virtio_net_enq_ext_fns[netdev->enq_fn_id];
+
+	return (*enq_fn)(q, vbufs, nb_bufs);
 }
 
 #endif /* __INCLUDE_DAO_VIRTIO_NET_H__ */
