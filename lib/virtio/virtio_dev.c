@@ -651,6 +651,10 @@ virtio_process_queue_enable(struct virtio_dev *dev, uint16_t queue_enable)
 	if (dev->features_ok && dev->driver_ok && queue_enable && (queue_id == cq_id) &&
 	    (dev->cq == NULL))
 		virtio_setup_cq_info(dev);
+
+	/* Setup datapath queue info */
+	if (dev->features_ok && queue_enable && queue_id != cq_id)
+		dev_cbs[dev->dev_type].queue_enable(dev, queue_id);
 	return 0;
 }
 

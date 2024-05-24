@@ -19,7 +19,6 @@ dao_net_desc_manage_fn_t dao_net_desc_manage_fns[VIRTIO_NET_DESC_MANAGE_LAST << 
 
 static struct dao_virtio_netdev_cbs user_cbs;
 int virtio_netdev_clear_queue_info(struct virtio_netdev *netdev);
-int virtio_netdev_populate_queue_info(struct virtio_netdev *netdev);
 
 static int
 net_rss_setup(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
@@ -36,9 +35,6 @@ net_rss_setup(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
 	 * to requested number of queues.
 	 */
 	user_cbs.rss_cb(netdev->dev.dev_id, NULL);
-	virtio_netdev_clear_queue_info(netdev);
-
-	virtio_netdev_populate_queue_info(netdev);
 
 	/* Update the core map to requested number of queues and
 	 * configure rss.
@@ -112,8 +108,6 @@ net_mq_configure(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
 	 * to requested number of queues.
 	 */
 	user_cbs.mq_configure(netdev->dev.dev_id, false);
-	virtio_netdev_clear_queue_info(netdev);
-	virtio_netdev_populate_queue_info(netdev);
 
 	/* Update the core map to requested number of queues. */
 	return user_cbs.mq_configure(netdev->dev.dev_id, true);
@@ -172,8 +166,8 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 	}
 }
 
-int
-virtio_netdev_populate_queue_info(struct virtio_netdev *netdev)
+static int
+virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_id)
 {
 	struct dao_virtio_netdev *dao_netdev = virtio_netdev_to_dao(netdev);
 	uint32_t max_vqs = netdev->dev.max_virtio_queues - 1;
@@ -185,7 +179,9 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev)
 	uint32_t mbuf_area;
 	uint16_t buf_len;
 	int event_flag;
-	uint32_t i;
+
+	if (queue_id >= max_vqs)
+		return -EINVAL;
 
 	/* Calculate first segment pkt data space */
 	buf_len = netdev->pool->elt_size;
@@ -193,64 +189,67 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev)
 	buf_len -= RTE_PKTMBUF_HEADROOM;
 	buf_len -= rte_pktmbuf_priv_size(netdev->pool);
 
-	for (i = 0; i < max_vqs; i++) {
-		q_conf = &dev->queue_conf[i];
-		if (!q_conf->queue_enable)
-			continue;
+	q_conf = &dev->queue_conf[queue_id];
+	if (!q_conf->queue_enable || netdev->qs[queue_id] != NULL)
+		return 0;
 
-		/* Setup only enabled queues assuming packed virt queue */
-		shadow_area = RTE_ALIGN(q_conf->queue_size * 16 + 8, RTE_CACHE_LINE_SIZE);
-		mbuf_area = RTE_ALIGN(q_conf->queue_size * 8, RTE_CACHE_LINE_SIZE);
-		queue = rte_zmalloc("virtio_net_queue", sizeof(*queue) + shadow_area + mbuf_area,
-				    RTE_CACHE_LINE_SIZE);
-		if (!queue) {
-			dao_err("[dev %u] Failed to allocate memory for virtio queue", dev->dev_id);
-			return -ENOMEM;
-		}
-
-		queue->desc_base =
-			(((uint64_t)q_conf->queue_desc_hi << 32) | (q_conf->queue_desc_lo));
-		queue->q_sz = q_conf->queue_size;
-		queue->mp = netdev->pool;
-		queue->buf_len = buf_len;
-		/* Populate data offset along with queue for fast path purpose */
-		queue->data_off = (sizeof(struct rte_mbuf));
-		queue->data_off += RTE_PKTMBUF_HEADROOM;
-		queue->data_off += rte_pktmbuf_priv_size(netdev->pool);
-
-		queue->notify_addr = (uint32_t *)(dev->notify_base + (i * dev->notify_off_mltpr));
-		queue->mbuf_arr = (struct rte_mbuf **)((uintptr_t)(queue + 1) + shadow_area);
-		/* Initial queue wrap counter is 1 as per spec? */
-		queue->sd_desc_off = RTE_BIT64(15);
-		queue->sd_mbuf_off = RTE_BIT64(15);
-		queue->last_off = RTE_BIT64(15);
-		queue->compl_off = RTE_BIT64(15); /* Valid only for Rx queue */
-		queue->auto_free = netdev->auto_free_en;
-		queue->qid = i;
-		queue->dma_vchan = dev->dma_vchan;
-		netdev->qs[i] = queue;
-		dao_netdev->qs[i] = queue;
-
-		queue->driver_area =
-			(((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
-		queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
-		event_flag = virtio_queue_driver_event_flag(dev, queue);
-		if (event_flag < 0)
-			return -1;
-
-		/* Disable call interrupts only if events are disabled for all queues */
-		cb_enabled |= (event_flag != RING_EVENT_FLAGS_DISABLE);
-
-		dao_dbg("[dev %u] Adding queue%d: desc_base %p q_sz %u", dev->dev_id, i,
-			(void *)queue->desc_base, queue->q_sz);
-		dao_dbg("[dev %u] Adding queue[%d]: notify_addr %p val %08x", dev->dev_id, i,
-			queue->notify_addr, *queue->notify_addr);
+	/* Setup only enabled queues assuming packed virt queue */
+	shadow_area = RTE_ALIGN(q_conf->queue_size * 16 + 8, RTE_CACHE_LINE_SIZE);
+	mbuf_area = RTE_ALIGN(q_conf->queue_size * 8, RTE_CACHE_LINE_SIZE);
+	queue = rte_zmalloc("virtio_net_queue", sizeof(*queue) + shadow_area + mbuf_area,
+			    RTE_CACHE_LINE_SIZE);
+	if (!queue) {
+		dao_err("[dev %u] Failed to allocate memory for virtio queue", dev->dev_id);
+		return -ENOMEM;
 	}
 
+	queue->desc_base = (((uint64_t)q_conf->queue_desc_hi << 32) | (q_conf->queue_desc_lo));
+	queue->q_sz = q_conf->queue_size;
+	queue->mp = netdev->pool;
+	queue->buf_len = buf_len;
+	/* Populate data offset along with queue for fast path purpose */
+	queue->data_off = (sizeof(struct rte_mbuf));
+	queue->data_off += RTE_PKTMBUF_HEADROOM;
+	queue->data_off += rte_pktmbuf_priv_size(netdev->pool);
+
+	queue->notify_addr = (uint32_t *)(dev->notify_base + (queue_id * dev->notify_off_mltpr));
+	queue->mbuf_arr = (struct rte_mbuf **)((uintptr_t)(queue + 1) + shadow_area);
+	/* Initial queue wrap counter is 1 as per spec? */
+	queue->sd_desc_off = RTE_BIT64(15);
+	queue->sd_mbuf_off = RTE_BIT64(15);
+	queue->last_off = RTE_BIT64(15);
+	queue->compl_off = RTE_BIT64(15); /* Valid only for Rx queue */
+	queue->auto_free = netdev->auto_free_en;
+	queue->qid = queue_id;
+	queue->dma_vchan = dev->dma_vchan;
+	netdev->qs[queue_id] = queue;
+	dao_netdev->qs[queue_id] = queue;
+
+	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
+	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
+	event_flag = virtio_queue_driver_event_flag(dev, queue);
+	if (event_flag < 0)
+		return -1;
+
+	/* Disable call interrupts only if events are disabled for all queues */
+	cb_enabled = (event_flag != RING_EVENT_FLAGS_DISABLE);
 	if (cb_enabled)
 		virtio_netdev_cb_interrupt_conf(netdev);
 
+	dao_dbg("[dev %u] Adding queue%d: desc_base %p q_sz %u", dev->dev_id, queue_id,
+		(void *)queue->desc_base, queue->q_sz);
+	dao_dbg("[dev %u] Adding queue[%d]: notify_addr %p val %08x", dev->dev_id, queue_id,
+		queue->notify_addr, *queue->notify_addr);
+
 	return 0;
+}
+
+static int
+virtio_netdev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
+{
+	struct virtio_netdev *netdev = virtio_dev_to_netdev(dev);
+
+	return virtio_netdev_populate_queue_info(netdev, queue_id);
 }
 
 static __rte_always_inline uint16_t
@@ -450,8 +449,6 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 			dao_netdev->mgmt_fn_id |= VIRTIO_NET_DESC_MANAGE_MSEG;
 		}
 
-		/* Populate queue info before user callback */
-		virtio_netdev_populate_queue_info(netdev);
 		return user_cbs.status_cb(netdev->dev.dev_id, status);
 	} else if (status == VIRTIO_DEV_RESET) {
 		struct virtio_net_queue *q;
@@ -559,6 +556,7 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	dev_cbs[VIRTIO_DEV_TYPE_NET].dev_status = virtio_netdev_status_cb;
 	dev_cbs[VIRTIO_DEV_TYPE_NET].cq_cmd_process = virtio_netdev_cq_cmd_process;
 	dev_cbs[VIRTIO_DEV_TYPE_NET].cq_id_get = virtio_netdev_cq_id_get;
+	dev_cbs[VIRTIO_DEV_TYPE_NET].queue_enable = virtio_netdev_queue_enable;
 	return 0;
 }
 
@@ -677,7 +675,7 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 	uint16_t nb_desc;
 	int i;
 
-	if (unlikely(!netdev->qs[0]))
+	if (unlikely(!netdev->qs[qp_count * 2 - 1]))
 		return 0;
 
 	dma_vchan = netdev->qs[0]->dma_vchan;
