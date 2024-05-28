@@ -34,6 +34,11 @@ New Features
     Library provides APIs to interact with platform devices from user space leveraging
     vfio-platform kernel driver framework
 
+  * *Helper*
+
+    Helper library is the collection of utility functions. These APIs serve as public interfaces
+    and abstract the hardware-specific DAO implementations.
+
 
 * **Applications**
 
@@ -55,6 +60,13 @@ New Features
     of hardware accelerators in DPUs. It also mitigates some hardware gaps by providing
     optimized software solution for advanced features like as port hair pinning, tunnel-transport,
     port hotplugging, etc.
+
+  * *virtio-extbuf*
+
+    This DPDK application enables testing of the VirtIO external buffer use case by forwarding
+    traffic between a VirtIO net device and a DPDK ethdev device. The application leverages a
+    helper library for the control path and utilizes VirtIO external buffer APIs for the data path.
+    The VirtIO net device is emulated using the VirtIO DAO library.
 
 Removed Items
 -------------
