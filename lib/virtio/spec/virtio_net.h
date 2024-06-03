@@ -29,6 +29,7 @@
 #define VIRTIO_NET_F_CTRL_MAC_ADDR  23 /** Set MAC address */
 #define VIRTIO_NET_F_HASH_REPORT    57 /** Set HASH REPORT */
 #define VIRTIO_NET_F_RSS            60 /** RSS supported */
+#define VIRTIO_NET_F_SPEED_DUPLEX   63 /** Device set linkspeed and duplex */
 
 /**  Virtio RSS hash types */
 #define VIRTIO_NET_HASH_TYPE_IPV4   RTE_BIT32(0)

@@ -571,7 +571,7 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	feature_bits = RTE_BIT64(VIRTIO_NET_F_CTRL_VQ) | RTE_BIT64(VIRTIO_NET_F_MQ) |
 		       RTE_BIT64(VIRTIO_NET_F_RSS) | RTE_BIT64(VIRTIO_NET_F_CTRL_RX) |
 		       RTE_BIT64(VIRTIO_NET_F_STATUS) | RTE_BIT64(VIRTIO_NET_F_MAC) |
-		       RTE_BIT64(VIRTIO_NET_F_MRG_RXBUF) |
+		       RTE_BIT64(VIRTIO_NET_F_MRG_RXBUF) | RTE_BIT64(VIRTIO_NET_F_SPEED_DUPLEX) |
 		       RTE_BIT64(VIRTIO_NET_F_HASH_REPORT);
 
 	/* Enable add MAC support */
@@ -831,6 +831,9 @@ dao_virtio_netdev_link_sts_update(uint16_t devid, struct dao_virtio_netdev_link_
 	dev_cfg->status = link_info->status;
 	dev_cfg->duplex = link_info->duplex;
 	dev_cfg->speed = link_info->speed;
+	/* Notify host with link interrupt */
+	*(uint8_t *)dev->isr = 0x2;
+	__atomic_store_n(dev->cb_intr_addr, (1UL << 59), __ATOMIC_RELAXED);
 
 	return 0;
 }
