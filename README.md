@@ -21,3 +21,33 @@ https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/
 ## API Reference Guide
 
 https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/api/
+
+## Quick start Guide
+
+Update ubuntu repository to download dao packages
+
+```sh
+
+curl -fsSL https://uat.marvell.com/public/repo/octeon/dao/ubuntu/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
+curl -SsL -o /etc/apt/sources.list.d/dao.list https://uat.marvell.com/public/repo/octeon/dao/ubuntu/dao.list
+sudo chmod 644 /etc/apt/sources.list.d/dao.list
+sudo chmod 644 /etc/apt/keyrings/dao.gpg
+apt-get update
+
+```
+
+Installing DAO package
+
+```sh
+
+apt-get install dao-cn10k-latest
+
+```
+
+Installation Demo
+
+[<img src="doc/guides/_static/demo/install.png" style="width:400px;"/>](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/gsg/install.html#installation-demo)
+
+Running First DAO application
+
+[<img src="doc/guides/_static/demo/run.png" style="width:400px;"/>](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/smart-nic.html#application-running-demo)
