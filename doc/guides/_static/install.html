@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="https://github.com/asciinema/asciinema-player/releases/download/v3.7.1/asciinema-player.css" />
+    <style>
+        #install{
+            margin: auto;
+            width: 80ch;
+            height: 32em;
+        }
+    </style>
+</head>
+<body>
+    <div id="install"></div>
+    <script src="https://github.com/asciinema/asciinema-player/releases/download/v3.7.1/asciinema-player.min.js"></script>
+    <script>
+        AsciinemaPlayer.create('../_static/install.cast', document.getElementById('install'), {
+                   fit: "height",markers: [
+                                        [5, 'Booting'],
+                                        [80, 'Setup to setup repo'],
+                                        [150, 'DAO installation'],
+                                    ]
+        });
+    </script>
+</body>
+</html>

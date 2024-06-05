@@ -32,5 +32,3 @@ custom_target(
 	install: true,
 	install_dir: htmldir
 )
-
-install_data(files('custom.css'), install_dir: join_paths(htmldir,'_static', 'css'))

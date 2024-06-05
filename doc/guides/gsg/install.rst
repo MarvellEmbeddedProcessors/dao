@@ -134,6 +134,12 @@ Installing OVS package (optional)
 
  # apt-get install ovs-3.3
 
+Installation demo
+-----------------
+
+.. raw:: html
+  :file: ../_static/install.html
+
 RHEL
 ====
 
