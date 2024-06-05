@@ -55,7 +55,7 @@ foreach app: apps
     endif
 
     enabled += [name]
-    executable('dpdk-' + name, sources,
+    executable('dao-' + name, sources,
             include_directories: DAO_INCLUDES + includes,
 	    link_whole: DAO_STATIC_LIBS,
             link_args: ldflags,
