@@ -180,6 +180,7 @@ static rte_node_t virtio_tx_nodes[DAO_VIRTIO_DEV_MAX];
 
 TAILQ_HEAD(vlan_filter_head, vlan_filter);
 static struct vlan_filter_head virtio_dev_vlan_filters[DAO_VIRTIO_DEV_MAX];
+bool drop_rule_added;
 
 static struct rte_eth_conf port_conf = {
 	.rxmode = {
@@ -1608,6 +1609,99 @@ setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 }
 
 static int
+vlan_default_drop_rule_del(uint16_t portid, struct vlan_filter_head *list)
+{
+	struct vlan_filter *node, *drop_node = NULL;
+	struct rte_flow *flow = NULL;
+	uint8_t nb_rules = 0;
+	int rc = 0;
+
+	/* if no vlan filter is present then delete drop rule too */
+	TAILQ_FOREACH(node, list, next) {
+		if (node->vlan_tci == 0) {
+			drop_node = node;
+			flow = node->flow;
+		}
+		nb_rules++;
+	}
+
+	if (nb_rules == 1) {
+		drop_rule_added = false;
+		rc = rte_flow_destroy(portid, flow, NULL);
+		if (rc < 0) {
+			APP_ERR("rte_flow_destroy: err= %d, port=%d\n", rc, portid);
+			drop_rule_added = true;
+			goto exit;
+		}
+
+		TAILQ_REMOVE(list, drop_node, next);
+		drop_node->flow = NULL;
+		drop_node->vlan_tci = 0;
+		free(drop_node);
+	}
+
+exit:
+	return rc;
+}
+
+static int
+vlan_default_drop_rule_add(uint16_t portid, struct vlan_filter_head *list)
+{
+	struct rte_flow_action actions[2];
+	struct rte_flow_item patterns[2];
+	struct rte_flow *flow = NULL;
+	struct rte_flow_attr attr;
+	struct vlan_filter *node;
+	int rc = 0;
+
+	/* Attributes */
+	memset(&attr, 0, sizeof(struct rte_flow_attr));
+	attr.ingress = 1;
+	attr.priority = 1;
+
+	/* Patterns */
+	patterns[0].type = RTE_FLOW_ITEM_TYPE_VLAN;
+	patterns[0].spec = NULL;
+	patterns[0].last = NULL;
+	patterns[0].mask = NULL;
+	patterns[1].type = RTE_FLOW_ITEM_TYPE_END;
+	patterns[1].spec = NULL;
+	patterns[1].last = NULL;
+	patterns[1].mask = NULL;
+
+	/* Actions */
+	actions[0].type = RTE_FLOW_ACTION_TYPE_DROP;
+	actions[0].conf = NULL;
+	actions[1].type = RTE_FLOW_ACTION_TYPE_END;
+	actions[1].conf = NULL;
+
+	flow = rte_flow_create(portid, &attr, patterns, actions, NULL);
+	if (flow == NULL) {
+		rc = -1;
+		APP_ERR("failed to create VLAN drop filter\n");
+		goto error_flow_create;
+	}
+
+	node = calloc(1, sizeof(struct vlan_filter));
+	if (node == NULL) {
+		rc = -ENOMEM;
+		goto free_created_flow;
+	}
+
+	node->flow = flow;
+	node->vlan_tci = 0;
+	TAILQ_INSERT_TAIL(list, node, next);
+	drop_rule_added = true;
+	return rc;
+
+free_created_flow:
+	vlan_default_drop_rule_del(portid, list);
+
+error_flow_create:
+	return rc;
+}
+
+static int
 configure_promisc(uint16_t virtio_devid, uint8_t enable)
 {
 	if (enable)
@@ -1709,6 +1803,17 @@ vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 
 	portid = virtio_map[virtio_devid].id;
 
+	if (drop_rule_added)
+		goto skip_drop_rule_add;
+
+	/* Create a default drop rule. It must be done once only. */
+	rc = vlan_default_drop_rule_add(portid, list);
+	if (rc < 0) {
+		APP_ERR("failed to create VLAN drop filter\n");
+		goto skip_flow_create;
+	}
+
+skip_drop_rule_add:
 	/* Attributes */
 	memset(&attr, 0, sizeof(struct rte_flow_attr));
 	attr.ingress = 1;
@@ -1732,7 +1837,7 @@ vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 	memset(&rss_conf, 0, sizeof(struct rte_eth_rss_conf));
 	rc = rte_eth_dev_rss_hash_conf_get(portid, &rss_conf);
 	if (rc < 0)
-		goto skip_flow_create;
+		goto del_drop_rule;
 
 	act_rss_conf.func = RTE_ETH_HASH_FUNCTION_DEFAULT;
 	act_rss_conf.types = rss_conf.rss_hf;
@@ -1740,7 +1845,7 @@ vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 	queues = calloc(act_rss_conf.queue_num, sizeof(uint16_t));
 	if (queues == NULL) {
 		rc = -ENOMEM;
-		goto skip_flow_create;
+		goto del_drop_rule;
 	}
 
 	for (i = 0; i < act_rss_conf.queue_num; i++)
@@ -1757,7 +1862,7 @@ vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 	if (flow == NULL) {
 		rc = -1;
 		APP_ERR("rte_flow_create: port=%d failed\n", portid);
-		goto error_flow_create;
+		goto free_created_queues;
 	}
 
 	node = calloc(1, sizeof(struct vlan_filter));
@@ -1774,9 +1879,11 @@ vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 
 free_created_flow:
 	rte_flow_destroy(portid, flow, NULL);
-error_flow_create:
+free_created_queues:
 	if (queues)
 		free(queues);
+del_drop_rule:
+	vlan_default_drop_rule_del(portid, list);
 skip_flow_create:
 	return rc;
 }
@@ -1816,6 +1923,9 @@ vlan_del(uint16_t virtio_devid, uint16_t vlan_tci)
 	node->flow = NULL;
 	node->vlan_tci = 0;
 	free(node);
+
+	vlan_default_drop_rule_del(portid, list);
+
 	APP_INFO("Filter for vlan tci = %hu is deleted successfully\n", vlan_tci);
 	return 0;
 
