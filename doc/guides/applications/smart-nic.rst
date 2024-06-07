@@ -282,3 +282,9 @@ To exit the telnet session, type ``Ctrl + ]``.
 This changes the ``graph>`` command prompt to ``telnet>`` command prompt.
 Now running ``close`` or ``quit`` command on ``telnet>`` prompt
 will terminate the telnet session.
+
+Application running demo
+------------------------
+
+.. raw:: html
+  :file: ../_static/demo/run.html

@@ -138,7 +138,7 @@ Installation demo
 -----------------
 
 .. raw:: html
-  :file: ../_static/install.html
+  :file: ../_static/demo/install.html
 
 RHEL
 ====
