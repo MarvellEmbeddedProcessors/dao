@@ -5,7 +5,7 @@
 VirtIO-l2fwd
 ************
 
-The ``dpdk-virtio-l2fwd`` EP application is a Dataplane development kit(DPDK) application that
+The ``dao-virtio-l2fwd`` EP application is a Dataplane development kit(DPDK) application that
 allows to exercise virtio usecase of forwarding traffic between VirtIO net device and
 DPDK ethdev device. VirtIO net device is emulated using ``virtio-net`` DAO library.
 Application maps a ``virtio-net` device to a ``rte-ethdev`` device 1:1.
@@ -37,7 +37,7 @@ correctly in EBF menu.
 
 Setup huge pages for DPDK application
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Setup enough hugepages and a mount point for the same in order for the dpdk-virtio-l2fwd application
+Setup enough hugepages and a mount point for the same in order for the dao-virtio-l2fwd application
 to run.
 
 Bind required DMA devices to vfio-pci
@@ -123,13 +123,13 @@ The application as number of command line options:
 
 .. code-block:: console
 
-   dpdk-virtio-l2fwd [EAL Options] -- -p <PORTMASK_L[,PORTMASK_H]> -v <VIRTIOMASK_L[,VIRTIOMASK_H]> [other application options]
+   dao-virtio-l2fwd [EAL Options] -- -p <PORTMASK_L[,PORTMASK_H]> -v <VIRTIOMASK_L[,VIRTIOMASK_H]> [other application options]
 
 EAL Options
 ~~~~~~~~~~~
 
 The following are the EAL command-line options that can be used in conjunction
-with the ``dpdk-virtio-l2fwd`` application.
+with the ``dao-virtio-l2fwd`` application.
 See the DPDK Getting Started Guides for more information on these options.
 
 *   ``-c <COREMASK>`` or ``-l <CORELIST>``
@@ -230,7 +230,7 @@ The following are the application command-line options:
 Example EP firmware command
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Example to command to run ``dpdk-virtio-l2fwd`` on 1 ethdev and 1 virtio-net dev port
+Example to command to run ``dao-virtio-l2fwd`` on 1 ethdev and 1 virtio-net dev port
 with 2 lcores on ethdev-rx, 2 lcores on ethdev-tx, 1 lcore for service core.
 
 
@@ -238,16 +238,16 @@ with 2 lcores on ethdev-rx, 2 lcores on ethdev-tx, 1 lcore for service core.
 
    DPI_ALLOW='-a 0000:06:00.1 -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 -a 0000:06:00.6 -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5 -a 0000:06:01.6 -a 0000:06:01.7 -a 0000:06:02.0 -a 0000:06:02.1 -a 0000:06:02.2 -a 0000:06:02.3 -a 0000:06:02.4 -a 0000:06:02.5 -a 0000:06:02.6'
 
-   dpdk-virtio-l2fwd -l 2-7 -a 0002:02:00.1 $DPI_ALLOW -- -p 0x1 -v 0x1
+   dao-virtio-l2fwd -l 2-7 -a 0002:02:00.1 $DPI_ALLOW -- -p 0x1 -v 0x1
 
-If ``dpdk-virtio-l2fwd`` is not build with static linking to DPDK, we need to explicitly load
+If ``dao-virtio-l2fwd`` is not build with static linking to DPDK, we need to explicitly load
 node library and PMD libraries for the application to function.
 
 .. code-block:: console
 
    DPI_ALLOW='-a 0000:06:00.1 -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 -a 0000:06:00.6 -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5 -a 0000:06:01.6 -a 0000:06:01.7 -a 0000:06:02.0 -a 0000:06:02.1 -a 0000:06:02.2 -a 0000:06:02.3 -a 0000:06:02.4 -a 0000:06:02.5 -a 0000:06:02.6'
 
-   dpdk-virtio-l2fwd -d librte_node.so -d librte_net_cnxk.so -d librte_mempool_cnxk.so -d librte_dma_cnxk.so -d librte_mempool_ring.so -l 2-7 -a 0002:02:00.1 $DPI_ALLOW -- -p 0x1 -v 0x1
+   dao-virtio-l2fwd -d librte_node.so -d librte_net_cnxk.so -d librte_mempool_cnxk.so -d librte_dma_cnxk.so -d librte_mempool_ring.so -l 2-7 -a 0002:02:00.1 $DPI_ALLOW -- -p 0x1 -v 0x1
 
 Setting up Host environment
 ---------------------------

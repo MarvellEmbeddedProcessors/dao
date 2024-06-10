@@ -101,12 +101,12 @@ which can be provided in following syntax:
 
 .. code-block:: console
 
-   dpdk-smart-nic [EAL Options] -- [application options]
+   dao-smart-nic [EAL Options] -- [application options]
    Eg.
-   dpdk-smart-nic [EAL options] -- -s <config file>
-                                   -h BOARD IP
-				   -p port
-				   [--enable-graph-stats]
+   dao-smart-nic [EAL options] -- -s <config file>
+                                  -h BOARD IP
+				  -p port
+				  [--enable-graph-stats]
 
 Application Options
 -------------------
@@ -143,7 +143,7 @@ Example Commands
 
 .. code-block:: console
 
-  dpdk-smart-nic -c 0xf -a 0002:02:00.0 -a 0002:1f:00.1 -a 0002:1f:00.2 --
+  dao-smart-nic -c 0xf -a 0002:02:00.0 -a 0002:1f:00.1 -a 0002:1f:00.2 --
   	-s ./app/smart-nic/smart-nic.cli -h 127.0.0.1 -p 50000   --enable-graph-stats
 
 Supported CLI commands
@@ -252,7 +252,7 @@ Command to access a telnet session:
 
    telnet <host> <port>
 
-Example: ``dpdk-smart-nic`` is started with ``-h 127.0.0.1`` and ``-p 50000`` then
+Example: ``dao-smart-nic`` is started with ``-h 127.0.0.1`` and ``-p 50000`` then
 
 .. code-block:: console
 

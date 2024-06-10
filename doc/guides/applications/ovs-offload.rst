@@ -167,14 +167,14 @@ Launching the application
 
 .. code-block:: console
 
-  dpdk-ovs-offload [EAL options] -- -p PORTMASK
-                                    --portmap(PCI_BDF1, PCI_BDF2)[,(PCI_BDF3, PCI_BDF4)]
-                                    --config(port,queue,lcore)[,(port,queue,lcore)]
-                                    [--max-pkt-len PKTLEN]
-                                    [--pcap-enable]
-                                    [--pcap-num-cap]
-                                    [--pcap-file-name]
-                                    [--enable-graph-stats]
+  dao-ovs-offload [EAL options] -- -p PORTMASK
+                                   --portmap(PCI_BDF1, PCI_BDF2)[,(PCI_BDF3, PCI_BDF4)]
+                                   --config(port,queue,lcore)[,(port,queue,lcore)]
+                                   [--max-pkt-len PKTLEN]
+                                   [--pcap-enable]
+                                   [--pcap-num-cap]
+                                   [--pcap-file-name]
+                                   [--enable-graph-stats]
 
 Where,
 * ``-p PORTMASK:`` Hexadecimal bitmask of ports to configure
@@ -205,7 +205,7 @@ core 0 be the control core, command to be executed is:
 
 .. code-block:: console
 
-  dpdk-ovs-offload  -l 0,1,2,3,4  -a 0002:1c:00.1 -a 0002:02:00.1 -a 0002:1f:00.1
+  dao-ovs-offload  -l 0,1,2,3,4  -a 0002:1c:00.1 -a 0002:02:00.1 -a 0002:1f:00.1
   -a 0002:02:00.2 -a 0002:1f:00.2 --vfio-vf-token="9d75f7af-606e-47ff-8ae4-f459fce4a422"
   --file-prefix=ep -- -p 0xff  --portmap="(0002:02:00.1,0002:1f:00.1),(0002:02:00.2,0002:1f:00.2)"
   --config="(0,0,1),(1,0,2),(3,0,3),(4,0,4)" --enable-graph-stats
@@ -248,7 +248,7 @@ To enable pcap trace on each graph, command becomes
 
 .. code-block:: console
 
-  dpdk-ovs-offload  -l 0,1,2,3,4  -a 0002:1c:00.1 -a 0002:02:00.1 -a 0002:1f:00.1
+  dao-ovs-offload  -l 0,1,2,3,4  -a 0002:1c:00.1 -a 0002:02:00.1 -a 0002:1f:00.1
   -a 0002:02:00.2 -a 0002:1f:00.2 --vfio-vf-token="9d75f7af-606e-47ff-8ae4-f459fce4a422"
   --file-prefix=ep -- -p 0xff  --portmap="(0002:02:00.1,0002:1f:00.1),(0002:02:00.2,0002:1f:00.2)"
   --config="(0,0,1),(1,0,2),(3,0,3),(4,0,4)" --enable-graph-stats

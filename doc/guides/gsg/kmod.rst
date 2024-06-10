@@ -39,7 +39,7 @@ Make sure following lines are enabled in the $kernel_dir .config file for vDPA f
 
 Loading the module
 ******************
-Make sure dpdk-virtio-l2fwd application is started running on
+Make sure dao-virtio-l2fwd application is started running on
 endpoint Octeon before inserting the octep_vdpa.ko module on host.
 
 .. code-block:: console

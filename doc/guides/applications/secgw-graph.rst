@@ -26,7 +26,7 @@ Make sure that config is setup correctly in EBF menu for SDP VFs
 
 Setup huge pages for DPDK application
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Setup enough hugepages and a mount point for the same in order for the dpdk-secgw-graph application
+Setup enough hugepages and a mount point for the same in order for the dao-secgw-graph application
 to run.
 
 Bind required RPM VF's to vfio-pci
@@ -54,13 +54,13 @@ The application has number of command line options:
 
 .. code-block:: console
 
-   dpdk-secgw-graph [EAL Options] -- -s <CLI_SCRIPT_FILE> -i <Host IP address running app> -p <CLI Listening Port Number>
+   dao-secgw-graph [EAL Options] -- -s <CLI_SCRIPT_FILE> -i <Host IP address running app> -p <CLI Listening Port Number>
 
 EAL Options
 ~~~~~~~~~~~
 
 The following are the EAL command-line options that can be used in conjunction
-with the ``dpdk-secgw-graph`` application.
+with the ``dao-secgw-graph`` application.
 See the DPDK Getting Started Guides for more information on these options.
 
 *   ``-c <COREMASK>`` or ``-l <CORELIST>``
@@ -88,11 +88,11 @@ The following are the application command-line options:
 Example to run app
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Example to command to run ``dpdk-secgw-graph`` on 1 ethdev and 1 SDP dev port with two tap devices
+Example to command to run ``dao-secgw-graph`` on 1 ethdev and 1 SDP dev port with two tap devices
 
 .. code-block:: console
 
-    dpdk-secgw-graph -a 0002:02:00.0 -a 0002:1f:00.2 -c 0xf000 -vdev=net_tap0 -vdev=net_tap1 -- -s ./app/secgw-graph/secgw.cli -i
+    dao-secgw-graph -a 0002:02:00.0 -a 0002:1f:00.2 -c 0xf000 -vdev=net_tap0 -vdev=net_tap1 -- -s ./app/secgw-graph/secgw.cli -i
     10.28.34.240 -p 50000
 
 CLI terminal
