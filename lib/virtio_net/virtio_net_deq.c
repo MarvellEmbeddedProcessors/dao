@@ -61,6 +61,7 @@ post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_
 	uint64x2_t olflags, ol_flags01, ol_flags23, doff;
 	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
 	uint16_t last_off = DESC_OFF(q->last_off), off;
+	const uint16_t vhdr_sz = q->virtio_hdr_sz;
 	uint64x2_t desc0, desc1, desc2, desc3;
 	uint32x4_t hdr0, hdr1, hdr2, hdr3;
 	uint16_t total_mbufs = *nb_mbufs;
@@ -251,8 +252,8 @@ skip_csum:
 			last_off = (last_off + 1) & (q_sz - 1);
 			mbuf2 = mbuf_arr[last_off];
 			mbuf1->next = mbuf2;
-			mbuf2->data_len += sizeof(struct virtio_net_hdr);
-			mbuf2->pkt_len += sizeof(struct virtio_net_hdr);
+			mbuf2->data_len += vhdr_sz;
+			mbuf2->pkt_len += vhdr_sz;
 			mbuf0->nb_segs += mbuf2->nb_segs;
 			mbuf0->pkt_len += mbuf2->pkt_len;
 			*((uint64_t *)&mbuf2->rearm_data) = rearm_data;
@@ -292,6 +293,7 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 	struct rte_dma_sge *src = NULL, *dst = NULL;
 	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
 	struct rte_mbuf *mbuf0, *mbuf1, *mbuf2, *mbuf3;
+	const uint16_t vhdr_sz = q->virtio_hdr_sz;
 	uint16_t pend_sd_mbuf = q->pend_sd_mbuf;
 	uint64x2_t len01, len23, buf01, buf23;
 	uint64x2_t desc0, desc1, desc2, desc3;
@@ -342,10 +344,10 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 	/* Start DMA of mbuf data */
 	count = nb_mbufs & ~(0x3u);
 	for (i = 0; i < count; ) {
-		const uint64x2_t hoff = { 0, sizeof(struct virtio_net_hdr) };
+		const uint64x2_t hoff = { 0, vhdr_sz };
 		uint64x2_t doff = vdupq_n_u64(data_off);
 		uint64x2_t f0, f1, f2, f3;
-		const uint64x2_t rearm = {rearm_data + sizeof(struct virtio_net_hdr), 0};
+		const uint64x2_t rearm = {rearm_data + vhdr_sz, 0};
 		const uint8x16_t shuf_msk = {
 			0xFF, 0xFF,
 			0xFF, 0xFF,
@@ -522,9 +524,9 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 		dev2mem->dst_i++;
 
 		/* Update mbuf length */
-		*((uint64_t *)&mbuf->rearm_data) = rearm_data + sizeof(struct virtio_net_hdr);
-		mbuf->pkt_len = slen - sizeof(struct virtio_net_hdr);
-		mbuf->data_len = dlen - sizeof(struct virtio_net_hdr);
+		*((uint64_t *)&mbuf->rearm_data) = rearm_data + vhdr_sz;
+		mbuf->pkt_len = slen - vhdr_sz;
+		mbuf->data_len = dlen - vhdr_sz;
 		mbuf->next = NULL;
 		mbuf0 = mbuf;
 		while (unlikely(pend)) {
