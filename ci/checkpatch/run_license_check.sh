@@ -14,11 +14,9 @@ IGNORE_FILES=(
 	"ci/checkpatch/checkpatch.conf"
 	"ci/checkpatch/checkpatch.pl"
 	".clang-format"
-	"doc/_static/css/custom.css"
 	"TODO.txt"
 	"DPDK_VERSION"
 	"VERSION"
-	"doc/guides/custom.css"
 	"README.md"
 )
 
@@ -27,6 +25,8 @@ IGNORE_DIRECTORIES=(
 	"doc/guides/img/"
 	"doc/guides/logo/"
 	"doc/guides/prog_guide/img/"
+	"doc/guides/_static/demo/"
+	"doc/guides/_static/css/"
 	"patches/"
 	"ci/build/config/"
 	"ci/groovy/"
