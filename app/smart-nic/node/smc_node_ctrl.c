@@ -91,12 +91,10 @@ smc_node_eth_ctrl(smc_graph_param_t *graph_prm)
 			return -EIO;
 
 		/* Add it to list of nic rx nodes for lookup */
-		elem = malloc(sizeof(smc_eth_rx_node_elem_t));
+		elem = calloc(1, sizeof(smc_eth_rx_node_elem_t));
 		if (elem == NULL)
 			return -ENOMEM;
 
-		memset(elem, 0, sizeof(smc_eth_rx_node_elem_t));
-		memset(&elem->ctx, 0, sizeof(struct smc_eth_rx_node_ctx));
 		elem->ctx.port = portid;
 		elem->nid = id;
 		elem->next = rx_node_data->head;
