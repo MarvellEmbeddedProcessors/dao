@@ -19,11 +19,11 @@ Port hairpinning facilitates packet routing between Ethernet MAC, PCI endpoint
 port, and network function virtualization (NFVs). With this feature NFV
 service chaining can be achieved.
 
-Port hotplugging refers to the dynamically add or remove network ports from
+Port hotplugging refers to dynamically adding or removing network ports from a
 virtual or host machine without requiring the VM or host machine to be powered
-off or restarted. In demanding situation, administrators can hotplug additional
+off or restarted. In demanding situations, administrators can hotplug additional
 network ports to meet the high traffic flow without affecting other VMs
-operation.
+operations.
 
 Feature List
 ------------
@@ -57,7 +57,7 @@ Pending
 Getting the sources and compile
 ===============================
 
-OVS-offload application is part of the ``DAO`` package and follow
+Smart NIC app is part of the ``DAO`` package and follow
 :doc:`steps to build DAO <../gsg/build>`
 
 Binding required devices
