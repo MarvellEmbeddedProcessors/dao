@@ -112,8 +112,8 @@ Once the octeon board is UP with above ubuntu rootfs
 
 .. code-block:: console
 
- # curl -fsSL https://uat.marvell.com/public/repo/octeon/dao/ubuntu/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
- # curl -SsL -o /etc/apt/sources.list.d/dao.list https://uat.marvell.com/public/repo/octeon/dao/ubuntu/dao.list
+ # curl -fsSL https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
+ # curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204/dao.list
  # sudo chmod 644 /etc/apt/sources.list.d/dao.list
  # sudo chmod 644 /etc/apt/keyrings/dao.gpg
  # apt-get update
