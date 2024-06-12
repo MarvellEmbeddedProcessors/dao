@@ -55,6 +55,9 @@ acl_flow_action_execute(struct acl_table *acl_tbl, uint32_t index, struct rte_mb
 		if (acl_action_mark_id(acl_act->u.rx_action, obj))
 			goto fail;
 
+	if ((acl_act->counter_enable) && (acl_act->act_map & ACL_ACTION_COUNT))
+		acl_act->rule_data->rule_hits++;
+
 	return 0;
 fail:
 	return errno;
@@ -106,6 +109,8 @@ acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_o
 
 	acl_lookup_process(acl_tbl, objs, nb_objs, result);
 	for (i = 0; i < nb_objs; i++) {
+		if (objs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
+			continue;
 		if (result[i] && acl_tbl->num_rules)
 			acl_flow_action_execute(acl_tbl, result[i], objs[i]);
 	}
@@ -130,12 +135,20 @@ acl_populate_action(const struct rte_flow_action actions[], struct acl_actions *
 			acl_act->act_map |= ACL_ACTION_MARK;
 			acl_act->u.rx_action |= (uint64_t)mark << 40;
 			break;
+		case RTE_FLOW_ACTION_TYPE_COUNT:
+			acl_act->counter_enable = true;
+			acl_act->act_map |= ACL_ACTION_COUNT;
+			break;
 		case RTE_FLOW_ACTION_TYPE_END:
 			break;
 		default:
 			break;
 		}
 	}
+	/* Enabling count action for all */
+	acl_act->counter_enable = true;
+	acl_act->act_map |= ACL_ACTION_COUNT;
+
 	return 0;
 }
 
@@ -198,6 +211,11 @@ acl_rule_prepare(struct acl_rule_data *rule_data, struct parsed_flow *flow)
 		rule_data->rule->field[i].value.u32 = rte_be_to_cpu_32(parsed_data[i - 1]);
 		rule_data->rule->field[i].mask_range.u32 =
 			rte_be_to_cpu_32(parsed_data_mask[i - 1]);
+	}
+
+	for (i = 0; i < FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS; i++) {
+		rule_data->parsed_flow_data[i] = flow->parsed_data[i];
+		rule_data->parsed_flow_data_mask[i] = flow->parsed_data_mask[i];
 	}
 }
 
@@ -292,8 +310,6 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 	rule_data->rule_idx = rule_data->rule->data.userdata;
 	rte_spinlock_unlock(&acl_tbl->ctx_lock);
 
-	rte_acl_dump(acl_tbl->ctx);
-
 	TAILQ_INSERT_TAIL(&acl_tbl->flow_list, rule_data, next);
 	dao_dbg("Added new ACL rule data %p rule %p", rule_data, rule_data->rule);
 
@@ -344,24 +360,36 @@ fail:
 }
 
 static int
-acl_table_cleanup(struct acl_table *acl_tbl)
+acl_table_rule_flush(struct acl_table *acl_tbl)
 {
 	struct acl_rule_data *prule;
 	void *tmp;
+	int rc;
 
 	if (!acl_tbl->tbl_val)
 		return 0;
 
+	if (!acl_tbl->num_rules)
+		return 0;
+
 	DAO_TAILQ_FOREACH_SAFE(prule, &acl_tbl->flow_list, next, tmp) {
-		dao_dbg("[%s]: Removed ACL rule data %p rule %p", __func__, prule, prule->rule);
-		TAILQ_REMOVE(&acl_tbl->flow_list, prule, next);
-		rte_free(prule->rule);
-		rte_free(prule);
-		acl_tbl->num_rules--;
+		rc = acl_delete_rule(acl_tbl, prule);
+		if (rc)
+			DAO_ERR_GOTO(-rc, fail, "Failed to delete rule %p", prule);
 	}
-	if (acl_tbl->num_rules != 0)
-		DAO_ERR_GOTO(-EINVAL, fail, "Flow list should be empty: num_rules %d",
-			     acl_tbl->num_rules);
+
+	return 0;
+fail:
+	return errno;
+}
+
+static int
+acl_table_cleanup(struct acl_table *acl_tbl)
+{
+	if (acl_table_rule_flush(acl_tbl))
+		DAO_ERR_GOTO(errno, fail, "Failed to flush acl rules list for table %d",
+			     acl_tbl->tbl_id);
+
 	rte_free(acl_tbl->action);
 	rte_spinlock_lock(&acl_tbl->ctx_lock);
 	rte_acl_reset(acl_tbl->ctx);
@@ -444,7 +472,6 @@ acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule)
 	}
 	acl_tbl->num_rules--;
 	rte_spinlock_unlock(&acl_tbl->ctx_lock);
-	rte_acl_dump(ctx);
 
 	TAILQ_REMOVE(&acl_tbl->flow_list, rule, next);
 	tid = acl_tbl->action[0].index;
@@ -460,5 +487,100 @@ acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule)
 	return 0;
 fail:
 	rte_spinlock_unlock(&acl_tbl->ctx_lock);
+	return errno;
+}
+
+int
+acl_rule_query(struct acl_table *acl_tbl, struct acl_rule_data *rule_data,
+	       struct dao_flow_query_count *query)
+{
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table handle");
+
+	if (!acl_tbl->tbl_val)
+		DAO_ERR_GOTO(-EINVAL, fail, "ACL table id %d under port %d not initialized",
+			     acl_tbl->tbl_id, acl_tbl->port_id);
+
+	query->acl_rule_hits = rule_data->rule_hits;
+
+	/* If user to reset the count */
+	if (query->reset)
+		rule_data->rule_hits = 0;
+
+	return 0;
+fail:
+	return errno;
+}
+
+int
+acl_rule_info(struct acl_rule_data *arule, FILE *file)
+{
+	fprintf(file, "\t ACL Rule handle: %p ACL Table ID: %d\n", arule->rule, arule->tbl_id);
+	fprintf(file, "\t ACL Rule Index: %d\n", arule->rule_idx);
+	fprintf(file, "\t ACL rule hits: %d\n", arule->rule_hits);
+	fprintf(file, "\t ACL rule HW offloaded: %s\n", arule->is_hw_offloaded ? "true" : "false");
+	fprintf(file, "\n");
+
+	return 0;
+}
+
+int
+acl_rule_flush(struct acl_config_per_port *acl_cfg_prt)
+{
+	struct acl_table *acl_tbl = NULL;
+	int i;
+
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl tables for port handle");
+
+	for (i = 0; i < ACL_MAX_PORT_TABLES; i++) {
+		acl_tbl = &acl_cfg_prt->acl_tbl[i];
+		if (acl_tbl) {
+			if (acl_table_rule_flush(acl_tbl))
+				DAO_ERR_GOTO(errno, fail,
+					     "Failed to flush acl rules list for table %d",
+					     acl_tbl->tbl_id);
+		}
+	}
+	acl_cfg_prt->num_rules_per_prt = 0;
+
+	return 0;
+fail:
+	return errno;
+}
+
+int
+acl_rule_dump(struct acl_table *acl_tbl, struct acl_rule_data *rule_data, FILE *file)
+{
+	int i;
+
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table handle");
+
+	if (!acl_tbl->tbl_val)
+		DAO_ERR_GOTO(-EINVAL, fail, "ACL table id %d under port %d not initialized",
+			     acl_tbl->tbl_id, acl_tbl->port_id);
+
+	fprintf(file, "ACL Rule context\n");
+	rte_acl_dump(acl_tbl->ctx);
+	fprintf(file, "ACL Rule ID: %d\n", rule_data->rule_idx);
+	fprintf(file, "ACL rule hits: %d\n", rule_data->rule_hits);
+	fprintf(file, "Parsed Pattern:\n");
+	for (i = 0; i < FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS; i++) {
+		fprintf(file, "\tDW%d     :%016lX\n", i, rule_data->parsed_flow_data[i]);
+		fprintf(file, "\tDW%d_Mask:%016lX\n", i, rule_data->parsed_flow_data_mask[i]);
+	}
+
+	fprintf(file, "ACL Rule Definition\n");
+	fprintf(file, "\tField 0\t\tValue %0X\t\tMask %0X\n", rule_data->rule->field[0].value.u8,
+		rule_data->rule->field[0].mask_range.u8);
+	for (i = 1; i <= ACL_X4_RULE_DEF_SIZE - 1; i++) {
+		fprintf(file, "\tField %d\t\tValue %08X\t\tMask %08X\n", i,
+			rte_le_to_cpu_32(rule_data->rule->field[i].value.u32),
+			rte_le_to_cpu_32(rule_data->rule->field[i].mask_range.u32));
+	}
+	/* TODO ACL actions */
+	return 0;
+fail:
 	return errno;
 }

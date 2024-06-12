@@ -43,6 +43,8 @@ dao_flow_create(uint16_t port_id, const struct rte_flow_attr *attr,
 	if (!rule)
 		DAO_ERR_GOTO(errno, fail, "Failed to create rule");
 
+	rule->tbl_id = tbl_id;
+	acl_cfg_prt->num_rules_per_prt++;
 	flow = rte_zmalloc("dao_flow", sizeof(struct dao_flow), RTE_CACHE_LINE_SIZE);
 	if (!flow)
 		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
@@ -82,6 +84,7 @@ dao_flow_create(uint16_t port_id, const struct rte_flow_attr *attr,
 	fdata->acl_rule_idx = rule->rule_idx;
 
 	rte_spinlock_lock(&flow_cfg_prt->flow_list_lock);
+	flow_cfg_prt->num_flows++;
 	TAILQ_INSERT_TAIL(&flow_cfg_prt->flow_list, fdata, next);
 	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
 
@@ -161,6 +164,7 @@ flow_cleanup(struct flow_global_cfg *gbl_cfg)
 			hflow = fdata->flow->hflow;
 			rte_free(fdata->flow);
 			rte_free(fdata);
+			flow_cfg_prt->num_flows--;
 			if (!hflow || hflow->offloaded)
 				continue;
 			hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
@@ -213,6 +217,7 @@ flow_install_hardware(struct flow_global_cfg *gbl_cfg, uint16_t port_id, uint32_
 			if (hw_offload_flow_create(hw_off_cfg, hflow))
 				DAO_ERR_GOTO(errno, fail, "Failed to create flow %p, port id %d",
 					     hflow, port_id);
+			fdata->flow->arule->is_hw_offloaded = true;
 		}
 	}
 	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
@@ -296,6 +301,7 @@ dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error 
 				fdata->flow->arule, fdata->flow->hflow);
 			rte_free(fdata->flow);
 			rte_free(fdata);
+			flow_cfg_prt->num_flows--;
 		}
 	}
 	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
@@ -304,7 +310,9 @@ dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error 
 	rc = acl_delete_rule(acl_tbl, arule);
 	if (rc)
 		DAO_ERR_GOTO(-rc, fail, "Failed to delete flow");
+	acl_cfg_prt->num_rules_per_prt--;
 
+	/* HW offload Flow destroy */
 	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
 	rc = hw_offload_flow_destroy(hw_off_cfg, hflow);
 	if (rc)
@@ -313,4 +321,204 @@ dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error 
 	return 0;
 fail:
 	return errno;
+}
+
+int
+dao_flow_query(uint16_t port_id, struct dao_flow *flow, const struct rte_flow_action *action,
+	       void *data, struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg;
+	struct dao_flow_query_count *query = data;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl = NULL;
+	struct acl_rule_data *arule;
+	struct hw_offload_flow *hflow;
+	int rc = -EINVAL;
+
+	if (flow->port_id != port_id)
+		DAO_ERR_GOTO(-EINVAL, fail, "Mismatch in Flow portid %d and passed portid %d",
+			     flow->port_id, port_id);
+
+	if (action->type != RTE_FLOW_ACTION_TYPE_COUNT)
+		DAO_ERR_GOTO(-EINVAL, fail, "Only COUNT is supported in query");
+
+	/* Query the HW offloaded flow */
+	hflow = flow->hflow;
+	if (hflow->offloaded) {
+		hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+		rc = hw_offload_flow_query(hw_off_cfg, hflow, action, query, error);
+		if (rc)
+			DAO_ERR_GOTO(rc, fail, "Failed to dump the flow %p for port %d",
+				     hflow->flow, port_id);
+	}
+
+	/* Query the ACL rule hits */
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[flow->tbl_id];
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d",
+			     flow->tbl_id, port_id);
+
+	arule = flow->arule;
+	rc = acl_rule_query(acl_tbl, arule, query);
+	if (rc)
+		DAO_ERR_GOTO(rc, fail, "Failed to dump the ACL rule %p for port %d", hflow->flow,
+			     port_id);
+	return 0;
+fail:
+	return errno;
+}
+
+int
+dao_flow_dev_dump(uint16_t port_id, struct dao_flow *flow, FILE *file, struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl = NULL;
+	struct hw_offload_flow *hflow;
+	struct acl_rule_data *arule;
+	int rc = -EINVAL;
+
+	if (flow->port_id != port_id)
+		DAO_ERR_GOTO(-EINVAL, fail, "Mismatch in Flow portid %d and passed portid %d",
+			     flow->port_id, port_id);
+
+	/* Dump the HW offloaded flow */
+	hflow = flow->hflow;
+	if (hflow->offloaded) {
+		hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+		rc = hw_offload_flow_dump(hw_off_cfg, hflow, file, error);
+		if (rc)
+			DAO_ERR_GOTO(rc, fail, "Failed to dump the flow %p for port %d",
+				     hflow->flow, port_id);
+	}
+	/* Dump ACL rule */
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[flow->tbl_id];
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d",
+			     flow->tbl_id, port_id);
+
+	arule = flow->arule;
+	rc = acl_rule_dump(acl_tbl, arule, file);
+	if (rc)
+		DAO_ERR_GOTO(rc, fail, "Failed to dump the ACL rule %p for port %d", hflow->flow,
+			     port_id);
+
+	return 0;
+fail:
+	return rc;
+}
+
+int
+dao_flow_count(uint16_t port_id, struct dao_flow_count *count, struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg;
+	struct flow_config_per_port *flow_cfg_prt;
+	struct acl_config_per_port *acl_cfg_prt;
+
+	RTE_SET_USED(error);
+	flow_cfg_prt = &gbl_cfg->flow_cfg[port_id];
+	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+
+	count->dao_flow = flow_cfg_prt->num_flows;
+	count->hw_offload_flow = hw_off_cfg->num_rules;
+	count->acl_rule = acl_cfg_prt->num_rules_per_prt;
+
+	return 0;
+}
+
+int
+dao_flow_info(uint16_t port_id, FILE *file, struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg;
+	struct flow_config_per_port *flow_cfg_prt;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct flow_data *fdata;
+	int rc = -EINVAL;
+	int count = 0;
+
+	RTE_SET_USED(error);
+	flow_cfg_prt = &gbl_cfg->flow_cfg[port_id];
+	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	fprintf(file, "Total Dao Flows %d for port %d\n", flow_cfg_prt->num_flows, port_id);
+	fprintf(file, "Total ACL flows %d for port %d\n", acl_cfg_prt->num_rules_per_prt, port_id);
+	fprintf(file, "Total HW offloaded flows %d\n", hw_off_cfg->num_rules);
+	fprintf(file, "HW offload Flow timeout %d\n", hw_off_cfg->aging_tmo);
+	rte_spinlock_lock(&flow_cfg_prt->flow_list_lock);
+	TAILQ_FOREACH(fdata, &flow_cfg_prt->flow_list, next) {
+		fprintf(file, "Dao Flow %d handle %p\n", count++, fdata->flow);
+		/* HW offloaded flows information */
+		if (gbl_cfg->hw_offload_enabled) {
+			if (fdata->flow->hflow->offloaded) {
+				rc = hw_offload_flow_info(fdata->flow->hflow, file);
+				if (rc)
+					DAO_ERR_GOTO(rc, fail,
+						     "Failed to flush all flows for port %d",
+						     port_id);
+			}
+		}
+
+		/* ACL rules information */
+		rc = acl_rule_info(fdata->flow->arule, file);
+		if (rc)
+			DAO_ERR_GOTO(rc, fail, "Failed to flush all ACL rules for port %d",
+				     port_id);
+	}
+	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
+
+	return 0;
+fail:
+	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
+	return rc;
+}
+
+int
+dao_flow_flush(uint16_t port_id, struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg;
+	struct flow_config_per_port *flow_cfg_prt;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct flow_data *fdata;
+	int rc = -EINVAL;
+	void *tmp;
+
+	/* Flush HW offloaded flows */
+	if (gbl_cfg->hw_offload_enabled) {
+		hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+		rc = hw_offload_flow_flush(hw_off_cfg, error);
+		if (rc)
+			DAO_ERR_GOTO(rc, fail, "Failed to flush all flows for port %d", port_id);
+		hw_off_cfg->num_rules = 0;
+	}
+
+	/* Flush ACL rules */
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	rc = acl_rule_flush(acl_cfg_prt);
+	if (rc)
+		DAO_ERR_GOTO(rc, fail, "Failed to flush all ACL rules for port %d", port_id);
+
+	/* Flushing DAO flows */
+	flow_cfg_prt = &gbl_cfg->flow_cfg[port_id];
+	rte_spinlock_lock(&flow_cfg_prt->flow_list_lock);
+	DAO_TAILQ_FOREACH_SAFE(fdata, &flow_cfg_prt->flow_list, next, tmp) {
+		dao_dbg("Removing flow rule %p, flow %p", fdata, fdata->flow);
+		TAILQ_REMOVE(&flow_cfg_prt->flow_list, fdata, next);
+		flow_cfg_prt->num_flows--;
+		rte_free(fdata->flow);
+		rte_free(fdata);
+	}
+	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
+
+	return 0;
+fail:
+	return rc;
 }

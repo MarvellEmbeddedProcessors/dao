@@ -31,7 +31,7 @@ struct hw_offload_flow {
 /* Managing flow rules per port */
 struct hw_offload_config_per_port {
 	uint16_t port_id;
-	uint16_t num_rules;
+	uint32_t num_rules;
 	/* Aging timeout */
 	uint32_t aging_tmo;
 };
@@ -57,4 +57,16 @@ int hw_offload_flow_create(struct hw_offload_config_per_port *hw_off_cfg,
 			   struct hw_offload_flow *rule);
 int hw_offload_flow_destroy(struct hw_offload_config_per_port *hw_off_cfg,
 			    struct hw_offload_flow *rule);
+int hw_offload_flow_create(struct hw_offload_config_per_port *hw_off_cfg,
+			   struct hw_offload_flow *rule);
+int hw_offload_flow_destroy(struct hw_offload_config_per_port *hw_off_cfg,
+			    struct hw_offload_flow *rule);
+int hw_offload_flow_query(struct hw_offload_config_per_port *hw_off_cfg,
+			  struct hw_offload_flow *hflow, const struct rte_flow_action *action,
+			  struct dao_flow_query_count *query, struct rte_flow_error *error);
+int hw_offload_flow_dump(struct hw_offload_config_per_port *hw_off_cfg,
+			 struct hw_offload_flow *hflow, FILE *file, struct rte_flow_error *error);
+int hw_offload_flow_info(struct hw_offload_flow *hflow, FILE *file);
+int hw_offload_flow_flush(struct hw_offload_config_per_port *hw_off_cfg,
+			  struct rte_flow_error *error);
 #endif /* __FLOW_HW_OFFLOAD_PRIV_H__ */

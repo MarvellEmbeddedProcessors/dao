@@ -353,3 +353,50 @@ hw_offload_global_config_fini(struct flow_global_cfg *gbl_cfg)
 fail:
 	return errno;
 }
+
+int
+hw_offload_flow_query(struct hw_offload_config_per_port *hw_off_cfg, struct hw_offload_flow *hflow,
+		      const struct rte_flow_action *action, struct dao_flow_query_count *query,
+		      struct rte_flow_error *error)
+{
+	if (!hw_off_cfg)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid HW offload config");
+
+	return rte_flow_query(hw_off_cfg->port_id, hflow->flow, action, query, error);
+fail:
+	return errno;
+}
+
+int
+hw_offload_flow_dump(struct hw_offload_config_per_port *hw_off_cfg, struct hw_offload_flow *hflow,
+		     FILE *file, struct rte_flow_error *error)
+{
+	if (!hw_off_cfg)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid HW offload config");
+
+	return rte_flow_dev_dump(hw_off_cfg->port_id, hflow->flow, file, error);
+fail:
+	return errno;
+}
+
+int
+hw_offload_flow_info(struct hw_offload_flow *hflow, FILE *file)
+{
+	fprintf(file, "\t HW offload Flow handle %p\n", hflow->flow);
+	fprintf(file, "\t CAM Index: %d\n", hflow->cam_idx);
+	fprintf(file, "\t Counter Index: %d\n", hflow->ctr_idx);
+	fprintf(file, "\n");
+
+	return 0;
+}
+
+int
+hw_offload_flow_flush(struct hw_offload_config_per_port *hw_off_cfg, struct rte_flow_error *error)
+{
+	if (!hw_off_cfg)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid HW offload config");
+
+	return rte_flow_flush(hw_off_cfg->port_id, error);
+fail:
+	return errno;
+}

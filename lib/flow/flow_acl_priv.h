@@ -150,13 +150,21 @@ struct acl_parse_info {
 
 struct acl_rule_data {
 	TAILQ_ENTRY(acl_rule_data) next;
+	bool is_hw_offloaded;
+	uint16_t port_id;
+	uint16_t tbl_id;
 	struct acl_rule *rule;
+	/* Contiguous match string */
+	uint64_t parsed_flow_data[FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS];
+	uint64_t parsed_flow_data_mask[FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS];
 	uint32_t rule_idx;
+	uint32_t rule_hits;
 };
 
 struct acl_actions {
 	bool in_use;
 	bool is_hw_offloaded;
+	bool counter_enable;
 #define ACL_ACTION_MARK  RTE_BIT64(0)
 #define ACL_ACTION_COUNT RTE_BIT64(1)
 	uint64_t act_map;
@@ -188,6 +196,7 @@ struct acl_table {
 /* Per port ACL tables */
 struct acl_config_per_port {
 	struct acl_table acl_tbl[ACL_MAX_PORT_TABLES];
+	uint32_t num_rules_per_prt;
 	uint32_t flow_aging;
 };
 
@@ -207,5 +216,9 @@ struct acl_rule_data *acl_create_rule(struct acl_table *acl_tbl, const struct rt
 uint32_t acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule);
 int acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
 		    uint32_t *result);
-
+int acl_rule_info(struct acl_rule_data *arule, FILE *file);
+int acl_rule_flush(struct acl_config_per_port *acl_cfg_prt);
+int acl_rule_dump(struct acl_table *acl_tbl, struct acl_rule_data *rule_data, FILE *file);
+int acl_rule_query(struct acl_table *acl_tbl, struct acl_rule_data *rule_data,
+		   struct dao_flow_query_count *query);
 #endif /* __FLOW_ACL_PRIV_H__ */

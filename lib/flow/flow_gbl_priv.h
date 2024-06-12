@@ -24,7 +24,7 @@ struct flow_data {
 struct flow_config_per_port {
 	bool list_initialized;
 	uint16_t port_id;
-	uint16_t num_rules;
+	uint32_t num_flows;
 	rte_spinlock_t flow_list_lock;
 
 	TAILQ_HEAD(flow_data_list, flow_data) flow_list;
