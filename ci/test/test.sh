@@ -89,7 +89,7 @@ if [[ -z $RUN_ONLY ]]; then
 	clean_test_list
 
 	# Run the meson test to generate the list of tests
-	meson test -C $BUILD_DIR --no-rebuild $EXTRA_ARGS
+	meson test -C $BUILD_DIR --no-rebuild $EXTRA_ARGS --suite $DAO_SUITE
 fi
 
 if [[ -z $LIST_ONLY ]]; then

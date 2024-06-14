@@ -90,11 +90,18 @@ function device_setup()
 		echo "Skip EP device setup"
 		return
 	fi
-	echo "Setting up EP device"
-	ep_device_op fw_cleanup
-	ep_device_op hugepage_setup
-	ep_device_op dpi_setup
-	ep_device_op pem_setup
+
+	echo "Setting up EP device for suite $DAO_SUITE"
+
+	if [[ $DAO_SUITE == "dao-virtio" ]]; then
+		ep_device_op fw_cleanup
+		ep_device_op hugepage_setup
+		ep_device_op dpi_setup
+		ep_device_op pem_setup
+	else
+		echo "Unknown Suite : $DAO_SUITE"
+		exit 1
+	fi
 }
 
 function host_setup()
@@ -104,13 +111,19 @@ function host_setup()
 		echo "Skip EP host setup"
 		return
 	fi
-	echo "Setting up EP Host"
-	device_part=$(ep_device_op get_part)
-	ep_device_op_bg 4 fw_launch
-	ep_host_op hugepage_setup
-	ep_host_op vdpa_setup $device_part
-	sleep 5
-	ep_device_op fw_cleanup
+
+	echo "Setting up EP Host for suite $DAO_SUITE"
+	if [[ $DAO_SUITE == "dao-virtio" ]]; then
+		device_part=$(ep_device_op get_part)
+		ep_device_op_bg 4 fw_launch
+		ep_host_op hugepage_setup
+		ep_host_op vdpa_setup $device_part
+		sleep 5
+		ep_device_op fw_cleanup
+	else
+		echo "Unknown Suite : $DAO_SUITE"
+		exit 1
+	fi
 }
 
 function run_test()
