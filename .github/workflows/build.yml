@@ -45,7 +45,7 @@ jobs:
         run: |
           mkdir -p "${PWD}/artifacts"
           git tag --points-at HEAD > /tmp/tags
-          [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-latest
+          [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
           [ -s /tmp/tags ] && NIGHTLY=false || NIGHTLY=true
           echo "PKG_VERSION_NAME=`cat VERSION`" >> "${PWD}/artifacts/env"
           echo "DPDK_PKG_VERSION=`cat DPDK_VERSION | grep RELEASE_VERSION | awk -F'=' '{print $2}'`" >> "${PWD}/artifacts/env"
@@ -121,7 +121,7 @@ jobs:
           echo "PKG_VERSION_NAME=${PKG_VERSION_NAME}" >> "$GITHUB_OUTPUT"
           echo $PKG_POSTFIX
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
-          [[ "$PKG_POSTFIX" == "-latest" ]] && TAG=latest || TAG=${PKG_VERSION_NAME}
+          [[ "$PKG_POSTFIX" == "-devel" ]] && TAG=devel || TAG=${PKG_VERSION_NAME}
           echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
       - name: Upload debian package as artifact
         uses: actions/upload-artifact@v4.3.1
