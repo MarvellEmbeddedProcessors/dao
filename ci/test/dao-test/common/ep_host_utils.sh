@@ -39,7 +39,7 @@ function ep_host_vdpa_setup()
 	vf_cnt_max=$(cat /sys/bus/pci/devices/$host_pf/sriov_totalvfs)
 	vf_cnt=$((vf_cnt >vf_cnt_max ? vf_cnt_max : vf_cnt))
 
-	echo $host_pf > /sys/bus/pci/devices/$host_pf/driver/unbind
+	echo $host_pf > /sys/bus/pci/devices/$host_pf/driver/unbind || true
 	echo octep_vdpa > /sys/bus/pci/devices/$host_pf/driver_override
 	echo $host_pf > /sys/bus/pci/drivers_probe
 	echo $vf_cnt > /sys/bus/pci/devices/$host_pf/sriov_numvfs
@@ -65,35 +65,35 @@ function ep_host_vdpa_setup()
 	done
 }
 
-function ep_host_start_traffic()
+function ep_host_testpmd_launch()
 {
 	local pfx=$1
-	local num_cores
-	local fwd_cores
+	local args=${@:2}
 	local eal_args
-	local app_args
+	local app_args=""
 
-	num_cores=$(nproc --all)
-	fwd_cores=$((num_cores - 1))
-	eal_args="-l 0-$fwd_cores --socket-mem 1024 --proc-type auto --file-prefix=$pfx --no-pci \
-		  --vdev=net_virtio_user0,path=/dev/vhost-vdpa-0,mrg_rxbuf=01,packed_vq=1,in_order=1,queue_size=4096"
-	app_args="--nb-cores=$fwd_cores --port-topology=loop --rxq=$fwd_cores --txq=$fwd_cores -i"
+	for a in $args; do
+		if [[ $a == "--" ]]; then
+			eal_args=$app_args
+			app_args=""
+			continue
+		fi
+		app_args+=" $a"
+	done
 
-	echo "Starting Traffic on Host"
+	echo "Launching testpmd on Host"
 	testpmd_launch $pfx "$eal_args" "$app_args"
-	testpmd_cmd $pfx start
-	echo "Started Traffic on Host"
+	echo "Launched testpmd on Host"
 }
 
-function ep_host_stop_traffic()
+function ep_host_testpmd_stop()
 {
 	local pfx=$1
 
-	echo "Stopping Traffic on Host"
-	testpmd_cmd $pfx stop
+	echo "Stopping testpmd on Host"
 	testpmd_quit $pfx
 	testpmd_cleanup $pfx
-	echo "Stopped Traffic on Host"
+	echo "Stopped testpmd on Host"
 }
 
 # If this script is directly invoked from the shell execute the
@@ -101,5 +101,9 @@ function ep_host_stop_traffic()
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
 	OP=$1
 	ARGS=${@:2}
-	ep_host_$OP $ARGS
+	if [[ $(type -t ep_host_$OP) == function ]]; then
+		ep_host_$OP $ARGS
+	else
+		$OP $ARGS
+	fi
 fi

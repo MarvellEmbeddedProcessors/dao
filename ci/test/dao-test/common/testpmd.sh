@@ -82,7 +82,7 @@ function testpmd_launch()
 function testpmd_cmd()
 {
 	local pfx=$1
-	local cmd=$2
+	local cmd=${@:2}
 	local in=testpmd.in.$pfx
 	local skip_bytes=$(stat -c %s testpmd.out.$pfx)
 

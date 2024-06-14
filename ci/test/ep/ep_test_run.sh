@@ -50,8 +50,12 @@ function host_sync()
 		return
 	fi
 
+	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
+		echo "Cleanup EP device files"
+		$REMOTE_HOST "rm -rf $EP_HOST_DIR"
+	fi
+
 	echo "Syncing EP host files"
-	$REMOTE_HOST "rm -rf $EP_HOST_DIR"
 	$REMOTE_HOST "mkdir -p $EP_HOST_DIR"
 	$sync -e "$EP_SSH_CMD" -r $BUILD_HOST_DIR/* $EP_HOST:$EP_HOST_DIR
 	$sync -e "$EP_SSH_CMD" -r --exclude "ci/test/dao-tests/*" \
@@ -66,8 +70,12 @@ function device_sync()
 		return
 	fi
 
+	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
+		echo "Cleanup EP device files"
+		$REMOTE_DEVICE "rm -rf $EP_DEVICE_DIR"
+	fi
+
 	echo "Syncing EP device files"
-	$REMOTE_DEVICE "rm -rf $EP_DEVICE_DIR"
 	$REMOTE_DEVICE "mkdir -p $EP_DEVICE_DIR"
 	$sync -e "$EP_SSH_CMD" -r $BUILD_DIR/* $EP_DEVICE:$EP_DEVICE_DIR
 	$sync -e "$EP_SSH_CMD" -r --exclude "ci/test/dao-tests/*" \
@@ -185,6 +193,9 @@ function test_exit()
 	trap - ERR
 	trap - QUIT
 
+	ep_host_op safe_kill $EP_HOST_DIR
+	ep_device_op safe_kill $EP_DEVICE_DIR
+
 	ep_host_ssh_cmd 'sudo dmesg' > host_dmesg.log
 	save_log host_dmesg.log
 	ep_device_ssh_cmd 'sudo dmesg' > device_dmesg.log
@@ -209,8 +220,6 @@ function sig_handler()
 	trap - TERM
 	trap - ERR
 	trap - QUIT
-
-	$REMOTE_HOST "sudo killall -SIGINT $binary_name" 2>/dev/null
 
 	test_exit 1 "Error: Caught signal $signame in $0"
 }

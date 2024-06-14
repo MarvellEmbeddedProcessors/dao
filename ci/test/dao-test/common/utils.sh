@@ -127,3 +127,56 @@ function test_run()
 
 	return $res
 }
+
+function get_process_tree() {
+	local pid=$BASHPID
+	local ps_out
+	local tree=""
+
+	while [[ $pid != 1 ]]; do
+		ps_out=$(ps -ef | grep $pid | awk '{printf("%d-%d ", $2, $3)}')
+		tree+="$pid "
+		for l in $ps_out; do
+			if [[ $(echo $l | awk -F '-' '{print $1}') == $pid ]]; then
+				pid=$(echo $l | awk -F '-' '{print $2}')
+				break
+			fi
+		done
+	done
+	echo "$tree"
+}
+
+function safe_kill()
+{
+	local pattern=$@
+	local killpids
+	local ptree=$(get_process_tree)
+
+	# Safely kill all processes which has the pattern in 'ps -ef' but
+	# make sure that the current process tree is not affected.
+	set +e
+	killpids=$(ps -ef | grep "$pattern" | awk '{print $2}')
+	for p in $killpids; do
+		if ! $(echo $ptree | grep -qw $p); then
+			kill -9 $p > /dev/null 2>&1
+		fi
+	done
+	set -e
+}
+
+function file_offset()
+{
+	local logfile=$1
+
+	# Get the offset of the file
+	wc -c $logfile | awk '{print $1}'
+}
+
+function file_search_pattern()
+{
+	local logfile=$1
+	local skip_bytes=$2
+	local pattern=$3
+
+	tail -c +$skip_bytes $logfile | grep -q "$pattern"
+}

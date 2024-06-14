@@ -228,5 +228,9 @@ function ep_device_get_sclk()
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
 	OP=$1
 	ARGS=${@:2}
-	ep_device_$OP $ARGS
+	if [[ $(type -t ep_device_$OP) == function ]]; then
+		ep_device_$OP $ARGS
+	else
+		$OP $ARGS
+	fi
 fi
