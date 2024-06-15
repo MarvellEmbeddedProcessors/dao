@@ -92,7 +92,7 @@ struct dao_virtio_net_hdr {
 	uint64_t desc_data[2];
 	/** Virtio net header */
 	struct virtio_net_hdr hdr;
-};
+} __rte_packed;
 
 /** Virtio net devices */
 extern struct dao_virtio_netdev dao_virtio_netdevs[];
