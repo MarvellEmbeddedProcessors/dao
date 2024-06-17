@@ -7,13 +7,6 @@
 
 #include <stdint.h>
 
-#include <rte_graph.h>
-#include <rte_node_eth_api.h>
-
-#define MAX_RX_QUEUE_PER_PORT 128
-#define MAX_JUMBO_PKT_LEN     9600
-#define NB_SOCKETS            8
-
 struct lcore_params {
 	uint16_t port_id;
 	uint8_t queue_id;

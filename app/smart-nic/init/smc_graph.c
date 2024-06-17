@@ -196,7 +196,7 @@ smc_graph_init(struct smc_main_cfg_data *smc_main_cfg)
 		qconf->graph = rte_graph_lookup(qconf->name);
 		/* >8 End of graph initialization. */
 		if (!qconf->graph)
-			DAO_ERR_GOTO(-EFAULT, fail, "rte_graph_lookup(): graph %s not found\n",
+			DAO_ERR_GOTO(-EFAULT, fail, "rte_graph_lookup(): graph %s not found",
 				     qconf->name);
 
 		/* Update context data of ethdev rx and virtio tx nodes of this graph */

@@ -14,9 +14,6 @@ typedef struct smc_config_param {
 	bool enable_graph_stats;
 } smc_config_param_t;
 
-/* Display usage */
-void ood_print_usage(const char *prgname);
-
 /* Populate default config */
 int smc_default_config(struct smc_config_param *cfg_prm);
 

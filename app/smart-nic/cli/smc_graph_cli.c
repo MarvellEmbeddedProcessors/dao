@@ -95,7 +95,7 @@ graph_status_get(void)
 }
 
 static int
-smc_main_loop(void *config)
+smc_launch_one_lcore(void *config)
 {
 	struct smc_main_cfg_data *smc_main_cfg = (struct smc_main_cfg_data *)config;
 	uint16_t port_id, queue_id;
@@ -125,13 +125,6 @@ smc_main_loop(void *config)
 	while (likely(!smc_main_cfg->force_quit))
 		rte_graph_walk(graph);
 
-	return 0;
-}
-
-static int
-smc_launch_one_lcore(void *config)
-{
-	smc_main_loop(config);
 	return 0;
 }
 

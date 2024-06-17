@@ -113,7 +113,7 @@ main(int argc, char **argv)
 	/* Init EAL. */
 	rc = rte_eal_init(argc, argv);
 	if (rc < 0)
-		DAO_ERR_GOTO(rc, error, "Invalid EAL arguments\n");
+		DAO_ERR_GOTO(rc, error, "Invalid EAL arguments");
 
 	argc -= rc;
 	argv += rc;
@@ -144,7 +144,7 @@ main(int argc, char **argv)
 	/* Parse application arguments (after the EAL ones) */
 	rc = smc_parse_args(argc, argv, cfg_prm);
 	if (rc < 0)
-		DAO_ERR_GOTO(rc, fail, "Invalid smart-nic app arguments\n");
+		DAO_ERR_GOTO(rc, fail, "Invalid smart-nic app arguments");
 
 	/* Initialize the CLI */
 	cli_init();
@@ -153,7 +153,7 @@ main(int argc, char **argv)
 	cfg_prm->conn.msg_handle_arg = NULL;
 	smc_main_cfg->cli_cfg.conn = conn_init(&cfg_prm->conn);
 	if (!smc_main_cfg->cli_cfg.conn) {
-		printf("Error: Connectivity initialization failed\n");
+		dao_err("Error: Connectivity initialization failed");
 		goto fail;
 	};
 
@@ -175,9 +175,10 @@ main(int argc, char **argv)
 	if (rte_graph_has_stats_feature() && app_graph_stats_enabled())
 		rte_thread_join(smc_main_cfg->graph_prm->graph_stats_thread, NULL);
 fail:
+	conn_free(smc_main_cfg->cli_cfg.conn);
+
 	smc_cleanup(smc_main_cfg, mz);
 
-	conn_free(smc_main_cfg->cli_cfg.conn);
 	ethdev_stop_all();
 	cli_exit();
 	/* clean up the EAL */
