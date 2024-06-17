@@ -3,9 +3,9 @@
 
 apps = [
 	'ovs-offload',
+	'secgw-graph',
 	'smart-nic',
 	'virtio-l2fwd',
-	'secgw-graph'
 ]
 
 enabled = []
