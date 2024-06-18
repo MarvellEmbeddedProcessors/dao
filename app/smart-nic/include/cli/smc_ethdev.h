@@ -19,8 +19,6 @@ struct ipv6_addr_config {
 	uint8_t mask[ETHDEV_IPV6_ADDR_LEN];
 };
 
-extern uint32_t enabled_port_mask;
-
 void ethdev_start(void);
 void ethdev_stop_all(void);
 void *ethdev_mempool_list_by_portid(uint16_t portid);

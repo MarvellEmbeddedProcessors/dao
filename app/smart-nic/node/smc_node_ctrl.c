@@ -80,7 +80,7 @@ smc_node_eth_ctrl(smc_graph_param_t *graph_prm)
 	rx_node = smc_eth_rx_node_get();
 
 	RTE_ETH_FOREACH_DEV(portid) {
-		if ((enabled_port_mask & (1 << portid)) == 0)
+		if ((ethdev_port_mask() & (1 << portid)) == 0)
 			continue;
 
 		/* Create a per port tx node from base node */

@@ -51,7 +51,7 @@ static struct rte_eth_conf port_conf_default = {
 	.lpbk_mode = 0,
 };
 
-uint32_t enabled_port_mask;
+static uint32_t enabled_port_mask;
 static struct ethdev_head eth_node = TAILQ_HEAD_INITIALIZER(eth_node);
 
 uint32_t
