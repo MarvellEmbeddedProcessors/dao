@@ -13,7 +13,7 @@ INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/netlink \
                           @TOPDIR@/../../lib/virtio \
                           @TOPDIR@/../../lib/virtio_net \
-                          @TOPDIR@/../../helper \
+                          @TOPDIR@/../../lib/pal \
 
 FILE_PATTERNS           = dao*.h
 

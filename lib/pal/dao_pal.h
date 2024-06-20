@@ -3,9 +3,9 @@
  */
 
 /**
- * @file daoh_helper.h
+ * @file dao_pal.h
  *
- * DAO helper library
+ * DAO platform abstraction library
  */
 #ifndef _VIRTIO_HELPER__H__
 #define _VIRTIO_HELPER__H__
@@ -39,7 +39,7 @@
 #define DAOH_MAX_WORKERS RTE_MAX_LCORE
 
 /** DAOH library initialization data structure format */
-typedef struct daoh_global_conf {
+typedef struct dao_pal_global_conf {
 	/** Miscellaneous device list */
 	char **misc_devices;
 	/** Number of Miscellaneous devices present in misc_devices */
@@ -52,17 +52,17 @@ typedef struct daoh_global_conf {
 	uint16_t nb_virtio_devs;
 	/** PEM device identifier */
 	uint8_t pem_devid;
-} daoh_global_conf_t;
+} dao_pal_global_conf_t;
 
 /** Worker to DMA mapping list data structure format */
-typedef struct daoh_lcore_dma_id {
+typedef struct dao_pal_lcore_dma_id {
 	/** Application worker identifier */
 	int32_t wrk_id;
 	/** Memory to Device DMA device ID */
 	int16_t m2d_dma_devid;
 	/** Device to Memory DMA device ID */
 	int16_t d2m_dma_devid;
-} daoh_lcore_dma_id_t;
+} dao_pal_lcore_dma_id_t;
 
 /**
  * DAOH library initialization function
@@ -72,7 +72,7 @@ typedef struct daoh_lcore_dma_id {
  * @return
  *   0 on success, -1 on failure
  */
-int daoh_global_init(daoh_global_conf_t *conf);
+int dao_pal_global_init(dao_pal_global_conf_t *conf);
 
 /**
  * Enable or Disable auto free on a mem2dev dma device's vchan of a given lcore
@@ -84,7 +84,7 @@ int daoh_global_init(daoh_global_conf_t *conf);
  * @return
  *   Zero on success, -1 on failure.
  */
-int daoh_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable);
+int dao_pal_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable);
 
 /**
  * Set device to memory and memory to device DMA devices per lcore to backend.
@@ -93,7 +93,7 @@ int daoh_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable);
  * @return
  *   Zero on success, -1 on failure.
  */
-int daoh_thread_init(uint32_t wrk_id);
+int dao_pal_thread_init(uint32_t wrk_id);
 
 /**
  * Map DMA device's virtual channel to vfio.
@@ -106,7 +106,7 @@ int daoh_thread_init(uint32_t wrk_id);
  * @return
  *   Zero on success, -1 on failure.
  */
-int daoh_dma_vchan_setup(uint32_t devid, uint16_t dma_vchan, void *pool);
+int dao_pal_dma_vchan_setup(uint32_t devid, uint16_t dma_vchan, void *pool);
 
 /**
  * Allocate DMA devices per lcore, each for inbound anf outbound.
@@ -115,7 +115,7 @@ int daoh_dma_vchan_setup(uint32_t devid, uint16_t dma_vchan, void *pool);
  * @return
  *   Zero on success, -1 on failure.
  */
-int daoh_dma_dev_setup(uint64_t wrk_mask);
+int dao_pal_dma_dev_setup(uint64_t wrk_mask);
 
 /**
  * Unregister current thread with backend.
@@ -124,7 +124,7 @@ int daoh_dma_dev_setup(uint64_t wrk_mask);
  * @return
  *   Zero on success, -1 on failure.
  */
-int daoh_thread_fini(uint32_t wrk_id);
+int dao_pal_thread_fini(uint32_t wrk_id);
 
 /**
  * Assign DMA devices for control path.
@@ -133,13 +133,13 @@ int daoh_thread_fini(uint32_t wrk_id);
  * @return
  *   Zero on success, -1 on failure.
  */
-int daoh_dma_ctrl_dev_set(uint32_t wrk_id);
+int dao_pal_dma_ctrl_dev_set(uint32_t wrk_id);
 
 /**
  * DAOH library uninitialization function.
  *
  */
-void daoh_global_fini(void);
+void dao_pal_global_fini(void);
 
 /**
  * Perform DMA mapping for devices.
@@ -154,6 +154,29 @@ void daoh_global_fini(void);
  *   0 if successful
  *   <0 if failed
  */
-int daoh_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len);
+int dao_pal_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len);
 
+/**
+ * Get the iova mode
+ *
+ * @return
+ *   enum rte_iova_mode value.
+ */
+enum rte_iova_mode daoh_iova_mode(void);
+
+/**
+ * Change the stream that will be used by the logging system.
+ *
+ * This can be done at any time. The f argument represents the stream
+ * to be used to send the logs. If f is NULL, the default output is
+ * used (stderr).
+ *
+ * @param f
+ *   Pointer to the stream.
+ * @return
+ *   - 0 on success.
+ *   - Negative on error.
+ */
+
+int daoh_openlog_stream(FILE *f);
 #endif
