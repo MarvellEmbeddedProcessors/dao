@@ -5,4 +5,4 @@ sources = files(
 	'virtio_extbuf_main.c',
 )
 
-deps = ['virtio', 'virtio_net', 'helper']
+deps = ['virtio', 'virtio_net', 'pal']

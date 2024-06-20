@@ -2,16 +2,28 @@
  * Copyright (c) 2024 Marvell.
  */
 
-#include "daoh_helper.h"
+#include "dao_pal.h"
 
 static uint8_t pem_devid;
 static uint16_t nb_vfio_devs;
 static uint16_t nb_dma_devs;
-static daoh_lcore_dma_id_t dma_ids[DAOH_MAX_WORKERS];
+static dao_pal_lcore_dma_id_t dma_ids[DAOH_MAX_WORKERS];
 static uint64_t worker_mask;
 
 int
-daoh_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len)
+daoh_openlog_stream(FILE *f)
+{
+	return rte_openlog_stream(f);
+}
+
+enum rte_iova_mode
+daoh_iova_mode(void)
+{
+	return rte_eal_iova_mode();
+}
+
+int
+dao_pal_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len)
 {
 	int rv = 0;
 
@@ -30,7 +42,7 @@ daoh_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len)
 }
 
 int
-daoh_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable)
+dao_pal_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable)
 {
 	int i = 0;
 	int rc = 0;
@@ -47,7 +59,7 @@ daoh_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable)
 }
 
 int
-daoh_thread_init(uint32_t wrk_id)
+dao_pal_thread_init(uint32_t wrk_id)
 {
 	int rc;
 
@@ -71,7 +83,7 @@ daoh_thread_init(uint32_t wrk_id)
 }
 
 int
-daoh_thread_fini(uint32_t wrk_id)
+dao_pal_thread_fini(uint32_t wrk_id)
 {
 	RTE_SET_USED(wrk_id);
 	rte_thread_unregister();
@@ -80,7 +92,7 @@ daoh_thread_fini(uint32_t wrk_id)
 }
 
 int
-daoh_dma_vchan_setup(uint32_t devid, uint16_t dma_vchan, void *pool)
+dao_pal_dma_vchan_setup(uint32_t devid, uint16_t dma_vchan, void *pool)
 {
 	int16_t i = 0;
 	uint64_t wrk_mask = worker_mask;
@@ -136,7 +148,7 @@ daoh_dma_vchan_setup(uint32_t devid, uint16_t dma_vchan, void *pool)
 }
 
 int
-daoh_dma_dev_setup(uint64_t wrk_mask)
+dao_pal_dma_dev_setup(uint64_t wrk_mask)
 {
 	struct rte_dma_conf dma_conf;
 	int16_t dma_devid;
@@ -192,7 +204,7 @@ daoh_dma_dev_setup(uint64_t wrk_mask)
 }
 
 int
-daoh_dma_ctrl_dev_set(uint32_t wrk_id)
+dao_pal_dma_ctrl_dev_set(uint32_t wrk_id)
 {
 	if (wrk_id >= DAOH_MAX_WORKERS) {
 		dao_err("Invalid wrk_id id %u", wrk_id);
@@ -209,7 +221,7 @@ daoh_dma_ctrl_dev_set(uint32_t wrk_id)
 }
 
 int
-daoh_global_init(daoh_global_conf_t *conf)
+dao_pal_global_init(dao_pal_global_conf_t *conf)
 {
 	int rc = 0;
 	int argc;
@@ -224,7 +236,7 @@ daoh_global_init(daoh_global_conf_t *conf)
 	if (argv == NULL)
 		return -1;
 
-	argv[j++] = strdup("daoh");
+	argv[j++] = strdup("dao");
 
 	for (i = 0; i < conf->nb_dma_devs; i++) {
 		argv[j++] = strdup("-a");
@@ -263,7 +275,7 @@ exit:
 }
 
 void
-daoh_global_fini(void)
+dao_pal_global_fini(void)
 {
 	uint64_t wrk_mask = worker_mask;
 	int16_t i = 0;

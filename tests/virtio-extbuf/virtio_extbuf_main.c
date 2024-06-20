@@ -41,8 +41,8 @@
 #include <cmdline_parse_etheraddr.h>
 
 #include <dao_dma.h>
+#include <dao_pal.h>
 #include <dao_virtio_netdev.h>
-#include <daoh_helper.h>
 
 #define GET_MBUF_FROM_DATA_ADDR(mbuf)                                                              \
 	((struct rte_mbuf *)((uint8_t *)(mbuf) + sizeof(struct dao_virtio_net_hdr) -               \
@@ -423,7 +423,7 @@ service_main_loop(void *conf)
 
 	APP_INFO("service thread received LCORE ID %u\n", t->wrk_id);
 
-	daoh_thread_init(t->wrk_id);
+	dao_pal_thread_init(t->wrk_id);
 
 	while (service.state != THREAD_INITIALIZED)
 		rte_pause();
@@ -451,7 +451,7 @@ service_main_loop(void *conf)
 
 	rte_rcu_qsbr_thread_offline(qs_v, lcore_id);
 	rte_rcu_qsbr_thread_unregister(qs_v, lcore_id);
-	daoh_thread_fini(t->wrk_id);
+	dao_pal_thread_fini(t->wrk_id);
 	return conf;
 }
 
@@ -564,7 +564,7 @@ l2_fwd_main(void *conf)
 	pthread_setaffinity_np(thread, sizeof(cpuset), &cpuset);
 
 	APP_INFO("worker thread received LCORE ID %u\n", t->wrk_id);
-	daoh_thread_init(t->wrk_id);
+	dao_pal_thread_init(t->wrk_id);
 
 	while (worker.state != THREAD_INITIALIZED)
 		rte_pause();
@@ -574,7 +574,7 @@ l2_fwd_main(void *conf)
 		APP_INFO("worker Both worker id and lcore id not same %u:%u\n", t->wrk_id,
 			 lcore_id);
 
-	rc = daoh_dma_lcore_mem2dev_autofree_set(t->wrk_id, virtio_netdev_autofree);
+	rc = dao_pal_dma_lcore_mem2dev_autofree_set(t->wrk_id, virtio_netdev_autofree);
 	if (rc) {
 		APP_ERR("Error in setting DMA device on lcore %u rc %d\n", t->wrk_id, rc);
 		return NULL;
@@ -599,7 +599,7 @@ l2_fwd_main(void *conf)
 
 	rte_rcu_qsbr_thread_offline(qs_v, lcore_id);
 	rte_rcu_qsbr_thread_unregister(qs_v, lcore_id);
-	daoh_thread_fini(t->wrk_id);
+	dao_pal_thread_fini(t->wrk_id);
 	return conf;
 }
 
@@ -1308,7 +1308,7 @@ setup_virtio_devices(void)
 	netdev_conf.dma_vchan = vchan_id_allocate();
 	virtio_netdev_dma_vchans[virtio_devid] = netdev_conf.dma_vchan;
 
-	daoh_dma_vchan_setup(virtio_devid, netdev_conf.dma_vchan, NULL);
+	dao_pal_dma_vchan_setup(virtio_devid, netdev_conf.dma_vchan, NULL);
 	/* Initialize virtio net device */
 	rc = dao_virtio_netdev_init(virtio_devid, &netdev_conf);
 	if (rc)
@@ -1398,7 +1398,7 @@ get_worker_mask(char *lcore)
 }
 
 static int
-parse_eal_args(int argc, char **argv, daoh_global_conf_t *conf, uint64_t *worker_mask)
+parse_eal_args(int argc, char **argv, dao_pal_global_conf_t *conf, uint64_t *worker_mask)
 {
 	int opt;
 	int option_index;
@@ -1461,7 +1461,7 @@ create_pthread_on_every_lcore(void)
 int
 main(int argc, char **argv)
 {
-	daoh_global_conf_t conf = {0};
+	dao_pal_global_conf_t conf = {0};
 	uint64_t worker_mask_cp = 0;
 	unsigned int i = 0;
 	uint32_t wrk_id;
@@ -1485,11 +1485,11 @@ main(int argc, char **argv)
 		rte_exit(EXIT_FAILURE, "Invalid lcore parameters expected 2\n");
 
 	conf.nb_virtio_devs = 1;
-	daoh_global_init(&conf);
+	dao_pal_global_init(&conf);
 
 	worker_mask |= RTE_BIT64(rte_get_main_lcore());
 
-	daoh_dma_dev_setup(worker_mask);
+	dao_pal_dma_dev_setup(worker_mask);
 
 	worker_mask &= ~(RTE_BIT64(rte_get_main_lcore()));
 
@@ -1531,7 +1531,7 @@ main(int argc, char **argv)
 	}
 
 	/* Set DMA devices for virtio control */
-	daoh_dma_ctrl_dev_set(rte_get_main_lcore());
+	dao_pal_dma_ctrl_dev_set(rte_get_main_lcore());
 
 	/* Alloc mempools */
 	if (setup_mempools()) {
@@ -1587,8 +1587,8 @@ exit:
 	/* Close eth devices */
 	release_eth_devices();
 
-	/* daoh_global_fini */
-	daoh_global_fini();
+	/* dao_pal_global_fini */
+	dao_pal_global_fini();
 
 	APP_INFO("Bye...\n");
 
