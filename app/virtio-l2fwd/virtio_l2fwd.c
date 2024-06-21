@@ -1909,11 +1909,49 @@ chksum_offload_configure(uint16_t virtio_devid)
 	return rc;
 }
 
+static uint64_t
+virtio_to_ethdev_rss_offloads(uint64_t virtio_hash_types)
+{
+	uint64_t rss_offloads = 0;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IPV4)
+		rss_offloads |= RTE_ETH_RSS_IPV4 | RTE_ETH_RSS_FRAG_IPV4 |
+			RTE_ETH_RSS_NONFRAG_IPV4_OTHER;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCPV4)
+		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV4_TCP;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_UDPV4)
+		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV4_UDP;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IPV6)
+		rss_offloads |= RTE_ETH_RSS_IPV6 | RTE_ETH_RSS_FRAG_IPV6 |
+			RTE_ETH_RSS_NONFRAG_IPV6_OTHER;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCPV6)
+		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV6_TCP;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_UDPV6)
+		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV6_UDP;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IP_EX)
+		rss_offloads |= RTE_ETH_RSS_IPV6_EX;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCP_EX)
+		rss_offloads |= RTE_ETH_RSS_IPV6_TCP_EX;
+
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_UDP_EX)
+		rss_offloads |= RTE_ETH_RSS_IPV6_UDP_EX;
+
+	return rss_offloads;
+}
+
 static int
 rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 {
 	struct rte_eth_rss_reta_entry64
 		reta_conf[VIRTIO_NET_RSS_RETA_SIZE / RTE_ETH_RETA_GROUP_SIZE];
+	struct rte_eth_conf *local_port_conf;
 	uint16_t virt_q_count, portid;
 	uint16_t reta_size;
 	uint16_t next_q;
@@ -1942,11 +1980,23 @@ rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 		goto skip_eth_reconfig;
 
 	portid = virtio_map[virtio_devid].id;
+	local_port_conf = &eth_dev_conf[portid];
+
+	if (eth_dev_info[portid].hash_key_size == rss->hash_key_length) {
+		local_port_conf->rx_adv_conf.rss_conf.rss_hf =
+				virtio_to_ethdev_rss_offloads(rss->hash_types);
+		local_port_conf->rx_adv_conf.rss_conf.rss_key = rss->hash_key_data;
+		local_port_conf->rx_adv_conf.rss_conf.rss_key_len = rss->hash_key_length;
+	} else {
+		APP_INFO("Mismatch in rss key size and configured hash key size\n");
+	}
+
 	/* Reconfigure ethdev with required number of queues */
 	rc = reconfig_ethdev(portid, virt_q_count / 2);
 	if (rc)
 		return rc;
 
+	local_port_conf->rx_adv_conf.rss_conf.rss_key = NULL;
 	memset(reta_conf, 0, sizeof(reta_conf));
 	reta_size = virtio_netdev_reta_sz[virtio_devid];
 
