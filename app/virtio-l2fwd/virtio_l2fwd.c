@@ -1438,6 +1438,8 @@ reconfig_ethdev(uint16_t portid, uint16_t q_count)
 	struct rte_eth_conf *local_port_conf;
 	struct rte_eth_dev_info dev_info;
 	struct rte_eth_txconf *txconf;
+	uint64_t feature_bits;
+	uint16_t virtio_devid;
 	uint16_t nb_rx_queue;
 	uint32_t nb_tx_queue;
 	uint16_t queueid;
@@ -1494,6 +1496,16 @@ reconfig_ethdev(uint16_t portid, uint16_t q_count)
 
 	rss_table_reset(portid);
 	eth_dev_q_count[portid] = q_count;
+
+	virtio_devid = eth_map[portid].id;
+	feature_bits = dao_virtio_netdev_feature_bits_get(virtio_devid);
+	if (feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT)) {
+		rc = rte_eth_dev_set_ptypes(portid, RTE_PTYPE_L3_MASK | RTE_PTYPE_L4_MASK, NULL, 0);
+		if (rc < 0) {
+			APP_ERR("rte_eth_dev_start: err=%d, port=%d\n", rc, portid);
+			return rc;
+		}
+	}
 
 	rc = rte_eth_dev_start(portid);
 	if (rc < 0) {
@@ -1968,7 +1980,8 @@ hash_report_enable(uint16_t virtio_devid)
 	uint16_t virt_q_count, portid;
 	int rc;
 
-	enable_hash_report = dao_virtio_netdev_feature_bits_get(virtio_devid) & 0x200000000000000;
+	enable_hash_report = dao_virtio_netdev_feature_bits_get(virtio_devid) &
+			     RTE_BIT64(VIRTIO_NET_F_HASH_REPORT);
 
 	portid = virtio_map[virtio_devid].id;
 	local_port_conf = &eth_dev_conf[portid];
@@ -1977,7 +1990,7 @@ hash_report_enable(uint16_t virtio_devid)
 	rx_offloads = local_port_conf->rxmode.offloads;
 
 	rx_offloads &= ~(RTE_ETH_RX_OFFLOAD_RSS_HASH);
-	if (enable_hash_report & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
+	if (enable_hash_report)
 		rx_offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
 
 	if (local_port_conf->rxmode.offloads == rx_offloads) {

@@ -20,14 +20,104 @@ dao_net_desc_manage_fn_t dao_net_desc_manage_fns[VIRTIO_NET_DESC_MANAGE_LAST << 
 struct dao_virtio_netdev_cbs user_cbs;
 int virtio_netdev_clear_queue_info(struct virtio_netdev *netdev);
 
+static void
+virtio_hash_types_to_hash_report(struct virtio_netdev *netdev, uint64_t virtio_hash_types)
+{
+	uint8_t *hash_report = netdev->hash_report;
+
+	memset(hash_report, 0, sizeof(uint8_t) * DAO_HASH_REPORT_INDEX_MAX);
+	/* IPv4 hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IPV4) {
+		hash_report[RTE_PTYPE_L3_IPV4 >> 4] = VIRTIO_NET_HASH_REPORT_IPv4;
+		hash_report[RTE_PTYPE_L3_IPV4_EXT >> 4] = VIRTIO_NET_HASH_REPORT_IPv4;
+		hash_report[RTE_PTYPE_L3_IPV4_EXT_UNKNOWN >> 4] = VIRTIO_NET_HASH_REPORT_IPv4;
+		hash_report[(RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv4;
+		hash_report[(RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv4;
+	}
+
+	/* TCPv4 hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCPV4)
+		hash_report[(RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_TCPv4;
+
+	/* UDPv4 hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_UDPV4)
+		hash_report[(RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_UDPv4;
+
+	/* IPv6 hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IPV6) {
+		hash_report[RTE_PTYPE_L3_IPV6 >> 4] = VIRTIO_NET_HASH_REPORT_IPv6;
+		hash_report[RTE_PTYPE_L3_IPV6_EXT >> 4] = VIRTIO_NET_HASH_REPORT_IPv6;
+		hash_report[RTE_PTYPE_L3_IPV6_EXT_UNKNOWN >> 4] = VIRTIO_NET_HASH_REPORT_IPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6 | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6 | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6;
+	}
+
+	/* TCPv6 hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCPV6) {
+		hash_report[(RTE_PTYPE_L3_IPV6 | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_TCPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_TCPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_TCPv6;
+	}
+
+	/* UDPv6 hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_UDPV6) {
+		hash_report[(RTE_PTYPE_L3_IPV6 | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_UDPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_UDPv6;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_UDPv6;
+	}
+
+	/* IPv6 EXT hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IP_EX) {
+		hash_report[RTE_PTYPE_L3_IPV6_EXT >> 4] = VIRTIO_NET_HASH_REPORT_IPv6_EX;
+		hash_report[RTE_PTYPE_L3_IPV6_EXT_UNKNOWN >> 4] = VIRTIO_NET_HASH_REPORT_IPv6_EX;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6_EX;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6_EX;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6_EX;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_IPv6_EX;
+	}
+
+	/* TCPv6 EXT hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCP_EX) {
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_TCPv6_EX;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_TCP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_TCPv6_EX;
+	}
+
+	/* UDPv6 EXT hash report */
+	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_UDP_EX) {
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_UDPv6_EX;
+		hash_report[(RTE_PTYPE_L3_IPV6_EXT_UNKNOWN | RTE_PTYPE_L4_UDP) >> 4] =
+			VIRTIO_NET_HASH_REPORT_UDPv6_EX;
+	}
+}
+
 static int
 net_rss_setup(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
 {
 	struct virtio_net_ctrl_rss *rss = (struct virtio_net_ctrl_rss *)ctrl_cmd->data;
-	uint32_t max_vqs = netdev->dev.max_virtio_queues - 1;
-	struct virtio_net_queue *queue;
-	uint32_t i;
-	int rc;
+	int ret;
 
 	if (user_cbs.rss_cb == NULL)
 		return -ENOTSUP;
@@ -43,16 +133,14 @@ net_rss_setup(struct virtio_netdev *netdev, struct virtio_net_ctrl *ctrl_cmd)
 	/* Update the core map to requested number of queues and
 	 * configure rss.
 	 */
-	rc = user_cbs.rss_cb(netdev->dev.dev_id, rss);
-	if (!rc) {
-		for (i = 0; i < max_vqs; i++) {
-			queue = netdev->qs[i];
-			if (queue)
-				queue->rss_hf = rss->hash_types;
-		}
-	}
+	ret = user_cbs.rss_cb(netdev->dev.dev_id, rss);
+	if (!ret)
+		/* Set hash report values based on the requested hash types, which will be
+		 * used in enqueue data path.
+		 */
+		virtio_hash_types_to_hash_report(netdev, rss->hash_types);
 
-	return rc;
+	return ret;
 }
 
 static int
@@ -248,6 +336,7 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	dao_netdev->qs[queue_id] = queue;
 	queue->dao_netdev = dao_netdev;
 	queue->netdev_id = netdev->dev.dev_id;
+	queue->hash_report = netdev->hash_report;
 
 	if (dev->feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
 		queue->virtio_hdr_sz =
@@ -642,6 +731,12 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	if (conf->flags & DAO_VIRTIO_NETDEV_EXTBUF)
 		virtio_netdev->mgmt_fn_id |= VIRTIO_NET_DESC_MANAGE_EXTBUF;
 
+	netdev->hash_report = rte_zmalloc(NULL, sizeof(uint8_t) * DAO_HASH_REPORT_INDEX_MAX, 0);
+	if (!netdev->hash_report) {
+		dao_err("[dev %u] Failed to allocate memory for hash report table", dev->dev_id);
+		return -ENOMEM;
+	}
+
 	/* One time setup */
 	dev_cbs[VIRTIO_DEV_TYPE_NET].dev_status = virtio_netdev_status_cb;
 	dev_cbs[VIRTIO_DEV_TYPE_NET].cq_cmd_process = virtio_netdev_cq_cmd_process;
@@ -656,6 +751,7 @@ dao_virtio_netdev_fini(uint16_t devid)
 	struct dao_virtio_netdev *virtio_netdev = &dao_virtio_netdevs[devid];
 	struct virtio_netdev *netdev = virtio_netdev_priv(virtio_netdev);
 
+	rte_free(netdev->hash_report);
 	return virtio_dev_fini(&netdev->dev);
 }
 

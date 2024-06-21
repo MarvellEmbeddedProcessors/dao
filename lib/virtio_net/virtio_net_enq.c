@@ -121,11 +121,20 @@ process_enq_compl(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2de
 	}
 }
 
+static __rte_always_inline uint16_t
+mbuf_pkt_type_to_virtio_hash_report(uint8_t *hash_report, uint32_t packet_type)
+{
+	uint32_t index = (packet_type & (RTE_PTYPE_L3_MASK | RTE_PTYPE_L4_MASK)) >> 4;
+
+	return (uint16_t)hash_report[index];
+}
+
 static __rte_always_inline int
 push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	      struct rte_mbuf **mbufs, uint16_t nb_mbufs, const uint16_t flags)
 {
-	uint64x2_t rss0, rss1, rss2, rss3, d01, d23, rss0213;
+	uint64x2_t rss0, rss1, rss2, rss3, d01, d23, rss0213, h0213;
+	uint32_t pkt_typ0, pkt_typ1, pkt_typ2, pkt_typ3;
 	uint64x2_t flags01, flags23, len01, len23;
 	struct rte_mbuf **mbuf_arr = q->mbuf_arr;
 	uint64_t *mbuf0, *mbuf1, *mbuf2, *mbuf3;
@@ -142,9 +151,8 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	uint16_t sd_off, avail_sd, avail_mbuf;
 	uint32x4_t ol_flags, xlen, ylen;
 	uint64x2_t xflags01, xflags23;
+	uint8_t *hrp = q->hash_report;
 	uint64x2_t vdst[4], vsrc[4];
-	uint32x4_t hash_f, hash_rpt;
-	uint32_t rss_hf = q->rss_hf;
 	struct virtio_net_hdr *hdr;
 	uint64x2_t xtmp0, xtmp1;
 	uint16_t used = 0, i = 0;
@@ -294,25 +302,37 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 		}
 
 		if (flags & VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT) {
+			pkt_typ0 = *((uint32_t *)mbuf0 + 8);
+			pkt_typ1 = *((uint32_t *)mbuf1 + 8);
+			pkt_typ2 = *((uint32_t *)mbuf2 + 8);
+			pkt_typ3 = *((uint32_t *)mbuf3 + 8);
+
 			rss0 = vld1q_u32((uint32_t *)mbuf0 + 11);
 			rss1 = vld1q_u32((uint32_t *)mbuf1 + 11);
 			rss2 = vld1q_u32((uint32_t *)mbuf2 + 11);
 			rss3 = vld1q_u32((uint32_t *)mbuf3 + 11);
 
+			h0213 = vsetq_lane_u32(mbuf_pkt_type_to_virtio_hash_report(hrp, pkt_typ0),
+					       h0213, 0);
+			h0213 = vsetq_lane_u32(mbuf_pkt_type_to_virtio_hash_report(hrp, pkt_typ1),
+					       h0213, 2);
+			h0213 = vsetq_lane_u32(mbuf_pkt_type_to_virtio_hash_report(hrp, pkt_typ2),
+					       h0213, 1);
+			h0213 = vsetq_lane_u32(mbuf_pkt_type_to_virtio_hash_report(hrp, pkt_typ3),
+					       h0213, 3);
+
 			d01 = vzip1q_u64(rss0, rss1);
 			d23 = vzip1q_u64(rss2, rss3);
-
 			/* d01 elements are stored in even places  for transposet instr*/
 			/* d23 elements are stored in odd places  for transposet instr*/
 			rss0213 = vtrn1q_u32(d01, d23);
 
 			const uint32x4_t def_hash_val = vdupq_n_u32(0);
 
-			hash_f = vdupq_n_u32(rss_hf);
-			hash_rpt = vandq_u32(vcgtq_u32(rss0213, def_hash_val), hash_f);
+			h0213 = vandq_u32(vcgtq_u32(rss0213, def_hash_val), h0213);
 
-			d01 = vtrn1q_u32(rss0213, hash_rpt);
-			d23 = vtrn2q_u32(rss0213, hash_rpt);
+			d01 = vtrn1q_u32(rss0213, h0213);
+			d23 = vtrn2q_u32(rss0213, h0213);
 
 			*(uint64_t *)((uint32_t *)data0 + 3) = vgetq_lane_u64(d01, 0);
 			*(uint64_t *)((uint32_t *)data1 + 3) = vgetq_lane_u64(d01, 1);
@@ -415,8 +435,13 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 		}
 
 		if (flags & VIRTIO_NET_ENQ_OFFLOAD_HASH_REPORT) {
+			uint16_t hash_rpt;
+
+			hash_rpt =
+				mbuf_pkt_type_to_virtio_hash_report(hrp, *((uint32_t *)mbuf0 + 8));
+
 			hdr->hash_value = ((struct rte_mbuf *)mbuf0)->hash.rss;
-			hdr->hash_report = hdr->hash_value ? rss_hf : 0;
+			hdr->hash_report = hdr->hash_value ? hash_rpt : 0;
 		}
 
 		d_flags = *DESC_PTR_OFF(sd_desc_base, off, 8);

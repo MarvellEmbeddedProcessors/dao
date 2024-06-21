@@ -16,11 +16,11 @@ struct virtio_net_queue {
 	uint16_t netdev_id;
 	uint8_t virtio_hdr_sz;
 	uint8_t auto_free;
+	uint8_t *hash_report;
 
 	/* Slow path */
 	struct dao_virtio_netdev *dao_netdev __rte_cache_aligned;
 	uint16_t qid;
-	uint32_t rss_hf;
 
 	/* Read-Write worker. */
 	uint16_t pend_sd_mbuf __rte_cache_aligned;
@@ -70,6 +70,8 @@ struct virtio_netdev {
 	bool auto_free_en;
 	uint16_t reta_size;
 	uint16_t hash_key_size;
+#define DAO_HASH_REPORT_INDEX_MAX 256
+	uint8_t *hash_report;
 
 	/* Fast path data */
 	struct virtio_net_queue *qs[DAO_VIRTIO_MAX_QUEUES] __rte_cache_aligned;

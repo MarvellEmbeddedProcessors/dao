@@ -107,6 +107,16 @@ struct virtio_net_hdr {
 	rte_le16_t num_buffers;
 	/** hash value of packet */
 	rte_le32_t hash_value;
+#define VIRTIO_NET_HASH_REPORT_NONE     0
+#define VIRTIO_NET_HASH_REPORT_IPv4     1
+#define VIRTIO_NET_HASH_REPORT_TCPv4    2
+#define VIRTIO_NET_HASH_REPORT_UDPv4    3
+#define VIRTIO_NET_HASH_REPORT_IPv6     4
+#define VIRTIO_NET_HASH_REPORT_TCPv6    5
+#define VIRTIO_NET_HASH_REPORT_UDPv6    6
+#define VIRTIO_NET_HASH_REPORT_IPv6_EX  7
+#define VIRTIO_NET_HASH_REPORT_TCPv6_EX 8
+#define VIRTIO_NET_HASH_REPORT_UDPv6_EX 9
 	/** hash report of packet */
 	rte_le16_t hash_report;
 	/** padding reserved of packet */

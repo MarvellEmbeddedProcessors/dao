@@ -82,6 +82,7 @@ struct dao_virtio_netdev {
 	uint16_t enq_fn_id;
 	/** Descriptors management function id */
 	uint16_t mgmt_fn_id;
+	/** Table to find hash report based on packet type */
 #define DAO_VIRTIO_NETDEV_MEM_SZ 8192
 	uint8_t reserved[DAO_VIRTIO_NETDEV_MEM_SZ];
 };
