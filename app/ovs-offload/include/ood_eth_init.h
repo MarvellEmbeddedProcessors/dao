@@ -8,6 +8,8 @@
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
 
+#include <ood_config.h>
+
 #define OOD_MAX_JUMBO_PKT_LEN  9600
 #define OOD_MEMPOOL_CACHE_SIZE 256
 
@@ -38,8 +40,9 @@
 struct ood_main_cfg_data;
 
 struct ood_ethdev_port_info {
-	uint16_t port_id;
 	uint16_t hw_func;
+	uint16_t nb_rxq;
+	uint16_t port_id;
 };
 
 typedef struct ood_ethdev_host_mac_map {
@@ -59,5 +62,6 @@ int ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg);
 int ood_config_port_max_pkt_len(ood_config_param_t *cfg_prm, struct rte_eth_conf *conf,
 				struct rte_eth_dev_info *dev_info);
 uint16_t ood_ethdev_port_pair_get(ood_ethdev_host_mac_map_t *host_mac_map, uint16_t portid);
+struct ood_ethdev_port_info *ood_ethdev_port_info_get(uint16_t portid);
 
 #endif /* __OOD_ETH_INIT_H__ */

@@ -29,11 +29,14 @@ uint16_t nb_txd = OOD_TX_DESC_DEFAULT;
 static struct rte_eth_conf port_conf = {
 	.rxmode = {
 			.mq_mode = RTE_ETH_MQ_RX_RSS,
+			.offloads = 0x00080000,
 		},
 	.rx_adv_conf = {
 			.rss_conf = {
 					.rss_key = NULL,
-					.rss_hf = RTE_ETH_RSS_IP,
+					.rss_hf = RTE_ETH_RSS_IP |
+						RTE_ETH_RSS_TCP |
+						RTE_ETH_RSS_UDP,
 				},
 		},
 	.txmode = {
@@ -336,7 +339,8 @@ fail:
 }
 
 static int
-port_init(struct ood_main_cfg_data *ood_main_cfg, uint16_t portid, uint16_t nb_lcores)
+port_init(struct ood_main_cfg_data *ood_main_cfg, uint16_t portid, uint16_t nb_lcores,
+	  uint16_t *rx_queue)
 {
 	struct rte_ether_addr ports_eth_addr[RTE_MAX_ETHPORTS];
 	struct rte_ether_addr dest_eth_addr[RTE_MAX_ETHPORTS];
@@ -436,6 +440,7 @@ port_init(struct ood_main_cfg_data *ood_main_cfg, uint16_t portid, uint16_t nb_l
 
 	/* Setup ethdev node config */
 	ood_eth_node_config(ood_main_cfg, portid, nb_rx_queue, n_tx_queue);
+	*rx_queue = nb_rx_queue;
 
 	return 0;
 fail:
@@ -509,6 +514,32 @@ is_host_port(uint16_t portid)
 	return (strstr(info, "a0f7") != NULL);
 }
 
+struct ood_ethdev_port_info *
+ood_ethdev_port_info_get(uint16_t portid)
+{
+	struct ood_main_cfg_data *ood_main_cfg;
+	struct ood_ethdev_param *eth_prm;
+	const struct rte_memzone *mz;
+	uint16_t i;
+
+	mz = rte_memzone_lookup(OOD_MAIN_CFG_MZ_NAME);
+	if (!mz) {
+		dao_err("Failed to lookup for main_cfg, err %d", rte_errno);
+		return NULL;
+	}
+	ood_main_cfg = mz->addr;
+	eth_prm = ood_main_cfg->eth_prm;
+
+	for (i = 0; i < (RTE_MAX_ETHPORTS / 2); i++) {
+		if (eth_prm->host_mac_map[i].host_port.port_id == portid)
+			return &eth_prm->host_mac_map[i].host_port;
+		if (eth_prm->host_mac_map[i].mac_port.port_id == portid)
+			return &eth_prm->host_mac_map[i].mac_port;
+	}
+
+	return NULL;
+}
+
 uint16_t
 ood_ethdev_port_pair_get(ood_ethdev_host_mac_map_t *host_mac_map, uint16_t portid)
 {
@@ -527,8 +558,8 @@ ood_ethdev_port_pair_get(ood_ethdev_host_mac_map_t *host_mac_map, uint16_t porti
 int
 ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg)
 {
+	uint16_t nb_ports, lcore_id, nb_lcores = 0, nb_rx_queue = 0;
 	uint16_t portid, last_port, nb_ports_in_mask = 0;
-	uint16_t nb_ports, lcore_id, nb_lcores = 0;
 	char if_name[RTE_ETH_NAME_MAX_LEN];
 	uint16_t nb_ports_available = 0;
 	uint16_t host_port, mac_port;
@@ -675,9 +706,18 @@ ood_ethdev_init(struct ood_main_cfg_data *ood_main_cfg)
 	RTE_ETH_FOREACH_DEV(portid) {
 		if (portid == ood_repr_get_eswitch_portid(ood_main_cfg))
 			continue;
-		rc = port_init(ood_main_cfg, portid, nb_lcores);
+		nb_rx_queue = 0;
+		rc = port_init(ood_main_cfg, portid, nb_lcores, &nb_rx_queue);
 		if (rc)
 			DAO_ERR_GOTO(rc, fail, "Failed to init port %d", portid);
+		idx = 0;
+		while (cfg_prm->nb_port_pair_params > idx) {
+			if (eth_prm->host_mac_map[idx].host_port.port_id == portid)
+				eth_prm->host_mac_map[idx].host_port.nb_rxq = nb_rx_queue;
+			else
+				eth_prm->host_mac_map[idx].mac_port.nb_rxq = nb_rx_queue;
+			idx++;
+		}
 		nb_ports_available++;
 	}
 

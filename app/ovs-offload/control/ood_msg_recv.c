@@ -100,10 +100,11 @@ static void *
 populate_rss_action_conf(void *conf, uint16_t len)
 {
 	struct rte_flow_action_rss *rss_conf;
-	uint16_t *queue_arr;
-	uint8_t *key_data;
-	uint16_t sz;
+	uint16_t *queue_arr = NULL;
+	uint8_t *key_data = NULL;
+	uint16_t sz, i;
 
+	RTE_SET_USED(len);
 	rss_conf = calloc(1, sizeof(struct rte_flow_action_rss));
 	if (!rss_conf) {
 		dao_err("Failed to allocate memory for rss conf");
@@ -113,23 +114,31 @@ populate_rss_action_conf(void *conf, uint16_t len)
 
 	rte_memcpy(rss_conf, conf, sz);
 
-	queue_arr = calloc(1, rss_conf->queue_num * sizeof(uint16_t));
-	key_data = calloc(1, rss_conf->key_len);
-	if (!queue_arr || !key_data)
-		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory for rss queue or key data");
+	if (rss_conf->key_len) {
+		key_data = calloc(1, rss_conf->key_len);
+		if (!key_data)
+			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory for key data");
+		rte_memcpy(key_data, RTE_PTR_ADD(conf, sz), rss_conf->key_len);
+		sz += rss_conf->key_len;
+		rss_conf->key = key_data;
+	}
 
-	rte_memcpy(key_data, RTE_PTR_ADD(conf, sz), rss_conf->key_len);
-	sz += rss_conf->key_len;
+	if (rss_conf->queue_num) {
+		queue_arr = calloc(1, rss_conf->queue_num * sizeof(uint16_t));
+		if (!queue_arr)
+			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory for rss queue");
+		if (!rss_conf->key_len) {
+			for (i = 0; i < rss_conf->queue_num; i++)
+				queue_arr[i] = i;
+		} else {
+			rte_memcpy(queue_arr, RTE_PTR_ADD(conf, sz),
+				   rss_conf->queue_num * sizeof(uint16_t));
+		}
 
-	rte_memcpy(queue_arr, RTE_PTR_ADD(conf, sz), rss_conf->queue_num * sizeof(uint16_t));
+		rss_conf->queue = queue_arr;
+	}
 
 	sz += rss_conf->queue_num * sizeof(rss_conf->queue);
-
-	if (sz != len)
-		dao_err("RSS action conf size issue in populated size %d and actual %d", sz, len);
-
-	rss_conf->queue = queue_arr;
-	rss_conf->key = key_data;
 
 	return rss_conf;
 fail:

@@ -12,6 +12,7 @@
 #include <dao_util.h>
 
 #include <ood_ctrl_chan.h>
+#include <ood_eth_init.h>
 #include <ood_node_ctrl.h>
 
 #define DEFAULT_DUMP_FILE_NAME "/tmp/fdump"
@@ -212,6 +213,98 @@ generate_mark_id(ood_node_action_config_t *act_cfg, uint16_t act_cfg_idx)
 }
 
 static int
+add_rss_action(uint16_t portid, struct rte_flow_action **actions)
+{
+	struct rte_flow_action *new_actions, *old_actions;
+	const struct rte_flow_action_mark *act_mark;
+	struct ood_ethdev_port_info *port_info;
+	struct rte_flow_action_rss *rss_conf;
+	bool add_rss = false, drop = false;
+	uint16_t *queue_arr = NULL;
+	int num_actions = 0, i;
+
+	port_info = ood_ethdev_port_info_get(portid);
+	if (!port_info) {
+		dao_err("Failed to get port info for port %d", portid);
+		return -1;
+	}
+
+	if (port_info->nb_rxq <= 1) {
+		dao_dbg("Skipping RSS action append: port %d has %d queues", portid,
+			port_info->nb_rxq);
+		return 0;
+	}
+
+	old_actions = *actions;
+	for (; old_actions->type != RTE_FLOW_ACTION_TYPE_END; old_actions++) {
+		if (old_actions->type == RTE_FLOW_ACTION_TYPE_DROP)
+			drop = true;
+		if (old_actions->type == RTE_FLOW_ACTION_TYPE_RSS) {
+			add_rss = false;
+			break;
+		}
+		if (old_actions->type == RTE_FLOW_ACTION_TYPE_MARK) {
+			act_mark = (const struct rte_flow_action_mark *)old_actions->conf;
+			if ((act_mark->id & 0x3f) == NRML_FWD_MARK_ID)
+				add_rss = true;
+		}
+
+		num_actions++;
+	}
+
+	if (!add_rss || drop) {
+		dao_dbg("Skipping RSS action append: add_rss %d drop %d", add_rss, drop);
+		return 0;
+	}
+
+	rss_conf = calloc(1, sizeof(struct rte_flow_action_rss));
+	if (!rss_conf)
+		DAO_ERR_GOTO(-ENOMEM, free, "Failed to allocate memory for rss conf");
+
+	/* Allocate same size +1 item for the additional raw pattern: */
+	new_actions = rte_zmalloc(NULL, (num_actions + 2) * sizeof(*new_actions), 0);
+	if (new_actions == NULL)
+		DAO_ERR_GOTO(-ENOMEM, free_rss, "New actions memory allocation failed");
+
+	old_actions = *actions;
+	rte_memcpy(&new_actions[0], &old_actions[0], (num_actions) * sizeof(*new_actions));
+
+	/* Add RSS action */
+	new_actions[num_actions].type = RTE_FLOW_ACTION_TYPE_RSS;
+	rss_conf->queue_num = port_info->nb_rxq;
+	queue_arr = calloc(1, rss_conf->queue_num * sizeof(uint16_t));
+	if (!queue_arr)
+		DAO_ERR_GOTO(-ENOMEM, free_action, "Failed to allocate memory for rss queue");
+	for (i = 0; i < port_info->nb_rxq; i++)
+		queue_arr[i] = i;
+
+	rss_conf->queue = queue_arr;
+	rss_conf->key = NULL;
+	rss_conf->types = RTE_ETH_RSS_IP | RTE_ETH_RSS_UDP | RTE_ETH_RSS_TCP;
+
+	new_actions[num_actions].conf = (struct rte_flow_action_rss *)rss_conf;
+	num_actions++;
+
+	/* End action */
+	new_actions[num_actions].type = RTE_FLOW_ACTION_TYPE_END;
+	new_actions[num_actions].conf = NULL;
+
+	*actions = new_actions;
+
+	/* Freeing old instance of action memory allocated */
+	rte_free(old_actions);
+	old_actions = NULL;
+
+	return 0;
+free_action:
+	rte_free(new_actions);
+free_rss:
+	free(rss_conf);
+free:
+	return errno;
+}
+
+static int
 add_mark_action(uint16_t portid, struct rte_flow_action **actions,
 		ood_node_action_config_t *act_cfg, uint16_t act_cfg_idx)
 {
@@ -288,6 +381,11 @@ host_port_flow_add(uint16_t portid, ood_node_action_config_t *act_cfg, uint16_t 
 		   struct rte_flow_action *action, struct rte_flow_error *err)
 {
 	if (add_mark_action(portid, &action, act_cfg, act_cfg_idx)) {
+		dao_err("Failed to add mark action to mac port");
+		return NULL;
+	}
+
+	if (add_rss_action(portid, &action)) {
 		dao_err("Failed to add mark action to mac port");
 		return NULL;
 	}

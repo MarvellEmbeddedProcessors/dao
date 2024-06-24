@@ -219,7 +219,7 @@ populate_ready_msg(struct ood_main_cfg_data *ood_main_cfg, void *buffer, uint32_
 	uint32_t len;
 
 	eth_prm = ood_main_cfg->eth_prm;
-	total_sz = sz + ((eth_prm->nb_ports / 2) * sizeof(uint16_t));
+	total_sz = sz + ((eth_prm->nb_ports / 2) * sizeof(uint32_t));
 	populate_command(buffer, length, OOD_MSG_READY, total_sz);
 
 	len = *length;
@@ -228,7 +228,9 @@ populate_ready_msg(struct ood_main_cfg_data *ood_main_cfg, void *buffer, uint32_
 	rdata->val = 1;
 	rdata->nb_ports = eth_prm->nb_ports / 2;
 	for (int i = 0; i < rdata->nb_ports; i++)
-		rdata->data[i] = eth_prm->host_mac_map[i].mac_port.hw_func;
+		/* Sending hw_func << 16 | nb_rxq */
+		rdata->data[i] = eth_prm->host_mac_map[i].mac_port.hw_func << 16 |
+				 eth_prm->host_mac_map[i].mac_port.nb_rxq;
 
 	rte_memcpy(RTE_PTR_ADD(buffer, len), rdata, total_sz);
 
