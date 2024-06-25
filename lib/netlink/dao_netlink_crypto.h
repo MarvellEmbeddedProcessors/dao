@@ -21,6 +21,7 @@
  *_(ALGO, KeylenBits, KeylenBytes, IVLEN, BLKSZ, LINUX_ALG_NAME, "PRETTY_NAME")
  */
 #define dao_netlink_foreach_crypto_cipher_algorithm				\
+	_(CIPHER_NULL, 0, 0, 0, 0, "ecb(cipher_null)", "ecb-cipher-null")	\
 	_(CIPHER_DES_CBC, 56, 8, 8, 8, "cbc(des)", "des-cbc")			\
 	_(CIPHER_3DES_CBC, 192, 24, 8, 8, "cbc(des3-cede)", "3des-cbc")		\
 	_(CIPHER_AES_CBC, 128, 16, 16, 16, "cbc(aes)", "aes-cbc-128")		\
@@ -52,8 +53,10 @@
 
 /* Auth enum, key bit length, iv, digest_len, ip-xfrm-name, simple-name */
 #define dao_netlink_foreach_crypto_auth_hmac_alg				\
+	_(AUTH_NULL, 0, 0, 0, "digest_null", "digest-null")			\
 	_(AUTH_MD5_HMAC, 128, 0, 12, "hmac(md5)", "hmac-md5")			\
-	_(AUTH_SHA1_HMAC, 160, 0, 12, "hmac(sha1)", "hmac-sha1")		\
+	_(AUTH_SHA1_HMAC, 96, 0, 12, "hmac(sha1)", "hmac-sha1")			\
+	_(AUTH_SHA1_HMAC, 160, 0, 16, "hmac(sha1)", "hmac-sha1")		\
 	_(AUTH_SHA256_HMAC, 256, 0, 16, "hmac(sha256)", "hmac-sha2-256")	\
 	_(AUTH_SHA384_HMAC, 384, 0, 24, "hmac(sha384)", "hmac-sha2-384")	\
 	_(AUTH_SHA512_HMAC, 512, 0, 32, "hmac(sha512)", "hmac-sha2-512")
@@ -69,7 +72,7 @@ typedef enum {
 	dao_netlink_foreach_crypto_cipher_aead_algorithm
 #undef _
 
-#define _(macro, keybits, iv, dig, xfrm_name, name)	DAO_CRYPTO_##macro,
+#define _(alg, keybits, iv, dig, xfrm_name, name)	DAO_CRYPTO_##alg##_##keybits,
 	dao_netlink_foreach_crypto_auth_hmac_alg
 #undef _
 } dao_netlink_crypto_algo_t;

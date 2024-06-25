@@ -29,6 +29,15 @@ extern "C" {
 #define DAO_NETLINK_XFRM_NAME_LEN			64
 #define DAO_NETLINK_XFRM_ALG_MAX_NAME			128
 
+/**
+ * Netlink IP address structure
+ */
+typedef struct dao_netlink_ip_addr {
+	int family;
+	struct in6_addr addr;
+	unsigned int prefixlen;
+} dao_netlink_ip_addr_t;
+
 /** Policy directions from LINUX */
 typedef enum {
 	/** Inbound direction */
@@ -97,6 +106,21 @@ typedef struct dao_netlink_xfrm_sa_xform {
 	char algo[DAO_NETLINK_XFRM_ALG_MAX_NAME];
 } dao_netlink_xfrm_sa_xform_t;
 
+typedef struct dao_netlink_xfrm_sel {
+	dao_netlink_ip_addr_t	daddr;
+	dao_netlink_ip_addr_t	saddr;
+	uint16_t        dport;
+	uint16_t        dport_mask;
+	uint16_t        sport;
+	uint16_t        sport_mask;
+	uint16_t        family;
+	uint8_t         prefixlen_d;
+	uint8_t         prefixlen_s;
+	uint8_t         proto;
+	int32_t         ifindex;
+	uint32_t        user;
+} dao_netlink_xfrm_sel_t;
+
 /** XFRM SA object */
 typedef struct dao_netlink_xfrm_sa {
 	/** list */
@@ -115,6 +139,8 @@ typedef struct dao_netlink_xfrm_sa {
 	int is_auth;
 	/** IPsec salt */
 	uint32_t salt;
+	/** sa has selector */
+	int is_sel;
 	/** IPsec SA mode: Tunnel or Transport */
 	dao_netlink_xfrm_sa_mode_t sa_mode;
 	/** Anti-replay wondow: default value */
@@ -124,9 +150,11 @@ typedef struct dao_netlink_xfrm_sa {
 	/** XFRM Protocol: ESP, AH */
 	dao_netlink_xfrm_proto_t ipsec_proto;
 	/** SA Local IP address */
-	struct in6_addr in6_src;
+	dao_netlink_ip_addr_t in6_src;
+	unsigned int src_prefixlen;
 	/** SA Remote IP address */
-	struct in6_addr in6_dst;
+	dao_netlink_ip_addr_t in6_dst;
+	unsigned int dst_prefixlen;
 	/** IPsec Tunnel type: IPv4, IPv6 */
 	dao_netlink_xfrm_tunnel_type_t ip_tunnel_type;
 	/** crypto key. Valid if is_crypto is true */
@@ -135,6 +163,8 @@ typedef struct dao_netlink_xfrm_sa {
 	struct dao_netlink_crypto_key auth_key;
 	/** Cipher key. Valid if is_cipher is true */
 	struct dao_netlink_crypto_key cipher_key;
+	/* Selector */
+	dao_netlink_xfrm_sel_t sel;
 } dao_netlink_xfrm_sa_t;
 
 /** XFRM Policy object */
@@ -143,14 +173,18 @@ typedef struct dao_netlink_xfrm_policy {
 	uint32_t req_id;
 	/** is this new policy or updated one */
 	int is_new;
+	/* selector is valid */
+	int is_sel;
 	/** Pointer of already registered xfrm SA*/
 	struct dao_netlink_xfrm_sa *ips_sa;
 	/** Local policy IP address */
-	struct in6_addr src_ip;
+	dao_netlink_ip_addr_t src_ip;
 	/** Remote policy IP address */
-	struct in6_addr dst_ip;
+	dao_netlink_ip_addr_t dst_ip;
 	/** IPsec Policy direction from netlink */
 	dao_netlink_xfrm_policy_dir_t policy_dir;
+	/* Selector */
+	dao_netlink_xfrm_sel_t sel;
 } dao_netlink_xfrm_policy_t;
 
 /** High level XFRM callback ops registered by application */

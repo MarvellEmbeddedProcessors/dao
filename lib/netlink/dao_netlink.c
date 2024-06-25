@@ -394,8 +394,8 @@ int dao_netlink_register(int protocol, dao_netlink_parse_cb_t parse_cb,
 			   DAO_NETLINK_NOTIFIER_MAX_MULTICAST_GROUPS);
 	}
 	if (n_mc_group) {
-		dao_info("Protocol: %d, fd: %d, Multicast_Groups: %s",
-			 en->protocol, en->fd, dao_ds_cstr(&s));
+		dao_dbg("Protocol: %d, fd: %d, Multicast_Groups: %s",
+			en->protocol, en->fd, dao_ds_cstr(&s));
 		dao_ds_destroy(&s);
 	}
 	return 0;
@@ -490,6 +490,29 @@ dao_netlink_nl_addr_to_in6(struct in6_addr *ip_addr, struct nl_addr *nladdr)
 		ip4 = *(rte_be32_t *)nl_addr_get_binary_addr(nladdr);
 		dao_in6_addr_set_mapped_ipv4(ip_addr, ip4);
 		return 0;
+	default:
+	}
+	return -1;
+}
+
+int
+dao_netlink_nl_addr_to_ip_addr(dao_netlink_ip_addr_t *ip_addr, struct nl_addr *nladdr)
+{
+	rte_be32_t ip4;
+
+	switch (nl_addr_get_family(nladdr)) {
+	case AF_INET6:
+		memcpy(&ip_addr->addr, nl_addr_get_binary_addr(nladdr), sizeof(struct in6_addr));
+		ip_addr->prefixlen = 0;
+		ip_addr->family = AF_INET6;
+	break;
+
+	case AF_INET:
+		ip4 = *(rte_be32_t *)nl_addr_get_binary_addr(nladdr);
+		dao_in6_addr_set_mapped_ipv4(&ip_addr->addr, ip4);
+		ip_addr->prefixlen = nl_addr_get_prefixlen(nladdr);
+		ip_addr->family = AF_INET;
+	return 0;
 	default:
 	}
 	return -1;

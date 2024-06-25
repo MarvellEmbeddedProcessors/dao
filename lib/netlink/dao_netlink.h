@@ -178,6 +178,21 @@ int dao_netlink_register(int protocol, dao_netlink_parse_cb_t parse_cb,
 int dao_netlink_nl_addr_to_in6(struct in6_addr *ip_addr, struct nl_addr *nladdr);
 
 /**
+ * Translate netlink address object to generic ip address format with
+ *  {struct in6_addr, prefixlen and family}
+ *
+ * @param[out] ip_addr
+ *   Pointer to ip_addr object
+ * @param nladdr
+ *   Pointer to Netlink address object
+ *
+ * @return
+ *  0: Success
+ *  <0: Failure
+ */
+int dao_netlink_nl_addr_to_ip_addr(dao_netlink_ip_addr_t *ip_addr, struct nl_addr *nladdr);
+
+/**
  * Retrieve netlink object specific to protocol
  *
  * @param protocol

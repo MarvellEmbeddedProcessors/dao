@@ -298,8 +298,8 @@ __link_cb(struct nl_object *obj, void *arg)
 							   rifentry->ifindex,
 							   &rifentry->app_if_cookie);
 		}
-		dao_info("dao_netlink_route: Tracking LINUX Interfaces: %s(%u). App cookie: %u",
-			 rifentry->interface_name, rifentry->ifindex, rifentry->app_if_cookie);
+		dao_dbg("dao_netlink_route: Tracking LINUX Interfaces: %s(%u). App cookie: %u",
+			rifentry->interface_name, rifentry->ifindex, rifentry->app_if_cookie);
 		STAILQ_INSERT_TAIL(&relevant_ifindex_list, rifentry, next_link);
 	}
 }
@@ -501,9 +501,7 @@ handle_neigh_msg(struct nl_object *nl_obj, netlink_cb_arg_t *rcb, const char *st
 
 		if (!is_relevant && rcb->is_relevant_route) {
 			dao_ds_put_cstr(rstr, " neighbor suppressed ");
-			dao_err("neighbor notification suppressed: valid: %d, %p, %p", is_relevant,
-				rcb, ops);
-			rcb->is_relevant_route = 1;
+			rcb->is_relevant_route = 0;
 			return -1;
 		}
 	}
@@ -586,11 +584,11 @@ dao_netlink_route_parse_cb(struct nl_object *nl_obj, void *notifier)
 		dao_err("Received invalid route notification: %d", nl_object_get_msgtype(nl_obj));
 	}
 
-	if (rc)
-		dao_err("Failure rc: %d", rc);
-
-	if (cb.is_relevant_route)
-		DAO_ROUTE_DBG("%s", dao_ds_cstr(&route_str));
+	if (rc && cb.is_relevant_route)
+		dao_err("Failure rc: %d, %s", rc, dao_ds_cstr(&route_str));
+	else
+		if (cb.is_relevant_route)
+			DAO_ROUTE_DBG("%s", dao_ds_cstr(&route_str));
 
 	dao_ds_destroy(&route_str);
 }
