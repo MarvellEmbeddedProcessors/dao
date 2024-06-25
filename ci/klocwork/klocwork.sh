@@ -79,7 +79,7 @@ PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$DEPS_DIR/lib/pkgconfig meson $BUILD_DIR --cros
 
 rm -rf .kwlp .kwps
 kwcheck create
-kwcheck set license.host=llic5-02.marvell.com license.port=33138
+kwcheck set license.host=llic5-01.marvell.com license.port=33138
 
 # List of directories to ignore in klocwork checks
 IGNORE_FILES=""
