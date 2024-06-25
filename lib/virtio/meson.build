@@ -8,8 +8,13 @@ sources = files(
 
 headers = files(
 	'dao_virtio.h',
+)
+
+spec_headers = files(
 	'spec/virtio.h',
 	'spec/virtio_net.h',
 )
+
+install_headers(spec_headers, subdir: 'spec')
 
 deps += ['common', 'pem']
