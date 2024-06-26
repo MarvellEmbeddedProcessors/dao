@@ -11,4 +11,5 @@ Getting started Guide
  system
  install
  build
+ kernel
  kmod
