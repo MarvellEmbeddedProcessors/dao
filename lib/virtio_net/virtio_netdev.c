@@ -177,6 +177,8 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 		queue->cb_notify_addr = queue->notify_addr + 1;
 		__atomic_store_n(queue->cb_notify_addr, 0, __ATOMIC_RELAXED);
 	}
+
+	dao_dbg("[dev %u] Enabled driver events for %u queues", dev->dev_id, max_vqs);
 }
 
 static int
@@ -258,14 +260,17 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 
 	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
 	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
-	event_flag = virtio_queue_driver_event_flag(dev, queue);
-	if (event_flag < 0)
-		return -1;
+	/* Fetch data only after driver ok */
+	if (dev->driver_ok) {
+		event_flag = virtio_queue_driver_event_flag(dev, queue);
+		if (event_flag < 0)
+			return -1;
 
-	/* Disable call interrupts only if events are disabled for all queues */
-	cb_enabled = (event_flag != RING_EVENT_FLAGS_DISABLE);
-	if (cb_enabled)
-		virtio_netdev_cb_interrupt_conf(netdev);
+		/* Disable call interrupts only if events are disabled for all queues */
+		cb_enabled = (event_flag != RING_EVENT_FLAGS_DISABLE);
+		if (cb_enabled)
+			virtio_netdev_cb_interrupt_conf(netdev);
+	}
 
 	dao_dbg("[dev %u] Adding queue%d: desc_base %p q_sz %u", dev->dev_id, queue_id,
 		(void *)queue->desc_base, queue->q_sz);
@@ -455,7 +460,10 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 {
 	struct virtio_netdev *netdev = virtio_dev_to_netdev(dev);
 	struct dao_virtio_netdev *dao_netdev;
+	struct virtio_net_queue *queue;
+	bool cb_enabled = false;
 	uint8_t csum_offload;
+	int event_flag, i;
 	int rc;
 
 	if (user_cbs.status_cb == NULL)
@@ -464,6 +472,24 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 	/* Populate queue info for fast path */
 	if (status & VIRTIO_DEV_DRIVER_OK) {
 		dao_netdev = virtio_netdev_to_dao(netdev);
+
+		/* Fetch event suppression data if queues is enabled */
+		for (i = 0; i < netdev->dev.max_virtio_queues - 1; i++) {
+			queue = dao_netdev->qs[i];
+			if (!queue)
+				continue;
+			event_flag = virtio_queue_driver_event_flag(dev, queue);
+			if (event_flag < 0)
+				continue;
+
+			cb_enabled = (event_flag != RING_EVENT_FLAGS_DISABLE);
+			if (cb_enabled)
+				break;
+		}
+
+		/* Enable interrupts event if one queue wants events delivered */
+		if (cb_enabled)
+			virtio_netdev_cb_interrupt_conf(netdev);
 
 		/* Update checksum offload config */
 		csum_offload = dev->drv_feature_bits_lo & 0xFF;
