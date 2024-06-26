@@ -22,6 +22,10 @@ https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/
 
 https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/api/
 
+## Release Management
+
+https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/contributing/release.html
+
 ## Quick start Guide
 
 Update ubuntu repository to download dao packages

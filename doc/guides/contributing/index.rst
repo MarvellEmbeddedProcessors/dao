@@ -10,3 +10,4 @@ Contributor's Guidelines
 
     coding
     patch
+    release
