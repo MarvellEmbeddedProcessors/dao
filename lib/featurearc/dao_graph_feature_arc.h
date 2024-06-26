@@ -1,7 +1,6 @@
-/* SPDX-License-Identifier: BSD-3-Clause
- * Copyright(C) 2024 Marvell International Ltd.
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright (c) 2024 Marvell.
  */
-
 #ifndef _DAO_GRAPH_FEATURE_ARC_H_
 #define _DAO_GRAPH_FEATURE_ARC_H_
 

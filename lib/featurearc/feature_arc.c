@@ -1,5 +1,5 @@
-/* SPDX-License-Identifier: BSD-3-Clause
- * Copyright(C) 2024 Marvell International Ltd.
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright (c) 2024 Marvell.
  */
 #include <dao_log.h>
 #include <dao_util.h>
