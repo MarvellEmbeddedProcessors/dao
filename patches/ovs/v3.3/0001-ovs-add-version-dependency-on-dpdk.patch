@@ -1,0 +1,40 @@
+From ed9a0ad48492fb44d58ecae89ba66473e4bf1bb9 Mon Sep 17 00:00:00 2001
+From: Harman Kalra <hkalra@marvell.com>
+Date: Fri, 28 Jun 2024 15:09:36 +0530
+Subject: [PATCH 1/2] ovs: add version dependency on dpdk
+
+For building OVS with specific DPDK version, need some exclusive means
+to discriminate OVS compatible DPDK version which may be different from
+DAO dependent DPDK version.
+
+Signed-off-by: Harman Kalra <hkalra@marvell.com>
+Change-Id: I3fc58ad9520b05c35f5202cb443ef00cac2128a9
+---
+ DPDK_VERSION | 2 ++
+ Makefile.am  | 1 +
+ 2 files changed, 3 insertions(+)
+ create mode 100644 DPDK_VERSION
+
+diff --git a/DPDK_VERSION b/DPDK_VERSION
+new file mode 100644
+index 000000000..488ae3349
+--- /dev/null
++++ b/DPDK_VERSION
+@@ -0,0 +1,2 @@
++BASE_VERSION=23.11.0
++RELEASE_VERSION=24.05.0
+diff --git a/Makefile.am b/Makefile.am
+index 0b7c83246..4908ea6bd 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -85,6 +85,7 @@ EXTRA_DIST = \
+ 	.editorconfig \
+ 	.github/workflows/build-and-test.yml \
+ 	.readthedocs.yaml \
++	DPDK_VERSION \
+ 	appveyor.yml \
+ 	boot.sh \
+ 	poc/builders/Vagrantfile \
+-- 
+2.25.1
+
