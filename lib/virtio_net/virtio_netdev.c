@@ -616,6 +616,8 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CSUM) | RTE_BIT64(VIRTIO_NET_F_GUEST_CSUM);
 
 	feature_bits |= (RTE_BIT64(VIRTIO_NET_F_HOST_TSO4) | RTE_BIT64(VIRTIO_NET_F_HOST_TSO6));
+	feature_bits |= (RTE_BIT64(VIRTIO_NET_F_GUEST_HDRLEN));
+
 	if (conf->mtu) {
 		feature_bits |= RTE_BIT64(VIRTIO_NET_F_MTU);
 		dev_cfg->mtu = conf->mtu;

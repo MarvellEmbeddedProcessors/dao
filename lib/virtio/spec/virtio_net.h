@@ -28,6 +28,7 @@
 #define VIRTIO_NET_F_MQ             22 /** Device supports Receive Flow Steering */
 #define VIRTIO_NET_F_CTRL_MAC_ADDR  23 /** Set MAC address */
 #define VIRTIO_NET_F_HASH_REPORT    57 /** Set HASH REPORT */
+#define VIRTIO_NET_F_GUEST_HDRLEN   59 /** Guest provides the exact hdr_len value .*/
 #define VIRTIO_NET_F_RSS            60 /** RSS supported */
 #define VIRTIO_NET_F_SPEED_DUPLEX   63 /** Device set linkspeed and duplex */
 
