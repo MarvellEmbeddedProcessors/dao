@@ -36,9 +36,9 @@
 #include <dao_pem.h>
 #include <dao_virtio_netdev.h>
 
-#define DAOH_MAX_WORKERS RTE_MAX_LCORE
+#define DAO_PAL_MAX_WORKERS RTE_MAX_LCORE
 
-/** DAOH library initialization data structure format */
+/** DAO PAL library initialization data structure format */
 typedef struct dao_pal_global_conf {
 	/** Miscellaneous device list */
 	char **misc_devices;
@@ -65,7 +65,7 @@ typedef struct dao_pal_lcore_dma_id {
 } dao_pal_lcore_dma_id_t;
 
 /**
- * DAOH library initialization function
+ * DAO PAL library initialization function
  *
  * @param conf
  *   Pointer to library initialization data structure.
@@ -136,7 +136,7 @@ int dao_pal_thread_fini(uint32_t wrk_id);
 int dao_pal_dma_ctrl_dev_set(uint32_t wrk_id);
 
 /**
- * DAOH library uninitialization function.
+ * DAO PAL library uninitialization function.
  *
  */
 void dao_pal_global_fini(void);
@@ -162,7 +162,7 @@ int dao_pal_vfio_dma_map(uint64_t vaddr, uint64_t iova, uint64_t len);
  * @return
  *   enum rte_iova_mode value.
  */
-enum rte_iova_mode daoh_iova_mode(void);
+enum rte_iova_mode dao_pal_iova_mode(void);
 
 /**
  * Change the stream that will be used by the logging system.
@@ -178,5 +178,5 @@ enum rte_iova_mode daoh_iova_mode(void);
  *   - Negative on error.
  */
 
-int daoh_openlog_stream(FILE *f);
+int dao_pal_openlog_stream(FILE *f);
 #endif

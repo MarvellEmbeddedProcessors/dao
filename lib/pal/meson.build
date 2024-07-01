@@ -6,8 +6,7 @@ sources = files(
 )
 
 headers = files(
-  'dao_pal.h',
+  'dao_pal.h'
 )
 
-deps = []
 deps += ['common', 'pem', 'virtio', 'virtio_net']

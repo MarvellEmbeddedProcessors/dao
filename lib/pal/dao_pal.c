@@ -7,17 +7,17 @@
 static uint8_t pem_devid;
 static uint16_t nb_vfio_devs;
 static uint16_t nb_dma_devs;
-static dao_pal_lcore_dma_id_t dma_ids[DAOH_MAX_WORKERS];
+static dao_pal_lcore_dma_id_t dma_ids[DAO_PAL_MAX_WORKERS];
 static uint64_t worker_mask;
 
 int
-daoh_openlog_stream(FILE *f)
+dao_pal_openlog_stream(FILE *f)
 {
 	return rte_openlog_stream(f);
 }
 
 enum rte_iova_mode
-daoh_iova_mode(void)
+dao_pal_iova_mode(void)
 {
 	return rte_eal_iova_mode();
 }
@@ -47,7 +47,7 @@ dao_pal_dma_lcore_mem2dev_autofree_set(uint32_t wrk_id, bool enable)
 	int i = 0;
 	int rc = 0;
 
-	if (wrk_id >= DAOH_MAX_WORKERS) {
+	if (wrk_id >= DAO_PAL_MAX_WORKERS) {
 		dao_err("Invalid wrk_id id %u", wrk_id);
 		return -1;
 	}
@@ -65,7 +65,7 @@ dao_pal_thread_init(uint32_t wrk_id)
 
 	rte_thread_register();
 
-	if (wrk_id >= DAOH_MAX_WORKERS) {
+	if (wrk_id >= DAO_PAL_MAX_WORKERS) {
 		dao_err("Invalid wrk_id id %u", wrk_id);
 		return -1;
 	}
@@ -206,7 +206,7 @@ dao_pal_dma_dev_setup(uint64_t wrk_mask)
 int
 dao_pal_dma_ctrl_dev_set(uint32_t wrk_id)
 {
-	if (wrk_id >= DAOH_MAX_WORKERS) {
+	if (wrk_id >= DAO_PAL_MAX_WORKERS) {
 		dao_err("Invalid wrk_id id %u", wrk_id);
 		return -1;
 	}
