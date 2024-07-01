@@ -399,24 +399,26 @@ fail:
 static int
 portid_action_config_process(struct rte_flow_action *action, uint16_t src_host_port)
 {
-	const struct rte_flow_action_port_id *portid_conf;
 	representor_mapping_t *rep_map;
 	int hst_cfg_idx = 0;
+	uint32_t port_id;
 
-	portid_conf = action->conf;
+	port_id = (action->type == RTE_FLOW_ACTION_TYPE_REPRESENTED_PORT) ?
+			  ((const struct rte_flow_action_ethdev *)(action->conf))->port_id :
+			  ((const struct rte_flow_action_port_id *)(action->conf))->id;
 	/* Parse portid action config, destination ID is non zero to steering packet to another
 	 * host port.
 	 */
-	if (portid_conf->id) {
-		/* Get the destination host port mapping to received portid_conf->id */
-		rep_map = ood_representor_mapping_get(portid_conf->id);
+	if (port_id) {
+		/* Get the destination host port mapping to received port_id */
+		rep_map = ood_representor_mapping_get(port_id);
 		if (!rep_map)
 			DAO_ERR_GOTO(-EINVAL, fail,
 				     "Failed to get valid flow ctrl handle for repr queue %d",
-				     portid_conf->id);
+				     port_id);
 
-		dao_dbg("portid_conf->id %d, src_host_port %d dst_host_port %d", portid_conf->id,
-			src_host_port, rep_map->host_port);
+		dao_dbg("port_id %d, src_host_port %d dst_host_port %d", port_id, src_host_port,
+			rep_map->host_port);
 		hst_cfg_idx = ood_node_host_to_host_config_ctrl(src_host_port, rep_map->host_port);
 		if (hst_cfg_idx < 0)
 			DAO_ERR_GOTO(-EINVAL, fail, "Invalid tunnel config index received, err %d",
@@ -452,6 +454,7 @@ action_config_process(struct rte_flow_action **actions, ood_node_action_config_t
 			has_encap = true;
 			break;
 		case RTE_FLOW_ACTION_TYPE_PORT_ID:
+		case RTE_FLOW_ACTION_TYPE_REPRESENTED_PORT:
 			hst_cfg_idx = portid_action_config_process(action, src_host_port);
 			if (hst_cfg_idx < 0)
 				DAO_ERR_GOTO(-EINVAL, fail, "Invalid prt_cfg_idx %d",
