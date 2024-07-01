@@ -40,6 +40,7 @@ VirtIO-net Feature Bits:
 * VIRTIO_NET_F_HASH_REPORT
 * VIRTIO_NET_F_HOST_TSO4
 * VIRTIO_NET_F_HOST_TSO6
+* VIRTIO_NET_F_GUEST_HDRLEN
 
 Here are some notes about VirtIO-net features:
 
