@@ -39,9 +39,6 @@ vxlan_encap_forwarding(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t ma
 		goto exit;
 	}
 	tnl_cfg_idx = act_cfg->tnl_cfg_idx;
-	dao_dbg("	Worker %d VXLAN ENCAP: mbuf->port %d, next %d, mark_id %x,"
-		" act_cfg_idx %d tnl_cfg_idx %d",
-		rte_lcore_id(), mbuf->port, next, mark_id, act_cfg_idx, tnl_cfg_idx);
 
 	node_mbuf_priv1(mbuf, FLOW_MAPPER_NODE_PRIV1_OFF(node->ctx))->tnl_cfg_idx = tnl_cfg_idx;
 	/* Update markid for return path */
@@ -77,9 +74,6 @@ host_to_host_forwarding(uint16_t mark_id)
 	}
 	dport = flow_mapper_nm->host_to_host_fwd_tbl[hst_cfg_idx].dst_host_port;
 	next = flow_mapper_nm->eth_tx_edge[dport];
-	dao_dbg("	Worker %d HTH_FWD_MARK_ID: tbl idx %d src %d dport %d next %d",
-		rte_lcore_id(), hst_cfg_idx,
-		flow_mapper_nm->host_to_host_fwd_tbl[hst_cfg_idx].src_host_port, dport, next);
 
 exit:
 	return next;
@@ -100,8 +94,6 @@ determine_next_hop(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t mark_i
 
 		dport = flow_mapper_nm->host_port_tbl[node_mbuf_priv1(mbuf, dyn)->nh];
 		next = flow_mapper_nm->eth_tx_edge[dport];
-		dao_dbg("	Worker %d Received on rep port %ld, forwarding to %d edge %d",
-			rte_lcore_id(), node_mbuf_priv1(mbuf, dyn)->nh, dport, next);
 
 		return next;
 	}
@@ -112,8 +104,6 @@ determine_next_hop(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t mark_i
 		 * diverted to corresponding repr tx node
 		 */
 		next = flow_mapper_nm->repr_tx_edge[mbuf->port];
-		dao_dbg("	Worker %d DEFAULT_MARK_ID: mbuf->port %d next %d", rte_lcore_id(),
-			mbuf->port, next);
 		break;
 	case NRML_FWD_MARK_ID:
 		/* Case where packet received from host/mac port and to be sent
@@ -121,8 +111,6 @@ determine_next_hop(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t mark_i
 		 */
 		dport = flow_mapper_nm->nrml_fwd_tbl[mbuf->port];
 		next = flow_mapper_nm->eth_tx_edge[dport];
-		dao_dbg("	Worker %d NRML_FWD_MARK_ID: mbuf->port %d dport %d next %d",
-			rte_lcore_id(), mbuf->port, dport, next);
 		break;
 	case HOST_TO_HOST_FWD_MARK_ID:
 		next = host_to_host_forwarding(mark_id);
@@ -132,8 +120,6 @@ determine_next_hop(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t mark_i
 		break;
 	case TUNNEL_DECAP_MARK_ID:
 		tnl_type = mark_id >> OOD_MARK_ID_SHIFT;
-		dao_dbg("	Worker %d TUNNEL DECAP: mbuf->port %d, next %d, mark_id %x, tnl_type %x",
-			rte_lcore_id(), mbuf->port, next, mark_id, tnl_type);
 
 		node_mbuf_priv1(mbuf, FLOW_MAPPER_NODE_PRIV1_OFF(node->ctx))->tnl_type = tnl_type;
 		/* Update markid for return path */
@@ -156,19 +142,9 @@ get_markid(struct rte_mbuf *mbuf)
 {
 	int markid = 0;
 
-	dao_dbg("Mbuf olflags %lx", mbuf->ol_flags);
 	if (mbuf->ol_flags & RTE_MBUF_F_RX_FDIR_ID) {
-		if (mbuf->ol_flags & RTE_MBUF_F_RX_FDIR_ID) {
-			dao_dbg("ID=0x%x", mbuf->hash.fdir.hi);
+		if (mbuf->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
 			markid = mbuf->hash.fdir.hi;
-		} else {
-			if (mbuf->ol_flags & RTE_MBUF_F_RX_FDIR_FLX)
-				dao_dbg("flex bytes=0x%08x %08x", mbuf->hash.fdir.hi,
-					mbuf->hash.fdir.lo);
-			else
-				dao_dbg("hash=0x%x ID=0x%x", mbuf->hash.fdir.hash,
-					mbuf->hash.fdir.id);
-		}
 	}
 
 	return markid;
@@ -192,7 +168,6 @@ flow_mapper_node_process(struct rte_graph *graph, struct rte_node *node, void **
 	/* Speculative next */
 	dport = flow_mapper_nm->nrml_fwd_tbl[pkts[0]->port];
 	next_index = flow_mapper_nm->eth_tx_edge[dport];
-	dao_dbg("Source port %d next index dest port %d", pkts[0]->port, next_index);
 
 	/* Get stream for the speculated next node */
 	to_next = rte_node_next_stream_get(graph, node, next_index, nb_objs);
@@ -202,8 +177,6 @@ flow_mapper_node_process(struct rte_graph *graph, struct rte_node *node, void **
 		/* Get the mark id from the packet */
 		markid = get_markid(mbuf);
 		next = determine_next_hop(node, mbuf, markid);
-		dao_dbg("	Worker %d Packet %d markid %d source port %d  new dest %d, total pkts %d",
-			rte_lcore_id(), i, markid, mbuf->port, next, nb_objs);
 		if (unlikely(next_index != next)) {
 			/* Copy things successfully speculated till now */
 			rte_memcpy(to_next, from, last_spec * sizeof(from[0]));

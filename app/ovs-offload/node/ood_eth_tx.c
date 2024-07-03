@@ -25,8 +25,6 @@ ood_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **o
 	port = ctx->port;
 	queue = ctx->queue;
 
-	dao_dbg("		lcore %d name %s port %d queue %d\n\n", rte_lcore_id(), node->name,
-		port, queue);
 	count = rte_eth_tx_burst(port, queue, (struct rte_mbuf **)objs, nb_objs);
 
 	/* Redirect unsent pkts to drop node */
