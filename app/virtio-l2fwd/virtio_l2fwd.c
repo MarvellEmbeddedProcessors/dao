@@ -211,6 +211,8 @@ static uint16_t virtio_netdev_reta_sz[DAO_VIRTIO_DEV_MAX];
 static bool virtio_netdev_autofree = true;
 static uint16_t pem_devid;
 
+static bool ethdev_cgx_loopback;
+
 /* RCU QSBR variable */
 static struct rte_rcu_qsbr *qs_v;
 
@@ -405,6 +407,7 @@ print_usage(const char *prgname)
 		" [-P]"
 		" [-s]"
 		" [-f]"
+		" [-l]"
 		" [-y DMA_VFID]"
 		" [--eth-config (port,lcore_mask)[,(port, lcore_mask)]]"
 		" [--virtio-config (dev,lcore_mask)[,(dev,lcore_mask)]]"
@@ -422,6 +425,7 @@ print_usage(const char *prgname)
 		"  -s : Enable stats. Giving it multiple times makes stats verbose.\n"
 		"  -f : Disable auto free with virtio Tx do sw freeing\n"
 		"  -y : DMA_VFID: Value to override DMA VCHAN VFID\n"
+		"  -l : Enable CGX loopback\n"
 		"  --eth-config (port,lcore_mask): Ethdev rx lcore mapping\n"
 		"           Default is half of the found lcores would be mapped to all ethdevs\n"
 		"  --virtio-config (dev,lcore_mask)[,(dev,lcore_mask)] : Virtio rx lcore mapping\n"
@@ -670,6 +674,7 @@ static const char short_options[] = "p:" /* portmask */
 				    "f"  /* Disable auto free */
 				    "s"  /* stats enable */
 				    "y:" /* Override DMA vfid */
+				    "l"  /* Enable CGX loopback */
 	;
 
 #define CMD_LINE_OPT_ETH_CONFIG    "eth-config"
@@ -846,6 +851,10 @@ parse_args(int argc, char **argv)
 		case 'y':
 			override_dma_vfid = true;
 			dma_vfid = parse_uint(optarg);
+			break;
+		case 'l':
+			ethdev_cgx_loopback = true;
+			APP_INFO("Ethdev CGX loopback enabled\n");
 			break;
 
 		/* Long options */
@@ -2298,6 +2307,9 @@ setup_eth_devices(void)
 				 portid, port_conf.rx_adv_conf.rss_conf.rss_hf,
 				 local_port_conf.rx_adv_conf.rss_conf.rss_hf);
 		}
+
+		/* Enable CGX loopback mode if needed */
+		local_port_conf.lpbk_mode = !!ethdev_cgx_loopback;
 
 		rc = rte_eth_dev_configure(portid, nb_rx_queue, nb_tx_queue, &local_port_conf);
 		if (rc < 0)
