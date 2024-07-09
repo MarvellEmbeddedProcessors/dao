@@ -6,6 +6,7 @@ test_script = 'virtio_l2fwd_1c.sh'
 
 # Test name
 test_name = 'virtio_l2fwd_1c'
+test_multiseg_name = 'virtio_l2fwd_multiseg'
 
 # Test arguments
 test_args = ''
@@ -20,3 +21,8 @@ test(test_name,
     args : [[test_script], [test_args]],
     is_parallel : false, suite : 'dao-virtio-l2fwd')
 
+test(test_multiseg_name,
+    dao_test_script_wrapper,
+    env : [['DAO_TEST=' + test_multiseg_name], ['TEST_DIR=' + test_dir]],
+    args : [[test_script], [test_args]],
+    is_parallel : false, suite : 'dao-virtio-l2fwd')

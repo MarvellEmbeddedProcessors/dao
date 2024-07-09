@@ -163,7 +163,9 @@ function testpmd_log()
 {
 	local pfx=$1
 	local out=testpmd.out.$pfx
-	cat $out
+	if [ -f $out ];	then
+		cat $out
+	fi
 }
 
 function testpmd_log_off()

@@ -31,6 +31,7 @@ IGNORE_DIRECTORIES=(
 	"patches/"
 	"configs/"
 	"ci/build/config/"
+	"ci/test/dao-test/virtio_l2fwd/pcap/"
 	"ci/groovy/"
 	"config/"
 	"license/"
