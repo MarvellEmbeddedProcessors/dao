@@ -19,7 +19,7 @@ ip_feature_arcs_register(int max_ports)
 {
 	if (dao_graph_feature_arc_create(IP4_OUTPUT_FEATURE_ARC_NAME,
 					 IP4_OUTPUT_FEATURE_ARC_MAX_FEATUES,
-					 max_ports, ip4_rewrite_node_get(),
+					 max_ports, secgw_ip4_rewrite_node_get(),
 					 &ip4_output_feature_arc)) {
 		dao_err("feature arc for ip4-output failed");
 		return -1;
@@ -27,7 +27,7 @@ ip_feature_arcs_register(int max_ports)
 
 	if (dao_graph_feature_arc_create(IP4_PUNT_FEATURE_ARC_NAME,
 					 IP4_PUNT_FEATURE_ARC_MAX_FEATUES,
-					 max_ports, ip4_lookup_node_get(),
+					 max_ports, secgw_ip4_lookup_node_get(),
 					 &ip4_punt_feature_arc)) {
 		dao_err("feature arc for ip4-punt failed");
 		return -1;
@@ -35,7 +35,7 @@ ip_feature_arcs_register(int max_ports)
 
 	if (dao_graph_feature_arc_create(IP4_LOCAL_FEATURE_ARC_NAME,
 					 IP4_LOCAL_FEATURE_ARC_MAX_FEATUES,
-					 max_ports, ip4_local_node_get(),
+					 max_ports, secgw_ip4_local_node_get(),
 					 &ip4_local_feature_arc)) {
 		dao_err("feature arc for ip4-local failed");
 		return -1;

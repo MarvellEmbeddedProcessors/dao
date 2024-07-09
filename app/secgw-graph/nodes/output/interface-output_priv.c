@@ -35,7 +35,7 @@ secgw_node_interface_out_attach_tx_node(void *_sdev, struct rte_node_register *t
 	edge = rte_node_edge_update(io_node->id, RTE_EDGE_ID_INVALID, &name, 1);
 	edge = rte_node_edge_count(io_node->id) - 1;
 
-	ip4_rewrite_set_next(sdev->device_index, edge);
+	secgw_ip4_rewrite_set_next(sdev->device_index, edge);
 
 	secgw_dbg("Attaching %s(id:%u) at edge: %u(di: %u) to %s(id: %u)",
 		  node_name, node_id, edge, sdev->device_index, io_node->name, io_node->id);

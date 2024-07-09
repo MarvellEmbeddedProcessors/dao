@@ -44,8 +44,8 @@ add_lpm_route(struct in6_addr *addr, int prefixlen, rte_edge_t edge, int route_i
 		dao_ds_put_format(str, " edge %u, route index %d", edge, route_index);
 
 		dao_workers_barrier_sync(dao_workers_self_worker_get());
-		if (secgw_node_ip4_route_add(htonl(dao_in6_addr_get_mapped_ipv4(addr)), prefixlen,
-					     route_index, edge)) {
+		if (secgw_ip4_route_add(htonl(dao_in6_addr_get_mapped_ipv4(addr)), prefixlen,
+					route_index, edge)) {
 			dao_ds_put_cstr(str, " failed ");
 			rc = -1;
 		} else {
@@ -56,8 +56,8 @@ add_lpm_route(struct in6_addr *addr, int prefixlen, rte_edge_t edge, int route_i
 			dao_ds_put_format(str, " device %s ",
 					  secgw_get_device(device_id)->dev_name);
 			dao_ds_put_hex(str, rewrite_data, rewrite_length);
-			if (secgw_node_ip4_rewrite_add(route_index, rewrite_data, rewrite_length,
-						       device_id)) {
+			if (secgw_ip4_rewrite_add(route_index, rewrite_data, rewrite_length,
+						  device_id)) {
 				dao_ds_put_cstr(str, " failed ");
 				rc = -1;
 			} else {
@@ -234,7 +234,7 @@ int
 secgw_route_add_del(dao_netlink_route_ip_route_t *r, dao_netlink_action_t action)
 {
 	uint8_t rewrite_data[2 * sizeof(struct rte_ether_addr)];
-	rte_edge_t edge = RTE_NODE_IP4_LOOKUP_NEXT_REWRITE;
+	rte_edge_t edge = SECGW_NODE_IP4_LOOKUP_NEXT_REWRITE;
 	secgw_route_partial_entry_t *pentry = NULL;
 	struct dao_ds str = DS_EMPTY_INITIALIZER;
 	struct secgw_neigh_entry *nentry = NULL;
@@ -297,7 +297,7 @@ secgw_route_add_del(dao_netlink_route_ip_route_t *r, dao_netlink_action_t action
 int
 secgw_addr_add_del(dao_netlink_route_ip_addr_t *a, int is_add)
 {
-	uint16_t edge = RTE_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL;
+	uint16_t edge = SECGW_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL;
 	struct rte_ether_addr ether;
 	struct dao_ds str = DS_EMPTY_INITIALIZER;
 	secgw_device_t *sdev = NULL;
@@ -363,7 +363,7 @@ int
 secgw_neigh_add_del(dao_netlink_route_ip_neigh_t *n, int is_add)
 {
 	uint8_t rewrite_data[2 * sizeof(struct rte_ether_addr)];
-	uint16_t edge = RTE_NODE_IP4_LOOKUP_NEXT_REWRITE;
+	uint16_t edge = SECGW_NODE_IP4_LOOKUP_NEXT_REWRITE;
 	struct dao_ds str = DS_EMPTY_INITIALIZER;
 	struct rte_ether_addr *ether = NULL;
 	uint8_t *mac = NULL, rewrite_len;

@@ -37,7 +37,7 @@ pkt_cls_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 	from = objs;
 	n_left_from = nb_objs;
 
-	for (i = OBJS_PER_CLINE; i < RTE_GRAPH_BURST_SIZE; i += OBJS_PER_CLINE)
+	for (i = SECGW_OBJS_PER_CLINE; i < RTE_GRAPH_BURST_SIZE; i += SECGW_OBJS_PER_CLINE)
 		rte_prefetch0(&objs[i]);
 
 #if RTE_GRAPH_BURST_SIZE > 64

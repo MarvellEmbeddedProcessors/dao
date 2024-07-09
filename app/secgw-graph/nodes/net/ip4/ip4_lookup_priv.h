@@ -13,6 +13,6 @@
  * @return
  *   Pointer to the ipv4 lookup node.
  */
-struct rte_node_register *ip4_lookup_node_get(void);
+struct rte_node_register *secgw_ip4_lookup_node_get(void);
 
-#endif /* __INCLUDE_DOS_IP4_LOOKUP_PRIV_H__ */
+#endif /* _APP_SECGW_GRAPH_NODES_NET_IP4_IP4_LOOKUP_PRIV_H_ */

@@ -15,7 +15,6 @@
 #include <nodes/net/ip4/ip4_lookup_priv.h>
 #include <nodes/net/ip_node_priv.h>
 
-#include <nodes/net/ip4/rte_node_ip4_api.h>
 #include <nodes/node_api.h>
 
 #define IPV4_L3FWD_LPM_MAX_RULES    1024
@@ -29,37 +28,33 @@ typedef union {
 } secgw_ip4_addr_t;
 
 /* IP4 Lookup global data struct */
-struct ip4_lookup_node_main {
+struct secgw_ip4_lookup_node_main {
 	struct rte_lpm *lpm_tbl[RTE_MAX_NUMA_NODES];
 };
 
-struct ip4_lookup_node_ctx {
+struct secgw_ip4_lookup_node_ctx {
 	/* Socket's LPM table */
 	struct rte_lpm *lpm;
 	/* Dynamic offset to mbuf priv1 */
 	int mbuf_priv1_off;
 };
 
-int node_mbuf_priv1_dynfield_offset = -1;
+int secgw_mbuf_priv1_dynfield_offset = -1;
 
-static struct ip4_lookup_node_main ip4_lookup_nm;
+static struct secgw_ip4_lookup_node_main secgw_ip4_lookup_nm;
 
-#define IP4_LOOKUP_NODE_LPM(ctx) (((struct ip4_lookup_node_ctx *)ctx)->lpm)
+#define SECGW_IP4_LOOKUP_NODE_LPM(ctx)			\
+	(((struct secgw_ip4_lookup_node_ctx *)ctx)->lpm)
 
-#define IP4_LOOKUP_NODE_PRIV1_OFF(ctx) (((struct ip4_lookup_node_ctx *)ctx)->mbuf_priv1_off)
-/*
-#if defined(__ARM_NEON)
-#include "ip4_lookup_neon.h"
-#elif defined(RTE_ARCH_X86)
-#include "ip4_lookup_sse.h"
-#endif
-*/
+#define SECGW_IP4_LOOKUP_NODE_PRIV1_OFF(ctx)		\
+	(((struct secgw_ip4_lookup_node_ctx *)ctx)->mbuf_priv1_off)
+
 static uint16_t
-ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, void **objs,
-			       uint16_t nb_objs)
+secgw_ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, void **objs,
+				     uint16_t nb_objs)
 {
-	struct rte_lpm *lpm = IP4_LOOKUP_NODE_LPM(node->ctx);
-	const int dyn = IP4_LOOKUP_NODE_PRIV1_OFF(node->ctx);
+	struct rte_lpm *lpm = SECGW_IP4_LOOKUP_NODE_LPM(node->ctx);
+	const int dyn = SECGW_IP4_LOOKUP_NODE_PRIV1_OFF(node->ctx);
 	secgw_ip4_addr_t *dst_ip = NULL, *src_ip = NULL;
 	struct rte_ipv4_hdr *ipv4_hdr;
 	struct rte_mbuf *mbuf = NULL;
@@ -75,9 +70,9 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 	RTE_SET_USED(ri);
 
 	/* Speculative next */
-	next_index = RTE_NODE_IP4_LOOKUP_NEXT_REWRITE;
+	next_index = SECGW_NODE_IP4_LOOKUP_NEXT_REWRITE;
 	/* Drop node */
-	drop_nh = ((uint32_t)RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP) << 16;
+	drop_nh = ((uint32_t)SECGW_NODE_IP4_LOOKUP_NEXT_PKT_DROP) << 16;
 	from = objs;
 
 	/* Get stream for the speculated next node */
@@ -95,11 +90,11 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 		dst_ip = (secgw_ip4_addr_t *)&ipv4_hdr->dst_addr;
 		src_ip = (secgw_ip4_addr_t *)&ipv4_hdr->src_addr;
 		/* Extract cksum, ttl as ipv4 hdr is in cache */
-		node_mbuf_priv1(mbuf, dyn)->cksum = ipv4_hdr->hdr_checksum;
-		node_mbuf_priv1(mbuf, dyn)->ttl = ipv4_hdr->time_to_live;
+		secgw_mbuf_priv1(mbuf, dyn)->cksum = ipv4_hdr->hdr_checksum;
+		secgw_mbuf_priv1(mbuf, dyn)->ttl = ipv4_hdr->time_to_live;
 		rc = rte_lpm_lookup(lpm, rte_be_to_cpu_32(ipv4_hdr->dst_addr), &next_hop);
 		next_hop = (rc == 0) ? next_hop : drop_nh;
-		node_mbuf_priv1(mbuf, dyn)->nh = (uint16_t)next_hop;
+		secgw_mbuf_priv1(mbuf, dyn)->nh = (uint16_t)next_hop;
 		next = (uint16_t)(next_hop >> 16);
 		ri = (uint16_t)(next_hop & 0xFFFF);
 
@@ -150,8 +145,8 @@ ip4_lookup_node_process_scalar(struct rte_graph *graph, struct rte_node *node, v
 }
 
 int
-secgw_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
-			 enum rte_node_ip4_lookup_next next_node)
+secgw_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
+		    enum secgw_node_ip4_lookup_next next_node)
 {
 	char abuf[INET6_ADDRSTRLEN];
 	struct in_addr in;
@@ -163,15 +158,15 @@ secgw_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
 	inet_ntop(AF_INET, &in, abuf, sizeof(abuf));
 	/* Embedded next node id into 24 bit next hop */
 	val = ((next_node << 16) | next_hop) & ((1ull << 24) - 1);
-	node_dbg("ip4_lookup", "LPM: Adding route %s / %d nh (0x%x)", abuf, depth, val);
+	secgw_node_dbg("ip4_lookup", "LPM: Adding route %s / %d nh (0x%x)", abuf, depth, val);
 
 	for (socket = 0; socket < RTE_MAX_NUMA_NODES; socket++) {
-		if (!ip4_lookup_nm.lpm_tbl[socket])
+		if (!secgw_ip4_lookup_nm.lpm_tbl[socket])
 			continue;
 
-		ret = rte_lpm_add(ip4_lookup_nm.lpm_tbl[socket], ip, depth, val);
+		ret = rte_lpm_add(secgw_ip4_lookup_nm.lpm_tbl[socket], ip, depth, val);
 		if (ret < 0) {
-			node_err(
+			secgw_node_err(
 				"ip4_lookup",
 				"Unable to add entry %s / %d nh (%x) to LPM table on sock %d, rc=%d\n",
 				abuf, depth, val, socket, ret);
@@ -183,7 +178,7 @@ secgw_node_ip4_route_add(uint32_t ip, uint8_t depth, uint16_t next_hop,
 }
 
 static int
-setup_lpm(struct ip4_lookup_node_main *nm, int socket)
+setup_lpm(struct secgw_ip4_lookup_node_main *nm, int socket)
 {
 	struct rte_lpm_config config_ipv4;
 	char s[RTE_LPM_NAMESIZE];
@@ -205,28 +200,28 @@ setup_lpm(struct ip4_lookup_node_main *nm, int socket)
 }
 
 static int
-ip4_lookup_node_init(const struct rte_graph *graph, struct rte_node *node)
+secgw_ip4_lookup_node_init(const struct rte_graph *graph, struct rte_node *node)
 {
 	uint16_t socket, lcore_id;
 	static uint8_t init_once;
 	int rc;
 
 	RTE_SET_USED(graph);
-	RTE_BUILD_BUG_ON(sizeof(struct ip4_lookup_node_ctx) > RTE_NODE_CTX_SZ);
+	RTE_BUILD_BUG_ON(sizeof(struct secgw_ip4_lookup_node_ctx) > RTE_NODE_CTX_SZ);
 
 	if (!init_once) {
-		node_mbuf_priv1_dynfield_offset =
-			rte_mbuf_dynfield_register(&node_mbuf_priv1_dynfield_desc);
-		if (node_mbuf_priv1_dynfield_offset < 0)
+		secgw_mbuf_priv1_dynfield_offset =
+			rte_mbuf_dynfield_register(&secgw_mbuf_priv1_dynfield_desc);
+		if (secgw_mbuf_priv1_dynfield_offset < 0)
 			return -rte_errno;
 
 		/* Setup LPM tables for all sockets */
 		RTE_LCORE_FOREACH(lcore_id) {
 			socket = rte_lcore_to_socket_id(lcore_id);
-			rc = setup_lpm(&ip4_lookup_nm, socket);
+			rc = setup_lpm(&secgw_ip4_lookup_nm, socket);
 			if (rc) {
-				node_err("ip4_lookup", "Failed to setup lpm tbl for sock %u, rc=%d",
-					 socket, rc);
+				secgw_node_err("ip4_lookup", "Failed to setup lpm tbl for sock %u, rc=%d",
+					       socket, rc);
 				return rc;
 			}
 		}
@@ -234,37 +229,31 @@ ip4_lookup_node_init(const struct rte_graph *graph, struct rte_node *node)
 	}
 
 	/* Update socket's LPM and mbuf dyn priv1 offset in node ctx */
-	IP4_LOOKUP_NODE_LPM(node->ctx) = ip4_lookup_nm.lpm_tbl[graph->socket];
-	IP4_LOOKUP_NODE_PRIV1_OFF(node->ctx) = node_mbuf_priv1_dynfield_offset;
-	/*
-	#if defined(__ARM_NEON) || defined(RTE_ARCH_X86)
-		if (rte_vect_get_max_simd_bitwidth() >= RTE_VECT_SIMD_128)
-			node->process = ip4_lookup_node_process_vec;
-	#endif
-	*/
-	node_dbg("ip4_lookup", "Initialized ip4_lookup node");
+	SECGW_IP4_LOOKUP_NODE_LPM(node->ctx) = secgw_ip4_lookup_nm.lpm_tbl[graph->socket];
+	SECGW_IP4_LOOKUP_NODE_PRIV1_OFF(node->ctx) = secgw_mbuf_priv1_dynfield_offset;
+	secgw_node_dbg("ip4_lookup", "Initialized ip4_lookup node");
 
 	return 0;
 }
 
-static struct rte_node_register ip4_lookup_node = {
-	.process = ip4_lookup_node_process_scalar,
+static struct rte_node_register secgw_ip4_lookup_node = {
+	.process = secgw_ip4_lookup_node_process_scalar,
 	.name = "secgw_ip4-lookup",
 
-	.init = ip4_lookup_node_init,
+	.init = secgw_ip4_lookup_node_init,
 
-	.nb_edges = RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP + 1,
+	.nb_edges = SECGW_NODE_IP4_LOOKUP_NEXT_PKT_DROP + 1,
 	.next_nodes = {
-			[RTE_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL] = "secgw_ip4-local",
-			[RTE_NODE_IP4_LOOKUP_NEXT_REWRITE] = "secgw_ip4-rewrite",
-			[RTE_NODE_IP4_LOOKUP_NEXT_PKT_DROP] = "secgw_port-mapper",
+			[SECGW_NODE_IP4_LOOKUP_NEXT_IP4_LOCAL] = "secgw_ip4-local",
+			[SECGW_NODE_IP4_LOOKUP_NEXT_REWRITE] = "secgw_ip4-rewrite",
+			[SECGW_NODE_IP4_LOOKUP_NEXT_PKT_DROP] = "secgw_port-mapper",
 		},
 };
 
 struct rte_node_register *
-ip4_lookup_node_get(void)
+secgw_ip4_lookup_node_get(void)
 {
-	return &ip4_lookup_node;
+	return &secgw_ip4_lookup_node;
 }
 
-RTE_NODE_REGISTER(ip4_lookup_node);
+RTE_NODE_REGISTER(secgw_ip4_lookup_node);

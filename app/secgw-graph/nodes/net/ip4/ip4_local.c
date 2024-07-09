@@ -16,21 +16,19 @@
 #include <rte_jhash.h>
 #include <rte_lpm.h>
 
-#include <nodes/net/ip4/ip4_lookup_priv.h>
 #include <nodes/net/ip_node_priv.h>
 
-#include <nodes/net/ip4/rte_node_ip4_api.h>
 #include <nodes/node_api.h>
 
 typedef struct {
 	uint16_t last_next_index;
 	dao_graph_feature_arc_t dfl;
-} ip4_local_node_ctx_t;
+} secgw_ip4_local_node_ctx_t;
 
 static int
-ip4_local_node_init_func(const struct rte_graph *graph, struct rte_node *node)
+secgw_ip4_local_node_init_func(const struct rte_graph *graph, struct rte_node *node)
 {
-	ip4_local_node_ctx_t *ctx = (ip4_local_node_ctx_t *)node->ctx;
+	secgw_ip4_local_node_ctx_t *ctx = (secgw_ip4_local_node_ctx_t *)node->ctx;
 
 	RTE_SET_USED(graph);
 	RTE_SET_USED(node);
@@ -42,13 +40,13 @@ ip4_local_node_init_func(const struct rte_graph *graph, struct rte_node *node)
 }
 
 static uint16_t
-ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *node, void **objs,
-			      uint16_t nb_objs)
+secgw_ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *node, void **objs,
+				    uint16_t nb_objs)
 {
 	uint16_t next0, n_left, last_next_index, last_spec = 0, held = 0;
-	ip4_local_node_ctx_t *ctx = (ip4_local_node_ctx_t *)node->ctx;
+	secgw_ip4_local_node_ctx_t *ctx = (secgw_ip4_local_node_ctx_t *)node->ctx;
 	dao_graph_feature_t feature = DAO_GRAPH_FEATURE_INVALID_VALUE;
-	rte_edge_t edge = DOS_NODE_IP4_LOCAL_NEXT_PKT_DROP;
+	rte_edge_t edge = SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP;
 	struct dao_graph_feature_arc *arc = NULL;
 	secgw_mbuf_dynfield_t *dyn = NULL;
 	struct rte_mbuf **bufs, *mbuf0;
@@ -72,11 +70,11 @@ ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *node, vo
 		dyn = secgw_mbuf_dynfield(mbuf0);
 		rx_port = SECGW_INGRESS_PORT(dyn);
 
-		next0 = DOS_NODE_IP4_LOCAL_NEXT_PKT_DROP;
+		next0 = SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP;
 
 		if (dao_graph_feature_arc_has_feature(arc, rx_port, &feature)) {
-			dao_graph_feature_arc_feature_data_get(arc, feature, rx_port, &edge,
-							       &data);
+			dao_graph_feature_arc_first_feature_data_get(arc, feature, rx_port, &edge,
+								     &data);
 			node_debug("ip_local: itf: %u, feature slot : %d enabled at edge: %u",
 				   rx_port, feature, edge);
 			next0 = edge;
@@ -100,7 +98,7 @@ ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *node, vo
 	}
 
 	if (likely(last_spec == nb_objs)) {
-		if (edge != DOS_NODE_IP4_LOCAL_NEXT_PKT_DROP)
+		if (edge != SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP)
 			last_next_index = edge;
 
 		rte_node_next_stream_move(graph, node, last_next_index);
@@ -117,21 +115,21 @@ ip4_local_node_process_scalar(struct rte_graph *graph, struct rte_node *node, vo
 	return nb_objs;
 }
 
-static struct rte_node_register ip4_local_node = {
-	.process = ip4_local_node_process_scalar,
-	.init = ip4_local_node_init_func,
+static struct rte_node_register secgw_ip4_local_node = {
+	.process = secgw_ip4_local_node_process_scalar,
+	.init = secgw_ip4_local_node_init_func,
 	.name = "secgw_ip4-local",
 
-	.nb_edges = DOS_NODE_IP4_LOCAL_NEXT_PKT_DROP + 1,
+	.nb_edges = SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP + 1,
 	.next_nodes = {
-			[DOS_NODE_IP4_LOCAL_NEXT_PKT_DROP] = "secgw_error-drop",
+			[SECGW_NODE_IP4_LOCAL_NEXT_PKT_DROP] = "secgw_error-drop",
 		},
 };
 
 struct rte_node_register *
-ip4_local_node_get(void)
+secgw_ip4_local_node_get(void)
 {
-	return &ip4_local_node;
+	return &secgw_ip4_local_node;
 }
 
-RTE_NODE_REGISTER(ip4_local_node);
+RTE_NODE_REGISTER(secgw_ip4_local_node);

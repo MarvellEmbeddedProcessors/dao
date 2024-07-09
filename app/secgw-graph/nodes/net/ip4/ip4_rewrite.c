@@ -10,12 +10,10 @@
 #include <rte_malloc.h>
 #include <rte_vect.h>
 
-#include <nodes/net/ip4/ip4_rewrite_priv.h>
-#include <nodes/net/ip4/rte_node_ip4_api.h>
 #include <nodes/net/ip_node_priv.h>
 #include <nodes/node_api.h>
 
-struct ip4_rewrite_node_ctx {
+struct secgw_ip4_rewrite_node_ctx {
 	/* Dynamic offset to mbuf priv1 */
 	int mbuf_priv1_off;
 	/* Cached next index */
@@ -35,24 +33,24 @@ typedef enum {
 	IFACE_OUT = 1,
 } rewrite_next_node_t;
 
-static struct ip4_rewrite_node_main *ip4_rewrite_nm;
+static struct secgw_ip4_rewrite_node_main *secgw_ip4_rewrite_nm;
 
-#define IP4_REWRITE_NODE_LAST_NEXT(ctx)		\
-		(((struct ip4_rewrite_node_ctx *)ctx)->next_index)
+#define SECGW_IP4_REWRITE_NODE_LAST_NEXT(ctx)		\
+		(((struct secgw_ip4_rewrite_node_ctx *)ctx)->next_index)
 
-#define IP4_REWRITE_NODE_PRIV1_OFF(ctx)		\
-		(((struct ip4_rewrite_node_ctx *)ctx)->mbuf_priv1_off)
-#define IP4_REWRITE_OUTPUT_FEATURE_ARC(ctx)	\
-		(((struct ip4_rewrite_node_ctx *)ctx)->output_feature_arc)
+#define SECGW_IP4_REWRITE_NODE_PRIV1_OFF(ctx)		\
+		(((struct secgw_ip4_rewrite_node_ctx *)ctx)->mbuf_priv1_off)
+#define SECGW_IP4_REWRITE_OUTPUT_FEATURE_ARC(ctx)	\
+		(((struct secgw_ip4_rewrite_node_ctx *)ctx)->output_feature_arc)
 
 static uint16_t
-ip4_rewrite_node_process(struct rte_graph *graph, struct rte_node *node, void **objs,
-			 uint16_t nb_objs)
+secgw_ip4_rewrite_node_process(struct rte_graph *graph, struct rte_node *node, void **objs,
+			       uint16_t nb_objs)
 {
-	dao_graph_feature_arc_t _df = IP4_REWRITE_OUTPUT_FEATURE_ARC(node->ctx);
+	dao_graph_feature_arc_t _df = SECGW_IP4_REWRITE_OUTPUT_FEATURE_ARC(node->ctx);
 	struct dao_graph_feature_arc *df = dao_graph_feature_arc_get(_df);
-	struct ip4_rewrite_nh_header *nh = ip4_rewrite_nm->nh;
-	const int dyn = IP4_REWRITE_NODE_PRIV1_OFF(node->ctx);
+	struct secgw_ip4_rewrite_nh_header *nh = secgw_ip4_rewrite_nm->nh;
+	const int dyn = SECGW_IP4_REWRITE_NODE_PRIV1_OFF(node->ctx);
 	secgw_ip4_addr_t *dst_ip = NULL, *src_ip = NULL;
 	dao_graph_feature_t feat = DAO_GRAPH_FEATURE_INVALID_VALUE;
 	uint16_t n_left_from, held = 0, last_spec = 0;
@@ -67,7 +65,7 @@ ip4_rewrite_node_process(struct rte_graph *graph, struct rte_node *node, void **
 
 	RTE_SET_USED(e);
 	/* Speculative next as last next */
-	next_index = IP4_REWRITE_NODE_LAST_NEXT(node->ctx);
+	next_index = SECGW_IP4_REWRITE_NODE_LAST_NEXT(node->ctx);
 	rte_prefetch0(nh);
 
 	pkts = (struct rte_mbuf **)objs;
@@ -90,15 +88,15 @@ ip4_rewrite_node_process(struct rte_graph *graph, struct rte_node *node, void **
 
 		d0 = rte_pktmbuf_mtod(mbuf0, void *);
 		e = rte_pktmbuf_mtod(mbuf0, struct rte_ether_hdr *);
-		rte_memcpy(d0, nh[node_mbuf_priv1(mbuf0, dyn)->nh].rewrite_data,
-			   nh[node_mbuf_priv1(mbuf0, dyn)->nh].rewrite_len);
+		rte_memcpy(d0, nh[secgw_mbuf_priv1(mbuf0, dyn)->nh].rewrite_data,
+			   nh[secgw_mbuf_priv1(mbuf0, dyn)->nh].rewrite_len);
 
-		SECGW_MBUF_EGRESS_PORT(mbuf0) = nh[node_mbuf_priv1(mbuf0, dyn)->nh].tx_node;
+		SECGW_MBUF_EGRESS_PORT(mbuf0) = nh[secgw_mbuf_priv1(mbuf0, dyn)->nh].tx_node;
 		ip0 = (struct rte_ipv4_hdr *)((uint8_t *)d0 + sizeof(struct rte_ether_hdr));
-		chksum = node_mbuf_priv1(mbuf0, dyn)->cksum + rte_cpu_to_be_16(0x0100);
+		chksum = secgw_mbuf_priv1(mbuf0, dyn)->cksum + rte_cpu_to_be_16(0x0100);
 		chksum += chksum >= 0xffff;
 		ip0->hdr_checksum = chksum;
-		ip0->time_to_live = node_mbuf_priv1(mbuf0, dyn)->ttl - 1;
+		ip0->time_to_live = secgw_mbuf_priv1(mbuf0, dyn)->ttl - 1;
 		dst_ip = (secgw_ip4_addr_t *)&ip0->dst_addr;
 		src_ip = (secgw_ip4_addr_t *)&ip0->src_addr;
 
@@ -156,80 +154,82 @@ ip4_rewrite_node_process(struct rte_graph *graph, struct rte_node *node, void **
 	rte_memcpy(to_next, from, last_spec * sizeof(from[0]));
 	rte_node_next_stream_put(graph, node, next_index, held);
 	/* Save the last next used */
-	IP4_REWRITE_NODE_LAST_NEXT(node->ctx) = next_index;
+	SECGW_IP4_REWRITE_NODE_LAST_NEXT(node->ctx) = next_index;
 
 	return nb_objs;
 }
 
 static int
-ip4_rewrite_node_init(const struct rte_graph *graph, struct rte_node *node)
+secgw_ip4_rewrite_node_init(const struct rte_graph *graph, struct rte_node *node)
 {
 	dao_graph_feature_arc_t df = DAO_GRAPH_FEATURE_ARC_INITIALIZER;
 	static bool init_once;
 
 	RTE_SET_USED(graph);
-	RTE_BUILD_BUG_ON(sizeof(struct ip4_rewrite_node_ctx) > RTE_NODE_CTX_SZ);
+	RTE_BUILD_BUG_ON(sizeof(struct secgw_ip4_rewrite_node_ctx) > RTE_NODE_CTX_SZ);
 
 	if (!init_once) {
-		node_mbuf_priv1_dynfield_offset =
-			rte_mbuf_dynfield_register(&node_mbuf_priv1_dynfield_desc);
-		if (node_mbuf_priv1_dynfield_offset < 0)
+		secgw_mbuf_priv1_dynfield_offset =
+			rte_mbuf_dynfield_register(&secgw_mbuf_priv1_dynfield_desc);
+		if (secgw_mbuf_priv1_dynfield_offset < 0)
 			return -rte_errno;
 		init_once = true;
 	}
-	IP4_REWRITE_NODE_PRIV1_OFF(node->ctx) = node_mbuf_priv1_dynfield_offset;
+	SECGW_IP4_REWRITE_NODE_PRIV1_OFF(node->ctx) = secgw_mbuf_priv1_dynfield_offset;
 	if (dao_graph_feature_arc_lookup_by_name(IP4_LOCAL_FEATURE_ARC_NAME, &df) < 0)
 		return -1;
 
-	IP4_REWRITE_OUTPUT_FEATURE_ARC(node->ctx) = df;
+	SECGW_IP4_REWRITE_OUTPUT_FEATURE_ARC(node->ctx) = df;
 
-	node_dbg("ip4_rewrite", "Initialized ip4_rewrite node initialized");
+	secgw_node_dbg("ip4_rewrite", "Initialized ip4_rewrite node initialized");
 
 	return 0;
 }
 
 int
-ip4_rewrite_set_next(uint16_t port_id, uint16_t next_index)
+secgw_ip4_rewrite_set_next(uint16_t port_id, uint16_t next_index)
 {
-	if (ip4_rewrite_nm == NULL) {
-		ip4_rewrite_nm = rte_zmalloc("ip4_rewrite", sizeof(struct ip4_rewrite_node_main),
-					     RTE_CACHE_LINE_SIZE);
-		if (ip4_rewrite_nm == NULL)
+	if (secgw_ip4_rewrite_nm == NULL) {
+		secgw_ip4_rewrite_nm = rte_zmalloc("ip4_rewrite",
+						   sizeof(struct secgw_ip4_rewrite_node_main),
+						   RTE_CACHE_LINE_SIZE);
+		if (secgw_ip4_rewrite_nm == NULL)
 			return -ENOMEM;
 	}
-	ip4_rewrite_nm->next_index[port_id] = next_index;
+	secgw_ip4_rewrite_nm->next_index[port_id] = next_index;
 
 	return 0;
 }
 
 int
-secgw_node_ip4_rewrite_add(uint16_t next_hop, uint8_t *rewrite_data, uint8_t rewrite_len,
-			   uint16_t dst_port)
+secgw_ip4_rewrite_add(uint16_t next_hop, uint8_t *rewrite_data, uint8_t rewrite_len,
+		      uint16_t dst_port)
 {
-	struct ip4_rewrite_nh_header *nh;
+	struct secgw_ip4_rewrite_nh_header *nh;
 
-	if (next_hop >= RTE_GRAPH_IP4_REWRITE_MAX_NH)
+	if (next_hop >= SECGW_GRAPH_IP4_REWRITE_MAX_NH)
 		return -EINVAL;
 
-	if (rewrite_len > RTE_GRAPH_IP4_REWRITE_MAX_LEN)
+	if (rewrite_len > SECGW_GRAPH_IP4_REWRITE_MAX_LEN)
 		return -EINVAL;
 
-	if (ip4_rewrite_nm == NULL) {
-		ip4_rewrite_nm = rte_zmalloc("ip4_rewrite", sizeof(struct ip4_rewrite_node_main),
-					     RTE_CACHE_LINE_SIZE);
-		if (ip4_rewrite_nm == NULL)
+	if (secgw_ip4_rewrite_nm == NULL) {
+		secgw_ip4_rewrite_nm = rte_zmalloc("ip4_rewrite",
+						   sizeof(struct secgw_ip4_rewrite_node_main),
+						   RTE_CACHE_LINE_SIZE);
+		if (secgw_ip4_rewrite_nm == NULL)
 			return -ENOMEM;
 	}
 #ifdef SECGW_TODO
 	/* Check if dst port doesn't exist as edge */
-	if (!ip4_rewrite_nm->next_index[dst_port])
+	if (!secgw_ip4_rewrite_nm->next_index[dst_port])
 		return -EINVAL;
 #endif
 	/* Update next hop */
-	nh = &ip4_rewrite_nm->nh[next_hop];
+	nh = &secgw_ip4_rewrite_nm->nh[next_hop];
 
 	memcpy(nh->rewrite_data, rewrite_data, rewrite_len);
-	nh->tx_node = ip4_rewrite_nm->next_index[dst_port];
+	nh->tx_node = secgw_ip4_rewrite_nm->next_index[dst_port];
 	dao_dbg("next_hop: %u, tx_node: %u", next_hop, nh->tx_node);
 	nh->rewrite_len = rewrite_len;
 	nh->enabled = true;
@@ -237,8 +237,8 @@ secgw_node_ip4_rewrite_add(uint16_t next_hop, uint8_t *rewrite_data, uint8_t rew
 	return 0;
 }
 
-static struct rte_node_register ip4_rewrite_node = {
-	.process = ip4_rewrite_node_process,
+static struct rte_node_register secgw_ip4_rewrite_node = {
+	.process = secgw_ip4_rewrite_node_process,
 	.name = "secgw_ip4-rewrite",
 	/* Default edge i.e '0' is pkt drop */
 	.nb_edges = 1,
@@ -246,13 +246,13 @@ static struct rte_node_register ip4_rewrite_node = {
 			[0] = "secgw_error-drop",
 			[1] = "secgw_interface-output"
 		},
-	.init = ip4_rewrite_node_init,
+	.init = secgw_ip4_rewrite_node_init,
 };
 
 struct rte_node_register *
-ip4_rewrite_node_get(void)
+secgw_ip4_rewrite_node_get(void)
 {
-	return &ip4_rewrite_node;
+	return &secgw_ip4_rewrite_node;
 }
 
-RTE_NODE_REGISTER(ip4_rewrite_node);
+RTE_NODE_REGISTER(secgw_ip4_rewrite_node);

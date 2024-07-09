@@ -8,10 +8,25 @@
 #include <secgw_worker.h>
 
 #define SECGW_MBUF_DEVINDEX_DYNFIELD_NAME "secgw_mbuf_devindex"
-#define node_debug			dao_dbg
-#define ip_debug			dao_dbg
+
 #define _dmac(p, off)	(p)->dst_addr.addr_bytes[off]
 #define _smac(p, off)	(p)->src_addr.addr_bytes[off]
+
+/* For fast path node logs */
+#define node_debug			dao_dbg
+#define ip_debug			dao_dbg
+
+/* For control path node logs */
+extern int rte_dao_logtype;
+#define SECGW_NODE_LOG(level, node_name, ...)					\
+	rte_log(RTE_LOG_##level, rte_dao_logtype,				\
+		RTE_FMT("NODE %s: %s():%u " RTE_FMT_HEAD(__VA_ARGS__ ,) "\n",	\
+			node_name, __func__, __LINE__,				\
+			RTE_FMT_TAIL(__VA_ARGS__ ,)))
+
+#define secgw_node_err(node_name, ...)		SECGW_NODE_LOG(ERR, node_name, __VA_ARGS__)
+#define secgw_node_info(node_name, ...)		SECGW_NODE_LOG(INFO, node_name, __VA_ARGS__)
+#define secgw_node_dbg(node_name, ...)		SECGW_NODE_LOG(DEBUG, node_name, __VA_ARGS__)
 
 typedef enum {
 	SECGW_SOURCE_NODE_NEXT_INDEX_PKT_CLS,
