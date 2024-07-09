@@ -31,6 +31,7 @@ function ep_host_vdpa_setup()
 	modprobe vdpa
 	modprobe vhost-vdpa
 	set +e # Module may be already loaded
+	rmmod octep_vdpa
 	insmod $EP_HOST_DIR/kmod/vdpa/octeon_ep/octep_vdpa.ko
 	set -e
 
@@ -63,6 +64,16 @@ function ep_host_vdpa_setup()
 		echo "Binding $vdev to vhost_vdpa"
 		echo $vdev > /sys/bus/vdpa/drivers/vhost_vdpa/bind || true
 	done
+}
+
+function ep_host_vdpa_cleanup()
+{
+	echo "Cleaning up VDPA on host"
+	set +e # Module may be already loaded
+	rmmod octep_vdpa
+	rmmod vhost-vdpa
+	rmmod vdpa
+	set -e
 }
 
 function ep_host_testpmd_launch()

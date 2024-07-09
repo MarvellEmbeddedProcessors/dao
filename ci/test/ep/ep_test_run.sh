@@ -196,6 +196,14 @@ function test_exit()
 	ep_host_op safe_kill $EP_HOST_DIR
 	ep_device_op safe_kill $EP_DEVICE_DIR
 
+	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP ]]; then
+		echo "Skip EP host cleanup"
+	else
+		local device_part=$(ep_device_op get_part)
+		echo "Cleaning up EP Host"
+		ep_host_op vdpa_cleanup $device_part
+	fi
+
 	ep_host_ssh_cmd 'sudo dmesg' > host_dmesg.log
 	save_log host_dmesg.log
 	ep_device_ssh_cmd 'sudo dmesg' > device_dmesg.log

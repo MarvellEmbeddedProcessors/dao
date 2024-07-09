@@ -58,6 +58,28 @@ function l2fwd_device_check_pps()
 	return 1
 }
 
+function l2fwd_host_check_pps()
+{
+	local pfx=$1
+	local wait_time_sec=10
+
+	while [[ wait_time_sec -ne 0 ]]; do
+		local rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+
+		if [[ rx_pps -eq 0 ]]; then
+			echo "Low PPS for ${pfx} ($rx_pps == 0)"
+		else
+			echo "Rx PPS $rx_pps as expected"
+			return 0
+		fi
+
+		sleep 1
+		wait_time_sec=$((wait_time_sec - 1))
+	done
+
+	return 1
+}
+
 function l2fwd_host_start_traffic()
 {
 	local pfx=$1
@@ -74,7 +96,7 @@ function l2fwd_host_start_traffic()
 
 	echo "Starting Traffic on Host"
 	ep_host_op_bg 10 testpmd_launch $pfx "$eal_args" -- "$app_args"
-	ep_host_op testpmd_cmd $pfx start
+	ep_host_op testpmd_cmd $pfx start tx_first 32
 	echo "Started Traffic no Host"
 }
 
@@ -102,6 +124,7 @@ function l2fwd_sig_handler()
 		echo "$sig Handler"
 	fi
 
+	ep_host_op testpmd_log $pfx
 	safe_kill $pfx
 	ep_host_op safe_kill $pfx
 }
@@ -153,5 +176,21 @@ function l2fwd_app_launch()
 			return 1;
 		fi
 		echo "Waiting for virtio-l2fwd to be up"
+	done
+}
+
+function l2fwd_app_quit()
+{
+	local pfx=$1
+
+	# Issue kill SIGINT
+	local pid=$(ps -ef | grep dao-virtio-l2fwd | grep $pfx | awk '{print $2}' | xargs -n1 kill -2 2>/dev/null || true)
+
+	# Wait until the process is killed
+	local alive=$(ps -ef | grep dao-virtio-l2fwd | grep $pfx || true)
+	while [[ "$alive" != "" ]]; do
+		sleep 1
+		alive=$(ps -ef | grep dao-virtio-l2fwd | grep $pfx || true)
+		continue
 	done
 }

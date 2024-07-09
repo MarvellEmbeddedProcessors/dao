@@ -223,6 +223,26 @@ function ep_device_get_sclk()
 	echo $sclk
 }
 
+function ep_device_get_inactive_if()
+{
+	for i in $(lspci -n -d :$PCI_DEVID_CNXK_RVU_PF | awk -e '{print $1}');	do
+		local ethname=
+		local active=
+		if [ -d "/sys/bus/pci/devices/$i/net" ]; then
+			ethname=$(ls /sys/bus/pci/devices/$i/net)
+		fi
+
+		if [[ "$ethname"  != "" ]]; then
+			active=$(ip route show dev $ethname)
+		fi
+		# Return non active device found
+		if [[ "$active" == "" ]]; then
+			echo $i
+			break
+		fi
+	done
+}
+
 # If this script is directly invoked from the shell execute the
 # op specified
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then

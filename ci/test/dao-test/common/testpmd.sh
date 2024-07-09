@@ -11,10 +11,13 @@ function testpmd_cleanup()
 {
 	local pfx=$1
 	local in=testpmd.in.$pfx
-	local out=testpmd.in.$pfx
+	local out=testpmd.out.$pfx
 	local alive
 	local pid
 
+	if [ -f $out ];	then
+		awk ' { print FILENAME": " $0 } ' $out
+	fi
 	# Issue kill
 	pid=$(ps -ef | grep dpdk-testpmd | grep $pfx | awk '{print $2}' | xargs -n1 kill -9 2>/dev/null || true)
 
