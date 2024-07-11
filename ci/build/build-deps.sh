@@ -47,8 +47,22 @@ BUILD_DPDK_DIR=$DPDK_DIR/build
 PREFIX_DPDK_DIR=$DPDK_DIR/out
 PKG_CACHE_DIR=${PKG_CACHE_DIR:-}
 GIT_USER=${2}
-ALL_DEPS="dpdk"
+ALL_DEPS="dpdk libnl"
 DEPS_TO_BUILD=${4:-$ALL_DEPS}
+PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
+
+# libnl variables
+LIBNL_BUILD_DIR=$BUILD_DEPS_ROOT/libnl
+LIBNL_PREFIX_DIR=$DEPS_INSTALL_DIR
+LIBNL_INSTALL_DIR=$LIBNL_PREFIX_DIR
+LIBNL_TARBALL=libnl-3.7.0
+
+# fall back to pkg-config if specified one does not exist
+if [ ! -x ${PKGCONFIG} ]; then
+  PKGCONFIG=pkg-config
+fi
+export PKG_CONFIG_LIBDIR=$DEPS_INSTALL_DIR/lib/pkgconfig
+
 if [[ $DEPS_TO_BUILD == "all" ]]; then
 	DEPS_TO_BUILD=$ALL_DEPS
 fi
@@ -96,5 +110,53 @@ function build_dpdk() {
 	ninja -C $BUILD_DPDK_DIR-$plat -j $MAKE_J $verbose install
 }
 
+function compile_libnl() {
+	mkdir -p $LIBNL_BUILD_DIR
+	cd $LIBNL_BUILD_DIR
+	if [ ! -f $LIBNL_TARBALL.tar.gz ]; then
+		fetch_dep https://github.com/thom311/libnl/releases/download/libnl3_7_0/$LIBNL_TARBALL.tar.gz
+	fi
+	tar xvf $LIBNL_TARBALL.tar.gz --strip-components=1
+	set -x
+	./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBNL_PREFIX_DIR
+	make;
+	make install;
+	set +x
+	if ($PKGCONFIG --modversion libnl-xfrm-3.0); then
+		echo "libnl-xfrm-3.0 installed."
+		if ($PKGCONFIG --modversion libnl-route-3.0); then
+			echo "libnl-route-3.0 installed."
+			if ($PKGCONFIG --modversion libnl-3.0); then
+				echo "libnl-3.0 installed."
+				return 0
+			fi
+		fi
+	fi
+	return 1
+}
+
+function build_libnl() {
+	local libnl_is_enabled=1
+	if [[ "$DEPS_TO_BUILD" != *"libnl"* ]]; then
+		return
+	fi
+
+	if ($PKGCONFIG --modversion libnl-xfrm-3.0); then
+		echo "libnl-xfrm-3.0 found with $PKGCONFIG($PKG_CONFIG_LIBDIR). Skipping..."
+		if ($PKGCONFIG --modversion libnl-route-3.0); then
+			echo "libnl-route-3.0 found with $PKGCONFIG($PKG_CONFIG_LIBDIR). Skipping..."
+			if ($PKGCONFIG --modversion libnl-3.0); then
+				echo "libnl-3.0 found with $PKGCONFIG($PKG_CONFIG_LIBDIR). Skipping..."
+				libnl_is_enabled=0
+			fi
+		fi
+	fi
+
+	if [ $libnl_is_enabled == 1 ]; then
+		compile_libnl $@
+	fi
+}
+
 # Building DPDK
 build_dpdk $PLAT
+build_libnl $@
