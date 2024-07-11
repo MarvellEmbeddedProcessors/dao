@@ -13,22 +13,24 @@
 
 /* Next node for each ptype, default is '0' is "pkt_drop" */
 static const uint8_t p_nxt[4096] __rte_cache_aligned = {
-	[RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_UDP] = PKT_CLS_NEXT_IP4_LOOKUP,
+	[RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_UDP] = SECGW_PKT_CLS_NEXT_IP4_LOOKUP,
 
-	[RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_ICMP] = PKT_CLS_NEXT_IP4_LOOKUP,
+	[RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_ICMP] =
+		SECGW_PKT_CLS_NEXT_IP4_LOOKUP,
 
-	[RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_TCP] = PKT_CLS_NEXT_IP4_LOOKUP,
+	[RTE_PTYPE_L2_ETHER | RTE_PTYPE_L3_IPV4 | RTE_PTYPE_L4_TCP] = SECGW_PKT_CLS_NEXT_IP4_LOOKUP,
 };
 
-struct rte_node_register *pkt_classifier_node_get(void);
+struct rte_node_register *secgw_pkt_classifier_node_get(void);
 
 static uint16_t
-pkt_cls_node_process(struct rte_graph *graph, struct rte_node *node, void **objs, uint16_t nb_objs)
+secgw_pkt_cls_node_process(struct rte_graph *graph, struct rte_node *node, void **objs,
+			   uint16_t nb_objs)
 {
 	uint16_t next_index, n_left_from, next;
 	uint16_t held = 0, last_spec = 0;
 	struct rte_mbuf *mbuf0, **pkts;
-	struct pkt_cls_node_ctx *ctx;
+	struct secgw_pkt_cls_node_ctx *ctx;
 	void **to_next, **from;
 	uint16_t l0, last_type;
 	uint32_t i;
@@ -45,7 +47,7 @@ pkt_cls_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 		rte_prefetch0(pkts[i]);
 #endif
 
-	ctx = (struct pkt_cls_node_ctx *)node->ctx;
+	ctx = (struct secgw_pkt_cls_node_ctx *)node->ctx;
 	last_type = ctx->l2l3_type;
 	next_index = p_nxt[last_type];
 
@@ -69,13 +71,13 @@ pkt_cls_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 			held += last_spec;
 			last_spec = 0;
 			node_debug("classified pkt_type: 0x%x to %s", l0,
-				   pkt_classifier_node_get()->next_nodes[next]);
+				   secgw_pkt_classifier_node_get()->next_nodes[next]);
 
 			rte_node_enqueue_x1(graph, node, next, from[0]);
 			from += 1;
 		} else {
 			node_debug("classified pkt_type: 0x%x to %s", l0,
-				   pkt_classifier_node_get()->next_nodes[next_index]);
+				   secgw_pkt_classifier_node_get()->next_nodes[next_index]);
 			last_spec += 1;
 		}
 	}
@@ -96,23 +98,23 @@ pkt_cls_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 }
 
 /* Packet Classification Node */
-struct rte_node_register pkt_cls_node = {
-	.process = pkt_cls_node_process,
+struct rte_node_register secgw_pkt_cls_node = {
+	.process = secgw_pkt_cls_node_process,
 	.name = "secgw_pkt-cls",
-	.nb_edges = PKT_CLS_NEXT_MAX,
+	.nb_edges = SECGW_PKT_CLS_NEXT_MAX,
 	.next_nodes = {
 			/* Port-mapper node starts at '0' */
-			[PKT_CLS_NEXT_PKT_DROP] = "secgw_port-mapper",
-			[PKT_CLS_NEXT_IP4_LOOKUP] = "secgw_ip4-lookup",
+			[SECGW_PKT_CLS_NEXT_PKT_DROP] = "secgw_port-mapper",
+			[SECGW_PKT_CLS_NEXT_IP4_LOOKUP] = "secgw_ip4-lookup",
 			/* TODO: IPv6 not yet supported */
-			[PKT_CLS_NEXT_IP6_LOOKUP] = "secgw_error-drop",
+			[SECGW_PKT_CLS_NEXT_IP6_LOOKUP] = "secgw_error-drop",
 		},
 };
 
 struct rte_node_register *
-pkt_classifier_node_get(void)
+secgw_pkt_classifier_node_get(void)
 {
-	return &pkt_cls_node;
+	return &secgw_pkt_cls_node;
 }
 
-RTE_NODE_REGISTER(pkt_cls_node);
+RTE_NODE_REGISTER(secgw_pkt_cls_node);

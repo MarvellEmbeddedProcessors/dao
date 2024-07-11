@@ -7,10 +7,10 @@
 
 /* Public APIs exposed by header files */
 
-#include <rte_ethdev.h>
-#include <nodes/net/ip4/secgw_node_ip4_api.h>
 #include <nodes/net/ip4/ip4_rewrite_priv.h>
+#include <nodes/net/ip4/secgw_node_ip4_api.h>
 #include <nodes/net/ip_feature.h>
+#include <rte_ethdev.h>
 
-struct rte_node_register *pkt_classifier_node_get(void);
+struct rte_node_register *secgw_pkt_classifier_node_get(void);
 #endif
