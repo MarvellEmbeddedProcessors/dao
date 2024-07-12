@@ -68,6 +68,8 @@ struct dao_virtio_netdev_conf {
 	uint8_t mac[VIRTIO_NET_ETHER_ADDR_LEN];
 	/** Link info */
 	struct dao_virtio_netdev_link_info link_info;
+	/** Enable/disable checksum offload feature */
+	bool csum_en;
 };
 
 /* End of structure dao_virtio_netdev_conf. */
