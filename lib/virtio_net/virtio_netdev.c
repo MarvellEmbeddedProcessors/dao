@@ -575,13 +575,15 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CTRL_MAC_ADDR);
 	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CTRL_VLAN);
 
-	/* Enable Checksum offload capability */
-	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CSUM) | RTE_BIT64(VIRTIO_NET_F_GUEST_CSUM);
-
 	if (conf->mtu) {
 		feature_bits |= RTE_BIT64(VIRTIO_NET_F_MTU);
 		dev_cfg->mtu = conf->mtu;
 	}
+
+	if (conf->csum_en)
+		/* Enable Checksum offload capability */
+		feature_bits |= RTE_BIT64(VIRTIO_NET_F_CSUM) | RTE_BIT64(VIRTIO_NET_F_GUEST_CSUM);
+
 	virtio_dev_feature_bits_set(dev, feature_bits);
 
 	/* Copy default netdev config */

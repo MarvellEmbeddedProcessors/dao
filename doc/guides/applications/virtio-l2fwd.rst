@@ -227,6 +227,14 @@ The following are the application command-line options:
 
         Pcap file name to use.
 
+* ``--enable-l4-csum``
+
+        Enable IPv4 TCP/UDP checksum offload feature. The checksum offload feature is
+        supported by CN10KA/CN10KB HW exclusively for IPv4 packets without options. Hence,
+        by default this feature is disabled to prevent corruption of other packets (such
+        as IPv6). However, it can be selectively enabled when dealing exclusively with
+        IPv4 packets without options.
+
 Example EP firmware command
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

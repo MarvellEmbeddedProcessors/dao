@@ -476,6 +476,12 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 		mbuf2->next = NULL;
 		mbuf3->next = NULL;
 
+		/* Reset mbuf olflags */
+		mbuf0->ol_flags = 0;
+		mbuf1->ol_flags = 0;
+		mbuf2->ol_flags = 0;
+		mbuf3->ol_flags = 0;
+
 		nb_enq = dao_dma_enq_x4(dev2mem, vsrc, vdst);
 		i += nb_enq;
 		used = i;
@@ -524,6 +530,7 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 		mbuf->pkt_len = slen - vhdr_sz;
 		mbuf->data_len = dlen - vhdr_sz;
 		mbuf->next = NULL;
+		mbuf->ol_flags = 0;
 		mbuf0 = mbuf;
 		while (unlikely(pend)) {
 			/* allocate new mbuf and attach it */
@@ -536,6 +543,7 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 			mbuf = mbuf1;
 			mbuf->data_len = dlen;
 			mbuf->next = NULL;
+			mbuf->ol_flags = 0;
 			mbuf0->nb_segs++;
 			/* Enqueue only destination pointers as source length is big */
 			dao_dma_enq_dst_x1(dev2mem, (((uintptr_t)mbuf) + data_off), dlen);

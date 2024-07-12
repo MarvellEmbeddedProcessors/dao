@@ -136,9 +136,10 @@ static uint16_t lcore_list_wt_sorted[RTE_MAX_LCORE];
 /**< Ports set in promiscuous mode off by default. */
 static int promiscuous_on;
 
+static bool enable_l4_csum; /**< Enable IPv4 checksum offload feature */
 static int disable_tx_mseg; /**< disable default ethdev Tx multi-seg offload */
-static int per_port_pool; /**< Use separate buffer pools per port; disabled */
-			  /**< by default */
+static int per_port_pool;   /**< Use separate buffer pools per port; disabled */
+			    /**< by default */
 
 static volatile bool force_quit;
 
@@ -413,7 +414,8 @@ print_usage(const char *prgname)
 		" [--pool-buf-len PKTLEN]"
 		" [--per-port-pool]"
 		" [--disable-tx-mseg]"
-		" [--num-pkt-cap]\n\n"
+		" [--num-pkt-cap]"
+		" [--enable-l4-csum]\n\n"
 
 		"  -p PORTMASK_L[,PORTMASK_H]: Hexadecimal bitmask of ports to configure\n"
 		"  -v VIRTIOMASK_L[,VIRTIOMASK_H]: Hexadecimal bitmask of virtio to configure\n"
@@ -434,7 +436,8 @@ print_usage(const char *prgname)
 		"  --disable-tx-mseg: Disable ethdev Tx multi-seg offload capability\n"
 		"  --pcap-enable: Enables pcap capture\n"
 		"  --pcap-num-cap NUMPKT: Number of packets to capture\n"
-		"  --pcap-file-name NAME: Pcap file name\n\n",
+		"  --pcap-file-name NAME: Pcap file name\n"
+		"  --enable-l4-csum: Enable IPv4 L4 checksum offload capability\n\n",
 		prgname);
 }
 
@@ -682,6 +685,7 @@ static const char short_options[] = "p:" /* portmask */
 #define CMD_LINE_OPT_PCAP_ENABLE   "pcap-enable"
 #define CMD_LINE_OPT_NUM_PKT_CAP   "pcap-num-cap"
 #define CMD_LINE_OPT_PCAP_FILENAME "pcap-file-name"
+#define CMD_LINE_OPT_ENA_L4_CSUM   "enable-l4-csum"
 enum {
 	/* Long options mapped to a short option */
 
@@ -699,6 +703,7 @@ enum {
 	CMD_LINE_OPT_PARSE_PCAP_ENABLE,
 	CMD_LINE_OPT_PARSE_NUM_PKT_CAP,
 	CMD_LINE_OPT_PCAP_FILENAME_CAP,
+	CMD_LINE_OPT_PARSE_ENA_L4_CSUM,
 };
 
 static const struct option lgopts[] = {
@@ -712,6 +717,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_PCAP_ENABLE, 0, 0, CMD_LINE_OPT_PARSE_PCAP_ENABLE},
 	{CMD_LINE_OPT_NUM_PKT_CAP, 1, 0, CMD_LINE_OPT_PARSE_NUM_PKT_CAP},
 	{CMD_LINE_OPT_PCAP_FILENAME, 1, 0, CMD_LINE_OPT_PCAP_FILENAME_CAP},
+	{CMD_LINE_OPT_ENA_L4_CSUM, 0, 0, CMD_LINE_OPT_PARSE_ENA_L4_CSUM},
 	{NULL, 0, 0, 0},
 };
 
@@ -908,6 +914,11 @@ parse_args(int argc, char **argv)
 		case CMD_LINE_OPT_PCAP_FILENAME_CAP:
 			rte_strlcpy(pcap_filename, optarg, sizeof(pcap_filename));
 			APP_INFO("Pcap file name: %s\n", pcap_filename);
+			break;
+
+		case CMD_LINE_OPT_PARSE_ENA_L4_CSUM:
+			APP_INFO("IPv4 Checksum offload feature is enabled\n");
+			enable_l4_csum = true;
 			break;
 
 		default:
@@ -2561,6 +2572,7 @@ setup_virtio_devices(void)
 		if (max_pkt_len)
 			netdev_conf.mtu = (max_pkt_len - overhd);
 		netdev_conf.auto_free_en = virtio_netdev_autofree;
+		netdev_conf.csum_en = enable_l4_csum;
 
 		/* Save reta size for future use */
 		virtio_netdev_reta_sz[virtio_devid] = netdev_conf.reta_size;
