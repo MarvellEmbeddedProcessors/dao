@@ -81,7 +81,7 @@ jobs:
             apt-get install -y python3-pyelftools python3-setuptools python3-wheel zlib1g-dev
             apt-get install -y gcc-13 bzip2-doc icu-devtools libacl1-dev libattr1-dev
             apt-get install -y libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev
-            apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev
+            apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
             pip3 install meson --upgrade
           run: |
             source /artifacts/env
