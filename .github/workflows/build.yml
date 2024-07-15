@@ -54,6 +54,7 @@ jobs:
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
           echo "NIGHTLY=${NIGHTLY}" >> $GITHUB_OUTPUT
           echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> $GITHUB_OUTPUT
+          echo "DPDK_BASE_PKG_VERSION=${DPDK_BASE_PKG_VERSION}" >> $GITHUB_OUTPUT
       - uses: uraimo/run-on-arch-action@v2.7.2
         name: Build DAO and generate package
         id: build
