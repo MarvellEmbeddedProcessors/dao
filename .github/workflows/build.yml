@@ -158,4 +158,4 @@ jobs:
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "dao",
             "tag": "dao-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
             "dpdk_tag" : "dpdk-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.version.outputs.DPDK_PKG_VERSION }}",
-            "has_dpdk" : "true", "distro" : "${{ steps.version.outputs.DISTRO }}"}}'
+            "has_dpdk" : "true", "distro" : "${{ steps.artifacts.outputs.DISTRO }}"}}'
