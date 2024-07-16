@@ -123,7 +123,7 @@ Installing DAO package
 
 .. code-block:: console
 
- # apt-get install dao-cn10k-latest
+ # apt-get install dao-cn10k-devel
 
  This will also install mandatory dependency viz DPDK
 
@@ -132,7 +132,7 @@ Installing OVS package (optional)
 
 .. code-block:: console
 
- # apt-get install ovs-3.3
+ # apt-get install ovs-3.3-cn10k-devel
 
 Installation demo
 -----------------

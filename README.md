@@ -44,7 +44,7 @@ Installing DAO package
 
 ```sh
 
-apt-get install dao-cn10k-latest
+apt-get install dao-cn10k-devel
 
 ```
 
