@@ -17,6 +17,7 @@
 #include <rte_random.h>
 
 extern struct ct_l4_proto dao_ct_proto_icmp4;
+extern struct ct_l4_proto dao_ct_proto_tcp;
 static struct ct_l4_proto *l4_protos[UINT8_MAX + 1];
 int dao_ct_field_offset = -1;
 struct dao_conntrack *ct;
@@ -819,6 +820,7 @@ dao_conntrack_init(void **qsbr_obj)
 
 	/* Register l4 protocols. */
 	l4_protos[IPPROTO_ICMP] = &dao_ct_proto_icmp4;
+	l4_protos[IPPROTO_TCP] = &dao_ct_proto_tcp;
 
 	/* All done. Populate qsbr object now. */
 	*qsbr_obj = (void *)ct->qsbr_obj;
