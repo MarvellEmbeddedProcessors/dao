@@ -3,6 +3,7 @@
 
 sources = files(
 	'dao_conntrack.c',
+	'dao_conntrack_icmp.c',
 )
 
 headers = files(
