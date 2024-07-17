@@ -33,6 +33,9 @@ function virtio_l2fwd_1c()
 	# Launch virtio l2fwd
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l"; then
 		echo "Failed to launch virtio l2fwd"
+
+		# Quit l2fwd app
+		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
 		return 1
 	fi
 
@@ -125,6 +128,9 @@ function virtio_l2fwd_multiseg()
 	# Launch virtio l2fwd
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200"; then
 		echo "Failed to launch virtio l2fwd"
+
+		# Quit l2fwd app
+		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
 		return 1
 	fi
 
@@ -141,10 +147,10 @@ function virtio_l2fwd_multiseg()
 		echo "Failed to launch virtio l2fwd with No fastfree"
 	else
 		virtio_l2fwd_offload_run $host_testpmd_pfx $l2fwd_out "no_ff" $tx_spcap $tx_mpcap
-
-		# Quit l2fwd app
-		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
 	fi
+
+	# Quit l2fwd app
+	l2fwd_app_quit $l2fwd_pfx $l2fwd_out
 
 	echo ""
 	if [[ -n $failed_tests ]]; then
