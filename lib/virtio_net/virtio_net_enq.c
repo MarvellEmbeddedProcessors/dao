@@ -133,7 +133,7 @@ static __rte_always_inline int
 push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	      struct rte_mbuf **mbufs, uint16_t nb_mbufs, const uint16_t flags)
 {
-	uint64x2_t rss0, rss1, rss2, rss3, d01, d23, rss0213, h0213;
+	uint64x2_t rss0, rss1, rss2, rss3, d01, d23, rss0213;
 	uint32_t pkt_typ0, pkt_typ1, pkt_typ2, pkt_typ3;
 	uint64x2_t flags01, flags23, len01, len23;
 	struct rte_mbuf **mbuf_arr = q->mbuf_arr;
@@ -149,7 +149,7 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	uint64x2_t len_olflags0, len_olflags1;
 	uint64x2_t len_olflags2, len_olflags3;
 	uint16_t sd_off, avail_sd, avail_mbuf;
-	uint32x4_t ol_flags, xlen, ylen;
+	uint32x4_t ol_flags, xlen, ylen, h0213;
 	uint64x2_t xflags01, xflags23;
 	uint8_t *hrp = q->hash_report;
 	uint64x2_t vdst[4], vsrc[4];
@@ -312,6 +312,7 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 			rss2 = vld1q_u32((uint32_t *)mbuf2 + 11);
 			rss3 = vld1q_u32((uint32_t *)mbuf3 + 11);
 
+			h0213 = vdupq_n_u32(0);
 			h0213 = vsetq_lane_u32(mbuf_pkt_type_to_virtio_hash_report(hrp, pkt_typ0),
 					       h0213, 0);
 			h0213 = vsetq_lane_u32(mbuf_pkt_type_to_virtio_hash_report(hrp, pkt_typ1),
