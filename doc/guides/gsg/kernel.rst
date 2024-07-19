@@ -63,11 +63,11 @@ Configuring the Kernel
 
 Use the following configuration obtained from the DAO repository to configure the kernel:
 
-`Kernel Config <https://github.com/MarvellEmbeddedProcessors/dpu-accelerator-offload/tree/dao-devel/configs/kernel/v6.1/marvell_v8_octeon_kernel_nf.config>`_
+`Kernel Config <https://github.com/MarvellEmbeddedProcessors/dpu-accelerator-offload/tree/dao-devel/config/kernel/v6.1/cn10k.config>`_
 
 .. code-block:: console
 
- cp marvell_v8_octeon_kernel_asim.config <path_to_kernel_directory>/arch/arm64/configs/
+ cp cn10k.config <path_to_kernel_directory>/arch/arm64/configs/
  cd <path_to_kernel_directory>
  make ARCH=arm64 marvell_v8_octeon_kernel_asim.config
 
