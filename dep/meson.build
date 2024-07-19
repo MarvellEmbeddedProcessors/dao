@@ -7,3 +7,4 @@ if host_build
   subdir('libedit')
 endif
 subdir('libnl')
+subdir('libpcap')
