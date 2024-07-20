@@ -481,11 +481,11 @@ mark_deq_compl_no_inorder(struct virtio_net_queue *q, struct dao_dma_vchan_state
 	uint16_t q_sz = q->q_sz;
 	uint16_t end, pend;
 
-	/* Validate descriptor */
-	VIRTIO_NET_DESC_CHECK(q, start, desc_off_diff(end, start, q_sz), true, true);
-
 	end = desc_off_add(start, nb_desc, q_sz);
 	pend = desc_off_diff_no_wrap(end, start, q_sz);
+
+	/* Validate descriptor */
+	VIRTIO_NET_DESC_CHECK(q, start, desc_off_diff(end, start, q_sz), true, true);
 
 	/* Issue descriptor data DMA */
 	dao_dma_enq_x1(mem2dev, (rte_iova_t)DESC_PTR_OFF(sd_desc_base, DESC_OFF(start), 0),
