@@ -45,13 +45,13 @@ function save_log()
 function host_sync()
 {
 	local sync="rsync -azzh --delete"
-	if [[ -n $SKIP_EP_HOST_SYNC || -n $SKIP_SYNC ]]; then
+	if [[ -n $SKIP_EP_HOST_SYNC || -n $SKIP_SYNC || -n $NO_HOST ]]; then
 		echo "Skip syncing EP host files"
 		return
 	fi
 
 	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
-		echo "Cleanup EP device files"
+		echo "Cleanup EP host files"
 		$REMOTE_HOST "rm -rf $EP_HOST_DIR"
 	fi
 
@@ -98,6 +98,8 @@ function device_setup()
 		ep_device_op hugepage_setup
 		ep_device_op dpi_setup
 		ep_device_op pem_setup
+	elif [[ $DAO_SUITE == "dao-unit-tests" ]]; then
+		ep_device_op hugepage_setup
 	else
 		echo "Unknown Suite : $DAO_SUITE"
 		exit 1
@@ -107,7 +109,7 @@ function device_setup()
 function host_setup()
 {
 	local device_part
-	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP ]]; then
+	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP || -n $NO_HOST ]]; then
 		echo "Skip EP host setup"
 		return
 	fi
@@ -206,10 +208,12 @@ function test_exit()
 	trap - ERR
 	trap - QUIT
 
-	ep_host_op safe_kill $EP_HOST_DIR
+	if [[ -z $NO_HOST ]]; then
+		ep_host_op safe_kill $EP_HOST_DIR
+	fi
 	ep_device_op safe_kill $EP_DEVICE_DIR
 
-	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP ]]; then
+	if [[ -n $SKIP_EP_HOST_SETUP || -n $SKIP_SETUP || -n $NO_HOST ]]; then
 		echo "Skip EP host cleanup"
 	else
 		local device_part=$(ep_device_op get_part)
@@ -217,8 +221,10 @@ function test_exit()
 		ep_host_op vdpa_cleanup $device_part
 	fi
 
-	ep_host_ssh_cmd 'sudo dmesg' > host_dmesg.log
-	save_log host_dmesg.log
+	if [[ -z $NO_HOST ]]; then
+		ep_host_ssh_cmd 'sudo dmesg' > host_dmesg.log
+		save_log host_dmesg.log
+	fi
 	ep_device_ssh_cmd 'sudo dmesg' > device_dmesg.log
 	save_log device_dmesg.log
 
