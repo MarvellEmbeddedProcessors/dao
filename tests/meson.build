@@ -50,7 +50,7 @@ foreach test: tests
     endif
 
     enabled += [name]
-    executable('dpdk-' + name, sources,
+    executable('dao-' + name, sources,
             include_directories: DAO_INCLUDES,
 	    link_whole: DAO_STATIC_LIBS,
             link_args: ldflags,

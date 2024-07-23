@@ -10,7 +10,7 @@ source $VIRTIO_UTILS_SCRIPT_PATH/../../common/ep_host_utils.sh
 source $VIRTIO_UTILS_SCRIPT_PATH/../../common/ep_device_utils.sh
 source $VIRTIO_UTILS_SCRIPT_PATH/../../common/testpmd.sh
 
-find_executable "dpdk-virtio-extbuf" VIRTIO_EXTBUF "$VIRTIO_UTILS_SCRIPT_PATH/../../../../../tests"
+find_executable "dao-virtio-extbuf" VIRTIO_EXTBUF "$VIRTIO_UTILS_SCRIPT_PATH/../../../../../tests"
 
 function extbuf_host_check_pps()
 {
@@ -143,13 +143,13 @@ function extbuf_app_quit()
 	cat $log
 
 	# Issue kill SIGINT
-	local pid=$(ps -ef | grep dpdk-virtio-extbuf | grep $pfx | awk '{print $2}' | xargs -n1 kill -2 2>/dev/null || true)
+	local pid=$(ps -ef | grep dao-virtio-extbuf | grep $pfx | awk '{print $2}' | xargs -n1 kill -2 2>/dev/null || true)
 
 	# Wait until the process is killed
-	local alive=$(ps -ef | grep dpdk-virtio-extbuf | grep $pfx || true)
+	local alive=$(ps -ef | grep dao-virtio-extbuf | grep $pfx || true)
 	while [[ "$alive" != "" ]]; do
 		sleep 1
-		alive=$(ps -ef | grep dpdk-virtio-extbuf | grep $pfx || true)
+		alive=$(ps -ef | grep dao-virtio-extbuf | grep $pfx || true)
 		continue
 	done
 	rm -f $log
