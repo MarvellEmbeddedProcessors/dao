@@ -1,0 +1,902 @@
+From fffca042ef8743c40d22c1d5d183c99fb43118cb Mon Sep 17 00:00:00 2001
+From: Nagendra T P <ntp@marvell.com>
+Date: Tue, 23 Jul 2024 17:09:46 +0530
+Subject: [PATCH] add asynchronous mode support to OpenSSL
+
+Implemented asynchronous mode for non-blocking operations in OpenSSL.
+Enhanced performance and scalability by allowing asynchronous processing.
+
+Signed-off-by: Nagendra T P <ntp@marvell.com>
+---
+ apps/engine.c                   |  3 ++
+ apps/speed.c                    | 89 ++++++++++++++++++++++++++++++++-
+ crypto/async/async_local.h      |  3 ++
+ crypto/async/async_wait.c       | 35 +++++++++++++
+ crypto/ec/ec_key.c              |  6 +++
+ crypto/evp/e_aes.c              |  6 +--
+ crypto/rsa/rsa_lib.c            |  6 +++
+ doc/man3/ASYNC_WAIT_CTX_new.pod | 73 +++++++++++++++++++++++++--
+ doc/man3/ASYNC_start_job.pod    | 36 +++++++------
+ engines/e_dasync.c              | 14 ++++++
+ include/openssl/async.h         | 14 ++++++
+ include/openssl/ec.h            |  2 +
+ include/openssl/rsa.h           |  1 +
+ include/openssl/ssl.h           |  9 ++++
+ ssl/record/rec_layer_s3.c       |  8 +--
+ ssl/ssl_lib.c                   | 48 ++++++++++++++++++
+ ssl/ssl_local.h                 |  8 +++
+ ssl/statem/statem_srvr.c        | 29 +++++++++++
+ test/asynctest.c                | 38 ++++++++++++++
+ util/libcrypto.num              |  6 +++
+ util/libssl.num                 |  5 ++
+ util/private.num                |  6 +++
+ 22 files changed, 418 insertions(+), 27 deletions(-)
+
+diff --git a/apps/engine.c b/apps/engine.c
+index 746cace354..29922bbc88 100644
+--- a/apps/engine.c
++++ b/apps/engine.c
+@@ -402,6 +402,9 @@ int engine_main(int argc, char **argv)
+                 if (ENGINE_get_DH(e) != NULL
+                     && !append_buf(&cap_buf, &cap_size, "DH"))
+                     goto end;
++		if (ENGINE_get_EC(e) != NULL
++                    && !append_buf(&cap_buf, &cap_size, "ECDH, ECDSA"))
++                    goto end;
+                 if (ENGINE_get_RAND(e) != NULL
+                     && !append_buf(&cap_buf, &cap_size, "RAND"))
+                     goto end;
+diff --git a/apps/speed.c b/apps/speed.c
+index 89bf18480f..4774e00f44 100644
+--- a/apps/speed.c
++++ b/apps/speed.c
+@@ -8,6 +8,7 @@
+  * https://www.openssl.org/source/license.html
+  */
+
++#define _GNU_SOURCE
+ #undef SECONDS
+ #define SECONDS                 3
+ #define RSA_SECONDS             10
+@@ -19,6 +20,8 @@
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
++#include <sys/ipc.h>
++#include <sys/shm.h>
+ #include <math.h>
+ #include "apps.h"
+ #include "progs.h"
+@@ -28,6 +31,7 @@
+ #include <openssl/evp.h>
+ #include <openssl/objects.h>
+ #include <openssl/async.h>
++#include "internal/conf.h"
+ #if !defined(OPENSSL_SYS_MSDOS)
+ # include OPENSSL_UNISTD
+ #endif
+@@ -1383,6 +1387,19 @@ static int run_benchmark(int async_jobs,
+     return error ? -1 : total_op_count;
+ }
+
++#define NUM_CORES 24
++#define SHM_KEY   6789
++
++static inline void cpu_pause()
++{
++	__asm__ __volatile__ ("nop");
++	__asm__ __volatile__ ("nop");
++	__asm__ __volatile__ ("nop");
++	__asm__ __volatile__ ("nop");
++}
++
++static uint64_t *shm;
++
+ int speed_main(int argc, char **argv)
+ {
+     ENGINE *e = NULL;
+@@ -1590,7 +1607,7 @@ int speed_main(int argc, char **argv)
+         case OPT_MULTI:
+ #ifndef NO_FORK
+             multi = atoi(opt_arg());
+-            if (multi >= INT_MAX / (int)sizeof(int)) {
++            if (multi > NUM_CORES) {
+                 BIO_printf(bio_err, "%s: multi argument too large\n", prog);
+                 return 0;
+             }
+@@ -1809,14 +1826,71 @@ int speed_main(int argc, char **argv)
+ #endif
+     }
+
++     int shmid;
++     key_t shm_key = SHM_KEY;
++     if ((shmid = shmget(shm_key, sizeof(uint64_t)/* bytes of shm */, IPC_CREAT | 0666)) < 0) {
++	     perror("shmget");
++	     exit(1);
++     }
++
++     if ((shm = shmat(shmid, NULL, 0)) == (uint64_t *) -1) {
++	     perror("shmat");
++	     exit(1);
++     }
++
++
+ #ifndef NO_FORK
+     if (multi && do_multi(multi, size_num))
+         goto show_res;
+ #endif
++    /* If dpdk_engine is already loaded, it means it is loaded via openssl conf.
++     * dpdk_engine doesn't support such loading when -multi is used (no fork after loading)
++     */
++    if (multi) {
++        e = ENGINE_get_first();
++        while (e) {
++            if (strcmp("dpdk_engine", ENGINE_get_id(e)) == 0) {
++                BIO_printf(bio_err, "dpdk_engine cannot be loaded using OPENSSL_CONF when -multi is enabled.\n"
++                                    "Use OPENSSL_CONF_MULTI env variable to load config file\n");
++                exit(1);
++            }
++            e = ENGINE_get_next(e);
++        }
++        e = NULL;
++    }
+
+     /* Initialize the engine after the fork */
+     e = setup_engine(engine_id, 0);
+
++    char* multi_conf;
++    multi_conf = getenv("OPENSSL_CONF_MULTI");
++    if (multi && multi_conf != NULL) {
++        if (CONF_modules_load_file(multi_conf, NULL, 0) <=0 ) {
++            BIO_printf(bio_err, "Error loading config file set in OPENSSL_CONF_MULTI=%s\n", multi_conf);
++            exit(1);
++        }
++        if ((e = ENGINE_by_id("dpdk_engine")) != NULL &&
++                !ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
++            BIO_printf(bio_err, "can't use that engine\n");
++            ERR_print_errors(bio_err);
++            ENGINE_free(e);
++            e = NULL;
++        }
++    }
++    static struct timespec start, end;
++    if(multi)
++    {
++        /* Start barrier */
++        __atomic_fetch_sub(shm, 1, __ATOMIC_RELAXED);
++        while(__atomic_load_n(shm, __ATOMIC_RELAXED) != 0)
++            cpu_pause();
++    }
++    clock_gettime(CLOCK_MONOTONIC_RAW, &start);
++    BIO_printf(bio_err,
++           "pid %u, start-end %lu.%lu - %lu.%lu\n",
++           getpid(), start.tv_sec, start.tv_nsec,
++           end.tv_sec, end.tv_nsec);
++
+     /* No parameters; turn on everything. */
+     if ((argc == 0) && !doit[D_EVP]) {
+         for (i = 0; i < ALGOR_NUM; i++)
+@@ -3197,6 +3271,11 @@ int speed_main(int argc, char **argv)
+     }
+
+ #endif                          /* OPENSSL_NO_EC */
++	clock_gettime(CLOCK_MONOTONIC_RAW, &end);
++	BIO_printf(bio_err,
++		   "pid %u, start-end %lu.%lu - %lu.%lu\n",
++		   getpid(), start.tv_sec, start.tv_nsec,
++		   end.tv_sec, end.tv_nsec);
+ #ifndef NO_FORK
+  show_res:
+ #endif
+@@ -3473,6 +3552,9 @@ static int do_multi(int multi, int size_num)
+     int *fds;
+     static char sep[] = ":";
+
++      *(uint64_t *)shm = multi;
++      __atomic_thread_fence(__ATOMIC_SEQ_CST);
++
+     fds = app_malloc(sizeof(*fds) * multi, "fd buffer for do_multi");
+     for (n = 0; n < multi; ++n) {
+         if (pipe(fd) == -1) {
+@@ -3495,6 +3577,11 @@ static int do_multi(int multi, int size_num)
+             mr = 1;
+             usertime = 0;
+             OPENSSL_free(fds);
++
++            cpu_set_t msk;
++            CPU_ZERO(&msk);
++            CPU_SET((n+1)%NUM_CORES, &msk);
++            sched_setaffinity(getpid(), sizeof(cpu_set_t), &msk);
+             return 0;
+         }
+         printf("Forked child %d\n", n);
+diff --git a/crypto/async/async_local.h b/crypto/async/async_local.h
+index dd1a85e026..1e3e1b47a3 100644
+--- a/crypto/async/async_local.h
++++ b/crypto/async/async_local.h
+@@ -59,6 +59,9 @@ struct async_wait_ctx_st {
+     struct fd_lookup_st *fds;
+     size_t numadd;
+     size_t numdel;
++    ASYNC_callback_fn callback;
++    void *callback_arg;
++    int status;
+ };
+
+ DEFINE_STACK_OF(ASYNC_JOB)
+diff --git a/crypto/async/async_wait.c b/crypto/async/async_wait.c
+index 7723f949a6..de019fd5dd 100644
+--- a/crypto/async/async_wait.c
++++ b/crypto/async/async_wait.c
+@@ -182,6 +182,41 @@ int ASYNC_WAIT_CTX_clear_fd(ASYNC_WAIT_CTX *ctx, const void *key)
+     return 0;
+ }
+
++int ASYNC_WAIT_CTX_set_callback(ASYNC_WAIT_CTX *ctx,
++                                ASYNC_callback_fn callback,
++                                void *callback_arg)
++{
++      if (ctx == NULL)
++          return 0;
++
++      ctx->callback = callback;
++      ctx->callback_arg = callback_arg;
++      return 1;
++}
++
++int ASYNC_WAIT_CTX_get_callback(ASYNC_WAIT_CTX *ctx,
++                                ASYNC_callback_fn *callback,
++                                void **callback_arg)
++{
++      if (ctx->callback == NULL)
++          return 0;
++
++      *callback = ctx->callback;
++      *callback_arg = ctx->callback_arg;
++      return 1;
++}
++
++int ASYNC_WAIT_CTX_set_status(ASYNC_WAIT_CTX *ctx, int status)
++{
++      ctx->status = status;
++      return 1;
++}
++
++int ASYNC_WAIT_CTX_get_status(ASYNC_WAIT_CTX *ctx)
++{
++      return ctx->status;
++}
++
+ void async_wait_ctx_reset_counts(ASYNC_WAIT_CTX *ctx)
+ {
+     struct fd_lookup_st *curr, *prev = NULL;
+diff --git a/crypto/ec/ec_key.c b/crypto/ec/ec_key.c
+index 3017f0936c..364a92cab0 100644
+--- a/crypto/ec/ec_key.c
++++ b/crypto/ec/ec_key.c
+@@ -179,6 +179,12 @@ ENGINE *EC_KEY_get0_engine(const EC_KEY *eckey)
+     return eckey->engine;
+ }
+
++void EC_KEY_set0_engine(EC_KEY *eckey, ENGINE* engine)
++{
++    eckey->engine = engine;
++    eckey->meth = ENGINE_get_EC(engine);
++}
++
+ int EC_KEY_generate_key(EC_KEY *eckey)
+ {
+     if (eckey == NULL || eckey->group == NULL) {
+diff --git a/crypto/evp/e_aes.c b/crypto/evp/e_aes.c
+index a1d3ab90fa..8055db68f0 100644
+--- a/crypto/evp/e_aes.c
++++ b/crypto/evp/e_aes.c
+@@ -3076,9 +3076,9 @@ static int aes_gcm_tls_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
+      * Set IV from start of buffer or generate IV and write to start of
+      * buffer.
+      */
+-    if (EVP_CIPHER_CTX_ctrl(ctx, ctx->encrypt ? EVP_CTRL_GCM_IV_GEN
+-                                              : EVP_CTRL_GCM_SET_IV_INV,
+-                            EVP_GCM_TLS_EXPLICIT_IV_LEN, out) <= 0)
++    if (aes_gcm_ctrl(ctx, ctx->encrypt ? EVP_CTRL_GCM_IV_GEN
++                                       : EVP_CTRL_GCM_SET_IV_INV,
++                          EVP_GCM_TLS_EXPLICIT_IV_LEN, out) <= 0)
+         goto err;
+     /* Use saved AAD */
+     if (CRYPTO_gcm128_aad(&gctx->gcm, ctx->buf, gctx->tls_aad_len))
+diff --git a/crypto/rsa/rsa_lib.c b/crypto/rsa/rsa_lib.c
+index 63fd1a6db4..bc5f5565e0 100644
+--- a/crypto/rsa/rsa_lib.c
++++ b/crypto/rsa/rsa_lib.c
+@@ -482,6 +482,12 @@ ENGINE *RSA_get0_engine(const RSA *r)
+     return r->engine;
+ }
+
++void RSA_set0_engine(RSA *r, ENGINE* engine)
++{
++    r->engine = engine;
++    r->meth = ENGINE_get_RSA(engine);
++}
++
+ int RSA_pkey_ctx_ctrl(EVP_PKEY_CTX *ctx, int optype, int cmd, int p1, void *p2)
+ {
+     /* If key type not RSA or RSA-PSS return error */
+diff --git a/doc/man3/ASYNC_WAIT_CTX_new.pod b/doc/man3/ASYNC_WAIT_CTX_new.pod
+index 0e8c1d8010..adbd8e22ec 100644
+--- a/doc/man3/ASYNC_WAIT_CTX_new.pod
++++ b/doc/man3/ASYNC_WAIT_CTX_new.pod
+@@ -4,13 +4,22 @@
+
+ ASYNC_WAIT_CTX_new, ASYNC_WAIT_CTX_free, ASYNC_WAIT_CTX_set_wait_fd,
+ ASYNC_WAIT_CTX_get_fd, ASYNC_WAIT_CTX_get_all_fds,
+-ASYNC_WAIT_CTX_get_changed_fds, ASYNC_WAIT_CTX_clear_fd - functions to manage
+-waiting for asynchronous jobs to complete
++ASYNC_WAIT_CTX_get_changed_fds, ASYNC_WAIT_CTX_clear_fd,
++ASYNC_WAIT_CTX_set_callback, ASYNC_WAIT_CTX_get_callback,
++ASYNC_WAIT_CTX_set_status, ASYNC_WAIT_CTX_get_status, ASYNC_callback_fn,
++ASYNC_STATUS_UNSUPPORTED, ASYNC_STATUS_ERR, ASYNC_STATUS_OK,
++ASYNC_STATUS_EAGAIN
++- functions to manage waiting for asynchronous jobs to complete
+
+ =head1 SYNOPSIS
+
+  #include <openssl/async.h>
+
++ #define ASYNC_STATUS_UNSUPPORTED    0
++ #define ASYNC_STATUS_ERR            1
++ #define ASYNC_STATUS_OK             2
++ #define ASYNC_STATUS_EAGAIN         3
++ typedef int (*ASYNC_callback_fn)(void *arg);
+  ASYNC_WAIT_CTX *ASYNC_WAIT_CTX_new(void);
+  void ASYNC_WAIT_CTX_free(ASYNC_WAIT_CTX *ctx);
+  int ASYNC_WAIT_CTX_set_wait_fd(ASYNC_WAIT_CTX *ctx, const void *key,
+@@ -26,6 +35,14 @@ waiting for asynchronous jobs to complete
+                                     size_t *numaddfds, OSSL_ASYNC_FD *delfd,
+                                     size_t *numdelfds);
+  int ASYNC_WAIT_CTX_clear_fd(ASYNC_WAIT_CTX *ctx, const void *key);
++ int ASYNC_WAIT_CTX_set_callback(ASYNC_WAIT_CTX *ctx,
++                                 ASYNC_callback_fn callback,
++                                 void *callback_arg);
++ int ASYNC_WAIT_CTX_get_callback(ASYNC_WAIT_CTX *ctx,
++                                 ASYNC_callback_fn *callback,
++                                 void **callback_arg);
++ int ASYNC_WAIT_CTX_set_status(ASYNC_WAIT_CTX *ctx, int status);
++ int ASYNC_WAIT_CTX_get_status(ASYNC_WAIT_CTX *ctx);
+
+
+ =head1 DESCRIPTION
+@@ -103,14 +120,58 @@ code that the job should be resumed by making the wait file descriptor
+ "readable". Once resumed the engine should clear the wake signal on the wait
+ file descriptor.
+
++As well as a file descriptor, user code may also be notified via a callback. The
++callback and data pointers are stored within the ASYNC_WAIT_CTX along with an
++additional status field that can be used for the notification of retries from an
++engine. This additional method can be used when the user thinks that a file
++descriptor is too costly in terms of CPU cycles or in some context where a file
++descriptor is not appropriate.
++
++ASYNC_WAIT_CTX_set_callback() sets the callback and the callback argument. The
++callback will be called to notify user code when an engine completes a
++cryptography operation. It is a requirement that the callback function is small
++and non-blocking as it will be run in the context of a polling mechanism or an
++interrupt.
++
++ASYNC_WAIT_CTX_get_callback() returns the callback set in the ASYNC_WAIT_CTX
++structure.
++
++ASYNC_WAIT_CTX_set_status() allows an engine to set the current engine status.
++The possible status values are the following:
++ASYNC_STATUS_UNSUPPORTED: The engine does not support the callback mechanism.
++This is the default value. The engine must call ASYNC_WAIT_CTX_set_status() to
++set the status to some value other than ASYNC_STATUS_UNSUPPORTED if it intends
++to enable the callback mechanism.
++ASYNC_STATUS_ERR: The engine has a fatal problem with this request. The user
++code should clean up this session.
++ASYNC_STATUS_OK: The request has been successfully submitted.
++ASYNC_STATUS_EAGAIN: The engine has some problem which will be recovered soon,
++such as a buffer is full, so user code should resume the job.
++
++ASYNC_WAIT_CTX_get_status() allows user code to obtain the current status value.
++If the status is any value other than ASYNC_STATUS_OK then the user code should
++not expect to receive a callback from the engine even if one has been set.
++
++An example of the usage of the callback method might be the following. User
++code would initiate cryptographic operations, and the engine code would dispatch
++this operation to hardware, and if the dispatch is successful, then the engine
++code would call ASYNC_pause_job() to return control to the user code. After
++that, user code can perform other tasks. When the hardware completes the
++operation, normally it is detected by a polling function or an interrupt, as the
++user code set a callback by calling ASYNC_WAIT_CTX_set_callback() previously,
++then the registered callback will be called.
++
+ =head1 RETURN VALUES
+
+ ASYNC_WAIT_CTX_new() returns a pointer to the newly allocated ASYNC_WAIT_CTX or
+ NULL on error.
+
+ ASYNC_WAIT_CTX_set_wait_fd, ASYNC_WAIT_CTX_get_fd, ASYNC_WAIT_CTX_get_all_fds,
+-ASYNC_WAIT_CTX_get_changed_fds and ASYNC_WAIT_CTX_clear_fd all return 1 on
+-success or 0 on error.
++ASYNC_WAIT_CTX_get_changed_fds, ASYNC_WAIT_CTX_clear_fd,
++ASYNC_WAIT_CTX_set_callback, ASYNC_WAIT_CTX_get_callback and
++ASYNC_WAIT_CTX_set_status all return 1 on success or 0 on error.
++ASYNC_WAIT_CTX_get_status() returns the engine status.
++
+
+ =head1 NOTES
+
+@@ -132,6 +193,10 @@ ASYNC_WAIT_CTX_get_fd(), ASYNC_WAIT_CTX_get_all_fds(),
+ ASYNC_WAIT_CTX_get_changed_fds() and ASYNC_WAIT_CTX_clear_fd()
+ were added in OpenSSL 1.1.0.
+
++ASYNC_WAIT_CTX_set_callback(), ASYNC_WAIT_CTX_get_callback(),
++ASYNC_WAIT_CTX_set_status(), and ASYNC_WAIT_CTX_get_status()
++were added in OpenSSL 3.0.0.
++
+ =head1 COPYRIGHT
+
+ Copyright 2016-2020 The OpenSSL Project Authors. All Rights Reserved.
+diff --git a/doc/man3/ASYNC_start_job.pod b/doc/man3/ASYNC_start_job.pod
+index 810b967873..9f8d2c3414 100644
+--- a/doc/man3/ASYNC_start_job.pod
++++ b/doc/man3/ASYNC_start_job.pod
+@@ -107,22 +107,26 @@ ASYNC_pause_job() is called whilst not within the context of a job then no
+ action is taken and ASYNC_pause_job() returns immediately.
+
+ ASYNC_get_wait_ctx() can be used to get a pointer to the ASYNC_WAIT_CTX
+-for the B<job>. ASYNC_WAIT_CTXs can have a "wait" file descriptor associated
+-with them. Applications can wait for the file descriptor to be ready for "read"
+-using a system function call such as select or poll (being ready for "read"
+-indicates that the job should be resumed). If no file descriptor is made
+-available then an application will have to periodically "poll" the job by
+-attempting to restart it to see if it is ready to continue.
+-
+-An example of typical usage might be an async capable engine. User code would
+-initiate cryptographic operations. The engine would initiate those operations
+-asynchronously and then call L<ASYNC_WAIT_CTX_set_wait_fd(3)> followed by
+-ASYNC_pause_job() to return control to the user code. The user code can then
+-perform other tasks or wait for the job to be ready by calling "select" or other
+-similar function on the wait file descriptor. The engine can signal to the user
+-code that the job should be resumed by making the wait file descriptor
+-"readable". Once resumed the engine should clear the wake signal on the wait
+-file descriptor.
++for the B<job>. ASYNC_WAIT_CTXs contain two different ways to notify
++applications that a job is ready to be resumed. One is a "wait" file
++descriptor, and the other is a "callback" mechanism.
++
++The "wait" file descriptor associated with ASYNC_WAIT_CTX is used for
++applications to wait for the file descriptor to be ready for "read" using a
++system function call such as select or poll (being ready for "read" indicates
++that the job should be resumed). If no file descriptor is made available then
++an application will have to periodically "poll" the job by attempting to restart
++it to see if it is ready to continue.
++
++ASYNC_WAIT_CTXs also have a "callback" mechanism to notify applications. The
++callback is set by an application, and it will be automatically called when an
++engine completes a cryptography operation, so that the application can resume
++the paused work flow without polling. An engine could be written to look whether
++the callback has been set. If it has then it would use the callback mechanism
++in preference to the file descriptor notifications. If a callback is not set
++then the engine may use file descriptor based notifications. Please note that
++not all engines may support the callback mechanism, so the callback may not be
++used even if it has been set. See ASYNC_WAIT_CTX_new() for more details.
+
+ The ASYNC_block_pause() function will prevent the currently active job from
+ pausing. The block will remain in place until a subsequent call to
+diff --git a/engines/e_dasync.c b/engines/e_dasync.c
+index 9ad043b1bd..1a20e64537 100644
+--- a/engines/e_dasync.c
++++ b/engines/e_dasync.c
+@@ -417,6 +417,8 @@ static void wait_cleanup(ASYNC_WAIT_CTX *ctx, const void *key,
+ static void dummy_pause_job(void) {
+     ASYNC_JOB *job;
+     ASYNC_WAIT_CTX *waitctx;
++    ASYNC_callback_fn callback;
++    void * callback_arg;
+     OSSL_ASYNC_FD pipefds[2] = {0, 0};
+     OSSL_ASYNC_FD *writefd;
+ #if defined(ASYNC_WIN)
+@@ -431,6 +433,18 @@ static void dummy_pause_job(void) {
+
+     waitctx = ASYNC_get_wait_ctx(job);
+
++    if (ASYNC_WAIT_CTX_get_callback(waitctx, &callback, &callback_arg) && callback != NULL) {
++        /*
++         * In the Dummy async engine we are cheating. We call the callback that the job
++         * is complete before the call to ASYNC_pause_job(). A real
++         * async engine would only call the callback when the job was actually complete
++         */
++        (*callback)(callback_arg);
++        ASYNC_pause_job();
++        return;
++    }
++
++
+     if (ASYNC_WAIT_CTX_get_fd(waitctx, engine_dasync_id, &pipefds[0],
+                               (void **)&writefd)) {
+         pipefds[1] = *writefd;
+diff --git a/include/openssl/async.h b/include/openssl/async.h
+index 7052b89052..fecbd5a344 100644
+--- a/include/openssl/async.h
++++ b/include/openssl/async.h
+@@ -31,12 +31,18 @@ extern "C" {
+
+ typedef struct async_job_st ASYNC_JOB;
+ typedef struct async_wait_ctx_st ASYNC_WAIT_CTX;
++typedef int (*ASYNC_callback_fn)(void *arg);
+
+ #define ASYNC_ERR      0
+ #define ASYNC_NO_JOBS  1
+ #define ASYNC_PAUSE    2
+ #define ASYNC_FINISH   3
+
++#define ASYNC_STATUS_UNSUPPORTED    0
++#define ASYNC_STATUS_ERR            1
++#define ASYNC_STATUS_OK             2
++#define ASYNC_STATUS_EAGAIN         3
++
+ int ASYNC_init_thread(size_t max_size, size_t init_size);
+ void ASYNC_cleanup_thread(void);
+
+@@ -52,6 +58,14 @@ int ASYNC_WAIT_CTX_get_fd(ASYNC_WAIT_CTX *ctx, const void *key,
+                         OSSL_ASYNC_FD *fd, void **custom_data);
+ int ASYNC_WAIT_CTX_get_all_fds(ASYNC_WAIT_CTX *ctx, OSSL_ASYNC_FD *fd,
+                                size_t *numfds);
++int ASYNC_WAIT_CTX_get_callback(ASYNC_WAIT_CTX *ctx,
++                                ASYNC_callback_fn *callback,
++                                void **callback_arg);
++int ASYNC_WAIT_CTX_set_callback(ASYNC_WAIT_CTX *ctx,
++                                ASYNC_callback_fn callback,
++                                void *callback_arg);
++int ASYNC_WAIT_CTX_set_status(ASYNC_WAIT_CTX *ctx, int status);
++int ASYNC_WAIT_CTX_get_status(ASYNC_WAIT_CTX *ctx);
+ int ASYNC_WAIT_CTX_get_changed_fds(ASYNC_WAIT_CTX *ctx, OSSL_ASYNC_FD *addfd,
+                                    size_t *numaddfds, OSSL_ASYNC_FD *delfd,
+                                    size_t *numdelfds);
+diff --git a/include/openssl/ec.h b/include/openssl/ec.h
+index 24baf53c34..abd24abef7 100644
+--- a/include/openssl/ec.h
++++ b/include/openssl/ec.h
+@@ -871,6 +871,8 @@ int EC_KEY_up_ref(EC_KEY *key);
+  */
+ ENGINE *EC_KEY_get0_engine(const EC_KEY *eckey);
+
++void EC_KEY_set0_engine(EC_KEY *eckey, ENGINE* engine);
++
+ /** Returns the EC_GROUP object of a EC_KEY object
+  *  \param  key  EC_KEY object
+  *  \return the EC_GROUP object (possibly NULL).
+diff --git a/include/openssl/rsa.h b/include/openssl/rsa.h
+index 5e76365c0d..e769c92025 100644
+--- a/include/openssl/rsa.h
++++ b/include/openssl/rsa.h
+@@ -230,6 +230,7 @@ int RSA_test_flags(const RSA *r, int flags);
+ void RSA_set_flags(RSA *r, int flags);
+ int RSA_get_version(RSA *r);
+ ENGINE *RSA_get0_engine(const RSA *r);
++void RSA_set0_engine(RSA *r, ENGINE* engine);
+
+ /* Deprecated version */
+ DEPRECATEDIN_0_9_8(RSA *RSA_generate_key(int bits, unsigned long e, void
+diff --git a/include/openssl/ssl.h b/include/openssl/ssl.h
+index 9af0c8995e..7f9825f193 100644
+--- a/include/openssl/ssl.h
++++ b/include/openssl/ssl.h
+@@ -293,6 +293,9 @@ typedef int (*SSL_custom_ext_parse_cb_ex)(SSL *s, unsigned int ext_type,
+ /* Typedef for verification callback */
+ typedef int (*SSL_verify_cb)(int preverify_ok, X509_STORE_CTX *x509_ctx);
+
++/* Typedef for SSL async callback */
++typedef int (*SSL_async_callback_fn)(SSL *s, void *arg);
++
+ /*
+  * Some values are reserved until OpenSSL 1.2.0 because they were previously
+  * included in SSL_OP_ALL in a 1.1.x release.
+@@ -1832,6 +1835,12 @@ __owur int SSL_get_all_async_fds(SSL *s, OSSL_ASYNC_FD *fds, size_t *numfds);
+ __owur int SSL_get_changed_async_fds(SSL *s, OSSL_ASYNC_FD *addfd,
+                                      size_t *numaddfds, OSSL_ASYNC_FD *delfd,
+                                      size_t *numdelfds);
++__owur int SSL_CTX_set_async_callback(SSL_CTX *ctx, SSL_async_callback_fn callback);
++__owur int SSL_CTX_set_async_callback_arg(SSL_CTX *ctx, void *arg);
++__owur int SSL_set_async_callback(SSL *s, SSL_async_callback_fn callback);
++__owur int SSL_set_async_callback_arg(SSL *s, void *arg);
++__owur int SSL_get_async_status(SSL *s, int *status);
++
+ # endif
+ __owur int SSL_accept(SSL *ssl);
+ __owur int SSL_stateless(SSL *s);
+diff --git a/ssl/record/rec_layer_s3.c b/ssl/record/rec_layer_s3.c
+index 8249b4ace9..2cf2359319 100644
+--- a/ssl/record/rec_layer_s3.c
++++ b/ssl/record/rec_layer_s3.c
+@@ -217,8 +217,10 @@ int ssl3_read_n(SSL *s, size_t n, size_t max, int extend, int clearold,
+                  * effect on memmove arguments and therefore no buffer
+                  * overrun can be triggered.
+                  */
+-                memmove(rb->buf + align, pkt, left);
+-                rb->offset = align;
++                if (clearold == 1) {
++                    memmove(rb->buf + align, pkt, left);
++                    rb->offset = align;
++                }
+             }
+         }
+         s->rlayer.packet = rb->buf + rb->offset;
+@@ -688,7 +690,7 @@ int do_ssl3_write(SSL *s, int type, const unsigned char *buf,
+         /* if it went, fall through and send more stuff */
+     }
+
+-    if (s->rlayer.numwpipes < numpipes) {
++    if (s->rlayer.numwpipes != numpipes) {
+         if (!ssl3_setup_write_buffer(s, numpipes, 0)) {
+             /* SSLfatal() already called */
+             return -1;
+diff --git a/ssl/ssl_lib.c b/ssl/ssl_lib.c
+index 25a1a44785..202df58876 100644
+--- a/ssl/ssl_lib.c
++++ b/ssl/ssl_lib.c
+@@ -843,6 +843,9 @@ SSL *SSL_new(SSL_CTX *ctx)
+     s->psk_find_session_cb = ctx->psk_find_session_cb;
+     s->psk_use_session_cb = ctx->psk_use_session_cb;
+
++    s->async_cb = ctx->async_cb;
++    s->async_cb_arg = ctx->async_cb_arg;
++
+     s->job = NULL;
+
+ #ifndef OPENSSL_NO_CT
+@@ -1650,6 +1653,40 @@ int SSL_get_changed_async_fds(SSL *s, OSSL_ASYNC_FD *addfd, size_t *numaddfds,
+                                           numdelfds);
+ }
+
++int SSL_CTX_set_async_callback(SSL_CTX *ctx, SSL_async_callback_fn callback)
++{
++    ctx->async_cb = callback;
++    return 1;
++}
++
++int SSL_CTX_set_async_callback_arg(SSL_CTX *ctx, void *arg)
++{
++    ctx->async_cb_arg = arg;
++    return 1;
++}
++
++int SSL_set_async_callback(SSL *s, SSL_async_callback_fn callback)
++{
++    s->async_cb = callback;
++    return 1;
++}
++
++int SSL_set_async_callback_arg(SSL *s, void *arg)
++{
++    s->async_cb_arg = arg;
++    return 1;
++}
++
++int SSL_get_async_status(SSL *s, int *status)
++{
++    ASYNC_WAIT_CTX *ctx = s->waitctx;
++
++    if (ctx == NULL)
++        return 0;
++    *status = ASYNC_WAIT_CTX_get_status(ctx);
++    return 1;
++}
++
+ int SSL_accept(SSL *s)
+ {
+     if (s->handshake_func == NULL) {
+@@ -1675,6 +1712,13 @@ long SSL_get_default_timeout(const SSL *s)
+     return s->method->get_timeout();
+ }
+
++static int ssl_async_wait_ctx_cb(void *arg)
++{
++    SSL *s = (SSL *)arg;
++
++    return s->async_cb(s, s->async_cb_arg);
++}
++
+ static int ssl_start_async_job(SSL *s, struct ssl_async_args *args,
+                                int (*func) (void *))
+ {
+@@ -1683,6 +1727,10 @@ static int ssl_start_async_job(SSL *s, struct ssl_async_args *args,
+         s->waitctx = ASYNC_WAIT_CTX_new();
+         if (s->waitctx == NULL)
+             return -1;
++        if (s->async_cb != NULL
++            && !ASYNC_WAIT_CTX_set_callback
++                 (s->waitctx, ssl_async_wait_ctx_cb, s))
++            return -1;
+     }
+
+     s->rwstate = SSL_NOTHING;
+diff --git a/ssl/ssl_local.h b/ssl/ssl_local.h
+index 5c79215423..83faece758 100644
+--- a/ssl/ssl_local.h
++++ b/ssl/ssl_local.h
+@@ -1063,6 +1063,10 @@ struct ssl_ctx_st {
+
+     /* Do we advertise Post-handshake auth support? */
+     int pha_enabled;
++
++    /* Callback for SSL async handling */
++    SSL_async_callback_fn async_cb;
++    void *async_cb_arg;
+ };
+
+ struct ssl_st {
+@@ -1473,6 +1477,10 @@ struct ssl_st {
+     SSL_allow_early_data_cb_fn allow_early_data_cb;
+     void *allow_early_data_cb_data;
+
++    /* Callback for SSL async handling */
++    SSL_async_callback_fn async_cb;
++    void *async_cb_arg;
++
+     /*
+      * Signature algorithms shared by client and server: cached because these
+      * are used most often.
+diff --git a/ssl/statem/statem_srvr.c b/ssl/statem/statem_srvr.c
+index 43f77a5899..d7bf4e73d8 100644
+--- a/ssl/statem/statem_srvr.c
++++ b/ssl/statem/statem_srvr.c
+@@ -24,6 +24,7 @@
+ #include <openssl/bn.h>
+ #include <openssl/md5.h>
+ #include <openssl/asn1t.h>
++#include <openssl/engine.h>
+
+ #define TICKET_NONCE_SIZE       8
+
+@@ -2503,6 +2504,30 @@ int tls_construct_server_key_exchange(SSL *s, WPACKET *pkt)
+     EVP_PKEY_CTX *pctx = NULL;
+     size_t paramlen, paramoffset;
+
++    RSA *rsa = NULL;
++    EC_KEY *ecc = NULL;
++    EVP_PKEY *pkey = NULL;
++    pkey = s->cert->pkeys[SSL_PKEY_RSA].privatekey;
++    if (pkey != NULL)
++    	rsa = EVP_PKEY_get0_RSA(pkey);
++    else {
++        pkey = s->cert->pkeys[SSL_PKEY_ECC].privatekey;
++        if (pkey != NULL)
++    	    ecc = EVP_PKEY_get0_EC_KEY(pkey);
++    }
++
++    if (rsa != NULL) {
++        ENGINE* rsa_engine = ENGINE_get_default_RSA();
++        if (rsa_engine)
++            RSA_set0_engine(rsa, rsa_engine);
++    }
++
++    if (ecc != NULL) {
++        ENGINE* ecc_engine = ENGINE_get_default_EC();
++        if (ecc_engine)
++            EC_KEY_set0_engine(ecc, ecc_engine);
++    }
++
+     if (!WPACKET_get_total_written(pkt, &paramoffset)) {
+         SSLfatal(s, SSL_AD_INTERNAL_ERROR,
+                  SSL_F_TLS_CONSTRUCT_SERVER_KEY_EXCHANGE, ERR_R_INTERNAL_ERROR);
+@@ -3013,6 +3038,10 @@ static int tls_process_cke_rsa(SSL *s, PACKET *pkt)
+         return 0;
+     }
+
++    ENGINE* rsa_engine = ENGINE_get_default_RSA();
++    if (rsa_engine)
++        RSA_set0_engine(rsa, rsa_engine);
++
+     /* SSLv3 and pre-standard DTLS omit the length bytes. */
+     if (s->version == SSL3_VERSION || s->version == DTLS1_BAD_VER) {
+         enc_premaster = *pkt;
+diff --git a/test/asynctest.c b/test/asynctest.c
+index 9728a37911..1e7f93a602 100644
+--- a/test/asynctest.c
++++ b/test/asynctest.c
+@@ -123,6 +123,43 @@ static int test_ASYNC_init_thread(void)
+     return 1;
+ }
+
++static int test_callback(void *arg)
++{
++    printf("callback test pass\n");
++    return 1;
++}
++
++static int test_ASYNC_callback_status(void)
++{
++    ASYNC_WAIT_CTX *waitctx = NULL;
++    int set_arg = 100;
++    ASYNC_callback_fn get_callback;
++    void *get_arg;
++    int set_status = 1;
++
++    if (       !ASYNC_init_thread(1, 0)
++            || (waitctx = ASYNC_WAIT_CTX_new()) == NULL
++            || ASYNC_WAIT_CTX_set_callback(waitctx, test_callback, (void*)&set_arg)
++               != 1
++            || ASYNC_WAIT_CTX_get_callback(waitctx, &get_callback, &get_arg)
++               != 1
++            || test_callback != get_callback
++            || get_arg != (void*)&set_arg
++            || (*get_callback)(get_arg) != 1
++            || ASYNC_WAIT_CTX_set_status(waitctx, set_status) != 1
++            || set_status != ASYNC_WAIT_CTX_get_status(waitctx)) {
++        fprintf(stderr, "test_ASYNC_callback_status() failed\n");
++        ASYNC_WAIT_CTX_free(waitctx);
++        ASYNC_cleanup_thread();
++        return 0;
++    }
++
++    ASYNC_WAIT_CTX_free(waitctx);
++    ASYNC_cleanup_thread();
++    return 1;
++
++}
++
+ static int test_ASYNC_start_job(void)
+ {
+     ASYNC_JOB *job = NULL;
+@@ -279,6 +316,7 @@ int main(int argc, char **argv)
+         CRYPTO_mem_ctrl(CRYPTO_MEM_CHECK_ON);
+
+         if (       !test_ASYNC_init_thread()
++                || !test_ASYNC_callback_status()
+                 || !test_ASYNC_start_job()
+                 || !test_ASYNC_get_current_job()
+                 || !test_ASYNC_WAIT_CTX_get_all_fds()
+diff --git a/util/libcrypto.num b/util/libcrypto.num
+index 436f799bca..41f09e5431 100644
+--- a/util/libcrypto.num
++++ b/util/libcrypto.num
+@@ -4591,3 +4591,9 @@ X509_ALGOR_copy                         4544	1_1_1h	EXIST::FUNCTION:
+ X509_REQ_set0_signature                 4545	1_1_1h	EXIST::FUNCTION:
+ X509_REQ_set1_signature_algo            4546	1_1_1h	EXIST::FUNCTION:
+ EC_KEY_decoded_from_explicit_params     4547	1_1_1h	EXIST::FUNCTION:EC
++RSA_set0_engine                         4548	1_1_0	EXIST::FUNCTION:RSA
++EC_KEY_set0_engine                         4548	1_1_0	EXIST::FUNCTION:EC
++ASYNC_WAIT_CTX_get_callback             4549   1_1_1h  EXIST::FUNCTION:
++ASYNC_WAIT_CTX_set_callback             4550   1_1_1h  EXIST::FUNCTION:
++ASYNC_WAIT_CTX_set_status               4551   1_1_1h  EXIST::FUNCTION:
++ASYNC_WAIT_CTX_get_status               4552   1_1_1h  EXIST::FUNCTION:
+diff --git a/util/libssl.num b/util/libssl.num
+index 297522c363..cd90ba5e05 100644
+--- a/util/libssl.num
++++ b/util/libssl.num
+@@ -498,3 +498,8 @@ SSL_CTX_get_recv_max_early_data         498	1_1_1	EXIST::FUNCTION:
+ SSL_CTX_set_recv_max_early_data         499	1_1_1	EXIST::FUNCTION:
+ SSL_CTX_set_post_handshake_auth         500	1_1_1	EXIST::FUNCTION:
+ SSL_get_signature_type_nid              501	1_1_1a	EXIST::FUNCTION:
++SSL_CTX_set_async_callback              502	1_1_1h	EXIST::FUNCTION:
++SSL_CTX_set_async_callback_arg          503	1_1_1h	EXIST::FUNCTION:
++SSL_set_async_callback                  504	1_1_1h	EXIST::FUNCTION:
++SSL_set_async_callback_arg              505	1_1_1h	EXIST::FUNCTION:
++SSL_get_async_status                    506	1_1_1h	EXIST::FUNCTION:
+\ No newline at end of file
+diff --git a/util/private.num b/util/private.num
+index 27790ab8a7..a319ef2327 100644
+--- a/util/private.num
++++ b/util/private.num
+@@ -91,6 +91,8 @@ custom_ext_free_cb                      datatype
+ custom_ext_parse_cb                     datatype
+ pem_password_cb                         datatype
+ ssl_ct_validation_cb                    datatype
++ASYNC_callback_fn                       datatype
++SSL_async_callback_fn                   datatype
+ #
+ BIO_append_filename                     define
+ BIO_destroy_bio_pair                    define
+@@ -467,3 +469,7 @@ X509_STORE_set_verify_func              define
+ EVP_PKEY_CTX_set1_id                    define
+ EVP_PKEY_CTX_get1_id                    define
+ EVP_PKEY_CTX_get1_id_len                define
++ASYNC_STATUS_EAGAIN                     define
++ASYNC_STATUS_OK                         define
++ASYNC_STATUS_ERR                        define
++ASYNC_STATUS_UNSUPPORTED                define
+--
+2.25.1
+
