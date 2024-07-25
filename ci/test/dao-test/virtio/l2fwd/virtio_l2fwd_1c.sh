@@ -115,8 +115,8 @@ function virtio_l2fwd_multiseg()
 	local l2fwd_pfx=${DAO_TEST}
 	local host_testpmd_pfx=${DAO_TEST}_testpmd_host
 	local l2fwd_out=virtio_l2fwd.${l2fwd_pfx}.out
-	local tx_mpcap=$EP_HOST_DIR/ci/test/dao-test/virtio_l2fwd/pcap/tx_mseg.pcap
-	local tx_spcap=$EP_HOST_DIR/ci/test/dao-test/virtio_l2fwd/pcap/tx.pcap
+	local tx_mpcap=$EP_HOST_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx_mseg.pcap
+	local tx_spcap=$EP_HOST_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx.pcap
 	local if0=$(ep_device_get_inactive_if)
 	local k=0
 

@@ -5,12 +5,12 @@
 set -euo pipefail
 
 VIRTIO_UTILS_SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
-source $VIRTIO_UTILS_SCRIPT_PATH/../common/utils.sh
-source $VIRTIO_UTILS_SCRIPT_PATH/../common/ep_host_utils.sh
-source $VIRTIO_UTILS_SCRIPT_PATH/../common/ep_device_utils.sh
-source $VIRTIO_UTILS_SCRIPT_PATH/../common/testpmd.sh
+source $VIRTIO_UTILS_SCRIPT_PATH/../../common/utils.sh
+source $VIRTIO_UTILS_SCRIPT_PATH/../../common/ep_host_utils.sh
+source $VIRTIO_UTILS_SCRIPT_PATH/../../common/ep_device_utils.sh
+source $VIRTIO_UTILS_SCRIPT_PATH/../../common/testpmd.sh
 
-find_executable "dao-virtio-l2fwd" VIRTIO_L2FWD "$VIRTIO_UTILS_SCRIPT_PATH/../../../../app"
+find_executable "dao-virtio-l2fwd" VIRTIO_L2FWD "$VIRTIO_UTILS_SCRIPT_PATH/../../../../../app"
 
 function l2fwd_device_start_traffic()
 {
