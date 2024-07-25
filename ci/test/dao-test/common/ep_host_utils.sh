@@ -254,8 +254,6 @@ function ep_host_shutdown_guest()
 # If this script is directly invoked from the shell execute the
 # op specified
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
-	source "$HOST_UTILS_SCRIPT_PATH/testpmd.sh"
-
 	OP=$1
 	ARGS=${@:2}
 	if [[ $(type -t ep_host_$OP) == function ]]; then

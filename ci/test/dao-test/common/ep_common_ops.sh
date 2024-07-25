@@ -2,6 +2,9 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2024 Marvell.
 
+COMMON_OPS_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
+source "$COMMON_OPS_SCRIPT_PATH/testpmd.sh"
+
 function ep_common_testpmd_launch()
 {
 	local pfx=$1

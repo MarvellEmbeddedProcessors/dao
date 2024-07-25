@@ -47,6 +47,7 @@ function device_sync()
 function remote_sync()
 {
 	local sync="rsync -azzh --delete"
+	local plat
 
 	if [[ -z ${EP_REMOTE:-} ]]; then
 		echo "EP_REMOTE is not set, skipping remote sync"
@@ -61,4 +62,15 @@ function remote_sync()
 	echo "Syncing EP remote files"
 	ep_remote_ssh_cmd "mkdir -p $EP_DIR"
 	$sync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE:$EP_DIR
+	$sync -e "$EP_SSH_CMD" -r $EP_PREBUILT_BINARIES_SERVER:$EP_PREBUILT_BINARIES_PATH/* \
+		/tmp/ep_files
+	$sync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_REMOTE:$EP_DIR/ep_files
+
+	plat=$(ep_remote_ssh_cmd "$EP_REMOTE_SUDO cat /proc/device-tree/compatible | tr '\0' '\n'")
+	if [[ "$plat" == *"cn10k"* ]]; then
+		plat=cn10k
+	else
+		plat=cn9k
+	fi
+	ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_files/perf/$plat/dpdk-testpmd /usr/bin"
 }

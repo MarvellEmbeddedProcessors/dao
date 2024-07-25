@@ -26,12 +26,6 @@ function dao_ovs_cleanup()
 
 function verify_setup()
 {
-	local ssh_ip=$(echo $EP_DEVICE | awk -F '\@' '{print $2}' 2>/dev/null)
-	local remote_ssh_ip=$(echo $EP_REMOTE | awk -F '\@' '{print $2}' 2>/dev/null)
-	local eth_ifaces=$(ep_device_op eth_interfaces_get $ssh_ip)
-	local remote_eth_ifaces=$(ep_remote_op eth_interfaces_get $remote_ssh_ip)
-	local device_ip_start=11
-	local remote_ip_start=51
 	local remote_ip=20.0.0.51
 	local device_ip=20.0.0.52
 	local device_sdp_ip=30.0.0.53
@@ -43,45 +37,15 @@ function verify_setup()
 	local host_sdp_iface
 	local ext_iface
 
-	echo "Device eth interfaces: $eth_ifaces"
-	echo "Remote eth interfaces: $remote_eth_ifaces"
+	populate_ep_interfaces
 
-	for e in $eth_ifaces; do
-		ep_device_op unbind_driver pci $e
-	done
-	for re in $remote_eth_ifaces; do
-		ep_remote_op unbind_driver pci $re
-	done
-
-	# Configure the interfaces one by one and check which ones are pinging
-	for e in $eth_ifaces; do
-		ep_device_op bind_driver pci $e rvu_nicpf
-		ep_device_op if_configure --pcie-addr $e --ip $device_ip
-		for re in $remote_eth_ifaces; do
-			ep_remote_op bind_driver pci $re rvu_nicpf
-			ep_remote_op if_configure --pcie-addr $re --ip $remote_ip
-			echo "Checking $e (Device) <-> $re (Remote)"
-			if [[ $(ep_device_op ping $device_ip $remote_ip 2) == "SUCCESS" ]]; then
-				ext_iface=$e
-				remote_iface=$re
-				break
-			fi
-			ep_remote_op if_configure --pcie-addr $re --down
-			ep_remote_op unbind_driver pci $re
-		done
-		if [[ -n $ext_iface ]]; then
-			break
-		fi
-		ep_device_op if_configure --pcie-addr $e --down
-		ep_device_op unbind_driver pci $e
-	done
+	ext_iface=${EP_DEVICE_EXT_IFACE:-}
+	remote_iface=${EP_REMOTE_IFACE:-}
 
 	if [[ -z $ext_iface ]] || [[ -z $remote_iface ]]; then
 		echo "Failed to find a valid interface pair"
 		exit 1
 	fi
-
-	add_test_env EP_REMOTE_IFACE=$remote_iface
 
 	device_part=$(ep_device_op get_part)
 	host_sdp_iface=$(ep_host_op pcie_addr_get ${device_part}00)

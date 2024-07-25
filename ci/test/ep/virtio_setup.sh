@@ -44,4 +44,20 @@ function dao_virtio_setup()
 	echo "Setting up EP Host for virtio tests"
 	device_part=$(ep_device_op get_part)
 	ep_host_op hugepage_setup 2048 24 2048
+
+	if [[ -n $EP_REMOTE ]]; then
+		populate_ep_interfaces
+		if [[ -z ${EP_REMOTE_IFACE:-} ]] || [[ -z ${EP_DEVICE_EXT_IFACE:-} ]]; then
+			echo "Failed to find a valid pair of interfaces"
+			return
+		fi
+
+		ep_remote_op if_configure --pcie-addr $EP_REMOTE_IFACE --down
+		ep_remote_op unbind_driver pci $EP_REMOTE_IFACE
+		ep_device_op if_configure --pcie-addr $EP_DEVICE_EXT_IFACE --down
+		ep_device_op unbind_driver pci $EP_DEVICE_EXT_IFACE
+
+		echo "Setting up EP remote for virtio tests"
+		ep_remote_op hugepage_setup 524288 24 6
+	fi
 }

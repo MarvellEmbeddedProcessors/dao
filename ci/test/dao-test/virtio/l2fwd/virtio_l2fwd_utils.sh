@@ -52,6 +52,93 @@ function l2fwd_device_stop_traffic()
 	echo "Stopped traffic on device"
 }
 
+function l2fwd_device_expected_pps() {
+	local pps_gold=$1
+	local tolerance=$2
+
+	echo "($pps_gold * (100 - $tolerance)) / 100" | bc
+}
+
+function l2fwd_device_ref_pps() {
+	local rclk=$(ep_device_get_rclk)
+	local sclk=$(ep_device_get_sclk)
+	local partnum=$(ep_device_get_cpu_partnum)
+	local tf_name=$1
+	local test_name=$2
+
+	if [[ $partnum == $CPUPARTNUM_106XX ]]; then
+		hw="cn106"
+	fi
+
+	fname="rclk"${rclk}"_sclk"${sclk}"."${hw}"."${tf_name}
+	fpath="$VIRTIO_UTILS_SCRIPT_PATH/ref_numbers/$fname"
+	if [[ ! -f $fpath ]]; then
+		echo "Error: ref file missing !!"
+		exit 1;
+	fi
+
+	pps_gold=$(grep -i "$test_name" $fpath | tr -s ' ' | cut -d " " -f 2)
+	echo $pps_gold
+}
+
+function l2fwd_host_validate_perf_pps()
+{
+	local pfx=$1
+	local ref_pps=$2
+	local pass_pps=$3
+	local wait_time_sec=10
+
+	# dry run for pps
+	local rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+	sleep 1
+	local rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+	sleep 1
+	while [[ wait_time_sec -ne 0 ]]; do
+		rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+
+		if [[ rx_pps -lt $pass_pps ]]; then
+			echo "Low PPS ($rx_pps < $pass_pps), Reference $ref_pps"
+		else
+			echo "Rx PPS $rx_pps as expected $pass_pps, Reference $ref_pps"
+			return 0
+		fi
+
+		sleep 1
+		wait_time_sec=$((wait_time_sec - 1))
+	done
+
+	return 1
+}
+
+function l2fwd_remote_validate_perf_pps()
+{
+	local pfx=$1
+	local ref_pps=$2
+	local pass_pps=$3
+	local wait_time_sec=10
+
+	# dry run for pps
+	local rx_pps=$(ep_remote_op testpmd_pps $pfx 0)
+	sleep 1
+	local rx_pps=$(ep_remote_op testpmd_pps $pfx 0)
+	sleep 1
+	while [[ wait_time_sec -ne 0 ]]; do
+		rx_pps=$(ep_remote_op testpmd_pps $pfx 0)
+
+		if [[ rx_pps -lt $pass_pps ]]; then
+			echo "Low PPS ($rx_pps < $pass_pps), Reference $ref_pps"
+		else
+			echo "Rx PPS $rx_pps as expected $pass_pps, Reference $ref_pps"
+			return 0
+		fi
+
+		sleep 1
+		wait_time_sec=$((wait_time_sec - 1))
+	done
+
+	return 1
+}
+
 function l2fwd_device_check_pps()
 {
 	local pfx=$1
@@ -107,14 +194,59 @@ function l2fwd_host_start_traffic()
 
 	num_cores=$(ep_host_ssh_cmd "nproc --all")
 	fwd_cores=$((num_cores - 1))
+	fwd_cores=$(( 8 < $fwd_cores ? 8 : $fwd_cores ))
 	eal_args="-l 0-$fwd_cores --socket-mem 1024 --proc-type auto --file-prefix=$pfx --no-pci \
 		  --vdev=net_virtio_user0,path=/dev/vhost-vdpa-0,mrg_rxbuf=01,packed_vq=1,in_order=1,queue_size=4096"
 	app_args="--nb-cores=$fwd_cores --port-topology=loop --rxq=$fwd_cores --txq=$fwd_cores -i"
 
 	echo "Starting Traffic on Host"
 	ep_host_op_bg 10 testpmd_launch $pfx "$eal_args" -- "$app_args"
+	ep_host_op testpmd_cmd $pfx set fwd flowgen
 	ep_host_op testpmd_cmd $pfx start tx_first 32
 	echo "Started Traffic on Host"
+}
+
+function l2fwd_host_start_rx_traffic()
+{
+	local pfx=$1
+	local num_cores
+	local fwd_cores
+	local eal_args
+	local app_args
+
+	num_cores=$(ep_host_ssh_cmd "nproc --all")
+	fwd_cores=$((num_cores - 1))
+	fwd_cores=$(( 8 < $fwd_cores ? 8 : $fwd_cores ))
+	eal_args="-l 0-$fwd_cores --socket-mem 1024 --proc-type auto --file-prefix=$pfx --no-pci \
+		  --vdev=net_virtio_user0,path=/dev/vhost-vdpa-0,mrg_rxbuf=1,packed_vq=1,in_order=1,queue_size=4096"
+	app_args="--nb-cores=$fwd_cores --port-topology=loop --rxq=$fwd_cores --txq=$fwd_cores -i"
+
+	echo "Starting Rx Traffic on Host"
+	ep_host_op_bg 10 testpmd_launch $pfx "$eal_args" -- "$app_args"
+	ep_host_op testpmd_cmd $pfx start
+	echo "Started Rx Traffic on Host"
+}
+
+function l2fwd_remote_start_traffic()
+{
+	local pfx=$1
+	local if0=$2
+	local num_cores
+	local fwd_cores
+	local eal_args
+	local app_args
+
+	num_cores=$(ep_host_ssh_cmd "nproc --all")
+	fwd_cores=$((num_cores - 1))
+	fwd_cores=$(( 8 < $fwd_cores ? 8 : $fwd_cores ))
+	eal_args="-l 0-$fwd_cores -a $if0"
+	app_args="--nb-cores=$fwd_cores --port-topology=loop --rxq=$fwd_cores --txq=$fwd_cores -i"
+
+	echo "Starting Traffic on Remote device"
+	ep_remote_op_bg 10 testpmd_launch $pfx "$eal_args" -- "$app_args"
+	ep_remote_op testpmd_cmd $pfx set fwd flowgen
+	ep_remote_op testpmd_cmd $pfx start tx_first 32
+	echo "Started Traffic on Remote device"
 }
 
 function l2fwd_host_launch_testpmd_with_pcap()
@@ -163,6 +295,16 @@ function l2fwd_host_stop_traffic()
 	echo "Stopped Traffic no Host"
 }
 
+function l2fwd_remote_stop_traffic()
+{
+	local pfx=$1
+
+	echo "Stopping Traffic on Remote device"
+	ep_remote_op testpmd_cmd $pfx stop
+	ep_remote_op testpmd_stop $pfx
+	echo "Stopped Traffic on Remote device"
+}
+
 function l2fwd_sig_handler()
 {
 	local status=$?
@@ -186,6 +328,10 @@ function l2fwd_sig_handler()
 	ep_host_op testpmd_log $tpmd_pfx
 	safe_kill $pfx
 	ep_host_op safe_kill $pfx
+
+	if [[ -n $EP_REMOTE ]]; then
+		ep_remote_op safe_kill $pfx
+	fi
 }
 
 function l2fwd_register_sig_handler()

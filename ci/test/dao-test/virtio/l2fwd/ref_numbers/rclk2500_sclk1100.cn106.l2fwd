@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2024 Marvell.
+
+PPS of tests on 106xx and multiple RCLK
+---------------------------------------
+
+VIRTIO_L2FWD_PERF_3C 40000000
+VIRTIO_L2FWD_PERF_5C 72500000
