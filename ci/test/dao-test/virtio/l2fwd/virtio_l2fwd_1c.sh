@@ -161,4 +161,56 @@ function virtio_l2fwd_multiseg()
 	return $k
 }
 
+function virtio_l2fwd_guest_1c()
+{
+	local l2fwd_pfx=${DAO_TEST}
+	local host_pfx=${DAO_TEST}_guest
+	local l2fwd_out=virtio_l2fwd.${l2fwd_pfx}.out
+	local if0=$(ep_device_get_inactive_if)
+	local device_part
+	local args
+
+	l2fwd_register_sig_handler ${DAO_TEST} $host_pfx $l2fwd_out
+
+	ep_device_vfio_bind $if0
+
+	# Launch virtio l2fwd
+	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l"; then
+		echo "Failed to launch virtio l2fwd"
+		# Quit l2fwd app
+		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+		return 1
+	fi
+
+	device_part=$(ep_device_op get_part)
+	ep_host_op vdpa_setup $device_part
+	ep_host_op_bg 220 launch_guest $host_pfx
+	local k=$?
+	if [[ "$k" != "0" ]]; then
+		echo "Failed to launch Guest"
+		# Quit l2fwd app
+		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+		ep_host_op vdpa_cleanup
+		return 1
+	fi
+
+	args="-c 0xff -a 0000:00:03.0 -- --nb-cores=4 --port-topology=loop --rxq=4 --txq=4 -i"
+	# Start traffic
+	ep_host_op start_guest_traffic $host_pfx $args
+
+	# Check the performance
+	ep_host_op guest_testpmd_pps $host_pfx
+	local k=$?
+
+	# Stop Traffic
+	ep_host_op stop_guest_traffic $host_pfx
+
+	ep_host_op shutdown_guest $host_pfx
+	ep_host_op vdpa_cleanup
+	# Quit l2fwd app
+	l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+
+	return $k
+}
+
 test_run ${DAO_TEST} 2

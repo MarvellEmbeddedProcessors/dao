@@ -6,6 +6,7 @@ tests = [
     # Name, Script, Args
     ['virtio_l2fwd_1c', 'virtio_l2fwd_1c.sh', ''],
     ['virtio_l2fwd_multiseg', 'virtio_l2fwd_1c.sh', ''],
+    ['virtio_l2fwd_guest_1c', 'virtio_l2fwd_1c.sh', ''],
 ]
 
 test_dir = meson.current_build_dir()

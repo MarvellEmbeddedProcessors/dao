@@ -209,6 +209,7 @@ function get_test_command()
 	cmd="cd $test_dir &&
 	     $EP_DEVICE_SUDO DEPS_PREFIX=$EP_DEVICE_DIR/deps-prefix \
 	     EP_HOST_DIR=$EP_HOST_DIR \
+	     EP_DEVICE_DIR=$EP_DEVICE_DIR \
 	     EP_SSH_CMD='$EP_SSH_CMD' \
 	     EXTRA_EP_HOST_ENV='$EXTRA_EP_HOST_ENV' $envs $EXTRA_EP_DEVICE_ENV \
 	     $exec_bin $args $extra_args"

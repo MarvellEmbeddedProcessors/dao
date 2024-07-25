@@ -107,6 +107,176 @@ function ep_host_testpmd_stop()
 	echo "Stopped testpmd on Host"
 }
 
+EP_SCP_CMD=${EP_SCP_CMD:-"scp -o LogLevel=ERROR -o ServerAliveInterval=30 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"}
+EP_GUEST_DIR="/root/hostshare"
+EP_GUEST_SHARE_DIR=$EP_HOST_DIR/guest
+
+function ep_host_launch_guest()
+{
+	local unbuffer="stdbuf -o0"
+	local pfx=$1
+	local in=guest.in.$pfx
+	local out=guest.out.$pfx
+
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/qemu-system-x86_64 $EP_HOST_DIR/
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/noble-server-cloudimg-amd64.img $EP_HOST_DIR/
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/bios-256k.bin /usr/share/qemu
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/vgabios-stdvga.bin /usr/share/qemu
+	$EP_SCP_CMD ci@10.28.34.13:/home/ci/dao_host/efi-virtio.rom /usr/share/qemu
+
+	# Folder to be shared with the guest
+	rm -rf $EP_GUEST_SHARE_DIR
+	mkdir $EP_GUEST_SHARE_DIR
+
+	cp $EP_HOST_DIR/ci/test/dao-test/common/utils.sh $EP_GUEST_SHARE_DIR
+	cp $EP_HOST_DIR/ci/test/dao-test/common/testpmd.sh $EP_GUEST_SHARE_DIR
+	cp $EP_HOST_DIR/ci/test/dao-test/common/ep_guest_utils.sh $EP_GUEST_SHARE_DIR
+
+	if [[ -f $EP_HOST_DIR/qemu-system-x86_64 ]]; then
+		QEMU_BIN=$EP_HOST_DIR/qemu-system-x86_64
+	else
+		echo "qemu-system-x86_64 not found !!"
+		return 1
+	fi
+
+	if [[ -f $EP_HOST_DIR/noble-server-cloudimg-amd64.img ]]; then
+		VM_IMAGE=$EP_HOST_DIR/noble-server-cloudimg-amd64.img
+	else
+		echo "x86 QEMU cloud image not found !!"
+		return 1
+	fi
+
+	ulimit -l unlimited
+	rm -f $out
+	rm -f $in
+	touch $in
+	tail -f $in | ($unbuffer $QEMU_BIN -hda "$VM_IMAGE" -name vm1  \
+	-netdev type=vhost-vdpa,vhostdev="/dev/vhost-vdpa-0",id=vhost-vdpa1 \
+	-device virtio-net-pci,netdev=vhost-vdpa1,disable-modern=off,page-per-vq=on,packed=on,mrg_rxbuf=on,mq=on,rss=on,rx_queue_size=1024,tx_queue_size=1024,disable-legacy=on -fsdev local,path=$EP_GUEST_SHARE_DIR,security_model=passthrough,id=hostshare -device virtio-9p-pci,id=fs0,fsdev=hostshare,mount_tag=host_tag \
+	-enable-kvm -nographic -m 4G -cpu host -smp 8 -L /usr/share/qemu &>$out) &
+
+	# Wait for guest to be up
+	local itr=0
+	while ! (tail -n15 $out | grep -q "ubuntu login:"); do
+		sleep 10
+		itr=$((itr + 1))
+		if [[ itr -eq 20 ]]; then
+			echo "Timeout waiting for Guest";
+			cat $out
+			return 1;
+		fi
+		echo "Waiting for guest to be up"
+	done
+	echo "Guest is launched"
+	echo "root" >>$in
+	sleep 1;
+	echo "a" >>$in
+	sleep 1;
+	echo "rm -rf $EP_GUEST_DIR; mkdir $EP_GUEST_DIR" >>$in
+	echo "cp /home/dpdk-testpmd /bin" >> $in
+	echo "mount -t 9p -o trans=virtio host_tag $EP_GUEST_DIR" >>$in
+	echo "$EP_GUEST_DIR/ep_guest_utils.sh setup" >> $in
+	echo "cd $EP_GUEST_DIR" >> $in
+}
+
+function guest_testpmd_prompt()
+{
+	local pfx=$1
+	local refresh=${2:-}
+	local skip_bytes=${3:-}
+	local in=$EP_GUEST_SHARE_DIR/testpmd.in.$pfx
+	local out=$EP_GUEST_SHARE_DIR/testpmd.out.$pfx
+
+	local cmd="tail -n1 $out"
+
+	if [[ "$skip_bytes" != "" ]]
+	then
+		cmd="tail -c +$skip_bytes $out"
+	fi
+
+	while ! ($cmd | grep -q "^testpmd> $"); do
+		if [ "$refresh" == "yes" ]
+		then
+			sleep 1
+			echo "" >>$in
+		fi
+		continue;
+	done
+}
+
+function ep_host_start_guest_traffic()
+{
+	local unbuffer="stdbuf -o0"
+	local pfx=$1
+	local in=guest.in.$pfx
+	local out=guest.out.$pfx
+	local testpmd_out="$EP_GUEST_SHARE_DIR/testpmd.out.$pfx"
+	local args=${@:2}
+
+	echo "Starting Traffic on Guest"
+	echo "./ep_guest_utils.sh testpmd_launch $pfx $args" >> $in
+	# Wait till out file is created
+	local itr=0
+	while [[ ! -f $testpmd_out ]]; do
+		itr=$((itr + 1))
+		sleep 1
+		if [[ itr -eq 20 ]]; then
+			echo "Timeout waiting for Guest testpmd";
+			cat $out
+			return 1;
+		fi
+		echo "Waiting for guest testpmd to be up"
+		continue
+	done
+	# Wait till testpmd prompt comes up
+	guest_testpmd_prompt $pfx
+	echo "./ep_guest_utils.sh testpmd_start $pfx" >> $in
+	echo "Started Traffic on Guest"
+}
+
+function ep_host_guest_testpmd_pps()
+{
+	local pfx=$1
+	local in=guest.in.$pfx
+	local testpmd_pps="$EP_GUEST_SHARE_DIR/testpmd.pps.$pfx"
+	local rx_pps
+
+	echo "./ep_guest_utils.sh testpmd_pps $pfx" >> $in
+	while [[ ! -f $testpmd_pps ]]; do
+		sleep 1
+		echo "Waiting for $testpmd_pps to be created"
+	done
+	rx_pps=$(cat $testpmd_pps)
+	if [[ $rx_pps -eq 0 ]]; then
+		echo "Low PPS for ${pfx} ($rx_pps == 0)"
+		return 1
+	else
+		echo "Rx PPS $rx_pps as expected"
+		return 0
+	fi
+}
+
+function ep_host_stop_guest_traffic()
+{
+	local pfx=$1
+	local in=guest.in.$pfx
+	local testpmd_out=$EP_GUEST_SHARE_DIR/testpmd.out.$pfx
+
+	cat $testpmd_out
+	echo "./ep_guest_utils.sh testpmd_stop $pfx" >> $in
+}
+
+function ep_host_shutdown_guest()
+{
+	local pfx=$1
+	local in=guest.in.$pfx
+
+	echo "cd /home" >>$in
+	echo "umount $EP_GUEST_DIR" >>$in
+	echo "shutdown now" >>$in
+	sleep 10;
+}
+
 # If this script is directly invoked from the shell execute the
 # op specified
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then
