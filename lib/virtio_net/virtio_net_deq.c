@@ -17,6 +17,8 @@ dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[VIRTIO_NET_DEQ_OFFLOAD_LAST << 1]
 #undef R
 };
 
+#define TX_OFFLOAD_SHIFT 52
+
 #define TX_IPV4_UDP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_UDP_CKSUM)
 #define TX_IPV4_TCP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM)
 
@@ -66,12 +68,12 @@ post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_
 {
 	const uint64_t rearm_data = 0x100010000ULL | RTE_PKTMBUF_HEADROOM;
 	struct rte_mbuf **mbuf_arr, *mbuf0, *mbuf1, *mbuf2, *mbuf3;
-	uint64x2_t mbuf01, mbuf23, hdr01, hdr23, buff1, buff2;
-	uint64x2_t olflags, ol_flags01, ol_flags23, doff;
 	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
 	uint16_t last_off = DESC_OFF(q->last_off), off;
+	uint64x2_t desc0, desc1, desc2, desc3, doff;
 	const uint16_t vhdr_sz = q->virtio_hdr_sz;
-	uint64x2_t desc0, desc1, desc2, desc3;
+	uint64x2_t mbuf01, mbuf23, hdr01, hdr23;
+	uint32x4_t csum_off, tx_offload, olflags;
 	uint32x4_t hdr0, hdr1, hdr2, hdr3;
 	uint16_t total_mbufs = *nb_mbufs;
 	uint16_t data_off = q->data_off;
@@ -88,12 +90,8 @@ post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_
 	count = total_mbufs & ~(0x3u);
 	for (i = 0; i < count; i += 4) {
 		const uint8x16_t tbl = {
-			0, 0, 0, 0, 0,
-			(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_UDP_CKSUM) >>
-				52,
-			0, 0, 0, 0, 0, 0, 0, 0, 0,
-			(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM) >>
-				52,
+			0, 0, 0, 0, 0, TX_IPV4_UDP_OFFLOAD >> TX_OFFLOAD_SHIFT, 0, 0, 0, 0,
+			0, 0, 0, 0, 0, TX_IPV4_TCP_OFFLOAD >> TX_OFFLOAD_SHIFT,
 		};
 
 		if (unlikely(last_off + 3 >= q_sz))
@@ -154,83 +152,47 @@ post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_
 		d0 = vtrn1q_u32(hdr0, hdr1);
 		d1 = vtrn1q_u32(hdr2, hdr3);
 
-		/* Extract CSUM offset of packets */
-		buff1 = vzip2q_u64(d0, d1);
-
-		const uint64x2_t flag_mask = {
-			0x0000000100000001,
-			0x0000000100000001,
-		};
-
-		/* CSUM offset mask */
-		const uint64x2_t csum_off_mask = {
-			0x0000FFFF0000FFFF,
-			0x0000FFFF0000FFFF,
-		};
-
-		buff1 = vandq_u64(buff1, csum_off_mask);
-
-		/* Get Olflags based on CSUM offset
-		 * For UDP, CSUM offset will be 6 and for TCP, it will be 0x10.
-		 * Subtract CSUM offset with -1 for table lookup
+		/* Retrieve csum_offset values and get ol_flags based on csum offset
+		 * For UDP, csum offset will be 6, and for TCP, it will be 0x10.
+		 * Subtract csum offset with -1 for table lookup
 		 */
-		buff1 = vsubq_u32(buff1, flag_mask);
-		olflags = vqtbl1q_u8(tbl, buff1);
+		csum_off = vzip2q_u32(d0, d1);
+		csum_off = vandq_u32(csum_off, vdupq_n_u32(0x0000FFFF));
+		csum_off = vsubq_u32(csum_off, vdupq_n_u32(0x00000001));
+		olflags = vqtbl1q_u8(tbl, csum_off);
 
-		/* Extract csum start info from packets and calculate l2 len */
+		/* Extract csum start info from packets */
 		d0 = vtrn2q_u32(hdr0, hdr1);
 		d1 = vtrn2q_u32(hdr2, hdr3);
-		buff2 = vzip1q_u64(d0, d1);
-		buff2 = vshrq_n_u64(buff2, 16);
+		tx_offload = vzip1q_u32(d0, d1);
+		tx_offload = vshrq_n_u32(tx_offload, 16);
 
-		/* Assuming IPv4 packets with 20 byte IP header length,
-		 * Subtract CSUM start with 20 to get L2 length
+		/* l2_len = csum_start - 20. Update BIT0_BIT6 */
+		tx_offload = vsubq_u32(tx_offload, vdupq_n_u32(20));
+		len_mask = vcltq_u32(tx_offload, vdupq_n_u32(0x0000003F));
+		tx_offload = vandq_u32(tx_offload, len_mask);
+
+		/* Assuming IPv4 packets with 20 bytes header length.
+		 * Update len value from BIT_7 to BIT_15
 		 */
-		const uint64x2_t sub_mask = {
-			0x0000001400000014,
-			0x0000001400000014,
-		};
-		const uint64x2_t len_range = {
-			0x0000003F0000003F,
-			0x0000003F0000003F,
-		};
-
-		buff2 = vsubq_u32(buff2, sub_mask);
-		len_mask = vcltq_u32(buff2, len_range);
-		buff2 = vandq_u32(buff2, len_mask);
-
-		/* Assuming IPv4 packets with 20 bytes header length,
-		 * mbuf->l2_len is 7 bits and mbuf->l3_len is 9 bits.
-		 * update buff2 to have both l2 len and l3 len.
-		 */
-		const uint64x2_t l3_len = {
-			0x00000A0000000A00,
-			0x00000A0000000A00,
-		};
-		buff2 = vorrq_u64(buff2, l3_len);
-
-		ol_flags01 = vmovl_u32(vget_low_s64(olflags));
-		ol_flags23 = vmovl_high_u32(olflags);
-
-		ol_flags01 = vshlq_n_u64(ol_flags01, 52);
-		ol_flags23 = vshlq_n_u64(ol_flags23, 52);
+		tx_offload = vorrq_u32(tx_offload, vdupq_n_u32(0x00000A00));
 
 		mbuf0 = (struct rte_mbuf *)vgetq_lane_u64(mbuf01, 0);
 		mbuf1 = (struct rte_mbuf *)vgetq_lane_u64(mbuf01, 1);
 		mbuf2 = (struct rte_mbuf *)vgetq_lane_u64(mbuf23, 0);
 		mbuf3 = (struct rte_mbuf *)vgetq_lane_u64(mbuf23, 1);
 
-		mbuf0->ol_flags = vgetq_lane_u64(ol_flags01, 0);
-		mbuf1->ol_flags = vgetq_lane_u64(ol_flags01, 1);
-		mbuf2->ol_flags = vgetq_lane_u64(ol_flags23, 0);
-		mbuf3->ol_flags = vgetq_lane_u64(ol_flags23, 1);
+		mbuf0->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 0)) << TX_OFFLOAD_SHIFT;
+		mbuf1->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 1)) << TX_OFFLOAD_SHIFT;
+		mbuf2->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 2)) << TX_OFFLOAD_SHIFT;
+		mbuf3->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 3)) << TX_OFFLOAD_SHIFT;
 
-		mbuf0->tx_offload = vgetq_lane_u32(buff2, 0);
-		mbuf1->tx_offload = vgetq_lane_u32(buff2, 1);
-		mbuf2->tx_offload = vgetq_lane_u32(buff2, 2);
-		mbuf3->tx_offload = vgetq_lane_u32(buff2, 3);
+		mbuf0->tx_offload = vgetq_lane_u32(tx_offload, 0);
+		mbuf1->tx_offload = vgetq_lane_u32(tx_offload, 1);
+		mbuf2->tx_offload = vgetq_lane_u32(tx_offload, 2);
+		mbuf3->tx_offload = vgetq_lane_u32(tx_offload, 3);
 
-skip_csum:
+	skip_csum:
 		memcpy(d_mbufs + num, &mbuf_arr[last_off], 32);
 		num += 4;
 		last_off = (last_off + 4) & (q_sz - 1);
