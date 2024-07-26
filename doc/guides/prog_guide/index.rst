@@ -14,6 +14,7 @@ Programmer's Guide
     vfio_lib
     virtio_lib
     virtio_net_lib
+    flow
     port_group
     port_queue_group
     netlink_lib
