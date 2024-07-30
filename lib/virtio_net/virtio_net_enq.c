@@ -42,7 +42,8 @@ virtio_net_flush_enq(struct virtio_net_queue *q)
 
 static __rte_always_inline void
 process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
-		      struct rte_mbuf *mbuf, uint16_t *qoff, uint16_t nb_enq, uint16_t flags)
+		      struct rte_mbuf *mbuf, uint16_t *qoff, uint16_t nb_enq, uint16_t extra_desc,
+		      uint16_t flags)
 {
 	uint64_t *sd_desc_base = q->sd_desc_base;
 	struct rte_mbuf **mbuf_arr = q->mbuf_arr;
@@ -55,14 +56,22 @@ process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *me
 	uintptr_t hdr;
 
 	slen = mbuf->pkt_len + vhdr_sz;
+
+	/* Decrease the length of the source by the total length of the
+	 * dummy descriptors added, where each newly added dummy descriptor
+	 * will be of length 1
+	 */
+
 	if (flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF)
-		buf_len = slen % nb_enq ? slen/nb_enq + 1 : slen/nb_enq;
+		slen -= extra_desc;
 
 	mbuf_arr[off] = mbuf;
 	for (cnt = 0; cnt < nb_enq; cnt++) {
 		d_flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
-		if (!(flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF))
-			buf_len = (d_flags & (RTE_BIT64(32) - 1)) - vhdr_sz;
+		buf_len = (d_flags & (RTE_BIT64(32) - 1)) - vhdr_sz;
+
+		if (flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF)
+			slen = slen ? slen : 1;
 
 		d_flags = d_flags & 0xFFFFFFFF00000000UL;
 		dlen = slen > buf_len ? buf_len : slen;
@@ -71,10 +80,9 @@ process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *me
 		d_flags &= ~VIRT_PACKED_RING_DESC_F_AVAIL_USED;
 
 		/* Set both AVAIL and USED bit same and fillup length in Tx desc */
-		*DESC_PTR_OFF(sd_desc_base, off, 8) = avail << 55 | avail << 63 | d_flags |
-			(dlen & (RTE_BIT64(32) - 1));
+		*DESC_PTR_OFF(sd_desc_base, off, 8) =
+			avail << 55 | avail << 63 | d_flags | (dlen & (RTE_BIT64(32) - 1));
 		dao_dma_enq_dst_x1(mem2dev, *DESC_PTR_OFF(sd_desc_base, off, 0), dlen);
-
 		off = (off + 1) & (q_sz - 1);
 		mbuf_arr[off] = NULL;
 		slen -= dlen;
@@ -129,6 +137,24 @@ mbuf_pkt_type_to_virtio_hash_report(uint8_t *hash_report, uint32_t packet_type)
 	return (uint16_t)hash_report[index];
 }
 
+static __rte_always_inline uint32_t
+calculate_nb_enq(uint64_t *sd_desc_base, uint16_t off, uint32_t slen, uint16_t qsize,
+		 uint16_t avail_sd)
+{
+	uint16_t nb_enq = 0;
+	uint32_t dlen = 0;
+	uint64_t d_flags;
+
+	while (dlen <= slen && avail_sd) {
+		d_flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
+		dlen += d_flags & (RTE_BIT64(32) - 1);
+		off = (off + 1) & (qsize - 1);
+		nb_enq += 1;
+		avail_sd--;
+	}
+	return dlen >= slen ? nb_enq : UINT16_MAX;
+}
+
 static __rte_always_inline int
 push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	      struct rte_mbuf **mbufs, uint16_t nb_mbufs, const uint16_t flags)
@@ -146,6 +172,8 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	uint64x2_t desc0, desc1, desc2, desc3;
 	uint64x2_t dataoff_iova0, dataoff_iova1;
 	uint64x2_t dataoff_iova2, dataoff_iova3;
+	uint16_t last_idx = 0, mbuf_nb_segs = 0;
+	uint16_t count, nb_enq, extra_desc = 0;
 	uint64x2_t len_olflags0, len_olflags1;
 	uint64x2_t len_olflags2, len_olflags3;
 	uint16_t sd_off, avail_sd, avail_mbuf;
@@ -159,8 +187,6 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 	uint16_t q_sz = q->q_sz;
 	uint64_t d_flags, avail;
 	uint32_t len, buf_len;
-	uint16_t last_idx = 0;
-	uint16_t count, nb_enq;
 
 	/* Check for minimum space */
 	if (!dao_dma_flush(mem2dev, 1))
@@ -450,22 +476,30 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 		len = ((struct rte_mbuf *)mbuf0)->pkt_len + virtio_hdr_sz;
 
 		if (flags & VIRTIO_NET_ENQ_OFFLOAD_MSEG) {
-			nb_enq = len % buf_len ? len/buf_len + 1 : len/buf_len;
-			if (flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF)
-				nb_enq = RTE_MAX(nb_enq, ((struct rte_mbuf *)mbuf0)->nb_segs);
+			if (likely(buf_len >= len))
+				nb_enq = 1;
+			else
+				nb_enq = calculate_nb_enq(sd_desc_base, off, len, q_sz, avail_sd);
 
-			hdr->num_buffers = nb_enq;
+			if (flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF) {
+				mbuf_nb_segs = ((struct rte_mbuf *)mbuf0)->nb_segs;
+
+				extra_desc = nb_enq < mbuf_nb_segs ? mbuf_nb_segs - nb_enq : 0;
+				nb_enq += extra_desc;
+			}
 
 			last_idx = mem2dev->tail;
 			/* Check for available descriptors and mbuf space */
 			if (!dao_dma_flush(mem2dev, nb_enq) || nb_enq > avail_sd ||
-			    nb_enq > avail_mbuf)
+			    nb_enq > avail_mbuf || nb_enq == UINT16_MAX)
 				goto exit;
+
+			hdr->num_buffers = nb_enq;
 
 			avail_mbuf -= nb_enq;
 			avail_sd -= nb_enq;
 			process_mseg_pkts_enq(q, mem2dev, (struct rte_mbuf *)mbuf0, &off, nb_enq,
-					      flags);
+					      extra_desc, flags);
 		} else {
 			hdr->num_buffers = 1;
 			d_flags = d_flags & 0xFFFFFFFF00000000UL;
@@ -477,9 +511,8 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 			d_flags &= ~VIRT_PACKED_RING_DESC_F_AVAIL_USED;
 
 			/* Set both AVAIL and USED bit same and fillup length in Tx desc */
-			*DESC_PTR_OFF(sd_desc_base, off, 8) = avail << 55 | avail << 63 | d_flags |
-							      (len & (RTE_BIT64(32) - 1));
-
+			*DESC_PTR_OFF(sd_desc_base, off, 8) =
+				avail << 55 | avail << 63 | d_flags | (len & (RTE_BIT64(32) - 1));
 			mbuf_arr[off] = (struct rte_mbuf *)mbuf0;
 
 			/* Prepare DMA src/dst of mbuf transfer */
