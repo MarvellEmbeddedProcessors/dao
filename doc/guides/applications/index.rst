@@ -13,3 +13,4 @@ Application User Guide
     secgw-graph
     smart-nic
     vpp
+    tls-proxy-nginx
