@@ -44,12 +44,12 @@
 #include <dao_pal.h>
 #include <dao_virtio_netdev.h>
 
-#define GET_MBUF_FROM_DATA_ADDR(mbuf)                                                              \
-	((struct rte_mbuf *)((uint8_t *)(mbuf) + sizeof(struct dao_virtio_net_hdr) -               \
-			     RTE_PKTMBUF_HEADROOM - sizeof(struct rte_mbuf)))
+#define GET_MBUF_FROM_DATA_ADDR(mbuf, sz)                                                          \
+	((struct rte_mbuf *)((uint8_t *)(mbuf) + sz - RTE_PKTMBUF_HEADROOM -                       \
+			     sizeof(struct rte_mbuf)))
 
-#define GET_VIRTIO_ADDR_FROM_MBUF(mbuf)                                                            \
-	(struct dao_virtio_net_hdr *)rte_pktmbuf_prepend((mbuf), sizeof(struct dao_virtio_net_hdr))
+#define GET_VIRTIO_ADDR_FROM_MBUF(mbuf, sz)                                                        \
+	(struct dao_virtio_net_hdr *)rte_pktmbuf_prepend((mbuf), sz)
 
 /* Log type */
 #define RTE_LOGTYPE_VIRTIO_L2FWD RTE_LOGTYPE_USER1
@@ -129,6 +129,7 @@ static struct rte_eth_conf port_conf;
 
 static int stats_enable;
 static int verbose_stats;
+static int vhdr_sz;
 
 static int pool_buf_len = RTE_MBUF_DEFAULT_BUF_SIZE;
 
@@ -468,9 +469,9 @@ eth_extbuf_enqueue_inline(uint16_t port, uint16_t queue, struct rte_mbuf **mbufs
 		vhdr = (struct dao_virtio_net_hdr *)mbufs[i];
 		len = vhdr->desc_data[1];
 		/* Get mbuf address from data address */
-		mbufs[i] = GET_MBUF_FROM_DATA_ADDR(mbufs[i]);
-		mbufs[i]->data_len = len - sizeof(struct virtio_net_hdr);
-		mbufs[i]->pkt_len = len - sizeof(struct virtio_net_hdr);
+		mbufs[i] = GET_MBUF_FROM_DATA_ADDR(mbufs[i], sizeof(vhdr->desc_data) + vhdr_sz);
+		mbufs[i]->data_len = len - vhdr_sz;
+		mbufs[i]->pkt_len = len - vhdr_sz;
 	}
 
 	nb_sent = rte_eth_tx_burst(port, queue, mbufs, nb_pkts);
@@ -488,9 +489,9 @@ virtio_extbuf_enqueue_inline(uint16_t virtio_devid, uint16_t virt_q, struct rte_
 	struct dao_virtio_net_hdr *dhdr;
 
 	for (i = 0; i < nb_pkts; i++) {
-		len = rte_pktmbuf_pkt_len(mbufs[i]);
+		len = rte_pktmbuf_pkt_len(mbufs[i]) + vhdr_sz;
 		/* Prepend virtio header from data : Note: handled only single segment */
-		dhdr = GET_VIRTIO_ADDR_FROM_MBUF(mbufs[i]);
+		dhdr = GET_VIRTIO_ADDR_FROM_MBUF(mbufs[i], sizeof(dhdr->desc_data) + vhdr_sz);
 		if (!dhdr)
 			continue;
 		dhdr->desc_data[1] = len;
@@ -1053,6 +1054,7 @@ virtio_dev_status_cb(uint16_t virtio_devid, uint8_t status)
 	case VIRTIO_DEV_DRIVER_OK:
 		/* Configure checksum offload */
 		chksum_offload_configure(virtio_devid);
+		vhdr_sz = dao_virtio_netdev_hdrlen_get(virtio_devid);
 
 		/* Get active virt queue count */
 		virt_q_count = dao_virtio_netdev_queue_count(virtio_devid);
@@ -1234,10 +1236,11 @@ virtio_netdev_extbuf_put(uint16_t devid, void *buffs[], uint16_t nb_buffs)
 {
 	int i = 0;
 	struct rte_mbuf *mbufs[nb_buffs];
+	struct dao_virtio_net_hdr hdr;
 
 	RTE_SET_USED(devid);
 	for (i = 0; i < nb_buffs; i++)
-		mbufs[i] = GET_MBUF_FROM_DATA_ADDR(buffs[i]);
+		mbufs[i] = GET_MBUF_FROM_DATA_ADDR(buffs[i], sizeof(hdr.desc_data) + vhdr_sz);
 
 	rte_pktmbuf_free_bulk(mbufs, nb_buffs);
 	return 0;
@@ -1249,6 +1252,7 @@ virtio_netdev_extbuf_get(uint16_t devid, void *buffs[], uint16_t nb_buffs)
 	int rv = 0;
 	uint16_t i = 0;
 	struct rte_mbuf *mbufs[nb_buffs];
+	struct dao_virtio_net_hdr hdr;
 
 	RTE_SET_USED(devid);
 	rv = rte_pktmbuf_alloc_bulk(pktmbuf_pool, mbufs, nb_buffs);
@@ -1257,8 +1261,8 @@ virtio_netdev_extbuf_get(uint16_t devid, void *buffs[], uint16_t nb_buffs)
 		return -1;
 	}
 	for (i = 0; i < nb_buffs; i++)
-		buffs[i] = (void *)(rte_pktmbuf_mtod(mbufs[i], uint8_t *) -
-				    sizeof(struct dao_virtio_net_hdr));
+		buffs[i] = (void *)(rte_pktmbuf_mtod(mbufs[i], uint8_t *) - sizeof(hdr.desc_data) -
+				    vhdr_sz);
 
 	return 0;
 }
