@@ -59,7 +59,6 @@ static __rte_always_inline int
 push_enq_ext_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev, void **vbufs,
 		  uint16_t nb_bufs, const uint16_t flags)
 {
-	const uint16_t vhdr_sz = q->virtio_hdr_sz;
 	uint64_t *sd_desc_base = q->sd_desc_base;
 	uint16_t off = DESC_OFF(q->last_off);
 	void **extbuf_arr = q->extbuf_arr;
@@ -86,7 +85,7 @@ push_enq_ext_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2de
 
 		d_flags = d_flags & 0xFFFFFFFF00000000UL;
 
-		len = (dhdr->desc_data[1] & 0xFFFFFFFF) + vhdr_sz;
+		len = (dhdr->desc_data[1] & 0xFFFFFFFF);
 		/* Limit length to buf len */
 		len = len > buf_len ? buf_len : len;
 
