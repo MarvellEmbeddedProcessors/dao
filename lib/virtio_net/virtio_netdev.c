@@ -269,6 +269,25 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 	dao_dbg("[dev %u] Enabled driver events for %u queues", dev->dev_id, max_vqs);
 }
 
+static uint8_t
+virtio_netdev_hdr_size(struct virtio_netdev *netdev)
+{
+	struct virtio_dev *dev = &netdev->dev;
+	struct virtio_net_hdr *vnet_hdr;
+	uint8_t virtio_hdr_sz;
+
+	if (!(dev->features_ok))
+		return 0;
+
+	if (dev->feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
+		virtio_hdr_sz = offsetof(struct virtio_net_hdr, padding_reserved) +
+				sizeof(vnet_hdr->padding_reserved);
+	else
+		virtio_hdr_sz = offsetof(struct virtio_net_hdr, num_buffers) +
+				sizeof(vnet_hdr->num_buffers);
+	return virtio_hdr_sz;
+}
+
 static int
 virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_id)
 {
@@ -276,7 +295,6 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	uint32_t max_vqs = netdev->dev.max_virtio_queues - 1;
 	struct virtio_dev *dev = &netdev->dev;
 	struct virtio_queue_conf *q_conf;
-	struct virtio_net_hdr *vnet_hdr;
 	struct virtio_net_queue *queue;
 	bool cb_enabled = false;
 	uint32_t shadow_area;
@@ -337,15 +355,7 @@ virtio_netdev_populate_queue_info(struct virtio_netdev *netdev, uint16_t queue_i
 	queue->dao_netdev = dao_netdev;
 	queue->netdev_id = netdev->dev.dev_id;
 	queue->hash_report = netdev->hash_report;
-
-	if (dev->feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT))
-		queue->virtio_hdr_sz =
-			offsetof(struct virtio_net_hdr, padding_reserved) +
-			sizeof(vnet_hdr->padding_reserved);
-	else
-		queue->virtio_hdr_sz =
-			offsetof(struct virtio_net_hdr, num_buffers) +
-			sizeof(vnet_hdr->num_buffers);
+	queue->virtio_hdr_sz = virtio_netdev_hdr_size(netdev);
 
 	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
 	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
@@ -785,6 +795,15 @@ dao_virtio_netdev_feature_bits_get(uint16_t devid)
 		return 0;
 
 	return dev->feature_bits;
+}
+
+uint8_t
+dao_virtio_netdev_hdrlen_get(uint16_t devid)
+{
+	struct dao_virtio_netdev *virtio_netdev = &dao_virtio_netdevs[devid];
+	struct virtio_netdev *netdev = virtio_netdev_priv(virtio_netdev);
+
+	return virtio_netdev_hdr_size(netdev);
 }
 
 int

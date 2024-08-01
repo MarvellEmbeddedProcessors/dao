@@ -254,6 +254,16 @@ int dao_virtio_netdev_queue_count_max(uint16_t pem_devid, uint16_t devid);
  */
 int dao_virtio_netdev_link_sts_update(uint16_t devid, struct dao_virtio_netdev_link_info *info);
 
+/**
+ * Get virtio net device header length.
+ *
+ * @param devid
+ *    Virtio net device ID.
+ * @return
+ *    Configured virtio net header size on success. Zero on failure.
+ */
+uint8_t dao_virtio_netdev_hdrlen_get(uint16_t devid);
+
 /* Fast path routines */
 
 /**
