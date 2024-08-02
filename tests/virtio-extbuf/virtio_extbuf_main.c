@@ -248,7 +248,8 @@ static const char short_eal_options[] = "a:" /* allow */
 					"l:" /* corelist */
 	;
 
-static const struct option long_eal_options[] = {{"", 0, 0, 0}};
+#define OPT_FILE_PREFIX_NUM 256
+static const struct option long_eal_options[] = {{"file-prefix", 1, NULL, OPT_FILE_PREFIX_NUM}};
 
 /* Parse the argument given in the command line of the application */
 static int
@@ -1429,6 +1430,10 @@ parse_eal_args(int argc, char **argv, dao_pal_global_conf_t *conf, uint64_t *wor
 
 		case 'l':
 			*worker_mask = get_worker_mask(optarg);
+			break;
+
+		case OPT_FILE_PREFIX_NUM:
+			/* Dummy to attach prefix name for CI */
 			break;
 
 		default:
