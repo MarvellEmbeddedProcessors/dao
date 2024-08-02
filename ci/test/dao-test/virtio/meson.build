@@ -2,3 +2,4 @@
 # Copyright (c) 2024 Marvell.
 
 subdir('l2fwd')
+subdir('extbuf')
