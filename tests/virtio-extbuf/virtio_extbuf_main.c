@@ -52,7 +52,7 @@
 	(struct dao_virtio_net_hdr *)rte_pktmbuf_prepend((mbuf), sz)
 
 /* Log type */
-#define RTE_LOGTYPE_VIRTIO_L2FWD RTE_LOGTYPE_USER1
+#define RTE_LOGTYPE_VIRTIO_L2FWD_EXTBUF RTE_LOGTYPE_USER1
 
 #define THREAD_INIT_TIME 10
 /*
@@ -74,11 +74,12 @@
 
 #define THREAD_INITIALIZED 1
 
-#define APP_INFO(fmt, args...) RTE_LOG(INFO, VIRTIO_L2FWD, fmt, ##args)
+#define APP_INFO(fmt, args...) RTE_LOG(INFO, VIRTIO_L2FWD_EXTBUF, fmt, ##args)
 
-#define APP_INFO_NH(fmt, args...) rte_log(RTE_LOG_INFO, RTE_LOGTYPE_VIRTIO_L2FWD, fmt, ##args)
+#define APP_INFO_NH(fmt, args...)                                                                  \
+	rte_log(RTE_LOG_INFO, RTE_LOGTYPE_VIRTIO_L2FWD_EXTBUF, fmt, ##args)
 
-#define APP_ERR(fmt, args...) RTE_LOG(ERR, VIRTIO_L2FWD, fmt, ##args)
+#define APP_ERR(fmt, args...) RTE_LOG(ERR, VIRTIO_L2FWD_EXTBUF, fmt, ##args)
 
 typedef struct {
 	uint64_t netdev_map;
@@ -140,6 +141,8 @@ static uint16_t virtio_netdev_reta_sz;
 static bool virtio_netdev_autofree;
 static uint16_t pem_devid;
 
+static bool ethdev_cgx_loopback;
+
 /* RCU QSBR variable */
 static struct rte_rcu_qsbr *qs_v;
 
@@ -198,13 +201,15 @@ print_usage(const char *prgname)
 		" [-P]"
 		" [-s]"
 		" [-f]"
+		" [-l]"
 
 		"  -p PORTMASK_L[,PORTMASK_H]: Hexadecimal bitmask of ports to configure\n"
 		"  -v VIRTIOMASK_L[,VIRTIOMASK_H]: Hexadecimal bitmask of virtio to configure\n"
 		"  -d DMA_FLUSH_THR: Number of SGE's before DMA is flushed(1..15). Default is 8.\n"
 		"  -P : Enable promiscuous mode\n"
 		"  -s : Enable stats. Giving it multiple times makes stats verbose.\n"
-		"  -f : Disable auto free with virtio Tx do sw freeing\n\n",
+		"  -f : Disable auto free with virtio Tx do sw freeing\n"
+		"  -l : Enable CGX loopback\n\n",
 		prgname);
 }
 
@@ -235,6 +240,7 @@ static const char short_options[] = "p:" /* portmask */
 				    "P"  /* promiscuous */
 				    "f"  /* Disable auto free */
 				    "y:" /* Override DMA vfid */
+				    "l"  /* Enable CGX loopback */
 	;
 
 static const char short_eal_options[] = "a:" /* allow */
@@ -299,6 +305,10 @@ parse_args(int argc, char **argv)
 			break;
 		case 'f':
 			virtio_netdev_autofree = false;
+			break;
+		case 'l':
+			ethdev_cgx_loopback = true;
+			APP_INFO("Ethdev CGX loopback enabled\n");
 			break;
 		default:
 			print_usage(prgname);
@@ -1162,6 +1172,9 @@ setup_eth_devices(void)
 			 portid, port_conf.rx_adv_conf.rss_conf.rss_hf,
 			 local_port_conf.rx_adv_conf.rss_conf.rss_hf);
 	}
+
+	/* Enable CGX loopback mode if needed */
+	local_port_conf.lpbk_mode = !!ethdev_cgx_loopback;
 
 	rc = rte_eth_dev_configure(portid, nb_rx_queue, nb_tx_queue, &local_port_conf);
 	if (rc < 0)
