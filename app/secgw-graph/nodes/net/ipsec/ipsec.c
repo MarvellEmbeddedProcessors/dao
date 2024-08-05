@@ -397,12 +397,12 @@ ipsec4_policy_add(secgw_ipsec_t *ips, secgw_ipsec4_policy_t *policy4,
 			   prefixlen_s, d->s6_addr[12], d->s6_addr[13],
 			   d->s6_addr[14], d->s6_addr[15], prefixlen_d, l4_proto);
 	} else {
-		dao_err("%18s: ctx %p: acl exists(%d) for [%u:%u:%u:%u/%u] -> [%u:%u:%u:%u/%u][%u]",
-			pol_name, policy4->acl_ctx, (int32_t)acl_res[0],
-			s->s6_addr[12], s->s6_addr[13], s->s6_addr[14],
-			s->s6_addr[15], prefixlen_s, d->s6_addr[12],
-			d->s6_addr[13], d->s6_addr[14], d->s6_addr[15],
-			prefixlen_d, l4_proto);
+		secgw_dbg("%18s: ctx %p: acl exists(%d) for [%u:%u:%u:%u/%u] -> [%u:%u:%u:%u/%u][%u]",
+			  pol_name, policy4->acl_ctx, (int32_t)acl_res[0],
+			  s->s6_addr[12], s->s6_addr[13], s->s6_addr[14],
+			  s->s6_addr[15], prefixlen_s, d->s6_addr[12],
+			  d->s6_addr[13], d->s6_addr[14], d->s6_addr[15],
+			  prefixlen_d, l4_proto);
 	}
 	return 0;
 }
@@ -582,13 +582,13 @@ secgw_ipsec_sad_sa_add_del(secgw_ipsec_t *ips, secgw_ipsec_sad_t *sad, dao_netli
 				xsa->in6_dst.addr.s6_addr[15]);
 			return -1;
 		}
-		secgw_info("%8s SA added [spi:%u|IP:\"%u:%u:%u:%u -> %u:%u:%u:%u\"] "
-			   "to %s @ index: %u", policy_to_str(policy_dir),
-			   xsa->spi, xsa->in6_src.addr.s6_addr[12], xsa->in6_src.addr.s6_addr[13],
-			   xsa->in6_src.addr.s6_addr[14], xsa->in6_src.addr.s6_addr[15],
-			   xsa->in6_dst.addr.s6_addr[12], xsa->in6_dst.addr.s6_addr[13],
-			   xsa->in6_dst.addr.s6_addr[14], xsa->in6_dst.addr.s6_addr[15],
-			   sad->sad_name, index);
+		secgw_dbg("%8s SA added [spi:%u|IP:\"%u:%u:%u:%u -> %u:%u:%u:%u\"] "
+			  "to %s @ index: %u", policy_to_str(policy_dir),
+			  xsa->spi, xsa->in6_src.addr.s6_addr[12], xsa->in6_src.addr.s6_addr[13],
+			  xsa->in6_src.addr.s6_addr[14], xsa->in6_src.addr.s6_addr[15],
+			  xsa->in6_dst.addr.s6_addr[12], xsa->in6_dst.addr.s6_addr[13],
+			  xsa->in6_dst.addr.s6_addr[14], xsa->in6_dst.addr.s6_addr[15],
+			  sad->sad_name, index);
 
 		fill_sa(ips_sa, xsa, index);
 
