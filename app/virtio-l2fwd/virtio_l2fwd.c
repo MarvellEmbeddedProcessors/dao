@@ -2023,6 +2023,9 @@ chksum_offload_configure(uint16_t virtio_devid)
 	uint16_t virt_q_count, portid;
 	int rc;
 
+#define TX_OFFLOADS (RTE_ETH_TX_OFFLOAD_IPV4_CKSUM | RTE_ETH_TX_OFFLOAD_TCP_TSO)
+#define RX_OFFLOADS (RTE_ETH_RX_OFFLOAD_CHECKSUM)
+
 	csum_offload = dao_virtio_netdev_feature_bits_get(virtio_devid) & 0x3;
 	tso_offload = dao_virtio_netdev_feature_bits_get(virtio_devid) & 0XFFFF;
 
@@ -2030,11 +2033,9 @@ chksum_offload_configure(uint16_t virtio_devid)
 	local_port_conf = &eth_dev_conf[portid];
 	virt_q_count = eth_dev_q_count[portid];
 
-	tx_offloads = local_port_conf->txmode.offloads;
-	rx_offloads = local_port_conf->rxmode.offloads;
+	tx_offloads = local_port_conf->txmode.offloads & ~(TX_OFFLOADS);
+	rx_offloads = local_port_conf->rxmode.offloads & ~(RX_OFFLOADS);
 
-	tx_offloads &= ~(RTE_ETH_TX_OFFLOAD_IPV4_CKSUM);
-	rx_offloads &= ~(RTE_ETH_RX_OFFLOAD_CHECKSUM);
 	if (csum_offload & RTE_BIT64(VIRTIO_NET_F_CSUM)) {
 		tx_offloads |= RTE_ETH_TX_OFFLOAD_IPV4_CKSUM;
 		if (tso_offload & RTE_BIT64(VIRTIO_NET_F_HOST_TSO4) ||
