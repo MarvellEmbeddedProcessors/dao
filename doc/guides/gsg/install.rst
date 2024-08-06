@@ -108,7 +108,8 @@ Once the octeon board is UP with above ubuntu rootfs
 
  # hostnamectl hostname <hostname>
 
-* Update ubuntu repository to download dao packages
+Update ubuntu repository to download dao packages
+-------------------------------------------------
 
 .. code-block:: console
 
@@ -133,6 +134,25 @@ Installing OVS package (optional)
 .. code-block:: console
 
  # apt-get install ovs-3.3-cn10k-devel
+
+Removing old packages
+---------------------
+
+* Remove old packages
+
+.. code-block:: console
+
+ # apt-get remove dao-cn10k-devel -y
+ # apt-get remove dpdk-23.11-cn10k -y
+ # apt-get remove ovs-3.3-cn10k-devel -y
+
+* Clear ubuntu repo cache
+
+.. code-block:: console
+
+ # rm /var/cache/apt/archives/dao-cn10k-devel_*
+ # rm /var/cache/apt/archives/dpdk-23.11-cn10k_*
+ # rm /var/cache/apt/archives/ovs-3.3-cn10k-devel_*
 
 Installation demo
 -----------------

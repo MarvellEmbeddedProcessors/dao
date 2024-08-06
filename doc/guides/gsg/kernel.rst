@@ -69,7 +69,10 @@ Use the following configuration obtained from the DAO repository to configure th
 
  cp cn10k.config <path_to_kernel_directory>/arch/arm64/configs/
  cd <path_to_kernel_directory>
- make ARCH=arm64 marvell_v8_octeon_kernel_asim.config
+ make ARCH=arm64 cn10k.config
+
+.. note:: If above steps reports "The base file '.config' does not exist.  Exit." error.
+ As a workaround, ``touch .config`` in make kernel directory and retry the step.
 
 This generates a .config file which can be edited if a driver needs any
 changes in configuration such as enabling/disabling a driver, statically
