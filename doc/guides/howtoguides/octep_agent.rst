@@ -22,6 +22,22 @@ The Octep CP Agent, which is located in the /usr/bin directory of the target (Oc
 comes with a specific config file for the system on a chip (SoC). The CP Agent package currently
 includes a set of provisioned config files for current platforms, e.g ``cn106xx.cfg``
 
+Installing the package
+======================
+
+Ubuntu Debian package
+---------------------
+
+Before downloading the octep CP agent package, make sure ubuntu repository is setup properly
+
+`Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
+
+Installing the octep CP agent package
+
+.. code-block:: console
+
+ # apt-get install oct-ep-target-cn10k-devel
+
 Setting up the Environment
 ==========================
 
