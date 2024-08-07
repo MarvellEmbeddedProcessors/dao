@@ -128,7 +128,7 @@ Same procedure as described in cross-compilation section
 
  cp marvell_v8_octeon_kernel_asim.config <path_to_kernel_directory>/arch/arm64/configs/
  cd <path_to_kernel_directory>
- make ARCH=arm64 marvell_v8_octeon_kernel_asim.config
+ make ARCH=arm64 cn10k.config
 
 Building and install kernel modules
 ```````````````````````````````````
