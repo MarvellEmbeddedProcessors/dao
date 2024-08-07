@@ -46,11 +46,9 @@ jobs:
           mkdir -p "${PWD}/artifacts"
           git tag --points-at HEAD > /tmp/tags
           [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
-          [ -s /tmp/tags ] && NIGHTLY=false || NIGHTLY=true
           echo "PKG_VERSION_NAME=`cat VERSION`" >> "${PWD}/artifacts/env"
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
           source "${PWD}/artifacts/env"
-          echo "NIGHTLY=${NIGHTLY}" >> $GITHUB_OUTPUT
       - uses: uraimo/run-on-arch-action@v2.7.2
         name: Build NGINX and generate package
         id: build
@@ -92,7 +90,6 @@ jobs:
             OPENSSL_PATCH_VERSION=$(ls patches/nginx/deps/openssl/ | head -n 1)
             OPENSSL_VERSION=${OPENSSL_PATCH_VERSION#v}
             echo "OPENSSL_VERSION=${OPENSSL_VERSION}" >> /artifacts/env
-            echo "OPENSSL_VERSION=${OPENSSL_VERSION}" >> $GITHUB_OUTPUT
             wget "https://www.openssl.org/source/old/1.1.1/openssl-${OPENSSL_VERSION}.tar.gz"
             tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
             cd "${PWD}/openssl-${OPENSSL_VERSION}"
