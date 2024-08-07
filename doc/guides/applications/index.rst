@@ -12,3 +12,4 @@ Application User Guide
     virtio-l2fwd
     secgw-graph
     smart-nic
+    vpp
