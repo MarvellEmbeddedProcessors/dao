@@ -16,7 +16,6 @@ secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node, vo
 	secgw_taprx_node_ctx_t *senc = (secgw_taprx_node_ctx_t *)node->ctx;
 	uint16_t n_pkts, total_pkts = 0, n;
 	dao_portq_t *portq = NULL;
-	struct rte_eth_link link;
 	struct rte_mbuf **bufs;
 	int32_t iter = -1;
 	void **to_next;
@@ -24,13 +23,8 @@ secgw_taprx_node_process_func(struct rte_graph *graph, struct rte_node *node, vo
 	RTE_SET_USED(nb_objs);
 
 	/* validate */
-	DAO_PORTQ_GROUP_FOREACH_CORE(senc->portq_group, senc->worker->worker_index, portq, iter) {
-		if (unlikely(rte_eth_link_get(portq->port_id, &link)))
-			continue;
-
-		if (unlikely(link.link_status != RTE_ETH_LINK_UP))
-			continue;
-
+	DAO_PORTQ_GROUP_FOREACH_CORE(senc->portq_group, senc->worker->worker_index, portq, iter)
+	{
 		n_pkts = rte_eth_rx_burst(portq->port_id, portq->rq_id,
 					  (struct rte_mbuf **)node->objs, RTE_GRAPH_BURST_SIZE);
 
@@ -93,7 +87,7 @@ secgw_taprx_node_init_func(const struct rte_graph *graph, struct rte_node *node)
 	dao_ds_put_format(&pv_str, "W%u: Tap-rx-node Polling Vector: ", worker_index);
 
 	DAO_PORTQ_GROUP_FOREACH_CORE(senc->portq_group, worker_index, portq, iter)
-		dao_ds_put_format(&pv_str, "[P%d, Q%d], ", portq->port_id, portq->rq_id);
+	dao_ds_put_format(&pv_str, "[P%d, Q%d], ", portq->port_id, portq->rq_id);
 
 	dao_info("%s", dao_ds_cstr(&pv_str));
 	dao_ds_destroy(&pv_str);
@@ -108,9 +102,9 @@ static struct rte_node_register secgw_taprx_node = {
 	.init = secgw_taprx_node_init_func,
 	.nb_edges = SECGW_SOURCE_NODE_MAX_NEXT_INDEX,
 	.next_nodes = {
-		[SECGW_SOURCE_NODE_NEXT_INDEX_PKT_CLS] = "secgw_pkt-cls",
-		[SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER] = "secgw_port-mapper",
-	},
+			[SECGW_SOURCE_NODE_NEXT_INDEX_PKT_CLS] = "secgw_pkt-cls",
+			[SECGW_SOURCE_NODE_NEXT_INDEX_PORTMAPPER] = "secgw_port-mapper",
+		},
 };
 
 struct rte_node_register *

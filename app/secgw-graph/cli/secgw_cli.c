@@ -234,7 +234,7 @@ cmd_show_graph_parsed(__rte_unused void *parsed_result, __rte_unused struct cmdl
 		}
 	}
 	if (num_graphs)
-		show_graph(graph_patterns, 1 /* show 1 worker only*/, conn);
+		show_graph(graph_patterns, num_graphs, conn);
 }
 
 static void
@@ -305,6 +305,7 @@ cmd_show_routes_parsed(__rte_unused void *parsed_result, __rte_unused struct cmd
 					  (secgw_get_device(rdentry->device_id))->dev_name);
 		else
 			dao_ds_put_format(&ds, " %9d", rdentry->device_id);
+
 		if (rdentry->rewrite_length) {
 			dao_ds_put_format(&ds, " %3s", " ");
 			dao_ds_put_hex(&ds, rdentry->rewrite_data, rdentry->rewrite_length);
