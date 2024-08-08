@@ -1,6 +1,6 @@
-# DPU Accelerator Offload(DAO)
+# Data Accelerator Offload(DAO)
 
-DPU Accelerator Offload(DAO) provides library interfaces which enable developers
+Data Accelerator Offload(DAO) provides library interfaces which enable developers
 to implement their own application on top of Marvell's OCTEON based data
 processing units.
 It also comes with applications aimed at supporting accelerated switching and
