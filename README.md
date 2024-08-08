@@ -58,7 +58,7 @@ Running First DAO application
 [<img src="doc/guides/_static/demo/run.png" style="width:400px;"/>](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/smart-nic.html#application-running-demo)
 
 
-## Component/Solution Status and Documentation
+## DAO Components Status
 
 | Domain | Component/Solutions | Status | Documentation |
 |--------|---------------------|--------|---------------|
@@ -74,11 +74,10 @@ Running First DAO application
 |  | PCIe communication driver | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://doc.dpdk.org/guides/nics/cnxk.html) |
 |  | ML device driver | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://doc.dpdk.org/guides/mldevs/cnxk.html) |
 |  | Graph and Node library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://doc.dpdk.org/guides/prog_guide/graph_lib.html) |
-| **VPP** | VPP L2-L4 Accelerated Stack with IPSec | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | |
+| **VPP** | VPP L2-L4 Accelerated Stack with IPSec | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/vpp.html) |
 |  | VPP TCP/UDP Accelerated Socket Library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://wiki.fd.io/view/VPP/HostStack/VCL) |
 |  | VPP TLS Transport plugin | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | [Link](https://s3-docs.fd.io/vpp/24.10/aboutvpp/featurelist.html#tls-openssl) |
 |  | VPP QUIC Stack | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | [Link](https://s3-docs.fd.io/vpp/24.10/developer/plugins/quic.html) |
-|  | Calico with VPP | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
 |  | SoNiC with VPP | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Snort with VPP | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 | **OVS** | HW accelerated OVS Offload | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/ovs-offload.html) |
@@ -92,7 +91,9 @@ Running First DAO application
 | **AI/ML** | AI/ML Toolkit | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Inferencing application - Resnet50 Image classification | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Inferencing application - DDoS detection | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
-| **DAO** | Netlink Helper library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/prog_guide/netlink_lib.html) |
+| **Cloud Solutions** | Cilium CNI | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
+|  | Calico | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
+| **Libraries** | Netlink Helper library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/prog_guide/netlink_lib.html) |
 |  | IPsec | ![](https://img.shields.io/static/v1?label=&message=Experimental&color=blue) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/secgw-graph.html#running-as-ipsec-gateway) |
 |  | SmartNIC App | ![](https://img.shields.io/static/v1?label=&message=Experimental&color=blue) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/smart-nic.html) |
 |  | Connection Tracking Library | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
@@ -100,7 +101,6 @@ Running First DAO application
 |  | Key Extraction Library | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Packet Transformation | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
 |  | TLS offload | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
-|  | Cilium CNI | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
 |  | Protocol Parser Library | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | SNORT Integration | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | NAT | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
