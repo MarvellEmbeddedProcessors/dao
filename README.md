@@ -81,7 +81,7 @@ Running First DAO application
 |  | SoNiC with VPP | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Snort with VPP | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 | **OVS** | HW accelerated OVS Offload | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/ovs-offload.html) |
-| **VIRTIO** | VirtIO-Net | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link 1](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/prog_guide/virtio_net_lib.html) <br> [Link 2](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/virtio-l2fwd.html) |
+| **VIRTIO Emulation** | VirtIO-Net | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link 1](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/prog_guide/virtio_net_lib.html) <br> [Link 2](https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/applications/virtio-l2fwd.html) |
 |  | VirtIO-Crypto | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | VirtIO-Block | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 | **OpenSSL** | SSL crypto Acceleration via Engine | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
