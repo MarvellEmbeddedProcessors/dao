@@ -157,7 +157,7 @@ jobs:
             echo 'Source: NGINX' > debian/control
             echo 'Package: nginx-'${NGINX_VERSION}'-cnxk'${PKG_POSTFIX} >> DEBIAN/control
             echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
-            echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O sbin/nginx | awk -F'Depends=' '{print $2}'`, openssl-${OPENSSL_VERSION}-cnxk${PKG_POSTFIX} (= ${PKG_VERSION_NAME})" >> DEBIAN/control
+            echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O usr/local/nginx/sbin/nginx | awk -F'Depends=' '{print $2}'`, openssl-${OPENSSL_VERSION}-cnxk${PKG_POSTFIX} (= ${PKG_VERSION_NAME})" >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Homepage: https://nginx.org/" >> DEBIAN/control
