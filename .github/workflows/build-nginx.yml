@@ -180,6 +180,7 @@ jobs:
           echo $DISTRO
           echo "DISTRO=${DISTRO}" >> "$GITHUB_OUTPUT"
           [[ "$PKG_POSTFIX" == "-devel" ]] && TAG=devel || TAG=${PKG_VERSION_NAME}
+          echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
           echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
       - name: Delete existing release
         if: ${{ github.event_name == 'push' }}
@@ -195,14 +196,14 @@ jobs:
         with:
           tag_name: nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
           files: |
-            ${{ github.workspace }}/artifacts/nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-cnxk-${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
+            ${{ github.workspace }}/artifacts/nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-cnxk${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
       - name: Release OpenSSL cnxk package
         uses: softprops/action-gh-release@v2.0.4
         if: ${{ github.event_name == 'push' }}
         with:
           tag_name: openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
           files: |
-            ${{ github.workspace }}/artifacts/openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-cnxk-${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
+            ${{ github.workspace }}/artifacts/openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-cnxk${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
       - name: Dispatch package update event
         if: ${{ github.event_name == 'push' }}
         run: |
