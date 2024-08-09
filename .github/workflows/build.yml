@@ -104,7 +104,7 @@ jobs:
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Homepage: https://www.dpdk.org/" >> DEBIAN/control
-            echo "Description: DPU Accelerator offload for Marvell Octeon 10" >> DEBIAN/control
+            echo "Description: Data Accelerator offload for Marvell Octeon 10" >> DEBIAN/control
             cd -
             mv "${PWD}/install" "${PWD}/dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"

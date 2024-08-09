@@ -7,7 +7,7 @@ Common Libraries
 
 Introduction
 ============
-The Common Libraries in DPU Accelerator Offload(DAO) encompass a set of fundamental
+The Common Libraries in Data Accelerator Offload(DAO) encompass a set of fundamental
 and widely used libraries that provide essential functionalities for software
 development. These libraries include components such as loggers, PCI, bit
 manipulation utilities. User can leverage these libraries directly to streamline

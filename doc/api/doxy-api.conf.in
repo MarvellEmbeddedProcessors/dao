@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2024 Marvell.
 
-PROJECT_NAME            = DPU Accelerator Offload
+PROJECT_NAME            = Data Accelerator Offload
 USE_MDFILE_AS_MAINPAGE  = @TOPDIR@/doxy-api-index.md
 
 INPUT                   = @TOPDIR@/doxy-api-index.md \

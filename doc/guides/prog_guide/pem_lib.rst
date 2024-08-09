@@ -7,7 +7,7 @@ PEM Library
 
 The PEM library provides a framework for memory mapping PEM(SDP) BAR region and dividing
 BAR area among all VFs. BAR area would be used by other libraries such as ``virtio-net``
-for communication between host and Octeon DPU FW. This library runs on Octeon DPU cores.
+for communication between host and Octeon Data FW. This library runs on Octeon cores.
 
 Prerequisites:
 ~~~~~~~~~~~~~~

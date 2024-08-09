@@ -57,7 +57,7 @@ New Features
   * *Smart-NIC*
 
     Universal smart nic app is a powerful tool that harnesses the performance and efficiency
-    of hardware accelerators in DPUs. It also mitigates some hardware gaps by providing
+    of hardware accelerators in Octeon. It also mitigates some hardware gaps by providing
     optimized software solution for advanced features like as port hair pinning, tunnel-transport,
     port hotplugging, etc.
 

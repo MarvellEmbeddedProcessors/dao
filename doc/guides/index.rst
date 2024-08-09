@@ -1,8 +1,8 @@
 ..  SPDX-License-Identifier: Marvell-MIT
     Copyright (c) 2024 Marvell.
 
-Welcome to DPU Accelerator Offload(DAO) Documentation
-=====================================================
+Welcome to Data Accelerator Offload(DAO) Documentation
+======================================================
 
 .. toctree::
  :maxdepth: 2

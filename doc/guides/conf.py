@@ -20,7 +20,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = 'DPU Accelerator Offload'
+project = 'Data Accelerator Offload'
 copyright = '2024, Marvell'
 author = 'Marvell'
 html_logo = 'logo/logo.jpg'

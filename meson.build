@@ -2,7 +2,7 @@
 # Copyright (c) 2023 Marvell.
 
 project(
-	'DPU Accelerator Offloads',
+	'Data Accelerator Offload',
 	'C',
 	meson_version: '>= 0.53.0',
 	version: run_command(find_program('cat', 'more'),
@@ -12,13 +12,13 @@ project(
 
 # Build Configuration Data
 DAO_BUILD_CONF = configuration_data()
-# DPU Accelerator Offloads sources
+# DAO sources
 DAO_SOURCES = []
-# DPU Accelerator Offloads include directories
+# DAO include directories
 DAO_INCLUDES = []
 # Mandatory dpdk library dependency
 DAO_DPDK_LIB_DEPS = []
-# DPU Accelerator Offloads static libraries
+# DAO static libraries
 DAO_STATIC_LIBS = []
 # Enabled/disabled static dao applicaitons/libraries/tests
 DAO_MODULES_ENABLED = []

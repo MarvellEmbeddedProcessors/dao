@@ -5,7 +5,7 @@
 /**
  * @file
  *
- * DPU Accelerator Offloads Version header
+ * Data Accelerator Offload Version header
  *
  */
 
@@ -19,9 +19,9 @@ extern "C" {
 #include <dao_config.h>
 
 /**
- * DPU Accelerator Offloads get version
+ * DAO get version
  *
- * @retval   DPU Accelerator Offloads a Version String format:
+ * @retval   DAO Version String format:
  *	     SDK version-DPDK version-git_commit
  */
 static inline const char *

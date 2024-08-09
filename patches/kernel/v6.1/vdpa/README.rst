@@ -1,7 +1,7 @@
 ..  SPDX-License-Identifier: Marvell-MIT
     Copyright (c) 2024 Marvell.
 
-The DPU accelerator offloads(DAO) requires additional patches for compatibility
+Data accelerator Offload(DAO) requires additional patches for compatibility
 with the v6.1 kernel.
 These patches have been back-ported and can be found in DAO source directory under
 **patches/kernel/v6.1/vdpa/**. They are part of the Marvell SDK kernel.

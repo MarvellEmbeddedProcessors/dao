@@ -10,7 +10,7 @@ according to their specific needs.
 
 Getting the sources
 -------------------
-DPU accelerator offload (DAO) sources can be downloaded from:
+Data accelerator offload (DAO) sources can be downloaded from:
 
 .. code-block:: console
 
