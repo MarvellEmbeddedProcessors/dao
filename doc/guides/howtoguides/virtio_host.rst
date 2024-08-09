@@ -23,7 +23,7 @@ Not providing 'kernel_dir' option would pick /lib/modules/`uname -r`/source  as 
 
 .. code-block:: console
 
-   git clone https://github.com/MarvellEmbeddedProcessors/dpu-accelerator-offload.git
+   git clone https://github.com/MarvellEmbeddedProcessors/dao.git
    git checkout dao-devel
 
    meson build

@@ -14,7 +14,7 @@ Data accelerator offload (DAO) sources can be downloaded from:
 
 .. code-block:: console
 
-   git clone https://github.com/MarvellEmbeddedProcessors/dpu-accelerator-offload.git
+   git clone https://github.com/MarvellEmbeddedProcessors/dao.git
    git checkout dao-devel
 
 Compiling and Installing

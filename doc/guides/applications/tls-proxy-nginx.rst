@@ -72,7 +72,7 @@ Ubuntu Debian package
 ^^^^^^^^^^^^^^^^^^^^^
 
 Before downloading the NGINX package, make sure ubuntu repository is setup properly
-`Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
+`Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
 
 Installing the NGINX package
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^

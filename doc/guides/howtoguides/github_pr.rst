@@ -46,7 +46,7 @@ via following commands
 
 10. Your pull request shall be listed in following link:
 
-`<https://github.com/MarvellEmbeddedProcessors/dpu-accelerator-offload/pulls>`_
+`<https://github.com/MarvellEmbeddedProcessors/dao/pulls>`_
 
 Remember, each pull request should contain one logical change and the changes
 should be isolated to one branch. Also, make sure your code adheres to the
