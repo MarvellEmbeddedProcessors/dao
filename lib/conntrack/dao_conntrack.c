@@ -41,13 +41,7 @@ static uint8_t l2_len_map[16] = {
 	[RTE_PTYPE_L2_ETHER] = 14,
 	[RTE_PTYPE_L2_ETHER_VLAN] = 18,
 	[RTE_PTYPE_L2_ETHER_QINQ] = 22,
-
 };
-
-/* XXX: TODO: implement per thread error counters. */
-static rte_atomic64_t dao_ct_stats_l3_cksum_erros;
-static rte_atomic64_t dao_ct_stats_l4_cksum_erros;
-static rte_atomic64_t dao_ct_stats_ct_full;
 
 static void
 conn_key_reverse(struct conn_key *key)
@@ -100,8 +94,10 @@ extract_l3_ipv4(struct conn_key *key, const void *l3_data)
 	const struct rte_ipv4_hdr *ip = (const struct rte_ipv4_hdr *)l3_data;
 
 	/* Note: Fragmented packets are not supported. */
-	if (rte_ipv4_frag_pkt_is_fragmented(ip))
+	if (rte_ipv4_frag_pkt_is_fragmented(ip)) {
+		DAO_CT_STATS_INC(CT_CORE_ERR_IP4_FRAG);
 		return false;
+	}
 
 	key->src.addr.ipv4_addr = ip->src_addr;
 	key->dst.addr.ipv4_addr = ip->dst_addr;
@@ -117,8 +113,10 @@ extract_l3_ipv6(struct conn_key *key, void *l3_data)
 	struct rte_ipv6_hdr *ipv6 = (struct rte_ipv6_hdr *)l3_data;
 
 	/* Note: Fragmented packets are not supported. */
-	if (rte_ipv6_frag_get_ipv6_fragment_header(ipv6))
+	if (rte_ipv6_frag_get_ipv6_fragment_header(ipv6)) {
+		DAO_CT_STATS_INC(CT_CORE_ERR_IP6_FRAG);
 		return false;
+	}
 
 	memcpy(key->src.addr.ipv6_addr, ipv6->src_addr.a, sizeof(ipv6->src_addr));
 	memcpy(key->dst.addr.ipv6_addr, ipv6->dst_addr.a, sizeof(ipv6->dst_addr));
@@ -232,7 +230,7 @@ conn_key_extract(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx)
 
 	if (l3_ptype == RTE_PTYPE_L3_IPV4 || l3_ptype == RTE_PTYPE_L3_IPV4_EXT) {
 		if (pkt->ol_flags & RTE_MBUF_F_RX_OUTER_IP_CKSUM_BAD) {
-			rte_atomic64_inc(&dao_ct_stats_l3_cksum_erros);
+			DAO_CT_STATS_INC(CT_CORE_ERR_L3_CSUM);
 			rc = false;
 			goto done;
 		}
@@ -257,7 +255,7 @@ conn_key_extract(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx)
 	ctx->l4_offset = l4_offset;
 	buf = (uint8_t *)(rte_pktmbuf_mtod(pkt, char *) + l4_offset);
 	if (pkt->ol_flags & RTE_MBUF_F_RX_L4_CKSUM_BAD) {
-		rte_atomic64_inc(&dao_ct_stats_l4_cksum_erros);
+		DAO_CT_STATS_INC(CT_CORE_ERR_L4_CSUM);
 		return false;
 	}
 
@@ -406,6 +404,7 @@ conn_create(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx, bool commit,
 	rc = l4_protos[ctx->key.kdata.nw_proto]->valid_new(ctx, pkt);
 	if (rc == false) {
 		mdata->ct_state = DAO_CONN_STATE_FLAG(DAO_CONN_STATE_INVALID);
+		DAO_CT_STATS_INC(CT_CORE_ERR_INVALID_STATE);
 		return NULL;
 	}
 
@@ -413,7 +412,7 @@ conn_create(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx, bool commit,
 
 	if (commit) {
 		if ((uint64_t)rte_atomic64_read(&ct->num_conn) > ct->max_num_conn) {
-			rte_atomic64_inc(&dao_ct_stats_ct_full);
+			DAO_CT_STATS_INC(CT_CORE_ERR_CT_FULL);
 			return NULL;
 		}
 		conn = l4_protos[ctx->key.kdata.nw_proto]->new_conn(ct, ctx, pkt, now);
@@ -437,6 +436,7 @@ conn_create(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx, bool commit,
 		bid = rte_hash_add_key(ct->hash, &fwd_key->kdata);
 		if (bid < 0) {
 			dao_err("ERROR: Adding forward key to the hash failed.");
+			DAO_CT_STATS_INC(CT_CORE_ERR_HASH_ADD);
 			rte_free(conn);
 			return NULL;
 		}
@@ -523,19 +523,25 @@ conn_process_pkt(struct rte_mbuf *mbuf, struct conn_lookup_ctx *ctx, bool commit
 		 * conn_blist_node_lookup calls rte_panic(). In case of #2, connection timeout has
 		 * occured and timer thread will cleanup the entry.
 		 */
-		if (conn == NULL)
+		if (conn == NULL) {
+			DAO_CT_STATS_INC(CT_CORE_ERR_BLIST_LOOKUP);
 			return -1;
+		}
 
 		create_new_conn = conn_update_state(mbuf, ctx, conn, mdata, now);
 	}
 
-	if (!conn && ctx->icmp_related)
+	if (!conn && ctx->icmp_related) {
+		DAO_CT_STATS_INC(CT_CORE_ERR_CONN_LOOKUP);
 		return -1;
+	}
 
 	if (create_new_conn) {
 		conn = conn_create(mbuf, ctx, commit, mdata, now);
-		if (conn == NULL)
+		if (conn == NULL) {
+			DAO_CT_STATS_INC(CT_CORE_ERR_CONN_CREAT);
 			return -1;
+		}
 	}
 
 	return 0;
@@ -569,6 +575,8 @@ dao_conntrack_execute(struct rte_mbuf **pkts, uint16_t num_pkts, bool commit)
 			}
 		}
 	}
+
+	DAO_CT_STATS_ADD(CT_CORE_PKT, num_pkts);
 
 	return 0;
 }
@@ -903,5 +911,25 @@ dao_conntrack_dump(void)
 			rte_spinlock_unlock(&conn->clock);
 		}
 		rte_spinlock_unlock(&bucket->block);
+	}
+}
+
+void
+dao_conntrack_stats_dump(void)
+{
+	struct dao_ct_stats ct_stats_total;
+	uint32_t lcore;
+	uint8_t i;
+
+	memset(&ct_stats_total, 0, sizeof(struct dao_ct_stats));
+
+	RTE_LCORE_FOREACH(lcore) {
+		for(i = 0; i < CT_STATS_MAX; i++)
+			ct_stats_total.stats[i] += ct_stats[lcore].stats[i];
+	}
+
+	for(i = 0; i < CT_STATS_MAX; i++) {
+		if (ct_stats_total.stats[i])
+			printf("%s: %lu\n", ct_stats_id2str_get(i), ct_stats_total.stats[i]);
 	}
 }

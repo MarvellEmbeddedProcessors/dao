@@ -86,6 +86,7 @@ dump_conntrack(void *arg)
 	printf("dump_conntrack\n");
 	while (1) {
 //		dao_conntrack_dump();
+		dao_conntrack_stats_dump();
 
 		sleep(2);
 	};

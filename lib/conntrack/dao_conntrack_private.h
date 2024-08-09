@@ -10,6 +10,7 @@
 #include <rte_log.h>
 #include <rte_mbuf.h>
 
+#include "dao_conntrack_stats.h"
 #include "dao_log.h"
 
 /* DPDK supports ECHO_REQUEST and ECHO_REPLY. */

@@ -88,4 +88,8 @@ int dao_conntrack_execute(struct rte_mbuf **pkts, uint16_t num_pkts, bool commit
  */
 void dao_conntrack_dump(void);
 
+/*
+ * Dump conntrack stats.
+ */
+void dao_conntrack_stats_dump(void);
 #endif /* __DAO_CONNTRACK_H__ */

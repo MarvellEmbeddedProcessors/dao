@@ -41,6 +41,7 @@ run_test(struct rte_mbuf **pkts)
 	}
 
 	dao_conntrack_dump();
+	dao_conntrack_stats_dump();
 	printf("Conntrack add success\n");
 }
 
