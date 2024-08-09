@@ -1,4 +1,4 @@
-name: build-cn10k
+name: build-cn10k-nginx
 
 on:
   push:
@@ -216,6 +216,7 @@ jobs:
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "nginx",
             "tag": "nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
             "distro" : "${{ steps.artifacts.outputs.DISTRO }}"}}'
+          sleep 120
           curl -L \
             -X POST \
             -H "Accept: application/vnd.github+json" \
