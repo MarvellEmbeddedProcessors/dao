@@ -1,8 +1,13 @@
 ..  SPDX-License-Identifier: Marvell-MIT
     Copyright (c) 2024 Marvell.
 
+********************
+TLS Proxy with NGINX
+********************
+
 Introduction
 ============
+
 TLS proxy is an intermediate entity/application which sits between a server and client where at least one of them uses TLS for their communication. Based on the type of proxy, it optionally encrypts/decrypts traffic b/w server and client applications. There are different types of TLS proxies
 
 1. TLS termination/Reverse Proxy
@@ -24,11 +29,13 @@ NGINX as TLS termination proxy
 ==============================
 
 Usage/deployment Model
-``````````````````````
+----------------------
+
 This section discusses on the steps to deploy NGINX as a TLS termination proxy.
 
 NGINX Architecture Diagram
-``````````````````````````
+--------------------------
+
 1. NGINX as TLS termination proxy with inbuilt web server
 
    .. figure:: ./img/nginx-https-server.png
@@ -38,7 +45,8 @@ NGINX Architecture Diagram
    .. figure:: ./img/nginx-tls-termination.png
 
 NGINX acceleration on OCTEON
-````````````````````````````
+----------------------------
+
 NGINX application provided in this solution is modified to add following features
 
 1. Changes required to leverage asynchronous mode in OpenSSL
@@ -56,15 +64,19 @@ multiple TLS records.
 
 Steps to Build
 ==============
+
 Getting Sources
-```````````````
+---------------
+
 Ubuntu Debian package
-`````````````````````
+^^^^^^^^^^^^^^^^^^^^^
+
 Before downloading the NGINX package, make sure ubuntu repository is setup properly
 `Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dpu-accelerator-offload/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
 
 Installing the NGINX package
-````````````````````````````
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 .. code-block:: console
 
     ~# apt-get install nginx-1.22.0-cnxk-devel
@@ -73,20 +85,23 @@ Environment Setup
 =================
 
 Enabling CPT device
-````````````````````
+-------------------
+
 .. code-block:: console
 
     ~# echo 1 > /sys/bus/pci/devices/0002\:20\:00.0/sriov_numvfs
     ~# dpdk-devbind.py -b vfio-pci 0002:20:00.1
 
 NGINX configuration
-```````````````````
+-------------------
+
 .. code-block:: console
 
     ~# cat /conf/nginx.conf
 
 NGINX as HTTPS Server
-`````````````````````
+^^^^^^^^^^^^^^^^^^^^^
+
 Following example async_nginx.conf allows user to run nginx with inbuilt HTTP server
 
 .. code-block:: text
@@ -150,7 +165,8 @@ Following example async_nginx.conf allows user to run nginx with inbuilt HTTP se
   }
 
 NGINX as TLS Forwarder
-``````````````````````
+^^^^^^^^^^^^^^^^^^^^^^
+
 Following example tls-proxy-forwarding-async_nginx.conf allows users to configure NGINX to work as HTTPS forwarding proxy where both connections from SSL client to NGINX and NGINX to backend server are secured using SSL:
 
 .. code-block:: text
@@ -203,7 +219,8 @@ Following example tls-proxy-forwarding-async_nginx.conf allows users to configur
   }
 
 NGINX as TLS Initiator
-``````````````````````
+^^^^^^^^^^^^^^^^^^^^^^
+
 Following example backend-https-async_nginx.conf users to configure NGINX to work as a SSL proxy client to HTTP clients and communicate with HTTPS servers using SSL:
 
 .. code-block:: text
@@ -256,10 +273,14 @@ Following example backend-https-async_nginx.conf users to configure NGINX to wor
 
 
 OpenSSL configuration
-`````````````````````
+---------------------
+
 .. code-block:: console
 
     ~# cat /opt/openssl.cnf
+
+OpenSSL example conf
+^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -312,14 +333,21 @@ OpenSSL configuration
   engine_log_level = ENG_LOG_INFO
   init=0
 
+Launching the application
+=========================
+
 Running the Proxy Application
-=============================
+-----------------------------
+
 .. code-block:: console
 
-    ~# OPENSSL_CONF_MULTI=<path-to-conffile>/openssl.cnf /usr/local/nginx/sbin/nginx -c /conf/async_nginx.conf
+    ~# OPENSSL_CONF_MULTI=<path-to-conffile>/openssl.cnf <path-to-nginx-bin>/sbin/nginx -c <path-to-conffile>/async_nginx.conf
+
+NOTE: Path to NGINX application = /usr/local/nginx/
 
 Functional Testing of the Proxy
-===============================
+-------------------------------
+
 .. code-block:: console
 
     ~# ab -i -c1 -n1 -f TLS1.2 -Z AES128-GCM-SHA256 https://<nginx-dut-ip>/test/<FILE_SIZE>.html
@@ -327,9 +355,11 @@ Functional Testing of the Proxy
 NOTE: A file <FILE_SIZE>.html (eg: 4MB.html) has to be created in the directory where nginx application is executed.
 
 Performance Testing of the Proxy
-================================
+--------------------------------
+
 Kernel Parameters Tuning for best performance
-`````````````````````````````````````````````
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 Following kernel parameters should be set for load testing of nginx as well as to achieve optimal performance from linux kernel tcp stack.
 
 .. code-block:: console
@@ -354,7 +384,8 @@ Following kernel parameters should be set for load testing of nginx as well as t
     ~# echo 5 > /proc/sys/net/ipv4/tcp_fin_timeout
 
 Performance measurement using ab client
-```````````````````````````````````````
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 The apache benchmark utility (ab) can be used to benchmark nginx
 
 .. code-block:: console
@@ -362,7 +393,8 @@ The apache benchmark utility (ab) can be used to benchmark nginx
     ~# ab -i -c64 -n10000 -f TLS1.2 -Z AES128-GCM-SHA256 https://<nginx-dut-ip>/test/<FILE_SIZE>.html
 
 Performance using h2load client
-```````````````````````````````
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 .. code-block:: console
 
     ~# h2load  -n 10000 -c 64 --cipher=AES128-GCM-SHA256,2048,256 https://<nginx-dut-ip>/test/<FILE_SIZE>.html
