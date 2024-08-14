@@ -176,7 +176,7 @@ virtio_net_deq_ext(struct virtio_net_queue *q, void **vbufs, uint16_t nb_bufs, c
 	dao_dma_check_compl(dev2mem);
 
 	/* Check shadow buf status and issue new DMA's for buf's */
-	sd_mbuf_off = fetch_host_data(q, dev2mem, 128, flags);
+	sd_mbuf_off = fetch_host_data(q, dev2mem, 256, flags);
 	last_off = q->last_off;
 
 	q_sz = q->q_sz;
