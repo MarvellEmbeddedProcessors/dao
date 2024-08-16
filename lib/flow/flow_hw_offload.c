@@ -190,6 +190,45 @@ fail:
 	return errno;
 }
 
+struct hw_offload_flow *
+hw_offload_flow_install(struct hw_offload_config_per_port *hw_off_cfg,
+			const struct rte_flow_attr *attr, const struct rte_flow_item pattern[],
+			const struct rte_flow_action actions[], struct rte_flow_error *error)
+{
+	struct hw_offload_flow *hflow = NULL;
+	struct rte_flow *flow = NULL;
+	struct parsed_flow *pflow;
+	int rc;
+
+	hflow = rte_zmalloc("HW Flow Rule", sizeof(struct hw_offload_flow), RTE_CACHE_LINE_SIZE);
+	if (!hflow)
+		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
+
+	/* Validate the flow */
+	rc = rte_flow_validate(hw_off_cfg->port_id, attr, pattern, actions, error);
+	if (rc)
+		DAO_ERR_GOTO(rc, fail, "Flow validation failed while creating flow");
+
+	flow = rte_flow_create(hw_off_cfg->port_id, attr, pattern, actions, error);
+	if (flow == NULL)
+		DAO_ERR_GOTO(-EINVAL, fail, "RTE Flow creation failed");
+
+	hflow->flow = flow;
+	pflow = (struct parsed_flow *)flow;
+	hflow->cam_idx = pflow->cam_idx;
+	if (pflow->use_ctr)
+		hflow->ctr_idx = pflow->ctr_idx;
+	hflow->offloaded = true;
+	hw_off_cfg->num_rules++;
+	dao_dbg("Directly installing new hflow %p flow %p to hardware, num_rule %d", hflow, flow,
+		hw_off_cfg->num_rules);
+
+	return hflow;
+fail:
+	rte_free(hflow);
+	return NULL;
+}
+
 int
 hw_offload_flow_destroy(struct hw_offload_config_per_port *hw_off_cfg,
 			struct hw_offload_flow *hflow)
@@ -234,6 +273,36 @@ fail:
 	return errno;
 }
 
+int
+hw_offload_flow_uninstall(struct hw_offload_config_per_port *hw_off_cfg,
+			  struct hw_offload_flow *hflow)
+{
+	struct rte_flow_error error;
+	uint16_t port_id;
+
+	if (!hw_off_cfg)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid HW offload config");
+
+	if (!hflow->offloaded)
+		DAO_ERR_GOTO(-EINVAL, fail, "Flow is not offloaded");
+
+	port_id = hw_off_cfg->port_id;
+	dao_dbg("Destroying direct hflow %p flow %p from hardware, num_rule %d", hflow, hflow->flow,
+		hw_off_cfg->num_rules);
+	/* Free memory allocated for Age action */
+
+	if (rte_flow_destroy(port_id, hflow->flow, &error))
+		dao_err("Error in deleting flow");
+
+	hw_off_cfg->num_rules--;
+	hflow->ctr_idx = -1;
+	hflow->offloaded = false;
+	rte_free(hflow);
+
+	return 0;
+fail:
+	return errno;
+}
 static int
 query_aged_flows(uint16_t port_id, uint8_t destroy)
 {

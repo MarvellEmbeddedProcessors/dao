@@ -95,6 +95,62 @@ fail:
 	return NULL;
 }
 
+struct dao_flow *
+dao_flow_install_hardware(uint16_t port_id, const struct rte_flow_attr *attr,
+			  const struct rte_flow_item pattern[],
+			  const struct rte_flow_action actions[], struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg = NULL;
+	struct flow_config_per_port *flow_cfg_prt;
+	struct hw_offload_flow *hflow = NULL;
+	struct flow_data *fdata = NULL;
+	struct dao_flow *flow = NULL;
+
+	if (!gbl_cfg->hw_offload_enabled)
+		DAO_ERR_GOTO(-EINVAL, fail, "HW offload not enabled");
+
+	flow = rte_zmalloc("dao_flow", sizeof(struct dao_flow), RTE_CACHE_LINE_SIZE);
+	if (!flow)
+		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
+
+	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+	if (!hw_off_cfg)
+		dao_err("Failed to get per HW off config for port %d", port_id);
+
+	hw_off_cfg->port_id = port_id;
+	hw_off_cfg->aging_tmo = gbl_cfg->aging_tmo;
+	hflow = hw_offload_flow_install(hw_off_cfg, attr, pattern, actions, error);
+	if (!hflow)
+		dao_err("HW offload flow reserve failed");
+
+	flow->hflow = hflow;
+
+	fdata = rte_zmalloc("flow_data", sizeof(struct flow_data), RTE_CACHE_LINE_SIZE);
+	if (!fdata)
+		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
+
+	flow_cfg_prt = &gbl_cfg->flow_cfg[port_id];
+	if (!flow_cfg_prt->list_initialized) {
+		TAILQ_INIT(&flow_cfg_prt->flow_list);
+		flow_cfg_prt->list_initialized = true;
+		/* Synchronizing addition/deletion/lookup for flow rules */
+		rte_spinlock_init(&flow_cfg_prt->flow_list_lock);
+	}
+
+	fdata->flow = flow;
+	rte_spinlock_lock(&flow_cfg_prt->flow_list_lock);
+	flow_cfg_prt->num_flows++;
+	TAILQ_INSERT_TAIL(&flow_cfg_prt->flow_list, fdata, next);
+	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
+
+	dao_dbg("New DAO flow created %p - HW flow %p viz directly installed in hardware", flow,
+		flow->hflow);
+
+	return flow;
+fail:
+	return NULL;
+}
+
 static void
 parse_profile_setup(struct flow_global_cfg *gbl_cfg, struct dao_flow_offload_config *config)
 {
@@ -315,6 +371,49 @@ dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error 
 	/* HW offload Flow destroy */
 	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
 	rc = hw_offload_flow_destroy(hw_off_cfg, hflow);
+	if (rc)
+		DAO_ERR_GOTO(-rc, fail, "Failed to delete HW offloaded flow");
+
+	return 0;
+fail:
+	return errno;
+}
+
+int
+dao_flow_uninstall_hardware(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error *error)
+{
+	struct hw_offload_config_per_port *hw_off_cfg;
+	struct flow_config_per_port *flow_cfg_prt;
+	struct hw_offload_flow *hflow;
+	struct flow_data *fdata;
+	void *tmp;
+	int rc;
+
+	RTE_SET_USED(error);
+	if (!gbl_cfg->hw_offload_enabled)
+		DAO_ERR_GOTO(-EINVAL, fail, "HW offload not enabled");
+
+	if (flow->port_id != port_id)
+		DAO_ERR_GOTO(-EINVAL, fail, "Mismatch in Flow portid %d and passed portid %d",
+			     flow->port_id, port_id);
+
+	hflow = flow->hflow;
+	flow_cfg_prt = &gbl_cfg->flow_cfg[port_id];
+	rte_spinlock_lock(&flow_cfg_prt->flow_list_lock);
+	DAO_TAILQ_FOREACH_SAFE(fdata, &flow_cfg_prt->flow_list, next, tmp) {
+		if (flow == fdata->flow) {
+			TAILQ_REMOVE(&flow_cfg_prt->flow_list, fdata, next);
+			dao_dbg("Removing flow %p, hw flow %p", fdata->flow, fdata->flow->hflow);
+			rte_free(fdata->flow);
+			rte_free(fdata);
+			flow_cfg_prt->num_flows--;
+		}
+	}
+	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
+
+	/* HW offload Flow destroy */
+	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
+	rc = hw_offload_flow_uninstall(hw_off_cfg, hflow);
 	if (rc)
 		DAO_ERR_GOTO(-rc, fail, "Failed to delete HW offloaded flow");
 

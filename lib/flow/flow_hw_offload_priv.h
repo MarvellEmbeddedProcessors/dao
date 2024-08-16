@@ -55,12 +55,19 @@ struct hw_offload_flow *hw_offload_flow_reserve(struct hw_offload_config_per_por
 
 int hw_offload_flow_create(struct hw_offload_config_per_port *hw_off_cfg,
 			   struct hw_offload_flow *rule);
+struct hw_offload_flow *hw_offload_flow_install(struct hw_offload_config_per_port *hw_off_cfg,
+						const struct rte_flow_attr *attr,
+						const struct rte_flow_item pattern[],
+						const struct rte_flow_action actions[],
+						struct rte_flow_error *error);
 int hw_offload_flow_destroy(struct hw_offload_config_per_port *hw_off_cfg,
 			    struct hw_offload_flow *rule);
 int hw_offload_flow_create(struct hw_offload_config_per_port *hw_off_cfg,
 			   struct hw_offload_flow *rule);
 int hw_offload_flow_destroy(struct hw_offload_config_per_port *hw_off_cfg,
 			    struct hw_offload_flow *rule);
+int hw_offload_flow_uninstall(struct hw_offload_config_per_port *hw_off_cfg,
+			      struct hw_offload_flow *hflow);
 int hw_offload_flow_query(struct hw_offload_config_per_port *hw_off_cfg,
 			  struct hw_offload_flow *hflow, const struct rte_flow_action *action,
 			  struct dao_flow_query_count *query, struct rte_flow_error *error);

@@ -109,6 +109,27 @@ struct dao_flow *dao_flow_create(uint16_t port_id, const struct rte_flow_attr *a
 				 struct rte_flow_error *error);
 
 /**
+ * Install a flow rule on a given port which gets offloaded directly into the HW.
+ *
+ * @param[in] port_id
+ *    Port identifier of Ethernet device.
+ * @param[in] attr
+ *    Flow rule attributes.
+ * @param[in] pattern
+ *   Pattern specification (list terminated by the END pattern item).
+ * @param[in] actions
+ *   Associated actions (list terminated by the END action).
+ * @param[out] error
+ *   Perform verbose error reporting if not NULL.
+ * @return
+ *   A valid handle in case of success, NULL otherwise and errno is set.
+ */
+struct dao_flow *dao_flow_install_hardware(uint16_t port_id, const struct rte_flow_attr *attr,
+					   const struct rte_flow_item pattern[],
+					   const struct rte_flow_action actions[],
+					   struct rte_flow_error *error);
+
+/**
  * Destroy a flow rule on a given port.
  *
  * @param[in] port_id
@@ -122,6 +143,23 @@ struct dao_flow *dao_flow_create(uint16_t port_id, const struct rte_flow_attr *a
  *   0 on success, a negative errno value.
  */
 int dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error *error);
+
+/**
+ * Uninstall a flow rule on a given port which was directly offloaded to
+ * hardware.
+ *
+ * @param[in] port_id
+ *   Port identifier of Ethernet device.
+ * @param[in] flow
+ *   Flow rule handle to destroy.
+ * @param[out] error
+ *   Perform verbose error reporting if not NULL.
+ *
+ * @return
+ *   0 on success, a negative errno value.
+ */
+int dao_flow_uninstall_hardware(uint16_t port_id, struct dao_flow *flow,
+				struct rte_flow_error *error);
 
 /**
  * Lookup for a flow on a given port.
