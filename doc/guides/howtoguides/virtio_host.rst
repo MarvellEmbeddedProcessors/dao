@@ -52,6 +52,16 @@ then bind the VDPA devices to ``vhost_vdpa`` devices to be available for DPDK or
    echo $HOST_PF > /sys/bus/pci/drivers_probe
    echo $VF_CNT >/sys/bus/pci/devices/$HOST_PF/sriov_numvfs
 
+   sleep 1
+   # Get the list of management devices
+   mgmt_devices=$(vdpa mgmtdev show | awk '/pci\/0000:/{print $1}' | sed 's/:$//')
+   for mgmtdev in $mgmt_devices
+   do
+       vdpa_name="vdpa${mgmtdev##*/}"
+       vdpa dev add name "$vdpa_name" mgmtdev "$mgmtdev"
+       sleep 1
+   done
+
    SDP_VFS=`lspci -Dn -d :b903 | cut -f 1 -d " "`
    for dev in $SDP_VFS
    do
