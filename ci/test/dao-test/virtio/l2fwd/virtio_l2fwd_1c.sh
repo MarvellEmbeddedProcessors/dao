@@ -39,6 +39,8 @@ function virtio_l2fwd_1c()
 		return 1
 	fi
 
+	device_part=$(ep_device_op get_part)
+	ep_host_op vdpa_setup $device_part
 	# Start traffic
 	l2fwd_host_start_traffic $host_testpmd_pfx
 
@@ -49,6 +51,7 @@ function virtio_l2fwd_1c()
 	# Stop Traffic and quit host testpmd
 	l2fwd_host_stop_traffic $host_testpmd_pfx
 
+	ep_host_op vdpa_cleanup
 	# Quit l2fwd app
 	l2fwd_app_quit $l2fwd_pfx $l2fwd_out
 	return $k
@@ -66,6 +69,7 @@ function virtio_l2fwd_offload_run()
 	local rpcap=/tmp/rx_multiseg.pcap
 	local tpcap
 	local itr=0
+	local device_part
 	local max_offloads=${#virtio_offloads[@]}
 	((--max_offloads))
 
@@ -118,6 +122,7 @@ function virtio_l2fwd_multiseg()
 	local tx_mpcap=$EP_HOST_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx_mseg.pcap
 	local tx_spcap=$EP_HOST_DIR/ci/test/dao-test/virtio/l2fwd/pcap/tx.pcap
 	local if0=$(ep_device_get_inactive_if)
+	local device_part
 	local k=0
 
 	failed_tests=""
@@ -134,8 +139,12 @@ function virtio_l2fwd_multiseg()
 		return 1
 	fi
 
+	device_part=$(ep_device_op get_part)
+	ep_host_op vdpa_setup $device_part
+
 	virtio_l2fwd_offload_run $host_testpmd_pfx $l2fwd_out "" $tx_spcap $tx_mpcap
 
+	ep_host_op vdpa_cleanup
 	# Quit l2fwd app
 	l2fwd_app_quit $l2fwd_pfx $l2fwd_out
 
@@ -146,7 +155,9 @@ function virtio_l2fwd_multiseg()
 	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200 -f"; then
 		echo "Failed to launch virtio l2fwd with No fastfree"
 	else
+		ep_host_op vdpa_setup $device_part
 		virtio_l2fwd_offload_run $host_testpmd_pfx $l2fwd_out "no_ff" $tx_spcap $tx_mpcap
+		ep_host_op vdpa_cleanup
 	fi
 
 	# Quit l2fwd app

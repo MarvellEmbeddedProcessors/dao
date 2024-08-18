@@ -45,6 +45,15 @@ function ep_host_vdpa_setup()
 	echo $host_pf > /sys/bus/pci/drivers_probe
 	echo $vf_cnt > /sys/bus/pci/devices/$host_pf/sriov_numvfs
 
+	sleep 1
+	# Get the list of management devices
+	mgmt_devices=$(vdpa mgmtdev show | awk '/pci\/0000:/{print $1}' | sed 's/:$//')
+	for mgmtdev in $mgmt_devices; do
+		vdpa_name="vdpa${mgmtdev##*/}"
+		vdpa dev add name "$vdpa_name" mgmtdev "$mgmtdev"
+		sleep 1
+	done
+
 	set +x
 	sdp_vfs=$(lspci -Dn -d :${part}03 | cut -f 1 -d " ")
 	for dev in $sdp_vfs; do
