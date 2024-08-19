@@ -68,7 +68,7 @@ process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *me
 	mbuf_arr[off] = mbuf;
 	for (cnt = 0; cnt < nb_enq; cnt++) {
 		d_flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
-		buf_len = (d_flags & (RTE_BIT64(32) - 1)) - vhdr_sz;
+		buf_len = (d_flags & (RTE_BIT64(32) - 1));
 
 		if (flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF)
 			slen = slen ? slen : 1;
