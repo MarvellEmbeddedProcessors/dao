@@ -1380,6 +1380,9 @@ rss_table_reset(uint16_t portid)
 	struct rte_eth_rss_reta_entry64 reta_conf[4];
 	int i;
 
+	if (!eth_dev_info[portid].reta_size)
+		return 0;
+
 	/* Setup all entries in RETA table to point to RQ 0.
 	 * RETA table will get updated when number of queue count
 	 * is available.
@@ -1513,7 +1516,7 @@ reconfig_ethdev(uint16_t portid, uint16_t q_count)
 	if (feature_bits & RTE_BIT64(VIRTIO_NET_F_HASH_REPORT)) {
 		rc = rte_eth_dev_set_ptypes(portid, RTE_PTYPE_L3_MASK | RTE_PTYPE_L4_MASK, NULL, 0);
 		if (rc < 0) {
-			APP_ERR("rte_eth_dev_start: err=%d, port=%d\n", rc, portid);
+			APP_ERR("Failed to set requested ptype: port=%d\n", portid);
 			return rc;
 		}
 	}
@@ -1988,6 +1991,7 @@ hash_report_enable(uint16_t virtio_devid)
 {
 	uint64_t enable_hash_report, rx_offloads;
 	struct rte_eth_conf *local_port_conf;
+	uint32_t is_ethdev_supports_rss_hash;
 	uint16_t virt_q_count, portid;
 	int rc;
 
@@ -1998,10 +2002,13 @@ hash_report_enable(uint16_t virtio_devid)
 	local_port_conf = &eth_dev_conf[portid];
 	virt_q_count = eth_dev_q_count[portid];
 
+	is_ethdev_supports_rss_hash =
+		eth_dev_info[portid].rx_offload_capa & RTE_ETH_RX_OFFLOAD_RSS_HASH;
+
 	rx_offloads = local_port_conf->rxmode.offloads;
 
 	rx_offloads &= ~(RTE_ETH_RX_OFFLOAD_RSS_HASH);
-	if (enable_hash_report)
+	if (enable_hash_report && is_ethdev_supports_rss_hash)
 		rx_offloads |= RTE_ETH_RX_OFFLOAD_RSS_HASH;
 
 	if (local_port_conf->rxmode.offloads == rx_offloads) {
@@ -2501,13 +2508,16 @@ setup_eth_devices(void)
 		 * is available.
 		 */
 		rte_eth_dev_info_get(portid, &dev_info);
-		memset(reta_conf, 0, sizeof(reta_conf));
-		for (i = 0; i < 4; i++)
-			reta_conf[i].mask = UINT64_MAX;
+		if (dev_info.reta_size) {
+			memset(reta_conf, 0, sizeof(reta_conf));
+			for (i = 0; i < 4; i++)
+				reta_conf[i].mask = UINT64_MAX;
 
-		rc = rte_eth_dev_rss_reta_update(portid, reta_conf, dev_info.reta_size);
-		if (rc < 0)
-			rte_exit(EXIT_FAILURE, "Failed to update reta table to RQ 0, rc=%d\n", rc);
+			rc = rte_eth_dev_rss_reta_update(portid, reta_conf, dev_info.reta_size);
+			if (rc < 0)
+				rte_exit(EXIT_FAILURE,
+					 "Failed to update reta table to RQ 0, rc=%d\n", rc);
+		}
 
 		/* Disable ptype extraction */
 		rc = rte_eth_dev_set_ptypes(portid, RTE_PTYPE_UNKNOWN, NULL, 0);
