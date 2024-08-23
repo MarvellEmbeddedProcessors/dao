@@ -1,0 +1,164 @@
+name: build-cn10k-ovs
+
+on:
+  push:
+  schedule:
+    - cron: "0 0 * * 1"
+  pull_request:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+  packages: write
+
+jobs:
+  ubuntu-cn10k-build:
+    name: ubuntu-cn10k-arm64
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: aarch64
+            distro: ubuntu22.04
+            compiler: gcc
+            library: static
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+      - name: Generate cache keys
+        id: get_ref_keys
+        run: |
+          echo 'ccache=ccache-${{ matrix.distro }}-${{ matrix.compiler }}-${{ matrix.arch }}-'$(date -u +%Y-w%W) >> $GITHUB_OUTPUT
+      - name: Retrieve ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ steps.get_ref_keys.outputs.ccache }}-${{ github.ref }}
+          restore-keys: |
+            ${{ steps.get_ref_keys.outputs.ccache }}-refs/heads/main
+      - name: Extract version details
+        id: version
+        run: |
+          mkdir -p "${PWD}/artifacts"
+          git tag --points-at HEAD > /tmp/tags
+          [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
+          echo "PKG_VERSION_NAME=`cat VERSION`" >> "${PWD}/artifacts/env"
+          echo "DPDK_PKG_VERSION=`cat DPDK_VERSION | grep RELEASE_VERSION | awk -F'=' '{print $2}'`" >> "${PWD}/artifacts/env"
+          echo "DPDK_BASE_PKG_VERSION=`cat DPDK_VERSION | grep BASE_VERSION | awk -F'=' '{print $2}' | awk -F'.' '{print $1"."$2}'`" >> "${PWD}/artifacts/env"
+          echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
+          source "${PWD}/artifacts/env"
+      - uses: uraimo/run-on-arch-action@v2.7.2
+        name: Build OVS and generate package
+        id: build
+        with:
+          arch: ${{ matrix.arch }}
+          distro: ${{ matrix.distro }}
+          githubToken: ${{ github.token }}
+          setup: |
+            mkdir -p ~/.ccache
+          dockerRunArgs: |
+            --volume "${PWD}/artifacts:/artifacts"
+            --volume "${HOME}/.ccache:/root/.ccache"
+          shell: /bin/bash
+          install: |
+            apt-get update -q -y
+            apt-get install -y build-essential gcc meson ccache git doxygen apt-utils
+            apt-get install -y build-essential ccache git software-properties-common
+            add-apt-repository -y ppa:ubuntu-toolchain-r/test
+            apt-get update -q -y
+            apt-get install -y libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev
+            apt-get install -y sphinx-common python3-sphinx-rtd-theme pkg-config
+            apt-get install -y libarchive-dev libbsd-dev libbpf-dev
+            apt-get install -y libfdt-dev libjansson-dev autoconf dh-autoreconf
+            apt-get install -y libssl-dev ninja-build python3-pip
+            apt-get install -y python3-pyelftools python3-setuptools python3-wheel zlib1g-dev
+            apt-get install -y gcc-13 bzip2-doc icu-devtools libacl1-dev libattr1-dev
+            apt-get install -y libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev
+            apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
+          run: |
+            source /artifacts/env
+            git config --global --add safe.directory "${PWD}"
+            DISTRO=ubuntu-`lsb_release -rs`
+            echo "DISTRO=${DISTRO}" >> /artifacts/env
+            wget "https://github.com/MarvellEmbeddedProcessors/marvell-dpdk/releases/download/dpdk-${DPDK_BASE_PKG_VERSION}_${DPDK_PKG_VERSION}-${DISTRO}-${DPDK_PKG_VERSION}/dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
+            apt-get install -y ./"dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
+            export CC='ccache gcc-13'
+            echo "cache_dir = /root/.ccache" > /root/.ccache/ccache.conf
+            ccache -p
+            pkg-config --list-all
+            OVS_PATCH_VERSION=$(ls patches/ovs | head -n 1)
+            OVS_VERSION=${OVS_PATCH_VERSION#v}
+            echo "OVS_VERSION=$OVS_VERSION" >> /artifacts/env
+            wget "https://www.openvswitch.org/releases/openvswitch-${OVS_VERSION}.tar.gz"
+            tar xzf openvswitch-${OVS_VERSION}.tar.gz
+            BASE_DIR=${PWD}
+            cd "${PWD}/openvswitch-${OVS_VERSION}"
+            for patch in ${BASE_DIR}/patches/ovs/${OVS_PATCH_VERSION}/*.patch; do
+                patch -p1 < "$patch"
+            done
+            ./boot.sh
+            ./configure --prefix="${PWD}/install/usr/local" --localstatedir=/usr/local/var --sysconfdir=/usr/local/etc --with-dpdk=static CFLAGS="-DALLOW_EXPERIMENTAL_API  -mcpu=neoverse-n2+crypto+sve2"
+            make -j4 install
+            mkdir -p "${PWD}/install/debian"
+            mkdir -p "${PWD}/install/DEBIAN"
+            cd "${PWD}/install"
+            echo 'Source: Open vSwitch' > debian/control
+            echo 'Package: ovs-'$OVS_VERSION'-cn10k'$PKG_POSTFIX >> DEBIAN/control
+            echo 'Version: '$PKG_VERSION_NAME >> DEBIAN/control
+            echo "Depends: `dpkg-shlibdeps -O usr/local/sbin/ovs-vswitchd | awk -F'Depends=' '{print $2}'`, dpdk-"$DPDK_BASE_PKG_VERSION"-cn10k (= "$DPDK_PKG_VERSION")" >> DEBIAN/control
+            echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
+            echo "Architecture: arm64" >> DEBIAN/control
+            echo "Homepage: https://www.openvswitch.org/" >> DEBIAN/control
+            echo "Description: Open vSwitch (OVS) for Marvell Octeon 10" >> DEBIAN/control
+            rm -rf debian
+            cd -
+            mv "${PWD}/install" "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            dpkg --build "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            cp "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" /artifacts/.
+      - name: Export version name
+        id: artifacts
+        run: |
+          source "${PWD}/artifacts/env"
+          echo $PKG_VERSION_NAME
+          echo "PKG_VERSION_NAME=${PKG_VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo $PKG_POSTFIX
+          echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
+          echo $OVS_VERSION
+          echo "OVS_VERSION=${OVS_VERSION}" >> "$GITHUB_OUTPUT"
+          echo $DISTRO
+          echo "DISTRO=${DISTRO}" >> "$GITHUB_OUTPUT"
+          [[ "$PKG_POSTFIX" == "-devel" ]] && TAG=devel || TAG=${PKG_VERSION_NAME}
+          echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> $GITHUB_OUTPUT
+          echo "DPDK_BASE_PKG_VERSION=${DPDK_BASE_PKG_VERSION}" >> $GITHUB_OUTPUT
+      - name: Delete existing release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }} --cleanup-tag -y
+        continue-on-error: true
+      - name: Release OVS cn10k package
+        uses: softprops/action-gh-release@v2.0.4
+        if: ${{ github.event_name == 'push' }}
+        with:
+          tag_name: ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
+          files: |
+            ${{ github.workspace }}/artifacts/ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
+      - name: Dispatch package update event
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.PPA_REPO_SECRET }}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
+            -d '{"event_type":"dispatch-event", "client_payload": {"package" : "ovs",
+            "tag": "ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
+            "dpdk_tag" : "dpdk-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.version.outputs.DPDK_PKG_VERSION }}",
+            "has_dpdk" : "true", "distro" : "${{ steps.artifacts.outputs.DISTRO }}"}}'
