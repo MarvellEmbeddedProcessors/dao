@@ -1,0 +1,48 @@
+From 432a12ef30f7294acd1732b9a57e8dc9175f50af Mon Sep 17 00:00:00 2001
+From: Harman Kalra <hkalra@marvell.com>
+Date: Fri, 9 Aug 2024 18:42:39 +0530
+Subject: [PATCH 2/2] dpdk: fix transmission with invalid lcore id
+
+In certain scenarios like ARP resolution or ICPM6 solicitation
+non-pmd threads flush some packets out. For which they need to
+transmit the packets. In existing cnxk driver for trasmitting a
+packet valid lcore ID is required, while these non-pmd threads
+are deliberately assigned an invalid lcore ID.
+This causes a crash when non-pmd threads attempts to trasnmit any
+packet.
+As a resolution, just before a non-pmd thread transmits a packet,
+register for a lcore ID and transmit. Once transmission is done
+release the lcore ID.
+
+Signed-off-by: Harman Kalra <hkalra@marvell.com>
+---
+ lib/dpif-netdev.c | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/lib/dpif-netdev.c b/lib/dpif-netdev.c
+index 99ff9b369..6edc5eb29 100644
+--- a/lib/dpif-netdev.c
++++ b/lib/dpif-netdev.c
+@@ -5599,6 +5599,7 @@ dp_netdev_pmd_flush_output_packets(struct dp_netdev_pmd_thread *pmd,
+ {
+     struct tx_port *p;
+     int output_cnt = 0;
++    bool dpdk_attached;
+ 
+     if (!pmd->n_output_batches) {
+         return 0;
+@@ -5607,7 +5608,11 @@ dp_netdev_pmd_flush_output_packets(struct dp_netdev_pmd_thread *pmd,
+     HMAP_FOR_EACH (p, node, &pmd->send_port_cache) {
+         if (!dp_packet_batch_is_empty(&p->output_pkts)
+             && (force || pmd->ctx.now >= p->flush_time)) {
++            if (pmd->core_id == NON_PMD_CORE_ID)
++                  dpdk_attached = dpdk_attach_thread(0);
+             output_cnt += dp_netdev_pmd_flush_output_on_port(pmd, p);
++            if (dpdk_attached && pmd->core_id == NON_PMD_CORE_ID)
++                  dpdk_detach_thread();
+         }
+     }
+     return output_cnt;
+-- 
+2.25.1
+
