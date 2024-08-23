@@ -145,7 +145,7 @@ calculate_nb_enq(uint64_t *sd_desc_base, uint16_t off, uint32_t slen, uint16_t q
 	uint32_t dlen = 0;
 	uint64_t d_flags;
 
-	while (dlen <= slen && avail_sd) {
+	while (dlen < slen && avail_sd) {
 		d_flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
 		dlen += d_flags & (RTE_BIT64(32) - 1);
 		off = (off + 1) & (qsize - 1);
