@@ -51,8 +51,8 @@ struct dao_flow_offload_config {
 	uint32_t feature;
 	/** Key exchange profiles supported */
 	char parse_profile[DAO_FLOW_PROFILE_NAME_MAX];
-	/** Flow aging timeout */
-	uint32_t aging_tmo;
+	/** Flow aging timeout in seconds */
+	uint32_t aging_tmo_sec;
 };
 
 /** DAO flow handle */
@@ -70,22 +70,29 @@ struct dao_flow {
 };
 
 /**
- * Setting up the flow configurations based on input provided by user
+ * Setting up the flow configurations based on input provided by user.
+ * This function should be invoked for each port, taking into account that an
+ * application can have two types of ports: ethernet ports, which require hardware
+ * flow offloading, and virtio ports, which do not have hardware TCAM backing.
  *
+ * @param[in] port_id
+ *    Port identifier of Ethernet device.
  * @param[in] config
  *    Flow offloading configuration
  * @return
  *   0 on success, otherwise a negative errno value.
  */
-int dao_flow_init(struct dao_flow_offload_config *config);
+int dao_flow_init(uint16_t port_id, struct dao_flow_offload_config *config);
 
 /**
  * Global flow configuration cleanup
  *
+ * @param[in] port_id
+ *    Port identifier of Ethernet device.
  * @return
  *   0 on success, otherwise a negative errno value.
  */
-int dao_flow_fini(void);
+int dao_flow_fini(uint16_t port_id);
 
 /**
  * Create a flow rule on a given port.

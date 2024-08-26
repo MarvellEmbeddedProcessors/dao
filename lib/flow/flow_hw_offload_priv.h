@@ -33,7 +33,7 @@ struct hw_offload_config_per_port {
 	uint16_t port_id;
 	uint32_t num_rules;
 	/* Aging timeout */
-	uint32_t aging_tmo;
+	uint32_t aging_tmo_sec;
 };
 
 /* Global hw_offload confiuration - across all ports */

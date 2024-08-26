@@ -264,7 +264,7 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 		TAILQ_INIT(&acl_tbl->flow_list);
 	}
 
-	flow = flow_parse(&gbl_cfg->parser, attr, pattern, actions);
+	flow = flow_parse(&gbl_cfg->flow_cfg[acl_tbl->port_id].parser, attr, pattern, actions);
 	if (flow == NULL)
 		return NULL;
 
@@ -327,32 +327,34 @@ fail:
 }
 
 int
-acl_global_config_init(struct flow_global_cfg *gbl_cfg)
+acl_global_config_init(uint16_t port_id, struct flow_global_cfg *gbl_cfg)
 {
 	struct acl_config_per_port *acl_cfg_prt;
 	struct acl_global_config *acl_gbl;
 	struct acl_table *acl_tbl;
-	int i, j;
+	int i;
 
-	acl_gbl = rte_zmalloc("acl_global_config", sizeof(struct acl_global_config),
-			      RTE_CACHE_LINE_SIZE);
-	if (!acl_gbl)
-		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
+	if (!gbl_cfg->acl_gbl) {
+		acl_gbl = rte_zmalloc("acl_global_config", sizeof(struct acl_global_config),
+				      RTE_CACHE_LINE_SIZE);
+		if (!acl_gbl)
+			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
 
-	gbl_cfg->acl_gbl = acl_gbl;
+		gbl_cfg->acl_gbl = acl_gbl;
+	} else {
+		acl_gbl = gbl_cfg->acl_gbl;
+	}
 	/* Initialize global ACL configuration */
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[i];
-		if (!acl_cfg_prt)
-			DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", i);
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
 
-		for (j = 0; j < ACL_MAX_PORT_TABLES; j++) {
-			acl_tbl = &acl_cfg_prt->acl_tbl[j];
-			if (!acl_tbl)
-				DAO_ERR_GOTO(-EINVAL, fail,
-					     "Failed to get table for tbl_id %d, port id %d", j, i);
-			acl_tbl->prfl_ops = gbl_cfg->prfl_ops;
-		}
+	for (i = 0; i < ACL_MAX_PORT_TABLES; i++) {
+		acl_tbl = &acl_cfg_prt->acl_tbl[i];
+		if (!acl_tbl)
+			DAO_ERR_GOTO(-EINVAL, fail,
+				     "Failed to get table for tbl_id %d, port id %d", i, port_id);
+		acl_tbl->prfl_ops = gbl_cfg->flow_cfg[port_id].prfl_ops;
 	}
 	return 0;
 fail:
@@ -403,30 +405,28 @@ fail:
 }
 
 int
-acl_global_config_fini(struct flow_global_cfg *gbl_cfg)
+acl_global_config_fini(uint16_t port_id, struct flow_global_cfg *gbl_cfg)
 {
 	struct acl_config_per_port *acl_cfg_prt;
 	struct acl_global_config *acl_gbl;
 	struct acl_table *acl_tbl;
-	int i, j;
+	int i;
 
 	acl_gbl = gbl_cfg->acl_gbl;
 	if (!acl_gbl)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl_gbl handle");
 
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[i];
-		if (!acl_cfg_prt)
-			DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", i);
+	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
 
-		for (j = 0; j < ACL_MAX_PORT_TABLES; j++) {
-			acl_tbl = &acl_cfg_prt->acl_tbl[j];
-			if (!acl_tbl)
-				DAO_ERR_GOTO(-EINVAL, fail,
-					     "Failed to get table for tbl_id %d, port id %d", j, i);
-			if (acl_table_cleanup(acl_tbl))
-				goto fail;
-		}
+	for (i = 0; i < ACL_MAX_PORT_TABLES; i++) {
+		acl_tbl = &acl_cfg_prt->acl_tbl[i];
+		if (!acl_tbl)
+			DAO_ERR_GOTO(-EINVAL, fail,
+				     "Failed to get table for tbl_id %d, port id %d", i, port_id);
+		if (acl_table_cleanup(acl_tbl))
+			goto fail;
 	}
 
 	return 0;

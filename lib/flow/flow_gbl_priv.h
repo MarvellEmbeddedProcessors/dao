@@ -20,12 +20,26 @@ struct flow_data {
 	uint32_t acl_rule_idx;
 };
 
-/* Managing flow rules per port */
+/** Managing flow rules per port */
 struct flow_config_per_port {
+	/** Is flow list initialized */
 	bool list_initialized;
+	/** Port ID */
 	uint16_t port_id;
+	/** Number of flow rules */
 	uint32_t num_flows;
+	/** Spinlock for flow list */
 	rte_spinlock_t flow_list_lock;
+	/** Is flow offloaded to the hardware */
+	bool hw_offload_enabled;
+	/** Aging timeout */
+	uint32_t aging_tmo_sec;
+	/** Flow parser */
+	struct flow_parser parser;
+	/** Flow parsing profile */
+	struct flow_parser_tcam_kex *parse_prfl;
+	/** Flow parsing profile operations */
+	struct parse_profile_ops *prfl_ops;
 
 	TAILQ_HEAD(flow_data_list, flow_data) flow_list;
 };
@@ -42,13 +56,8 @@ struct parse_profile_ops {
 struct flow_global_cfg {
 	struct acl_global_config *acl_gbl;
 	struct hw_offload_global_config *hw_off_gbl;
-	bool hw_offload_enabled;
-	/* Aging timeout */
-	uint32_t aging_tmo;
-	struct flow_parser parser;
-	struct flow_parser_tcam_kex *parse_prfl;
-	struct parse_profile_ops *prfl_ops;
 	struct flow_config_per_port flow_cfg[RTE_MAX_ETHPORTS];
+	uint16_t num_initialized_ports;
 };
 
 static inline void

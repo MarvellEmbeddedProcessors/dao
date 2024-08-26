@@ -143,7 +143,7 @@ hw_offload_flow_reserve(struct hw_offload_config_per_port *hw_off_cfg,
 		DAO_ERR_GOTO(rc, fail, "Failed to convert flow actions");
 
 	/* Append aging action to the action list */
-	rc = aging_action_append(hflow, hw_off_cfg->aging_tmo);
+	rc = aging_action_append(hflow, hw_off_cfg->aging_tmo_sec);
 	if (rc)
 		DAO_ERR_GOTO(rc, fail, "Failed to append aging action");
 
@@ -379,23 +379,28 @@ hw_offload_global_config_init(struct flow_global_cfg *gbl_cfg)
 {
 	struct hw_offload_global_config *hw_off_gbl;
 	rte_thread_t thread;
-	int rc;
+	int rc = 0;
 
-	hw_off_gbl = rte_zmalloc("hw_offload_global_config",
-				 sizeof(struct hw_offload_global_config), RTE_CACHE_LINE_SIZE);
-	if (!hw_off_gbl)
-		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
+	if (!gbl_cfg->hw_off_gbl) {
+		hw_off_gbl = rte_zmalloc("hw_offload_global_config",
+					 sizeof(struct hw_offload_global_config),
+					 RTE_CACHE_LINE_SIZE);
+		if (!hw_off_gbl)
+			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
 
-	gbl_cfg->hw_off_gbl = hw_off_gbl;
+		gbl_cfg->hw_off_gbl = hw_off_gbl;
 
-	/* Create a thread for handling control messages */
-	hw_off_gbl->aging_thrd_quit = true;
-	rc = rte_thread_create_control(&thread, "flow-aging-thrd", flow_aging_thread, hw_off_gbl);
-	if (rc != 0)
-		DAO_ERR_GOTO(rc, fail, "Failed to create thread for VF mbox handling");
+		/* Create a thread for handling control messages */
+		hw_off_gbl->aging_thrd_quit = true;
+		rc = rte_thread_create_control(&thread, "flow-aging-thrd", flow_aging_thread,
+					       hw_off_gbl);
+		if (rc != 0)
+			DAO_ERR_GOTO(rc, fail, "Failed to create thread for VF mbox handling");
 
-	/* Save the thread handle to join later */
-	hw_off_gbl->aging_thrd = thread;
+		/* Save the thread handle to join later */
+		hw_off_gbl->aging_thrd = thread;
+	}
+
 
 	return rc;
 fail:
@@ -416,7 +421,6 @@ hw_offload_global_config_fini(struct flow_global_cfg *gbl_cfg)
 
 	hw_off_gbl->aging_thrd_quit = false;
 	rte_thread_join(hw_off_gbl->aging_thrd, NULL);
-	rte_free(hw_off_gbl);
 
 	return 0;
 fail:

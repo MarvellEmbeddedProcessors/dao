@@ -197,7 +197,6 @@ struct acl_table {
 struct acl_config_per_port {
 	struct acl_table acl_tbl[ACL_MAX_PORT_TABLES];
 	uint32_t num_rules_per_prt;
-	uint32_t flow_aging;
 };
 
 /* Global ACL confiuration - across all ports */
@@ -205,8 +204,8 @@ struct acl_global_config {
 	struct acl_config_per_port acl_cfg_prt[RTE_MAX_ETHPORTS];
 };
 
-int acl_global_config_init(struct flow_global_cfg *gbl_cfg);
-int acl_global_config_fini(struct flow_global_cfg *gbl_cfg);
+int acl_global_config_init(uint16_t port_id, struct flow_global_cfg *gbl_cfg);
+int acl_global_config_fini(uint16_t port_id, struct flow_global_cfg *gbl_cfg);
 
 struct acl_rule_data *acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 				      const struct rte_flow_item pattern[],
