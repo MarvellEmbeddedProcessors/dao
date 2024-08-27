@@ -96,9 +96,9 @@ fail:
 }
 
 struct dao_flow *
-dao_flow_install_hardware(uint16_t port_id, const struct rte_flow_attr *attr,
-			  const struct rte_flow_item pattern[],
-			  const struct rte_flow_action actions[], struct rte_flow_error *error)
+dao_flow_hw_install(uint16_t port_id, const struct rte_flow_attr *attr,
+		    const struct rte_flow_item pattern[], const struct rte_flow_action actions[],
+		    struct rte_flow_error *error)
 {
 	struct hw_offload_config_per_port *hw_off_cfg = NULL;
 	struct flow_config_per_port *flow_cfg_prt;
@@ -392,7 +392,7 @@ fail:
 }
 
 int
-dao_flow_uninstall_hardware(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error *error)
+dao_flow_hw_uninstall(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error *error)
 {
 	struct hw_offload_config_per_port *hw_off_cfg;
 	struct flow_config_per_port *flow_cfg_prt;

@@ -131,10 +131,10 @@ struct dao_flow *dao_flow_create(uint16_t port_id, const struct rte_flow_attr *a
  * @return
  *   A valid handle in case of success, NULL otherwise and errno is set.
  */
-struct dao_flow *dao_flow_install_hardware(uint16_t port_id, const struct rte_flow_attr *attr,
-					   const struct rte_flow_item pattern[],
-					   const struct rte_flow_action actions[],
-					   struct rte_flow_error *error);
+struct dao_flow *dao_flow_hw_install(uint16_t port_id, const struct rte_flow_attr *attr,
+				     const struct rte_flow_item pattern[],
+				     const struct rte_flow_action actions[],
+				     struct rte_flow_error *error);
 
 /**
  * Destroy a flow rule on a given port.
@@ -165,8 +165,7 @@ int dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_er
  * @return
  *   0 on success, a negative errno value.
  */
-int dao_flow_uninstall_hardware(uint16_t port_id, struct dao_flow *flow,
-				struct rte_flow_error *error);
+int dao_flow_hw_uninstall(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error *error);
 
 /**
  * Lookup for a flow on a given port.
@@ -194,8 +193,6 @@ int dao_flow_lookup(uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs);
  * Data is gathered by special actions which must be present in the flow
  * rule definition.
  *
- * \see RTE_FLOW_ACTION_TYPE_COUNT
- *
  * @param port_id
  *   Port identifier of Ethernet device.
  * @param flow
@@ -205,11 +202,10 @@ int dao_flow_lookup(uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs);
  * @param[in, out] data
  *   Pointer to storage for the associated query data type.
  * @param[out] error
- *   Perform verbose error reporting if not NULL. PMDs initialize this
- *   structure in case of error only.
+ *   Perform verbose error reporting if not NULL.
  *
  * @return
- *   0 on success, a negative errno value otherwise and rte_errno is set.
+ *   0 on success, a negative errno value otherwise.
  */
 int dao_flow_query(uint16_t port_id, struct dao_flow *flow, const struct rte_flow_action *action,
 		   void *data, struct rte_flow_error *error);
@@ -224,8 +220,8 @@ int dao_flow_query(uint16_t port_id, struct dao_flow *flow, const struct rte_flo
  * @param[in] file
  *   A pointer to a file for output.
  * @param[out] error
- *   Perform verbose error reporting if not NULL. PMDs initialize this
- *   structure in case of error only.
+ *   Perform verbose error reporting if not NULL.
+ *
  * @return
  *   0 on success, a negative value otherwise.
  */
@@ -242,11 +238,10 @@ int dao_flow_dev_dump(uint16_t port_id, struct dao_flow *flow, FILE *file,
  * @param port_id
  *   Port identifier of Ethernet device.
  * @param[out] error
- *   Perform verbose error reporting if not NULL. PMDs initialize this
- *   structure in case of error only.
+ *   Perform verbose error reporting if not NULL.
  *
  * @return
- *   0 on success, a negative errno value otherwise and rte_errno is set.
+ *   0 on success, a negative errno value otherwise.
  */
 int dao_flow_flush(uint16_t port_id, struct rte_flow_error *error);
 
@@ -260,11 +255,10 @@ int dao_flow_flush(uint16_t port_id, struct rte_flow_error *error);
  * @param[in] file
  *   A pointer to a file for output.
  * @param[out] error
- *   Perform verbose error reporting if not NULL. PMDs initialize this
- *   structure in case of error only.
+ *   Perform verbose error reporting if not NULL.
  *
  * @return
- *   0 on success, a negative errno value otherwise and rte_errno is set.
+ *   0 on success, a negative errno value otherwise.
  */
 int dao_flow_info(uint16_t port_id, FILE *file, struct rte_flow_error *error);
 
@@ -277,11 +271,10 @@ int dao_flow_info(uint16_t port_id, FILE *file, struct rte_flow_error *error);
  * @param[out] count
  *   A pointer to a flow count structure.
  * @param[out] error
- *   Perform verbose error reporting if not NULL. PMDs initialize this
- *   structure in case of error only.
+ *   Perform verbose error reporting if not NULL.
  *
  * @return
- *   0 on success, a negative errno value otherwise and rte_errno is set.
+ *   0 on success, a negative errno value otherwise.
  */
 
 int dao_flow_count(uint16_t port_id, struct dao_flow_count *count, struct rte_flow_error *error);

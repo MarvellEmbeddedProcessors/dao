@@ -112,11 +112,11 @@ TCAM.
                                   struct rte_flow_error *error);
 
 Arguments:
- ``port_id``: Port identifier of Ethernet device
- ``attr``: Flow rule attributes
- ``pattern``: Pattern specification (list terminated by the END pattern item)
- ``actions``: Associated actions (list terminated by the END action)
- ``error``: Perform verbose error reporting if not NULL
+ | ``port_id``: Port identifier of Ethernet device
+ | ``attr``: Flow rule attributes
+ | ``pattern``: Pattern specification (list terminated by the END pattern item)
+ | ``actions``: Associated actions (list terminated by the END action)
+ | ``error``: Perform verbose error reporting if not NULL
 
 Return value:
   A valid handle in case of success, NULL otherwise and errno is set
@@ -135,9 +135,9 @@ enough to decide to push the rule to HW.
  int dao_flow_lookup(uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs);
 
 Arguments:
- ``port_id``: Port identifier of Ethernet device
- ``objs``: Array of packet buffers
- ``nb_objs``: No of packet buffers
+ | ``port_id``: Port identifier of Ethernet device
+ | ``objs``: Array of packet buffers
+ | ``nb_objs``: No of packet buffers
 
 Return value:
   0 on success, a negative errno value
@@ -153,9 +153,9 @@ Applications can call ``dao_flow_destroy()``. This function removes the rule fro
  int dao_flow_destroy(uint16_t port_id, struct dao_flow *flow, struct rte_flow_error *error);
 
 Arguments:
- ``port_id``: Port identifier of Ethernet device
- ``flow``: Flow rule handle to destroy
- ``error``: Perform verbose error reporting if not NULL
+ | ``port_id``: Port identifier of Ethernet device
+ | ``flow``: Flow rule handle to destroy
+ | ``error``: Perform verbose error reporting if not NULL
 
 Return value:
   0 on success, a negative errno value
@@ -171,11 +171,11 @@ accumulated through special actions that are integral to the flow rule definitio
   int dao_flow_query(uint16_t port_id, struct dao_flow *flow, const struct rte_flow_action *action, void *data, struct rte_flow_error *error);
 
 Arguments:
- ``port_id``: Port identifier of Ethernet device
- ``flow``: Flow rule handle to query
- ``action``: Action definition as defined in original flow rule
- ``data``: Pointer to storage for the associated query data type
- ``error``: Perform verbose error reporting if not NULL
+ | ``port_id``: Port identifier of Ethernet device
+ | ``flow``: Flow rule handle to query
+ | ``action``: Action definition as defined in original flow rule
+ | ``data``: Pointer to storage for the associated query data type
+ | ``error``: Perform verbose error reporting if not NULL
 
 Return value:
   0 on success, a negative errno value otherwise and rte_errno is set
@@ -191,8 +191,8 @@ handles associated with a port.
  int dao_flow_flush(uint16_t port_id, struct rte_flow_error *error);
 
 Arguments:
- ``port_id``: Port identifier of Ethernet device
- ``error``: Perform verbose error reporting if not NULL
+ | ``port_id``: Port identifier of Ethernet device
+ | ``error``: Perform verbose error reporting if not NULL
 
 Return value:
  0 on success, a negative value otherwise.
@@ -207,10 +207,50 @@ Dumping internal information about a flow.
  int dao_flow_dev_dump(uint16_t port_id, struct dao_flow *flow, FILE *file, struct rte_flow_error *error);
 
 Arguments:
- ``port_id``: The port identifier of the Ethernet device
- ``flow``: The pointer of flow rule to dump. Dump all rules if NULL
- ``file``: A pointer to a file for output
- ``error``: Perform verbose error reporting if not NULL
+ | ``port_id``: The port identifier of the Ethernet device
+ | ``flow``: The pointer of flow rule to dump. Dump all rules if NULL
+ | ``file``: A pointer to a file for output
+ | ``error``: Perform verbose error reporting if not NULL
+
+Return value:
+ 0 on success, a negative value otherwise.
+
+Installing flow directly into hardware
+--------------------------------------
+
+Install a flow rule on a given port which gets offloaded directly into the HW.
+
+.. code-block:: c
+
+ struct dao_flow *dao_flow_hw_install(uint16_t port_id, const struct rte_flow_attr *attr,
+                                      const struct rte_flow_item pattern[],
+                                      const struct rte_flow_action actions[],
+                                      struct rte_flow_error *error);
+
+Arguments:
+ | ``port_id``: Port identifier of Ethernet device
+ | ``attr``: Flow rule attributes
+ | ``pattern``: Pattern specification (list terminated by the END pattern item)
+ | ``actions``: Associated actions (list terminated by the END action)
+ | ``error``: Perform verbose error reporting if not NULL
+
+Return value:
+  A valid handle in case of success, NULL otherwise and errno is set
+
+Removing a flow from hardware
+-----------------------------
+
+Removing a flow rule on a given port which was directly offloaded to hardware.
+
+.. code-block:: c
+
+ int dao_flow_hw_uninstall(uint16_t port_id, struct dao_flow *flow,
+                           struct rte_flow_error *error);
+
+Arguments:
+ | ``port_id``: Port identifier of Ethernet device
+ | ``flow``: Pointer to flow which is to be removed.
+ | ``error``: Perform verbose error reporting if not NULL
 
 Return value:
  0 on success, a negative value otherwise.
