@@ -56,6 +56,8 @@ struct dao_virtio_netdev_conf {
 	};
 	/** Vchan to use for this virtio dev */
 	uint16_t dma_vchan;
+	/** Max virt_queue pairs limit */
+	uint16_t max_virt_qps_limit;
 	/** Auto free enabled/disabled */
 	bool auto_free_en;
 	/** RETA size supported */

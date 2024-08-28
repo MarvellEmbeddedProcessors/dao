@@ -694,6 +694,9 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	netdev->hash_key_size = conf->hash_key_size;
 	netdev->auto_free_en = conf->auto_free_en;
 
+	if (conf->max_virt_qps_limit)
+		dev->max_virtio_queues_limit = (conf->max_virt_qps_limit * 2) + 1;
+
 	/* Initialize base virtio device */
 	rc = virtio_dev_init(dev);
 	if (rc)
@@ -702,10 +705,12 @@ dao_virtio_netdev_init(uint16_t devid, struct dao_virtio_netdev_conf *conf)
 	/* Setup netdev config */
 	dev_cfg = (volatile struct virtio_net_config *)dev->dev_cfg;
 	feature_bits = RTE_BIT64(VIRTIO_NET_F_CTRL_VQ) | RTE_BIT64(VIRTIO_NET_F_MQ) |
-		       RTE_BIT64(VIRTIO_NET_F_RSS) | RTE_BIT64(VIRTIO_NET_F_CTRL_RX) |
-		       RTE_BIT64(VIRTIO_NET_F_STATUS) | RTE_BIT64(VIRTIO_NET_F_MAC) |
-		       RTE_BIT64(VIRTIO_NET_F_MRG_RXBUF) | RTE_BIT64(VIRTIO_NET_F_SPEED_DUPLEX) |
-		       RTE_BIT64(VIRTIO_NET_F_HASH_REPORT);
+		       RTE_BIT64(VIRTIO_NET_F_CTRL_RX) | RTE_BIT64(VIRTIO_NET_F_STATUS) |
+		       RTE_BIT64(VIRTIO_NET_F_MAC) | RTE_BIT64(VIRTIO_NET_F_MRG_RXBUF) |
+		       RTE_BIT64(VIRTIO_NET_F_SPEED_DUPLEX);
+
+	if (conf->reta_size)
+		feature_bits |= RTE_BIT64(VIRTIO_NET_F_RSS) | RTE_BIT64(VIRTIO_NET_F_HASH_REPORT);
 
 	/* Enable add MAC support */
 	feature_bits |= RTE_BIT64(VIRTIO_NET_F_CTRL_MAC_ADDR);

@@ -165,6 +165,7 @@ struct virtio_dev {
 	size_t host_page_sz;
 	size_t notify_off_mltpr;
 	int max_virtio_queues;
+	uint16_t max_virtio_queues_limit;
 	uintptr_t notify_base;
 	uintptr_t isr;
 	size_t isr_sz;

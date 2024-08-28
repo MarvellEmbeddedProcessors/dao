@@ -1073,7 +1073,12 @@ virtio_dev_init(struct virtio_dev *dev)
 	 */
 	dev->notify_off_mltpr = dev->host_page_sz;
 	dev->max_virtio_queues = (dev->bar4_sz / dev->host_page_sz) - 1;
-	dev->max_virtio_queues = RTE_MIN(dev->max_virtio_queues, (int)DAO_VIRTIO_MAX_QUEUES);
+	if (dev->max_virtio_queues_limit)
+		dev->max_virtio_queues =
+			RTE_MIN(dev->max_virtio_queues, dev->max_virtio_queues_limit);
+	else
+		dev->max_virtio_queues =
+			RTE_MIN(dev->max_virtio_queues, (int)DAO_VIRTIO_MAX_QUEUES);
 
 	if (dev->max_virtio_queues < 3) {
 		dao_err("[dev %u] BAR4 space sz %luB insufficient, need for at least 3 queues",
