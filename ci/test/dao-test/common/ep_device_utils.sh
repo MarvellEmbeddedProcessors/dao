@@ -325,6 +325,27 @@ function ep_device_get_inactive_if()
 	done
 }
 
+function ep_device_get_unused_npa_pf()
+{
+	for dev in $(lspci -d :a0fb | awk -e '{print $1}'); do
+		if [ ! -d /sys/bus/pci/devices/$dev/driver ]; then
+			echo $dev
+			break;
+		fi
+	done
+}
+
+function ep_device_configure_tap_iface()
+{
+        local tap_if=$1
+        local tap_if_addr=$2
+
+        if [ -d "/sys/class/net/$tap_if" ]; then
+                ip addr add $tap_if_addr dev $tap_if
+                ip link set $tap_if up
+        fi
+}
+
 function ep_device_get_num_cores()
 {
 	local num_cores=$(lscpu | grep "On-line CPU(s) list" | awk -F '-' '{print $3}')

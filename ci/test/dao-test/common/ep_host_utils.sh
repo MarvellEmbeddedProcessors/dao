@@ -17,9 +17,10 @@ function ep_host_sdp_setup()
 	sleep 5
 }
 
-function ep_host_vdpa_setup()
+function ep_host_vdpa_common_setup()
 {
-	local part=$1
+	local driver=$1
+	local part=$2
 	local host_pf
 	local vf_cnt
 	local vf_cnt_max
@@ -27,7 +28,14 @@ function ep_host_vdpa_setup()
 
 	echo "Setting up VDPA on host"
 	modprobe vdpa
-	modprobe vhost-vdpa
+	if [[ "$driver" == "vhost_vdpa" ]]; then
+		echo "Loading vhost-vdpa module"
+		modprobe vhost-vdpa
+	fi
+	if [[ "$driver" == "virtio_vdpa" ]]; then
+		echo "Loading virtio-vdpa module"
+		modprobe virtio-vdpa
+	fi
 	set +e # Module may be already loaded
 	rmmod octep_vdpa
 	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
@@ -66,9 +74,32 @@ function ep_host_vdpa_setup()
 		done
 		set -e
 
-		echo "Binding $vdev to vhost_vdpa"
-		ep_common_bind_driver vdpa $vdev vhost_vdpa
+		echo "Binding $vdev to $driver"
+		ep_common_bind_driver vdpa $vdev $driver
 	done
+}
+
+function ep_host_vdpa_setup()
+{
+	ep_host_vdpa_common_setup vhost_vdpa $1
+}
+
+function ep_host_virtio_vdpa_setup()
+{
+	local host_netdev_ip_addr=$2
+	ep_host_vdpa_common_setup virtio_vdpa $1
+	# Once device is bound to virtio-vdpa without any issues,
+	# linux netdev will be created
+	sleep 2
+	set +e # grep can return non-zero status
+	if [[ -d /sys/class/net ]]; then
+		for dev in /sys/class/net/*; do
+			if [[ $(readlink $dev/device/driver | grep virtio_net) ]]; then
+				ifconfig $(basename $dev) $host_netdev_ip_addr
+			fi
+		done
+	fi
+	set -e
 }
 
 function ep_host_vdpa_cleanup()
@@ -77,6 +108,22 @@ function ep_host_vdpa_cleanup()
 	set +e # Module may be already loaded
 	rmmod octep_vdpa
 	rmmod vhost-vdpa
+	rmmod vdpa
+	set -e
+}
+
+function ep_host_virtio_vdpa_cleanup()
+{
+	echo "Cleaning up VIRTIO-VDPA on host"
+	set +e # Module may be already loaded
+	for vdev in $(ls /sys/bus/vdpa/devices/);
+	do
+		if [[ $(readlink /sys/bus/vdpa/devices/$vdev/driver | grep virtio_vdpa) ]]; then
+			echo $vdev > /sys/bus/vdpa/drivers/virtio_vdpa/unbind
+		fi
+	done
+	rmmod octep_vdpa
+	rmmod virtio-vdpa
 	rmmod vdpa
 	set -e
 }

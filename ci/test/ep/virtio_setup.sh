@@ -17,6 +17,7 @@ function dao_virtio_cleanup()
 		device_part=$(ep_device_op get_part)
 		echo "Cleaning up VDPA on host"
 		ep_host_op vdpa_cleanup $device_part
+		ep_host_op virtio_vdpa_cleanup
 	fi
 
 	ep_host_op safe_kill $EP_DIR

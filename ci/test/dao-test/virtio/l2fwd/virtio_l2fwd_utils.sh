@@ -352,6 +352,40 @@ function l2fwd_register_sig_handler()
 	trap "l2fwd_sig_handler EXIT $pfx $tpmd_pfx $dev_log" EXIT
 }
 
+function l2fwd_app_launch_with_tap_dev()
+{
+	local interface=$1
+	local l2fwd_pfx=$2
+	local l2fwd_out=$3
+	local cores="$4"
+	local app_args="$5"
+	local dpi_vfs=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 22)
+	local eal_args=$(form_split_args "-a" $dpi_vfs)
+	local args="-l $cores --vdev=net_tap0 -a $interface $eal_args -- $app_args"
+	local unbuffer
+
+	unbuffer="$(command -v stdbuf) -o 0" || unbuffer=
+	rm -rf $l2fwd_out
+	echo "VIRTIO_L2FWD: $l2fwd_pfx: Launching dao-virtio-l2fwd"
+	echo "Args: '$args'"
+
+	$unbuffer $VIRTIO_L2FWD --file-prefix $l2fwd_pfx $args &>$l2fwd_out 2>&1 &
+
+	# Wait for virtio_l2fwd to be up
+	local itr=0
+
+	while ! (tail -n20 $l2fwd_out | grep -q "VIRTIO_L2FWD: Entering .* main loop"); do
+		sleep 1
+		itr=$((itr + 1))
+		if [[ itr -eq 10 ]]; then
+			echo "Timeout waiting for virtio-l2fwd";
+			cat $l2fwd_out
+			return 1;
+		fi
+		echo "Waiting for virtio-l2fwd to be up"
+	done
+}
+
 function l2fwd_app_launch()
 {
 	local interface=$1
