@@ -86,6 +86,8 @@ function ovs_launch()
 		other_config:dpdk-socket-mem="1024" other_config:hw-offload=$hw_offload \
 		other_config:dpdk-extra="--vfio-vf-token=\"$VFIO_TOKEN\" $allow"
 
+        # Removing old vswitchd logs before launching new OVS vswitchd instance
+	rm -f $log
 	ovs-vswitchd \
 		unix:"${sock}" \
 		--pidfile \
@@ -196,10 +198,10 @@ function ovs_interface_setup()
 
 	echo "List of bridges"
 	ovs-vsctl list-br
-	ovs-vsctl show
 	if [[ -n $vlan_id ]]; then
 		ovs-vsctl set port e0_vf_rep0 tag=$vlan_id
 	fi
+	ovs-vsctl show
 }
 
 function ovs_bridge_add()
@@ -282,7 +284,7 @@ function ovs_offload_cleanup()
 {
 	local log=$EP_DEVICE_OVS_PATH/var/log/dao-ovs-offload.log
 
-	pkill_with_wait dao-ovs-offload
+	pkill_with_wait dao-ovs-offload SIGINT
 
 	if [[ -e $log ]]; then
 		echo "OVS OFFLOAD Logs"

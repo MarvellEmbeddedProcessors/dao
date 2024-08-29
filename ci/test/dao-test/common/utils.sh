@@ -270,12 +270,20 @@ function form_split_args()
 function pkill_with_wait()
 {
 	local proc=$1
+	local sig=${2:-SIGKILL}
+	local timeout=60
 
 	set +e
-	pkill -9 $proc
+	pkill -$sig $proc
 	set -e
 
 	while (ps -ef | grep -v grep | grep $proc &> /dev/null); do
 		sleep 1
+		timeout=$((timeout - 1))
+		if [[ $timeout == 0 ]]; then
+			echo "Forcefully killing $proc after timeout"
+			pkill -SIGKILL $proc
+			timeout=60
+		fi
 	done
 }
