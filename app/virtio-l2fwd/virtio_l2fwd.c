@@ -2241,21 +2241,23 @@ mq_configure(uint16_t virtio_devid, bool qmap_set)
 		memset(reta_conf, 0, sizeof(reta_conf));
 		reta_size = eth_dev_info[portid].reta_size;
 
-		for (i = 0; i < reta_size; i++)
-			reta_conf[i / RTE_ETH_RETA_GROUP_SIZE].mask = UINT64_MAX;
+		if (reta_size) {
+			for (i = 0; i < reta_size; i++)
+				reta_conf[i / RTE_ETH_RETA_GROUP_SIZE].mask = UINT64_MAX;
 
-		for (i = 0; i < reta_size; i++) {
-			uint32_t reta_id = i / RTE_ETH_RETA_GROUP_SIZE;
-			uint32_t reta_pos = i % RTE_ETH_RETA_GROUP_SIZE;
+			for (i = 0; i < reta_size; i++) {
+				uint32_t reta_id = i / RTE_ETH_RETA_GROUP_SIZE;
+				uint32_t reta_pos = i % RTE_ETH_RETA_GROUP_SIZE;
 
-			reta_conf[reta_id].reta[reta_pos] = i % (virt_q_count / 2);
-		}
+				reta_conf[reta_id].reta[reta_pos] = i % (virt_q_count / 2);
+			}
 
-		rc = rte_eth_dev_rss_reta_update(portid, reta_conf, reta_size);
-		if (rc) {
-			APP_ERR("Failed to update RSS reta table for portid=%d, rc=%d\n",
-				portid, rc);
-			return rc;
+			rc = rte_eth_dev_rss_reta_update(portid, reta_conf, reta_size);
+			if (rc) {
+				APP_ERR("Failed to update RSS reta table for portid=%d, rc=%d\n",
+					portid, rc);
+				return rc;
+			}
 		}
 	}
 
@@ -2414,20 +2416,21 @@ setup_eth_devices(void)
 		APP_INFO("Initializing port %d ...", portid);
 		fflush(stdout);
 
+		rte_eth_dev_info_get(portid, &dev_info);
+		eth_dev_info[portid] = dev_info;
+
 		/* Setup ethdev with max Rx, Tx queues */
 		if (eth_map[portid].type == VIRTIO_NEXT)
 			nb_rx_queue = DEFAULT_QUEUES_PER_PORT;
 		else
-			nb_rx_queue =
+			nb_rx_queue = RTE_MIN(
+				dev_info.max_rx_queues,
 				(dao_virtio_netdev_queue_count_max(pem_devid, eth_map[portid].id) /
-				 2);
+				 2));
 		nb_tx_queue = nb_rx_queue;
 		eth_dev_q_count[portid] = nb_rx_queue;
 
 		APP_INFO_NH("Creating queues: nb_rxq=%d nb_txq=%u... ", nb_rx_queue, nb_tx_queue);
-
-		rte_eth_dev_info_get(portid, &dev_info);
-		eth_dev_info[portid] = dev_info;
 
 		rc = config_port_max_pkt_len(&local_port_conf, &dev_info);
 		if (rc != 0)
@@ -2760,6 +2763,7 @@ setup_virtio_devices(void)
 
 	/* Setup Virtio devices */
 	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
+		char ethdev_pmd_name[RTE_ETH_NAME_MAX_LEN] = {0};
 		struct dao_virtio_netdev_conf netdev_conf;
 		const char *edge_name = name;
 		int overhd = 0;
@@ -2778,8 +2782,14 @@ setup_virtio_devices(void)
 			struct rte_eth_link eth_link;
 
 			portid = virtio_map[virtio_devid].id;
-			netdev_conf.reta_size = RTE_MAX(VIRTIO_NET_RSS_RETA_SIZE,
-							eth_dev_info[portid].reta_size);
+			if (!eth_dev_info[portid].reta_size)
+				netdev_conf.reta_size = 0;
+			else
+				netdev_conf.reta_size = RTE_MAX(VIRTIO_NET_RSS_RETA_SIZE,
+								eth_dev_info[portid].reta_size);
+			rte_eth_dev_get_name_by_port(portid, ethdev_pmd_name);
+			if (!strcmp(ethdev_pmd_name, "net_tap0"))
+				netdev_conf.max_virt_qps_limit = 1;
 			netdev_conf.hash_key_size = eth_dev_info[portid].hash_key_size;
 			overhd = eth_dev_get_overhead_len(eth_dev_info[portid].max_rx_pktlen,
 							  eth_dev_info[portid].max_mtu);
