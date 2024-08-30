@@ -10,11 +10,11 @@ Programmer's Guide
 
     common
     dma_lib
+    flow
+    netlink_lib
     pem_lib
+    port_group
+    port_queue_group
     vfio_lib
     virtio_lib
     virtio_net_lib
-    flow
-    port_group
-    port_queue_group
-    netlink_lib
