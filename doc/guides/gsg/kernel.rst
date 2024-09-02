@@ -126,7 +126,7 @@ Same procedure as described in cross-compilation section
 
 .. code-block:: console
 
- cp marvell_v8_octeon_kernel_asim.config <path_to_kernel_directory>/arch/arm64/configs/
+ cp cn10k.config <path_to_kernel_directory>/arch/arm64/configs/
  cd <path_to_kernel_directory>
  make ARCH=arm64 cn10k.config
 

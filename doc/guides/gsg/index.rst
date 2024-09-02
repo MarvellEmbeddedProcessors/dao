@@ -12,4 +12,3 @@ Getting started Guide
  install
  build
  kernel
- kmod

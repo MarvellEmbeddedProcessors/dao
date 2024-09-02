@@ -4,6 +4,12 @@
 Getting started with VirtIO on host
 ###################################
 
+OCTEON vDPA driver
+------------------
+
+OCTEON vDPA driver(octep_vdpa.ko) manages the virtio control plane over vDPA bus
+for OCTEON devices.
+
 Setting up Host environment
 ---------------------------
 
@@ -19,15 +25,34 @@ Host kernel patches to enable DAO on v6.1 kernel
 
 Build KMOD specifically for Host with native compilation(For example x86)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Not providing 'kernel_dir' option would pick /lib/modules/`uname -r`/source  as kernel source
+
+Make sure following configs are enabled in the $kernel_dir/.config file for vDPA framework.
+
+.. code-block:: console
+
+ CONFIG_VDPA=y
+ CONFIG_VHOST_IOTLB=y
+ CONFIG_VHOST=y
+ CONFIG_VHOST_VDPA=y
+ CONFIG_VIRTIO_VDPA=y
+
+Not providing 'kernel_dir' option would pick /lib/modules/`uname -r`/source as kernel source
 
 .. code-block:: console
 
    git clone https://github.com/MarvellEmbeddedProcessors/dao.git
+   cd dao
    git checkout dao-devel
 
    meson build
    ninja -C build
+
+To compile modules for specific kernel sources ``kernel_dir`` option should be set
+
+.. code-block:: console
+
+   meson build
+   ninja -C build -Dkernel_dir=KERNEL_BUILD_DIR
 
 Bind PEM PF and VF to Host Octeon VDPA driver
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

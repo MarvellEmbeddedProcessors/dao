@@ -14,8 +14,9 @@ Data accelerator offload (DAO) sources can be downloaded from:
 
 .. code-block:: console
 
-   git clone https://github.com/MarvellEmbeddedProcessors/dao.git
-   git checkout dao-devel
+  # git clone https://github.com/MarvellEmbeddedProcessors/dao.git
+  # cd dao
+  # git checkout dao-devel
 
 Compiling and Installing
 ------------------------
@@ -24,9 +25,11 @@ When compiling for the Octeon platform, DAO has a mandatory dependency on DPDK.
 
 .. note::
 
- Steps to build DPDK are as follows
+ Steps to build DPDK are as follows:
+ (Steps are for natively compiling DPDK on ARM based rootfs)
 
  * git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
+ * cd marvell-dpdk
  * git checkout dpdk-23.11-release
  * meson build -Dexamples=all -Denable_drivers=*/cnxk,net/ring -Dplatform=cn10k --prefix=${PWD}/install
  * ninja -C build install
@@ -37,6 +40,7 @@ Compiling on ARM server for CN10k platform
 
 .. code-block:: console
 
+  # cd <Path to DAO repo>/dao
   # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false --prefer-static
   # ninja -C build install
 
@@ -44,6 +48,7 @@ Compiling on x86 machine
 
 .. code-block:: console
 
+  # cd <Path to DAO repo>/dao
   # meson build --prefix="${PWD}/install" -Denable_kmods=false --prefer-static
   # ninja -C build install
 
@@ -58,6 +63,7 @@ Setup the toolchain and follow the below steps.
 
 .. code-block:: console
 
+ # cd <Path to DAO repo>/dao
  # PKG_CONFIG_LIBDIR=/path/to/dpdk/build/prefix/lib/pkgconfig/ meson setup --cross config/arm64_cn10k_linux_gcc build --prefer-static
  # ninja -C build
 
