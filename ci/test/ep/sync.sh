@@ -6,7 +6,7 @@ set -euo pipefail
 
 function host_sync()
 {
-	local sync="rsync -azzh --delete"
+	local sync="rsync -azzh --delete --inplace"
 
 	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
 		echo "Cleanup EP host files"
