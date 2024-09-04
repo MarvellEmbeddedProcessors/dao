@@ -22,7 +22,7 @@ index 000000000..c6b9cb79c
 +++ b/DPDK_VERSION
 @@ -0,0 +1,2 @@
 +BASE_VERSION=23.11.0
-+RELEASE_VERSION=24.07.0
++RELEASE_VERSION=24.08.0
 diff --git a/Makefile.am b/Makefile.am
 index 0b7c83246..4908ea6bd 100644
 --- a/Makefile.am
