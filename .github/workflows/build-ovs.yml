@@ -126,7 +126,9 @@ jobs:
           echo "OVS_VERSION=${OVS_VERSION}" >> "$GITHUB_OUTPUT"
           echo $DISTRO
           echo "DISTRO=${DISTRO}" >> "$GITHUB_OUTPUT"
+          echo $DPDK_PKG_VERSION
           echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> $GITHUB_OUTPUT
+          echo $DPDK_BASE_PKG_VERSION
           echo "DPDK_BASE_PKG_VERSION=${DPDK_BASE_PKG_VERSION}" >> $GITHUB_OUTPUT
       - name: Delete existing release
         if: ${{ github.event_name == 'push' }}
@@ -153,5 +155,5 @@ jobs:
             https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "ovs",
             "tag": "ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}",
-            "dpdk_tag" : "dpdk-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.version.outputs.DPDK_PKG_VERSION }}",
+            "dpdk_tag" : "dpdk-${{ steps.artifacts.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}",
             "has_dpdk" : "true", "distro" : "${{ steps.artifacts.outputs.DISTRO }}"}}'

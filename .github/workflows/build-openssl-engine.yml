@@ -121,6 +121,7 @@ jobs:
             echo 'Package: openssl-engine-'${ENGINE_VERSION}'-cnxk'${PKG_POSTFIX} >> DEBIAN/control
             echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
+            echo 'Depends: dpdk-'$DPDK_BASE_PKG_VERSION'-cn10k (= '$DPDK_PKG_VERSION')' >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: DPDK based OpenSSL Engine for Marvell Octeon 10" >> DEBIAN/control
             cd ..
