@@ -398,3 +398,9 @@ Performance using h2load client
 .. code-block:: console
 
     ~# h2load  -n 10000 -c 64 --cipher=AES128-GCM-SHA256,2048,256 https://<nginx-dut-ip>/test/<FILE_SIZE>.html
+
+Application running demo
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. raw:: html
+  :file: ../_static/demo/nginx.html
