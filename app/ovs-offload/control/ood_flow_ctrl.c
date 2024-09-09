@@ -226,7 +226,7 @@ add_mark_action(uint16_t portid, struct rte_flow_action **actions,
 		return -ENOMEM;
 	}
 	port_id = rte_zmalloc("port_id", sizeof(struct rte_flow_action_port_id), 0);
-	if (!act_mark) {
+	if (!port_id) {
 		dao_err("Failed to get memory portid action config");
 		return -ENOMEM;
 	}
@@ -237,6 +237,12 @@ add_mark_action(uint16_t portid, struct rte_flow_action **actions,
 			dao_dbg("Flow already has a markid");
 			act_mark->id = generate_mark_id(act_cfg, act_cfg_idx);
 			old_actions->conf = (struct rte_flow_action_mark *)act_mark;
+			return 0;
+		}
+		/* If action list has drop, no mark ID required */
+		if (old_actions->type == RTE_FLOW_ACTION_TYPE_DROP) {
+			rte_free(act_mark);
+			rte_free(port_id);
 			return 0;
 		}
 		if (old_actions->type == RTE_FLOW_ACTION_TYPE_PORT_ID) {
