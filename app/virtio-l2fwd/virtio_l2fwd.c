@@ -321,15 +321,15 @@ check_virtio_config(void)
 		if (lcore_conf[lcore].nb_virtio_rx || lcore_conf[lcore].nb_ethdev_rx)
 			nb_lcores++;
 
-	/* Service lcore, control dma device */
-	nb_lcores += 2;
+	/* Service lcore */
+	nb_lcores += 1;
 
 	/* 2 dma devices for control */
 	wrkr_dma_devs = 2 + (nb_lcores * 2);
 	if (nb_dma_devs < wrkr_dma_devs) {
 		APP_INFO("%u DMA devices not enough, need at least %u for %u lcores,"
-			 " 1 ctrl core, 1 service core\n",
-			 nb_dma_devs, wrkr_dma_devs, nb_lcores - 2);
+			 " 1 ctrl thread, 1 service core\n",
+			 nb_dma_devs, wrkr_dma_devs, nb_lcores - 1);
 		return -1;
 	}
 
