@@ -1,0 +1,67 @@
+diff --git a/src/event/modules/ngx_epoll_module.c b/src/event/modules/ngx_epoll_module.c
+index 3bdab3403..3cb28a326 100644
+--- a/src/event/modules/ngx_epoll_module.c
++++ b/src/event/modules/ngx_epoll_module.c
+@@ -946,7 +946,8 @@ ngx_epoll_process_callback(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flag
+ 				conn_aev = conn->async;
+ 				conn_aev->ready = 1;
+ 				//fprintf(stderr, "\nfront <= rear case | Connection Address:%lx\n", arr_queue[j]);
+-				conn_aev->handler(conn_aev);
++				if(conn_aev->active != 0 && conn_aev->closed != 1)
++				   conn_aev->handler(conn_aev);
+ 				//pthread_mutex_lock(&queue_lock);
+ 				manage_queue(0, 2);
+ 				//pthread_mutex_unlock(&queue_lock);
+@@ -960,7 +961,8 @@ ngx_epoll_process_callback(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flag
+ 				conn_aev = conn->async;
+ 				conn_aev->ready = 1;
+ 				//fprintf(stderr, "\nfront > rear case | Connection Address:%lx\n", arr_queue[front_pos]);
+-				conn_aev->handler(conn_aev);
++				if(conn_aev->active != 0 && conn_aev->closed != 1)
++				   conn_aev->handler(conn_aev);
+ 				//pthread_mutex_lock(&queue_lock);
+ 				manage_queue(0, 2);
+ 				//pthread_mutex_unlock(&queue_lock);
+@@ -974,7 +976,8 @@ ngx_epoll_process_callback(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flag
+ 				conn_aev = conn->async;
+ 				conn_aev->ready = 1;
+ 				//fprintf(stderr, "\nfront > rear case | Connection Address:%lx\n", arr_queue[front_pos]);
+-				conn_aev->handler(conn_aev);
++				if(conn_aev->active != 0 && conn_aev->closed != 1)
++				   conn_aev->handler(conn_aev);
+ 				//pthread_mutex_lock(&queue_lock);
+ 				manage_queue(0, 2);
+ 				//pthread_mutex_unlock(&queue_lock);
+@@ -983,6 +986,9 @@ ngx_epoll_process_callback(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flag
+ 		}
+
+ 	}
++	else
++	 return -1;
++
+ 	//fprintf(stderr, "<<<<Returning from %s | front:%d | rear:%d \n", __func__, front, rear);
+ 	return 0;
+ }
+diff --git a/src/event/ngx_event_timer.c b/src/event/ngx_event_timer.c
+index 6c1bdc498..e110ff4af 100644
+--- a/src/event/ngx_event_timer.c
++++ b/src/event/ngx_event_timer.c
+@@ -53,6 +53,7 @@ ngx_event_find_timer(void)
+ void
+ ngx_event_expire_timers(void)
+ {
++    ngx_int_t ret = 0;
+     ngx_event_t        *ev;
+     ngx_rbtree_node_t  *node, *root, *sentinel;
+
+@@ -93,7 +94,9 @@ ngx_event_expire_timers(void)
+
+         ev->handler(ev);
+
+-    	ngx_process_callback(NULL, 0, 0);
++	ret = ngx_process_callback(NULL, 0, 0);
++	if(ret == -1)
++	   break;
+     }
+ }
+
