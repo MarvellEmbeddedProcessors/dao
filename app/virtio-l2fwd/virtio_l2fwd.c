@@ -1394,6 +1394,26 @@ rss_table_reset(uint16_t portid)
 	return rte_eth_dev_rss_reta_update(portid, reta_conf, eth_dev_info[portid].reta_size);
 }
 
+static int
+ethdev_reset(uint16_t portid)
+{
+	int rc = 0;
+
+	rc = rte_eth_dev_stop(portid);
+	if (rc != 0) {
+		APP_ERR("Failed to stop port %u: %s\n", portid, rte_strerror(-rc));
+		return rc;
+	}
+
+	rc = rte_eth_dev_reset(portid);
+	if (rc != 0)
+		APP_ERR("Failed to reset port %u: %s\n", portid, rte_strerror(-rc));
+
+	eth_dev_q_count[portid] = 0;
+
+	return rc;
+}
+
 static void
 clear_lcore_queue_mapping(uint16_t virtio_devid)
 {
@@ -1775,8 +1795,8 @@ mac_list_update(uint16_t port_id, struct rte_ether_addr *macs, int cnt)
 
 	/* Update new MAC list */
 	for (i = 0; i < cnt; i++) {
-		/* skip zero  and mcast address */
-		if (rte_is_zero_ether_addr(&macs[i]))
+		/* skip zero and default MAC address */
+		if (rte_is_zero_ether_addr(&macs[i]) || rte_is_same_ether_addr(&macs[i], &addr[0]))
 			continue;
 
 		rc = rte_eth_dev_mac_addr_add(port_id, &macs[i], 0);
@@ -2313,6 +2333,16 @@ virtio_dev_status_cb(uint16_t virtio_devid, uint8_t status)
 	/* After this point, all the core's see updated queue mapping */
 
 	if (reset_ethdev && virtio_map[virtio_devid].type == ETHDEV_NEXT) {
+		/* First reset device */
+		ethdev_reset(virtio_map[virtio_devid].id);
+		/* dump packet pool available count */
+		if (per_port_pool)
+			APP_ERR("Packet pool avial buff_cnt=%d\n",
+				rte_mempool_avail_count(
+					e_pktmbuf_pool[virtio_map[virtio_devid].id]));
+		else
+			APP_ERR("Packet pool avial buff_cnt=%d\n",
+				rte_mempool_avail_count(e_pktmbuf_pool[0]));
 		/* Reset RSS table */
 		rss_table_reset(virtio_map[virtio_devid].id);
 		/* Reset VLAN filters */
@@ -3190,6 +3220,18 @@ main(int argc, char **argv)
 
 	APP_INFO("\n");
 
+	if (per_port_pool) {
+		RTE_ETH_FOREACH_DEV(portid) {
+			if (!is_ethdev_enabled(portid))
+				continue;
+
+			APP_ERR("Initial Packet pool avial buff_cnt=%d\n",
+				rte_mempool_avail_count(e_pktmbuf_pool[portid]));
+		}
+	} else {
+		APP_ERR("Initial Packet pool avial buff_cnt=%d\n",
+			rte_mempool_avail_count(e_pktmbuf_pool[0]));
+	}
 	/* Launch per-lcore init on every worker lcore */
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
