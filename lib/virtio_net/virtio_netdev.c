@@ -499,7 +499,7 @@ virtio_netdev_cq_cmd_process(struct virtio_dev *dev, struct rte_dma_sge *src,
 			status = net_mac_add(netdev, uc, 0);
 			if (status)
 				dao_dbg("[dev %u] UC MAC add failed ret %d", dev->dev_id, status);
-			if (nb_desc < 4)
+			if (status || nb_desc < 4)
 				break;
 			mc = (struct virtio_net_ctrl_mac *)(ctrl_cmd->data + sizeof(uc->entries) +
 							    (uc->entries * RTE_ETHER_ADDR_LEN));
