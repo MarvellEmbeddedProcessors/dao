@@ -61,6 +61,7 @@ struct lcore_virtio_rx {
 struct lcore_conf {
 	/* Fast path accessed */
 	uint64_t virt_dev_map;
+	uint16_t virtio_queue_cnt[RTE_CRYPTO_MAX_DEVS];
 
 	uint16_t nb_virtio_rx;
 	struct lcore_virtio_rx virtio_rx[MAX_VIRTIO_RX_PER_LCORE];
@@ -729,9 +730,12 @@ clear_lcore_queue_mapping(uint16_t virtio_devid)
 		if (qconf->nb_crypto_deq)
 			qconf->crypto_deq[0].cryptodev_deq->crypto_q_map = 0;
 
-		if (qconf->service_lcore)
+		if (qconf->service_lcore) {
+			qconf->virtio_queue_cnt[virtio_devid] = 0;
 			qconf->virt_dev_map &= ~RTE_BIT64(virtio_devid);
+		}
 	}
+
 	rte_io_wmb();
 	dump_lcore_info();
 }
@@ -792,9 +796,42 @@ vc_asym_sess_destroy_cb(uint16_t cdev_id, uint64_t session)
 }
 
 static int
+setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
+{
+	struct lcore_conf *qconf;
+	uint32_t lcore_id;
+
+	/* TODO: Implement properly considering all queues etc.*/
+
+	qconf = &lcore_conf[5];
+	qconf->virtio_rx[0].virtio_rx->virt_q_map = 0xffffffffffffffff;
+
+	/* Add virtio device to service lcore */
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0)
+			continue;
+
+		qconf = &lcore_conf[lcore_id];
+
+		if (qconf->service_lcore) {
+			qconf->virt_dev_map |= RTE_BIT64(virtio_devid);
+			qconf->virtio_queue_cnt[virtio_devid] = virt_q_count;
+			APP_INFO("Added virtio_devid=%d (queue count: %d) to service lcore=%d\n",
+				 virtio_devid, virt_q_count, lcore_id);
+			break;
+		}
+	}
+
+	dump_lcore_info();
+	return 0;
+}
+
+static int
 vc_status_cb(uint16_t virtio_devid, uint8_t status)
 {
 	bool reset_cryptodev = false;
+	uint16_t virt_q_count;
+	int rc;
 
 	APP_INFO("virtio_dev=%d: status=%s\n", virtio_devid, dao_virtio_dev_status_to_str(status));
 
@@ -805,9 +842,11 @@ vc_status_cb(uint16_t virtio_devid, uint8_t status)
 		reset_cryptodev = true;
 		break;
 	case VIRTIO_DEV_DRIVER_OK:
-		/* TODO: Cryptodev specific feature config
-		 * and lcore queue mapping for crypto dev.
-		 */
+		virt_q_count = dao_virtio_cryptodev_data_queue_cnt_get(virtio_devid);
+		rc = setup_lcore_queue_mapping(virtio_devid, virt_q_count);
+		if (rc)
+			APP_ERR("virtio_dev=%d: failed to setup lcore queue mapping, rc=%d\n",
+				virtio_devid, rc);
 		break;
 	default:
 		break;
