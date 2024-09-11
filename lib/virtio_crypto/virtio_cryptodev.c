@@ -238,6 +238,10 @@ dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf
 	 */
 	dev_cfg->max_dataqueues = dev->max_virtio_queues - 1;
 
+	/* TODO determine this from capabilities.*/
+	dev_cfg->akcipher_algo = RTE_BIT64(VIRTIO_CRYPTO_AKCIPHER_RSA);
+	dev_cfg->cipher_algo_l = RTE_BIT32(VIRTIO_CRYPTO_CIPHER_AES_CBC);
+
 	/* One time setup */
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].dev_status = virtio_cryptodev_status_cb;
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].cq_cmd_process = virtio_cryptodev_cq_cmd_process;
