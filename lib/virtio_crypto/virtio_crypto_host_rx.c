@@ -10,6 +10,7 @@
 #include "virtio_dev_priv.h"
 
 #include "spec/virtio_crypto.h"
+#include "virtio_crypto_akcipher.h"
 #include "virtio_crypto_priv.h"
 
 dao_virtio_crypto_deq_fn_t dao_virtio_crypto_deq_fns[VIRTIO_CRYPTO_DEQ_OFFLOAD_LAST << 1] = {
@@ -70,6 +71,26 @@ fetch_host_data(struct virtio_crypto_queue *q, struct dao_dma_vchan_state *dev2m
 					req->u.akcipher_req.para.dst_data_len);
 
 				switch (req->header.opcode) {
+				case VIRTIO_CRYPTO_AKCIPHER_ENCRYPT:
+					virtio_crypto_akcipher_enc_op(cops[i], req,
+								      &vc_buffer->output_addr,
+								      &vc_buffer->output_len);
+					break;
+				case VIRTIO_CRYPTO_AKCIPHER_DECRYPT:
+					virtio_crypto_akcipher_dec_op(cops[i], req,
+								      &vc_buffer->output_addr,
+								      &vc_buffer->output_len);
+					break;
+				case VIRTIO_CRYPTO_AKCIPHER_SIGN:
+					virtio_crypto_akcipher_sign_op(cops[i], req,
+								       &vc_buffer->output_addr,
+								       &vc_buffer->output_len);
+					break;
+				case VIRTIO_CRYPTO_AKCIPHER_VERIFY:
+					virtio_crypto_akcipher_verify_op(cops[i], req,
+									 &vc_buffer->output_addr,
+									 &vc_buffer->output_len);
+					break;
 				default:
 					dao_err("Unsupported data request op code: %x",
 						req->header.opcode);
