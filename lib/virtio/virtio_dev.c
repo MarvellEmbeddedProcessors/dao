@@ -1104,7 +1104,8 @@ virtio_dev_init(struct virtio_dev *dev)
 	dev->feature_bits = dev->dev_feature_bits;
 
 	/* Setup virtio device host interrupt for the vring call */
-	dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1, &dev->cb_intr_addr);
+	dev->nb_cb_intrs =
+		dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1, dev->cb_intr_addr);
 
 	/* Register control register region */
 	rc = dao_pem_ctrl_region_register(dev->pem_devid, (uintptr_t)dev->common_cfg,

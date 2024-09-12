@@ -34,7 +34,8 @@
 #define PCI_CAP_ID_VNDR 0x09
 #define PCI_CAP_BAR     4
 
-#define VIRTIO_DMA_TMO_MS 3000
+#define VIRTIO_DMA_TMO_MS   3000
+#define VIRTIO_MAX_CB_INTRS 8
 
 enum virtio_dev_type {
 	VIRTIO_DEV_TYPE_NET,
@@ -179,7 +180,8 @@ struct virtio_dev {
 	uint64_t feature_bits;
 	uint16_t prev_queue_select;
 	uint32_t prev_drv_feature_select;
-	uint64_t *cb_intr_addr;
+	uint64_t *cb_intr_addr[VIRTIO_MAX_CB_INTRS];
+	uint8_t nb_cb_intrs;
 
 	uint8_t driver_ok_pend;
 	uint8_t queue_select_pend;

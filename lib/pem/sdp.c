@@ -15,9 +15,6 @@
 #include <dao_util.h>
 
 #define SDP_PLAT_DEV_NAME        "86e000000000.dpi_sdp_regs"
-#define SDP_EPFX_RINFO(x)        (0x800209f0UL | (x) << 25)
-#define SDP_MAC0_PF_RING_CTL     0x8002c000
-#define SDP_EPFX_RINFO_NVFS_MASK DAO_GENMASK_ULL(54, 48)
 
 int
 sdp_reg_write(struct dao_vfio_platform_device *sdp_pdev, uint64_t offset, uint64_t val)
@@ -60,10 +57,13 @@ sdp_init(struct dao_vfio_platform_device *sdp_pdev)
 	}
 
 	reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
-	reg_val &= SDP_EPFX_RINFO_NVFS_MASK;
-	/* 0 ring per PF and 1 ring per VF. */
-	reg_val |= (1UL << 32);
+	reg_val &= ~SDP_EPFX_RINFO_SRN_MASK;
 	sdp_reg_write(sdp_pdev, SDP_EPFX_RINFO(0), reg_val);
+
+	/* Disable PF Ring */
+	reg_val = sdp_reg_read(sdp_pdev, SDP_MAC0_PF_RING_CTL);
+	reg_val &= ~SDP_MAC0_PF_RING_CTL_RPPF_MASK;
+	sdp_reg_write(sdp_pdev, SDP_MAC0_PF_RING_CTL, reg_val);
 
 	return 0;
 }

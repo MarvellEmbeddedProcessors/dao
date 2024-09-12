@@ -390,17 +390,34 @@ dao_pem_host_page_sz(uint16_t pem_devid)
 	return pem->host_page_sz;
 }
 
-void
+uint8_t
 dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 {
 	struct pem *pem = &pem_devices[pem_devid];
-	int ring_idx = vfid - 1;
+	int idx, ring_idx;
+	uint64_t reg_val;
+	uint8_t rpvf;
 
-	sdp_reg_write(&pem->sdp_pdev, SDP_EPVF_RINGX(ring_idx), vfid);
-	sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
-	sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
-	sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
+	reg_val = sdp_reg_read(&pem->sdp_pdev, SDP_EPFX_RINFO(0));
+	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
 
-	__atomic_store_n(intr_addr, sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
-			 __ATOMIC_RELAXED);
+	if (!rpvf) {
+		dao_err("No rings configured per VF, host interrupts unsupported");
+		return 0;
+	}
+
+	for (idx = 0; idx < rpvf; idx++) {
+		ring_idx = idx + (vfid - 1) * rpvf;
+
+		sdp_reg_write(&pem->sdp_pdev, SDP_EPVF_RINGX(ring_idx), vfid);
+		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
+		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
+		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
+
+		__atomic_store_n(intr_addr, sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
+				 __ATOMIC_RELAXED);
+		intr_addr++;
+	}
+
+	return rpvf;
 }

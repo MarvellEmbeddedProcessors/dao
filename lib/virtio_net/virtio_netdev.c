@@ -254,16 +254,18 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 	uint32_t max_vqs = netdev->dev.max_virtio_queues - 1;
 	struct virtio_dev *dev = &netdev->dev;
 	struct virtio_net_queue *queue;
-	uint32_t i;
+	uint32_t i, intr_idx;
 
+	intr_idx = 0;
 	for (i = 0; i < max_vqs; i++) {
 		queue = netdev->qs[i];
-		if (!queue)
+		if (!queue || i % 2)
 			continue;
 
-		queue->cb_intr_addr = dev->cb_intr_addr;
+		queue->cb_intr_addr = dev->cb_intr_addr[intr_idx];
 		queue->cb_notify_addr = queue->notify_addr + 1;
 		__atomic_store_n(queue->cb_notify_addr, 0, __ATOMIC_RELAXED);
+		intr_idx = (intr_idx + 1) % dev->nb_cb_intrs;
 	}
 
 	dao_dbg("[dev %u] Enabled driver events for %u queues", dev->dev_id, max_vqs);
