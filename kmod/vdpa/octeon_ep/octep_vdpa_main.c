@@ -48,13 +48,18 @@ static struct octep_hw *vdpa_to_octep_hw(struct vdpa_device *vdpa_dev)
 static irqreturn_t octep_vdpa_intr_handler(int irq, void *data)
 {
 	struct octep_hw *oct_hw = data;
-	int i;
+	int i, queue_start, queue_stride;
 
 	if (unlikely(oct_hw->config_cb.callback && ioread8(oct_hw->isr))) {
 		iowrite8(0, oct_hw->isr);
 		oct_hw->config_cb.callback(oct_hw->config_cb.private);
 	}
-	for (i = 0; i < oct_hw->nr_vring; i++) {
+
+	/* Rx queues are at even indices */
+	queue_start = (irq - oct_hw->irqs[0]) * 2;
+	queue_stride = oct_hw->nb_irqs * 2;
+
+	for (i = queue_start; i < oct_hw->nr_vring; i += queue_stride) {
 		if (oct_hw->vqs[i].cb.callback && ioread32(oct_hw->vqs[i].cb_notify_addr)) {
 			/* Acknowledge the per queue notification to the device */
 			iowrite32(0, oct_hw->vqs[i].cb_notify_addr);
@@ -68,39 +73,48 @@ static irqreturn_t octep_vdpa_intr_handler(int irq, void *data)
 static void octep_free_irqs(struct octep_hw *oct_hw)
 {
 	struct pci_dev *pdev = oct_hw->pdev;
+	int irq;
 
-	if (oct_hw->irq != -1) {
-		devm_free_irq(&pdev->dev, oct_hw->irq, oct_hw);
-		oct_hw->irq = -1;
+	for (irq = 0; irq < oct_hw->nb_irqs; irq++) {
+		if (oct_hw->irqs[irq] < 0)
+			continue;
+
+		devm_free_irq(&pdev->dev, oct_hw->irqs[irq], oct_hw);
 	}
+
 	pci_free_irq_vectors(pdev);
+	kfree(oct_hw->irqs);
 }
 
 static int octep_request_irqs(struct octep_hw *oct_hw)
 {
 	struct pci_dev *pdev = oct_hw->pdev;
-	int ret, irq;
+	int ret, irq, idx;
 
-	/* Currently HW device provisions one IRQ per VF, hence
-	 * allocate one IRQ for all virtqueues call interface.
-	 */
-	ret = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_MSIX);
+	ret = pci_alloc_irq_vectors(pdev, 1, oct_hw->nb_irqs, PCI_IRQ_MSIX);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "Failed to alloc msix vector");
 		return ret;
 	}
 
-	snprintf(oct_hw->vqs->msix_name, sizeof(oct_hw->vqs->msix_name),
-		 OCTEP_VDPA_DRIVER_NAME "-vf-%d", pci_iov_vf_id(pdev));
-
-	irq = pci_irq_vector(pdev, 0);
-	ret = devm_request_irq(&pdev->dev, irq, octep_vdpa_intr_handler, 0,
-			       oct_hw->vqs->msix_name, oct_hw);
-	if (ret) {
-		dev_err(&pdev->dev, "Failed to register interrupt handler\n");
+	oct_hw->irqs = kcalloc(oct_hw->nb_irqs, sizeof(int), GFP_KERNEL);
+	if (!oct_hw->irqs) {
+		ret = -ENOMEM;
 		goto free_irq_vec;
 	}
-	oct_hw->irq = irq;
+
+	memset(oct_hw->irqs, -1, sizeof(oct_hw->irqs));
+
+	for (idx = 0; idx < oct_hw->nb_irqs; idx++) {
+		irq = pci_irq_vector(pdev, idx);
+		ret = devm_request_irq(&pdev->dev, irq, octep_vdpa_intr_handler, 0,
+				       dev_name(&pdev->dev), oct_hw);
+		if (ret) {
+			dev_err(&pdev->dev, "Failed to register interrupt handler\n");
+			goto free_irq_vec;
+		}
+		oct_hw->irqs[idx] = irq;
+	}
 
 	return 0;
 
@@ -574,6 +588,7 @@ static void octep_vdpa_setup_task(struct work_struct *work)
 	struct device *dev = &pdev->dev;
 	struct octep_hw *oct_hw;
 	unsigned long timeout;
+	u64 val;
 	int ret;
 
 	oct_hw = &mgmt_dev->oct_hw;
@@ -604,6 +619,13 @@ static void octep_vdpa_setup_task(struct work_struct *work)
 	ret = octep_iomap_region(pdev, oct_hw->base, OCTEP_HW_CAPS_BAR);
 	if (ret)
 		return;
+
+	val = readq(oct_hw->base[OCTEP_HW_MBOX_BAR] + OCTEP_VF_IN_CTRL(0));
+	oct_hw->nb_irqs = OCTEP_VF_IN_CTRL_RPVF(val);
+	if (!oct_hw->nb_irqs || oct_hw->nb_irqs > OCTEP_MAX_CB_INTR) {
+		dev_err(dev, "Invalid number of interrupts %d\n", oct_hw->nb_irqs);
+		goto unmap_region;
+	}
 
 	ret = octep_hw_caps_read(oct_hw, pdev);
 	if (ret < 0)
@@ -781,12 +803,6 @@ static int octep_vdpa_pf_setup(struct octep_pf *octpf)
 	if (val == 0) {
 		dev_err(&pdev->dev, "Invalid device configuration\n");
 		return -EINVAL;
-	}
-
-	if (OCTEP_EPF_RINFO_RPVF(val) != BIT_ULL(0)) {
-		val &= ~GENMASK_ULL(35, 32);
-		val |= BIT_ULL(32);
-		writeq(val, addr + OCTEP_EPF_RINFO(0));
 	}
 
 	len = pci_resource_len(pdev, OCTEP_HW_CAPS_BAR);
