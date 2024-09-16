@@ -269,11 +269,16 @@ function l2fwd_host_launch_testpmd_with_pcap()
 		  --vdev=net_virtio_user0,path=/dev/vhost-vdpa-0,mrg_rxbuf=$mrg_rxbuf,packed_vq=1,in_order=$in_order,queue_size=4096"
 	app_args="--nb-cores=$fwd_cores --port-topology=paired --rxq=1 --txq=1 --no-flush-rx -i"
 
-	if [[ $csum -eq 1 ]]; then
-		app_args+=" --tx-offloads 0xC --rx-offloads 0xC"
-	fi
-
 	ep_host_op_bg 10 testpmd_launch $pfx "$eal_args" -- "$app_args"
+
+	if [[ $csum -eq 1 ]]; then
+		ep_host_op testpmd_cmd $pfx port stop 1
+		ep_host_op testpmd_cmd $pfx port config 1 tx_offload udp_cksum on
+		ep_host_op testpmd_cmd $pfx port config 1 tx_offload tcp_cksum on
+		ep_host_op testpmd_cmd $pfx port config 1 rx_offload udp_cksum on
+		ep_host_op testpmd_cmd $pfx port config 1 rx_offload tcp_cksum on
+		ep_host_op testpmd_cmd $pfx port start 1
+	fi
 }
 
 function l2fwd_host_start_traffic_with_pcap()

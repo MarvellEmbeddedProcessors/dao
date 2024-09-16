@@ -78,12 +78,6 @@ function virtio_l2fwd_offload_run()
 		echo -e "######################## ITERATION $itr" \
 			"(virtio_offload = "$ff"_${list[0]})########################\n"
 
-		#TODO: CSUM support
-		if [[ ${list[1]} -eq 1 ]]; then
-			((++itr))
-			continue
-		fi
-
 		if [[ ${list[2]} -eq 1 ]]; then
 			tpcap=$tx_mpcap
 		else
@@ -128,7 +122,7 @@ function virtio_l2fwd_multiseg()
 	ep_common_bind_driver pci $if0 vfio-pci
 
 	# Launch virtio l2fwd
-	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200"; then
+	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200 --enable-l4-csum"; then
 		echo "Failed to launch virtio l2fwd"
 
 		# Quit l2fwd app
@@ -148,7 +142,7 @@ function virtio_l2fwd_multiseg()
 
 	# No fastfree cases
 	# Launch virtio l2fwd with no fast free option
-	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200 -f"; then
+	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l --max-pkt-len=9200 --enable-l4-csum -f"; then
 		echo "Failed to launch virtio l2fwd with No fastfree"
 	else
 		ep_host_op vdpa_setup $(ep_device_get_part)
