@@ -141,6 +141,7 @@ jobs:
         uses: softprops/action-gh-release@v2.0.4
         if: ${{ github.event_name == 'push' }}
         with:
+          draft: false
           tag_name: ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}
           files: |
             ${{ github.workspace }}/artifacts/ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k_${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}_arm64.deb
