@@ -11,6 +11,8 @@ function ovs_ping()
 {
 	local test_type=$1
 	local hw_offload=$2
+	local mtu=${3:-1500}
+	local pktsz=${4:-56}
 	local eth_pf_ifcs
 	local sdp_eth_vf_pairs
 	local esw_vf_ifcs
@@ -23,11 +25,13 @@ function ovs_ping()
 	local remote_ip="20.0.0.20"
 	local extra_args_interface_setup=
 	local extra_args_remote_ifconfig=
+	local extra_args_host_ifconfig=
 	local vxlan_local_ip="30.0.0.2"
 	local vxlan_remote_ip="30.0.0.254"
 	local vxlan_subnet="30.0.0.0"
 	local vxlan_vni=5001
 	local vlan_id=100
+	local maxpktlen
 
 	if [[ $test_type == "vlan" ]]; then
 		extra_args_interface_setup="--vlan-id $vlan_id"
@@ -37,6 +41,11 @@ function ovs_ping()
 		extra_args_remote_ifconfig="--vxlan-vni $vxlan_vni \
 			--vxlan-remote-ip $vxlan_remote_ip --vxlan-local-ip $vxlan_local_ip"
 	fi
+
+	maxpktlen=$[mtu+18]
+	extra_args_interface_setup+=" --mtu-request $mtu"
+	extra_args_remote_ifconfig+=" --mtu $mtu"
+	extra_args_host_ifconfig+=" --mtu $mtu"
 
 	# Register signal handler
 	ovs_register_sig_handler
@@ -67,17 +76,19 @@ function ovs_ping()
 	echo "Running OVS offload"
 	ovs_offload_launch \
 		$(form_split_args "--esw-vf-ifc" "$esw_vf_ifcs") \
-		$(form_split_args "--sdp-eth-vf-pair" "$sdp_eth_vf_pairs")
+		$(form_split_args "--sdp-eth-vf-pair" "$sdp_eth_vf_pairs") \
+		$(form_split_args "--max-pkt-len" $maxpktlen)
 
 	echo "Configure SDP interface on host"
-	ep_host_op if_configure --pcie-addr $EP_HOST_SDP_IFACE --ip $host_ip
+	ep_host_op if_configure --pcie-addr $EP_HOST_SDP_IFACE --ip $host_ip \
+		$extra_args_host_ifconfig
 
 	echo "Configure remote interface"
 	ep_remote_op bind_driver pci $EP_REMOTE_IFACE rvu_nicpf
 	ep_remote_op if_configure --pcie-addr $EP_REMOTE_IFACE \
 		--ip $remote_ip $extra_args_remote_ifconfig
 
-	if [[ $(ep_host_op ping $host_ip $remote_ip) != "SUCCESS" ]]; then
+	if [[ $(ep_host_op ping $host_ip $remote_ip 32 $pktsz) != "SUCCESS" ]]; then
 		echo "Ping Failed"
 		exit 1
 	else
@@ -113,6 +124,36 @@ function ovs_vlan_ping_hw_offload()
 function ovs_vxlan_ping_hw_offload()
 {
 	ovs_ping vxlan true
+}
+
+function ovs_plain_ping_jumbo_pkt()
+{
+	ovs_ping plain false 9000 8000
+}
+
+function ovs_vlan_ping_jumbo_pkt()
+{
+	ovs_ping vlan false 9000 8000
+}
+
+function ovs_vxlan_ping_jumbo_pkt()
+{
+	ovs_ping vxlan false 9000 8000
+}
+
+function ovs_plain_ping_jumbo_pkt_hw_offload()
+{
+	ovs_ping plain true 9000 8000
+}
+
+function ovs_vlan_ping_jumbo_pkt_hw_offload()
+{
+	ovs_ping vlan true 9000 8000
+}
+
+function ovs_vxlan_ping_jumbo_pkt_hw_offload()
+{
+	ovs_ping vxlan true 9000 8000
 }
 
 test_run ${DAO_TEST} 2

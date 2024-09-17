@@ -10,6 +10,12 @@ tests = [
     ['ovs_plain_ping_hw_offload', 'ovs_ping.sh', ''],
     ['ovs_vlan_ping_hw_offload', 'ovs_ping.sh', ''],
     ['ovs_vxlan_ping_hw_offload', 'ovs_ping.sh', ''],
+    ['ovs_plain_ping_jumbo_pkt', 'ovs_ping.sh', ''],
+    ['ovs_vlan_ping_jumbo_pkt', 'ovs_ping.sh', ''],
+    ['ovs_vxlan_ping_jumbo_pkt', 'ovs_ping.sh', ''],
+    ['ovs_plain_ping_jumbo_pkt_hw_offload', 'ovs_ping.sh', ''],
+    ['ovs_vlan_ping_jumbo_pkt_hw_offload', 'ovs_ping.sh', ''],
+    ['ovs_vxlan_ping_jumbo_pkt_hw_offload', 'ovs_ping.sh', ''],
 ]
 
 test_dir = meson.current_build_dir()

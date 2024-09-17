@@ -116,9 +116,10 @@ function ovs_interface_setup()
 	local net
 	local ipaddr
 	local vlan_id=
+	local mtu=
 
 	if ! opts=$(getopt \
-		-l "eth-ifc:,num-sdp-ifcs-per-eth:,vxlan-vni:,vxlan-subnet:,vlan-id:" \
+		-l "eth-ifc:,num-sdp-ifcs-per-eth:,vxlan-vni:,vxlan-subnet:,vlan-id:,mtu-request:" \
 		-- interface_setup $@); then
 			echo "Failed to parse arguments"
 			exit 1
@@ -132,6 +133,7 @@ function ovs_interface_setup()
 			--vxlan-subnet) shift; vxlan_subnet=$1;;
 			--vlan-id) shift; vlan_id=$1;;
 			--num-sdp-ifcs-per-eth) shift; num_sdp_ifcs_per_eth=$1;;
+			--mtu-request) shift; mtu=$1;;
 			*) echo "Unknown argument $1"; exit 1;;
 		esac
 		shift
@@ -151,16 +153,20 @@ function ovs_interface_setup()
 				"br${eth_ifc_idx}" \
 				"e${eth_ifc_idx}_vf_rep${sdp_idx}" \
 				$esw_pf_pcie \
-				"representor=pf${pfid}vf${sdp_idx}"
+				"representor=pf${pfid}vf${sdp_idx}" \
+				"mtu_request=$mtu"
+
 		done
 
 		if [[ -n $vxlan_vni ]]; then
 			local vni=$((vxlan_vni + eth_ifc_idx))
 			net=$((eth_ifc_idx + 2))
 			ipaddr=${vxlan_subnet%.*}.$net
-			ovs_vxlan_port_add "br${eth_ifc_idx}" "vxlan${eth_ifc_idx}" "$ipaddr" $vni
+			ovs_vxlan_port_add "br${eth_ifc_idx}" "vxlan${eth_ifc_idx}" \
+				"$ipaddr" $vni "mtu_request=$mtu"
 		else
-			ovs_port_add "br${eth_ifc_idx}" "e${eth_ifc_idx}_pf" $eth_ifc
+			ovs_port_add "br${eth_ifc_idx}" "e${eth_ifc_idx}_pf" $eth_ifc \
+				"" "mtu_request=$mtu"
 		fi
 
 		sleep 1
@@ -183,7 +189,7 @@ function ovs_interface_setup()
 				 other_config:hwaddr=00:00:00:aa:bb:$khex"
 
 			ovs_bridge_add br${k} "netdev" "$br_args"
-			ovs_port_add "br${k}" "e${eth_ifc_idx}_pf" $eth_ifc
+			ovs_port_add "br${k}" "e${eth_ifc_idx}_pf" $eth_ifc "" "mtu_request=$mtu"
 
 			# Bring the bridge up
 			ovs_iface_link_set "br${k}" "up"
@@ -237,12 +243,13 @@ function ovs_port_add()
 	local port=$2
 	local pcie_addr=$3
 	local rep_args=${4:-}
+	local mtu_args=${5:-}
 
 	if [[ -n $rep_args ]]; then
 		rep_args=",$rep_args"
 	fi
 	ovs-vsctl add-port $br_name $port -- set Interface $port type=dpdk \
-		options:dpdk-devargs="$pcie_addr"$rep_args
+		options:dpdk-devargs="$pcie_addr"$rep_args $mtu_args
 }
 
 function ovs_vxlan_port_add()
@@ -251,9 +258,10 @@ function ovs_vxlan_port_add()
 	local port=$2
 	local raddr=$3
 	local vni=$4
+	local mtu_args=${5:-}
 
 	ovs-vsctl add-port $br_name $port -- set Interface $port type=vxlan \
-		options:remote_ip=$raddr options:key=$vni
+		options:remote_ip=$raddr options:key=$vni $mtu_args
 }
 
 function ovs_port_del()
@@ -305,10 +313,11 @@ function ovs_offload_launch()
 	local dao_offload
 	local coremask=0
 	local portconf=""
+	local maxpktlen=0
 	local tmp
 
 	if ! opts=$(getopt \
-		-l "sdp-eth-vf-pair:,esw-vf-ifc:" \
+		-l "sdp-eth-vf-pair:,esw-vf-ifc:,max-pkt-len:" \
 		-- get_allowlist $@); then
 			echo "Failed to parse arguments"
 			exit 1
@@ -335,6 +344,8 @@ function ovs_offload_launch()
 				coremask=$((coremask | 3 << num_cores));;
 			--esw-vf-ifc) shift;
 				allowlist="$allowlist -a $1";;
+			--max-pkt-len) shift;
+				maxpktlen=$1;;
 			*) echo "Unknown argument $1"; exit 1;;
 		esac
 		shift
@@ -352,6 +363,16 @@ function ovs_offload_launch()
 
 	find_executable "dao-ovs-offload" dao_offload "$OVS_UTILS_SCRIPT_PATH/../../../../app"
 
+	echo "$dao_offload \
+		-c $coremask \
+		$allowlist \
+		--vfio-vf-token="$VFIO_TOKEN" \
+		--file-prefix=ep \
+		-- \
+		-p 0xff \
+		--portmap="$portmap" \
+		--max-pkt-len=$maxpktlen \
+		--config="$portconf" &> $EP_DEVICE_OVS_PATH/var/log/dao-ovs-offload.log &"
 	$dao_offload \
 		-c $coremask \
 		$allowlist \
@@ -360,6 +381,7 @@ function ovs_offload_launch()
 		-- \
 		-p 0xff \
 		--portmap="$portmap" \
+		--max-pkt-len=$maxpktlen \
 		--config="$portconf" &> $EP_DEVICE_OVS_PATH/var/log/dao-ovs-offload.log &
 
 	sleep 10

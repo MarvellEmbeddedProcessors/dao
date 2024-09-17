@@ -116,7 +116,7 @@ function dao_ovs_setup()
 	echo "Copied OVS version: $OVS_VERSION"
 
 	echo "Setting up EP device for ovs tests"
-	ep_device_op hugepage_setup 524288 24 6
+	ep_device_op hugepage_setup 524288 24 12
 
 	echo "Setting up EP Host for ovs"
 	ep_host_op sdp_setup

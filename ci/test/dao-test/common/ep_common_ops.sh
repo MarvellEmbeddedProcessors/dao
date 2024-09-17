@@ -89,9 +89,10 @@ function ep_common_if_configure()
 	local vxlan_local_ip=
 	local vxlan_vni=
 	local vlan_id=
+	local mtu=
 
 	if ! opts=$(getopt \
-		-l "ip:,pcie-addr:,down,vxlan-remote-ip:,vxlan-local-ip:,vxlan-vni:,vlan-id:" \
+		-l "ip:,pcie-addr:,down,vxlan-remote-ip:,vxlan-local-ip:,vxlan-vni:,vlan-id:,mtu:" \
 		-- configure_sdp_interface $@); then
 		echo "Failed to parse arguments"
 		exit 1
@@ -107,6 +108,7 @@ function ep_common_if_configure()
 			--vxlan-local-ip) shift; vxlan_local_ip=$1;;
 			--vlan-id) shift; vlan_id=$1;;
 			--down) down=1;;
+			--mtu) shift; mtu=$1;;
 			*) echo "Invalid argument $1"; exit 1;;
 		esac
 		shift
@@ -148,6 +150,10 @@ function ep_common_if_configure()
 			ifconfig $iface_name up
 			ifconfig $iface_name $ip_addr/24
 		fi
+
+		if [[ -n $mtu ]]; then
+			ifconfig $iface_name mtu $mtu
+		fi
 	fi
 }
 
@@ -163,9 +169,11 @@ function ep_common_ping()
 	local src=$1
 	local dst=$2
 	local count=${3:-32}
+	local pktsz=${4:-56}
 	local ping_out
 
-	ping_out=$(ping -c $count -i 0.2 -I $src $dst || true)
+	ping_out=$(ping -c $count -i 0.2 -s $pktsz -I $src $dst || true)
+	echo "$ping_out">&2
 	if [[ -n $(echo $ping_out | grep ", 0% packet loss,") ]]; then
 		echo "SUCCESS"
 	else
