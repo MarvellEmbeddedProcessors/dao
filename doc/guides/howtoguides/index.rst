@@ -10,5 +10,6 @@ HowTo Guides
 
     ovs
     virtio_host
+    sdp_host
     octep_agent
     github_pr

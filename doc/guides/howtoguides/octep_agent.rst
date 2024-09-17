@@ -38,6 +38,8 @@ Installing the octep CP agent package
 
  # apt-get install oct-ep-target-cn10k-devel
 
+.. _octep_cp_agent:
+
 Setting up the Environment
 ==========================
 
