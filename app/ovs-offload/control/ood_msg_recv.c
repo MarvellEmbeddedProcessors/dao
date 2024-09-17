@@ -238,7 +238,7 @@ flow_message_process(void *msg_buf, uint32_t *buf_trav_len, uint32_t msg_len,
 	uint16_t len = *buf_trav_len;
 	struct rte_flow_attr attr;
 	struct rte_flow_error err;
-	struct rte_flow *flow;
+	struct dao_flow *flow;
 	void *data;
 
 	/* Get the flow create message data */
@@ -381,7 +381,7 @@ flow_destroy_message_process(void *msg_buf, uint32_t *buf_trav_len, uint32_t msg
 
 	dao_dbg("Flow to be destroyed %lx port %d", msg_fd_data->flow, msg_fd_data->portid);
 
-	rc = ood_flow_destroy(msg_fd_data->portid, (struct rte_flow *)msg_fd_data->flow, &err);
+	rc = ood_flow_destroy(msg_fd_data->portid, (struct dao_flow *)msg_fd_data->flow, &err);
 	if (rc)
 		dao_err("Failed to delete the flow ");
 
@@ -448,7 +448,7 @@ flow_dump_message_process(void *msg_buf, uint32_t *buf_trav_len, uint32_t msg_le
 	dao_dbg("Flow to be dumped 0x%lx for rep port %d on stdout %d", msg_fp_data->flow,
 		msg_fp_data->portid, msg_fp_data->is_stdout);
 
-	rc = ood_flow_dump(msg_fp_data->portid, (struct rte_flow *)msg_fp_data->flow,
+	rc = ood_flow_dump(msg_fp_data->portid, (struct dao_flow *)msg_fp_data->flow,
 			   msg_fp_data->is_stdout, &err);
 	if (rc)
 		dao_err("Failed to dump the flows");
@@ -487,7 +487,7 @@ flow_query_message_process(void *msg_buf, uint32_t *buf_trav_len, uint32_t msg_l
 
 	populate_flow_action(msg_fq_data->action_data, &action, 1);
 
-	rc = ood_flow_query(msg_fq_data->portid, (struct rte_flow *)msg_fq_data->flow,
+	rc = ood_flow_query(msg_fq_data->portid, (struct dao_flow *)msg_fq_data->flow,
 			    msg_fq_data->reset, &action, &err, adata);
 	if (rc)
 		dao_err("Failed to query the flows");

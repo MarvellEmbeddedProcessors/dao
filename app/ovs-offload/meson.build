@@ -11,4 +11,4 @@ subdir('control')
 subdir('init')
 subdir('node')
 
-deps = ['common']
+deps = ['common', 'flow']

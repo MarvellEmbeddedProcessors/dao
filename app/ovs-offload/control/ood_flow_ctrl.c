@@ -64,22 +64,16 @@ elaborate_flow_error(struct rte_flow_error *error)
 	return -err;
 }
 
-static struct rte_flow *
+static struct dao_flow *
 insert_flow(uint16_t portid, struct rte_flow_attr *attr, struct rte_flow_item *pattern,
 	    struct rte_flow_action *action, struct rte_flow_error *err)
 {
-	struct rte_flow *flow;
+	struct dao_flow *flow;
 	int rc;
 
-	/* Validate the flow */
-	rc = rte_flow_validate(portid, attr, pattern, action, err);
-	if (rc) {
-		rc = elaborate_flow_error(err);
-		DAO_ERR_GOTO(rc, error, "Flow validation failed");
-	}
-
 	/* Flow create */
-	flow = rte_flow_create(portid, attr, pattern, action, err);
+	memset(err, 0, sizeof(*err));
+	flow = dao_flow_create(portid, attr, pattern, action, err);
 	if (flow == NULL) {
 		rc = elaborate_flow_error(err);
 		DAO_ERR_GOTO(rc, error, "Flow creation failed");
@@ -91,14 +85,15 @@ error:
 }
 
 static int
-remove_flow(uint16_t portid, struct rte_flow *flow, struct rte_flow_error *err)
+remove_flow(uint16_t portid, struct dao_flow *flow, struct rte_flow_error *err)
 {
 	int rc;
 
 	if (!flow)
 		return 0;
 
-	rc = rte_flow_destroy(portid, flow, err);
+	memset(err, 0, sizeof(*err));
+	rc = dao_flow_destroy(portid, flow, err);
 	if (rc) {
 		rc = elaborate_flow_error(err);
 		dao_err("portid %d cause: %p msg: %s type %d", portid, err->cause, err->message,
@@ -109,7 +104,7 @@ remove_flow(uint16_t portid, struct rte_flow *flow, struct rte_flow_error *err)
 	return rc;
 }
 
-static struct rte_flow *
+static struct dao_flow *
 mark_action_hw_offload_flow_add(uint16_t portid)
 {
 	struct rte_flow_action action[MAX_RTE_FLOW_ACTIONS] = {};
@@ -146,7 +141,7 @@ mark_action_hw_offload_flow_add(uint16_t portid)
 	pattern_idx++;
 	pattern[pattern_idx].type = RTE_FLOW_ITEM_TYPE_END;
 
-	return insert_flow(portid, &attr, pattern, action, &err);
+	return dao_flow_hw_install(portid, &attr, pattern, action, &err);
 }
 
 static int
@@ -375,7 +370,7 @@ add_mark_action(uint16_t portid, struct rte_flow_action **actions,
 	return 0;
 }
 
-static struct rte_flow *
+static struct dao_flow *
 host_port_flow_add(uint16_t portid, ood_node_action_config_t *act_cfg, uint16_t act_cfg_idx,
 		   struct rte_flow_attr *attr, struct rte_flow_item *pattern,
 		   struct rte_flow_action *action, struct rte_flow_error *err)
@@ -393,7 +388,7 @@ host_port_flow_add(uint16_t portid, ood_node_action_config_t *act_cfg, uint16_t 
 	return insert_flow(portid, attr, pattern, action, err);
 }
 
-static struct rte_flow *
+static struct dao_flow *
 mac_port_vlan_insert_flow_add(uint16_t portid, struct rte_flow_action *tx_actions)
 {
 	struct rte_flow_item pattern[MAX_RTE_FLOW_PATTERN] = {};
@@ -413,15 +408,15 @@ mac_port_vlan_insert_flow_add(uint16_t portid, struct rte_flow_action *tx_action
 	pattern_idx++;
 	pattern[pattern_idx].type = RTE_FLOW_ITEM_TYPE_END;
 
-	return insert_flow(portid, &attr, pattern, tx_actions, &err);
+	return dao_flow_hw_install(portid, &attr, pattern, tx_actions, &err);
 }
 
-static struct rte_flow *
+static struct dao_flow *
 vlan_insert_action_config_process(struct rte_flow_action **actions, uint16_t portid)
 {
 	struct rte_flow_action *action, *new_actions, *tx_actions;
 	int num_actions = 0, j = 0, k = 0;
-	struct rte_flow *mac_flow;
+	struct dao_flow *mac_flow;
 
 	action = *actions;
 	for (; action->type != RTE_FLOW_ACTION_TYPE_END; action++)
@@ -593,11 +588,11 @@ fail:
 	return errno;
 }
 
-struct rte_flow *
+struct dao_flow *
 ood_flow_create(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow_item *pattern,
 		struct rte_flow_action *action, struct rte_flow_error *err)
 {
-	struct rte_flow *host_flow = NULL, *mac_flow = NULL;
+	struct dao_flow *host_flow = NULL, *mac_flow = NULL;
 	ood_node_action_config_t *act_cfg = NULL;
 	representor_mapping_t *rep_map;
 	struct flows *iflow;
@@ -620,10 +615,8 @@ ood_flow_create(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow_i
 	if (!rep_map->mark_offload_enable) {
 		mac_flow = mark_action_hw_offload_flow_add(rep_map->mac_port);
 		if (!mac_flow)
-			DAO_ERR_GOTO(errno, remove_host_flow,
-				     "Failed to add mark action hw offload flow");
-
-		remove_flow(rep_map->mac_port, mac_flow, err);
+			DAO_ERR_GOTO(errno, fail, "Failed to add mark action hw offload flow");
+		dao_flow_hw_uninstall(rep_map->mac_port, mac_flow, err);
 		mac_flow = NULL;
 		rep_map->mark_offload_enable = true;
 	}
@@ -659,15 +652,15 @@ ood_flow_create(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow_i
 	host_flow = host_port_flow_add(rep_map->host_port, act_cfg, act_cfg_idx, attr, pattern,
 				       action, err);
 	if (!host_flow)
-		DAO_ERR_GOTO(errno, fail, "Failed to add host flow");
+		DAO_ERR_GOTO(errno, remove_mac_flow, "Failed to add host flow");
 
 	/* Add the flows to flow_list so both can be destroyed later */
 	iflow = rte_zmalloc("Insert flow", sizeof(struct flows), 0);
 	if (!iflow)
-		DAO_ERR_GOTO(-ENOMEM, remove_mac_flow, "No memory available");
+		DAO_ERR_GOTO(-ENOMEM, remove_host_flow, "No memory available");
 
-	iflow->host_flow = host_flow;
 	iflow->mac_flow = mac_flow;
+	iflow->host_flow = host_flow;
 	if (act_cfg_idx)
 		iflow->act_cfg_idx = act_cfg_idx;
 
@@ -679,17 +672,52 @@ ood_flow_create(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow_i
 	free(act_cfg);
 
 	return host_flow;
-remove_mac_flow:
-	remove_flow(rep_map->mac_port, mac_flow, err);
 remove_host_flow:
 	remove_flow(rep_map->host_port, host_flow, err);
+remove_mac_flow:
+	if (mac_flow) {
+		if (dao_check_bit_is_set(act_cfg->act_cfg_map, VLAN_INSERT_ACTION_CONFIG + 1)) {
+			if (dao_flow_hw_uninstall(rep_map->mac_port, mac_flow, err))
+				dao_err("Failed to remove mac flow");
+		} else {
+			remove_flow(rep_map->mac_port, mac_flow, err);
+		}
+	}
 fail:
 	free(act_cfg);
 	return NULL;
 }
 
+static int
+remove_mac_flow(uint16_t mac_port, struct flows *iflow, struct rte_flow_error *err)
+{
+	ood_node_action_config_t *act_cfg;
+	int rc;
+
+	if (!iflow)
+		return 0;
+
+	if (iflow->act_cfg_idx) {
+		act_cfg = ood_node_action_config_get(iflow->act_cfg_idx);
+		if (dao_check_bit_is_set(act_cfg->act_cfg_map, VLAN_INSERT_ACTION_CONFIG + 1)) {
+			rc = dao_flow_hw_uninstall(mac_port, iflow->mac_flow, err);
+			if (rc)
+				DAO_ERR_GOTO(rc, fail, "Failed to remove mac flow, rc %d", rc);
+			goto done;
+		}
+	}
+
+	rc = remove_flow(mac_port, iflow->mac_flow, err);
+	if (rc)
+		DAO_ERR_GOTO(rc, fail, "Failed to remove mac flow, rc %d", rc);
+done:
+	return 0;
+fail:
+	return errno;
+}
+
 int
-ood_flow_destroy(uint16_t repr_qid, struct rte_flow *flow, struct rte_flow_error *err)
+ood_flow_destroy(uint16_t repr_qid, struct dao_flow *flow, struct rte_flow_error *err)
 {
 	representor_mapping_t *rep_map;
 	bool found = false;
@@ -724,9 +752,9 @@ ood_flow_destroy(uint16_t repr_qid, struct rte_flow *flow, struct rte_flow_error
 			DAO_ERR_GOTO(rc, fail, "Failed to remove host flow, rc %d", rc);
 
 		/* Remove mac port flow */
-		rc = remove_flow(rep_map->mac_port, iflow->mac_flow, err);
+		rc = remove_mac_flow(rep_map->mac_port, iflow, err);
 		if (rc)
-			DAO_ERR_GOTO(rc, fail, "Failed to remove host flow, rc %d", rc);
+			DAO_ERR_GOTO(rc, fail, "Failed to remove mac flow, rc %d", rc);
 
 		/* Free tnl_cfg_index */
 		if (iflow->act_cfg_idx)
@@ -756,6 +784,7 @@ ood_flow_validate(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow
 		DAO_ERR_GOTO(-EINVAL, fail,
 			     "Failed to get valid flow ctrl handle for repr queue %d", repr_qid);
 	/* Validate the flow */
+	memset(err, 0, sizeof(*err));
 	rc = rte_flow_validate(rep_map->host_port, attr, pattern, action, err);
 	if (rc) {
 		rc = elaborate_flow_error(err);
@@ -781,13 +810,15 @@ ood_flow_flush(uint16_t repr_qid, struct rte_flow_error *err)
 			     "Failed to get valid flow ctrl handle for repr queue %d", repr_qid);
 
 	/* Flush host port flows */
-	rc = rte_flow_flush(rep_map->host_port, err);
+	memset(err, 0, sizeof(*err));
+	rc = dao_flow_flush(rep_map->host_port, err);
 	if (rc) {
 		rc = elaborate_flow_error(err);
 		DAO_ERR_GOTO(rc, fail, "Failed to flush host port %d flows", rep_map->host_port);
 	}
 
 	/* Flush mac port flows */
+	memset(err, 0, sizeof(*err));
 	rc = rte_flow_flush(rep_map->mac_port, err);
 	if (rc) {
 		rc = elaborate_flow_error(err);
@@ -804,7 +835,7 @@ fail:
 }
 
 int
-ood_flow_dump(uint16_t repr_qid, struct rte_flow *flow, uint8_t is_stdout,
+ood_flow_dump(uint16_t repr_qid, struct dao_flow *flow, uint8_t is_stdout,
 	      struct rte_flow_error *err)
 {
 	representor_mapping_t *rep_map;
@@ -830,7 +861,8 @@ ood_flow_dump(uint16_t repr_qid, struct rte_flow *flow, uint8_t is_stdout,
 				     DEFAULT_DUMP_FILE_NAME, errno);
 	}
 	/* Dump the flow */
-	rc = rte_flow_dev_dump(rep_map->host_port, flow, file, err);
+	memset(err, 0, sizeof(*err));
+	rc = dao_flow_dev_dump(rep_map->host_port, flow, file, err);
 	if (rc) {
 		rc = elaborate_flow_error(err);
 		dao_err("Failed to dump the flow %p for port %d", flow, rep_map->mac_port);
@@ -845,7 +877,7 @@ fail:
 }
 
 int
-ood_flow_query(uint16_t repr_qid, struct rte_flow *flow, uint8_t reset,
+ood_flow_query(uint16_t repr_qid, struct dao_flow *flow, uint8_t reset,
 	       struct rte_flow_action *action, struct rte_flow_error *err,
 	       ood_msg_ack_data_t *adata)
 {
@@ -864,7 +896,8 @@ ood_flow_query(uint16_t repr_qid, struct rte_flow *flow, uint8_t reset,
 
 	/* Query the flow */
 	query.reset = reset;
-	rc = rte_flow_query(rep_map->host_port, flow, action, &query, err);
+	memset(err, 0, sizeof(*err));
+	rc = dao_flow_query(rep_map->host_port, flow, action, &query, err);
 	if (rc) {
 		rc = elaborate_flow_error(err);
 		DAO_ERR_GOTO(rc, fail, "Failed to dump the flow %p for port %d", flow,

@@ -254,13 +254,14 @@ ood_representor_mapping_get(uint16_t repr_qid)
 int
 ood_control_channel_init(struct ood_main_cfg_data *ood_main_cfg)
 {
+	struct dao_flow_offload_config config;
 	representor_mapping_t *rep_map;
 	uint16_t repr_qid;
 	ood_repr_param_t *repr_prm;
 	ood_ethdev_param_t *eth_prm;
 	ood_config_param_t *cfg_prm;
 	ood_ethdev_host_mac_map_t *host_mac_lkp_tbl;
-	int i, nb_port;
+	int i, nb_port, rc;
 
 	eth_prm = ood_main_cfg->eth_prm;
 	cfg_prm = ood_main_cfg->cfg_prm;
@@ -282,9 +283,26 @@ ood_control_channel_init(struct ood_main_cfg_data *ood_main_cfg)
 
 	/* Sending ready message */
 	ood_send_ready_message();
-	for (i = 0; i < repr_prm->nb_repr; i++)
+	for (i = 0; i < repr_prm->nb_repr; i++) {
 		dao_dbg("Representor Port %d rapid %d mac port %d host port %d", i,
 			repr_prm->repr_map[i], rep_map[i].mac_port, rep_map[i].host_port);
+
+		memset(&config, 0, sizeof(struct dao_flow_offload_config));
+		config.feature = DAO_FLOW_HW_OFFLOAD_ENABLE;
+		rte_strscpy(config.parse_profile, "ovs", DAO_FLOW_PROFILE_NAME_MAX);
+		rc = dao_flow_init(rep_map[i].mac_port, &config);
+		if (rc) {
+			dao_err("Error: DAO flow init failed for mac port %d, err %d",
+				rep_map[i].mac_port, rc);
+			return rc;
+		}
+		rc = dao_flow_init(rep_map[i].host_port, &config);
+		if (rc) {
+			dao_err("Error: DAO flow init failed for host port %d, err %d",
+				rep_map[i].host_port, rc);
+			return rc;
+		}
+	}
 
 	return 0;
 }

@@ -12,7 +12,9 @@
 #include <rte_graph.h>
 #include <rte_graph_worker.h>
 
+#include <dao_flow.h>
 #include <dao_log.h>
+
 #include <ood_node_ctrl.h>
 
 #include "ood_flow_mapper_priv.h"
@@ -79,7 +81,7 @@ exit:
 	return next;
 }
 
-static __rte_always_inline uint16_t
+static uint16_t
 determine_next_hop(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t mark_id)
 {
 	uint16_t next = 0, dport = 0, tnl_type;
@@ -103,7 +105,11 @@ determine_next_hop(struct rte_node *node, struct rte_mbuf *mbuf, uint16_t mark_i
 		/* Case where packet is received from host port and to be
 		 * diverted to corresponding repr tx node
 		 */
-		next = flow_mapper_nm->repr_tx_edge[mbuf->port];
+		dao_flow_lookup(mbuf->port, &mbuf, 1);
+		if (mbuf->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
+			return determine_next_hop(node, mbuf, mbuf->hash.fdir.hi);
+		else
+			next = flow_mapper_nm->repr_tx_edge[mbuf->port];
 		break;
 	case NRML_FWD_MARK_ID:
 		/* Case where packet received from host/mac port and to be sent

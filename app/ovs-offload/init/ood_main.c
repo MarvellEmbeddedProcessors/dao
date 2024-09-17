@@ -241,6 +241,8 @@ close_eth:
 	RTE_ETH_FOREACH_DEV(portid) {
 		if (portid == ood_main_cfg->repr_prm->portid)
 			continue;
+
+		dao_flow_fini(portid);
 		dao_info("Closing port %d...", portid);
 		rc = rte_eth_dev_stop(portid);
 		if (rc != 0)
