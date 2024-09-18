@@ -93,6 +93,8 @@ Hugepage setup
  # echo 24 > /proc/sys/vm/nr_hugepages
  # echo 512 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 
+.. _setting_up_ovs_env:
+
 Binding the required devices
 ----------------------------
 
@@ -124,6 +126,7 @@ Check for device ID ``0xa063`` viz RPM (NIX) PF and bind to vfio-pci (Optional)
 
  # dpdk-devbind.py -b vfio-pci 0002:02:00.0
 
+.. _launching_ovs:
 
 Setting up OVS directory and the path
 -------------------------------------
@@ -197,7 +200,10 @@ Following steps assume OVS is installed at /usr/local. Replace the same with
  # /usr/local/bin/ovs-appctl vlog/set netdev_offload_dpdk:file:dbg
  # /usr/local/bin/ovs-appctl vlog/set netdev_dpdk:console:info
 
-* Creating bridge and attaching Ethernet PF port
+.. _creating_bridge:
+
+Creating bridge and binding ports
+---------------------------------
 
 .. code-block:: console
 
@@ -221,3 +227,182 @@ Following steps assume OVS is installed at /usr/local. Replace the same with
 .. code-block:: console
 
  # ovs-vsctl show
+
+Following output ensures successful OVS launching:
+
+.. code-block:: console
+
+  ac6d388f-eb66-4cba-8f7b-55b67fed0af2
+    Bridge br0
+        datapath_type: netdev
+        Port e0_vf_rep0
+            Interface e0_vf_rep0
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf0"}
+        Port e0_vf_rep1
+            Interface e0_vf_rep1
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf1"}
+        Port e0_pf
+            Interface e0_pf
+                type: dpdk
+                options: {dpdk-devargs="0002:02:00.0"}
+        Port e0_vf_rep2
+            Interface e0_vf_rep2
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf2"}
+        Port br0
+            Interface br0
+                type: internal
+
+.. _configure_vlan:
+
+Configuring VLAN
+================
+
+Configuring a VLAN on a VM's representor port isolates VM traffic, ensuring that only VMs on the
+same VLAN can communicate directly.
+
+Bridge is created and ports are bind to bridge in same way as described:
+
+:ref:`Setting up bridge and attaching ports<creating_bridge>`
+
+Aditionally VLAN tag is configured on the representor port whose VM demands tagged traffic
+
+.. code-block:: console
+
+  # ovs-vsctl add-port br0 e0_vf_rep0 tag=100
+
+Command refers to traffic comming into OVS via representor port of VM1 i.e. e0_vf_rep0 will be
+untagged, while it goes out with a VLAN tag 100.
+
+Execute `ovs-vsctl show` to confirm proper VLAN configuration
+
+.. code-block:: console
+
+ # ovs-vsctl show
+ 5c994357-8ac0-4be2-a912-b6e09d81465e
+    Bridge br0
+        datapath_type: netdev
+        Port e0_vf_rep2
+            tag: 102
+            Interface e0_vf_rep2
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf2"}
+        Port e0_vf_rep0
+            tag: 100
+            Interface e0_vf_rep0
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf0"}
+        Port br0
+            Interface br0
+                type: internal
+        Port e0_vf_rep1
+            tag: 101
+            Interface e0_vf_rep1
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf1"}
+        Port e0_pf
+            Interface e0_pf
+                type: dpdk
+                options: {dpdk-devargs="0002:02:00.0"}
+
+Here e0_vf_rep0, e0_vf_rep1, e0_vf_rep2 are configured with VIDs 100, 101, 102 respectively.
+
+.. _configure_vxlan:
+
+Configuring VxLAN
+=================
+
+The following steps configure virtual machines on two different hosts to communicate over an
+overlay network using VXLAN support in OVS.
+
+For configuring VXLAN, the setup involves two bridges: br0, which binds representor ports and
+the VXLAN port configured with the remote host IP, and br1, which binds the PF/wire port for
+outgoing traffic and is assigned the local IP.
+
+Steps to configure VxLAN:
+
+* Create internal bridge `br0`
+
+.. code-block:: console
+
+  # ovs-vsctl add-br br0 -- set bridge br0 datapath_type=netdev
+
+* Attach representor ports:
+
+.. code-block:: console
+
+  # ovs-vsctl add-port br0 e0_vf_rep0 -- set Interface e0_vf_rep0 type=dpdk 'options:dpdk-devargs=0002:1c:00.0,representor=pf1vf0'
+  # ovs-vsctl add-port br0 e0_vf_rep1 -- set Interface e0_vf_rep1 type=dpdk 'options:dpdk-devargs=0002:1c:00.0,representor=pf1vf1'
+  # ovs-vsctl add-port br0 e0_vf_rep2 -- set Interface e0_vf_rep2 type=dpdk 'options:dpdk-devargs=0002:1c:00.0,representor=pf1vf2'
+
+* Add a port for the VXLAN tunnel with remote host IP:
+
+.. code-block:: console
+
+  # ovs-vsctl add-port br0 vxlan0 \
+          -- set interface vxlan0 type=vxlan options:remote_ip=172.168.1.10 options:key=5001
+
+* Create a phy bridge `br1`
+
+.. code-block:: console
+
+  # ovs-vsctl --may-exist add-br br1 \
+            -- set Bridge br1 datapath_type=netdev \
+                -- br-set-external-id br1 bridge-id br1 \
+                    -- set bridge br1 fail-mode=standalone \
+                             other_config:hwaddr=00:00:00:aa:bb:cc
+
+* Attach PF interface to br1 bridge
+
+.. code-block:: console
+
+  # ovs-vsctl add-port br1 e0_pf -- set Interface e0_pf type=dpdk options:dpdk-devargs=0002:02:00.0
+
+* Configure IP to the bridge, (this is tunnel IP which peer host configures as remote IP)
+
+.. code-block:: console
+
+  # ip addr add 172.168.1.20/24 dev br1
+  # ip link set br1 up
+
+* Display configured bridge
+
+.. code-block:: console
+
+  # ovs-vsctl show
+  2871351d-c700-430a-85b6-54eb9902e3f5
+    Bridge br0
+        datapath_type: netdev
+        Port e0_vf_rep1
+            Interface e0_vf_rep1
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf1"}
+        Port br0
+            Interface br0
+                type: internal
+        Port e0_vf_rep2
+            Interface e0_vf_rep2
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf2"}
+        Port e0_vf_rep0
+            Interface e0_vf_rep0
+                type: dpdk
+                options: {dpdk-devargs="0002:1c:00.0,representor=pf1vf0"}
+        Port vxlan0
+            Interface vxlan0
+                type: vxlan
+                options: {key="5001", remote_ip="172.168.1.10"}
+    Bridge br1
+        fail_mode: standalone
+        datapath_type: netdev
+        Port br1
+            Interface br1
+                type: internal
+        Port e0_pf
+            Interface e0_pf
+                type: dpdk
+                options: {dpdk-devargs="0002:02:00.0"}
+
+Here vxlan0 is the tunnel port configured with VNI 5001 and tunnel IP 172.168.1.10
