@@ -1,0 +1,32 @@
+<! SPDX-License-Identifier: Marvell-MIT>
+<! Copyright (c) 2023 Marvell.>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="../../_static/css/player.css" />
+    <style>
+        #plain{
+            margin-left: 0;
+            width: 80ch;
+            height: 32em;
+        }
+    </style>
+</head>
+<body>
+    <div id="plain"></div>
+    <script src="https://github.com/asciinema/asciinema-player/releases/download/v3.7.1/asciinema-player.min.js"></script>
+    <script>
+        AsciinemaPlayer.create('../../_static/demo/ood/plain.cast', document.getElementById('plain'), {
+                   fit: "height",
+		   autoplay: true,
+		   markers: [
+                                        [13, 'Launching OVS'],
+                                        [24, 'Launching dao-ovs-offload'],
+                                        [34, 'Setting up host and peer machine'],
+                                        [85, 'Performance measurement'],
+                                    ]
+        });
+    </script>
+</body>
+</html>

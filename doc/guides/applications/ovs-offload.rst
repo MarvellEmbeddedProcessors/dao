@@ -162,6 +162,8 @@ Create VFs, check for device ID ``0xa064`` viz RPM (NIX) VF and bind to vfio-pci
  # dpdk-devbind.py -b vfio-pci 0002:02:00.1
  # dpdk-devbind.py -b vfio-pci 0002:02:00.2
 
+.. _launching_ovs_offload:
+
 Launching the application
 =========================
 
@@ -319,3 +321,201 @@ Understanding different nodes
 * ``vxlan_encap``: This node performs VxLAN tunnel encapsulation to all the received packets.
 
 * ``tunnel_decap``: This node performs tunnel decapsulation to all the received packets.
+
+Various Packet Flow Scenarios (with demo)
+=========================================
+
+There are various use cases for switching traffic, including VM-to-VM communication, VM-to-wire
+connections where the traffic flowing can be plain or VLAN tagged, and VxLAN tunnelled.
+
+Before launching any use case, ensure that the octep_cp_agent is running to facilitate smooth
+communication between the Octeon device and host-side drivers:
+
+:ref:`Launching octep_agent<octep_cp_agent>`
+
+Setting up the environment for OVS
+
+:ref:`Setting up OVS environment<setting_up_ovs_env>`
+
+Wire-VM Communication
+---------------------
+
+A use case where VMs communicate across different hosts.
+
+Setting up the host machine and launching the VM - it is a common step across various types of
+traffic.
+
+:ref:`Setting up host machine<sdp_host_kernel_modules>`
+
+Assign an IP to the host SDP PF internface
+
+.. code-block:: console
+
+  # ifconfig <pf-iface> <ip addr>
+  Ex.
+  # ifconfig enp1s0f0 30.0.0.3
+
+Plain Traffic
+`````````````
+
+* **Setup Detail**
+
+.. figure:: ./img/ood_plain_traffic.png
+
+* **Launching OVS as per use case**
+
+:ref:`Launching OVS<launching_ovs>`
+
+Steps to create bridge and attach ports
+
+:ref:`Setting up bridge and attaching ports<creating_bridge>`
+
+* **Setting up the peer machine**
+
+Peer machine can be another host machine which is connected to the octeon board over ethernet link.
+
+Assign IP to one of the host's netdev which is connected to octeon board
+
+.. code-block:: console
+
+  # ifconfig <eth-iface> <ip addr>
+  Ex.
+  # ifconfig eth0 30.0.0.11
+
+* **Launching dao-ovs-offload**
+
+:ref:`Launch ovs-offload<launching_ovs_offload>`
+
+* Ping from host interface to peer machine or vice versa
+
+.. code-block:: console
+
+  # ping 30.0.0.11
+  PING 20.11 (30.0.0.11) 56(84) bytes of data.
+  64 bytes from 30.0.0.11: icmp_seq=1 ttl=64 time=0.367 ms
+  64 bytes from 30.0.0.11: icmp_seq=2 ttl=64 time=0.217 ms
+  64 bytes from 30.0.0.11: icmp_seq=3 ttl=64 time=0.186 ms
+  64 bytes from 30.0.0.11: icmp_seq=4 ttl=64 time=0.237 ms
+  64 bytes from 30.0.0.11: icmp_seq=5 ttl=64 time=0.132 ms
+
+* **Running Demo**
+
+.. raw:: html
+  :file: ../_static/demo/ood/plain.html
+
+VLAN Traffic
+````````````
+
+* **Setup Detail**
+
+.. figure:: ./img/ood_vlan_traffic.png
+
+* **Launching OVS as per use case**
+
+:ref:`Launching OVS<launching_ovs>`
+
+Steps to create bridge and attach ports
+
+:ref:`Setting up bridge and attaching ports<creating_bridge>`
+
+Configuring VLAN
+
+:ref:`Configure VLAN<configure_vlan>`
+
+* **Setting up the peer machine**
+
+Create VLAN interface on the peer machine to send packets with tag 100
+
+.. code-block:: console
+
+  # ip link add link <eth-iface> name <vlan-iface> type vlan id 100 
+  # ifconfig <vlan-iface> <ip addr>
+  Ex.
+  # ip link add link eth0 name eth0.100 type vlan id 100
+  # ifconfig eth0 30.0.0.11
+
+Delete the VLAN interface
+
+.. code-block:: console
+
+  # ip link delete <vlan-iface>
+  Ex.
+  # ip link delete eth0.100
+
+* **Launching dao-ovs-offload**
+
+:ref:`Launch ovs-offload<launching_ovs_offload>`
+
+* **Ping from host interface to peer machine or vice versa**
+
+.. code-block:: console
+
+  # ping 30.0.0.11
+  PING 20.11 (30.0.0.11) 56(84) bytes of data.
+  64 bytes from 30.0.0.11: icmp_seq=1 ttl=64 time=0.367 ms
+  64 bytes from 30.0.0.11: icmp_seq=2 ttl=64 time=0.217 ms
+  64 bytes from 30.0.0.11: icmp_seq=3 ttl=64 time=0.186 ms
+  64 bytes from 30.0.0.11: icmp_seq=4 ttl=64 time=0.237 ms
+  64 bytes from 30.0.0.11: icmp_seq=5 ttl=64 time=0.132 ms
+
+* **Running Demo**
+
+.. raw:: html
+  :file: ../_static/demo/ood/vlan.html
+
+VxLAN Traffic
+`````````````
+
+* **Setup Detail**
+
+.. figure:: ./img/ood_vxlan_traffic.png
+
+* **Launching OVS as per use case**
+
+:ref:`Launching OVS<launching_ovs>`
+
+Steps to create bridge and attach ports
+
+:ref:`Setting up bridge and attaching ports<creating_bridge>`
+
+Configuring VxLAN
+
+:ref:`Configure VxLAN<configure_vxlan>`
+
+* **Setting up the peer machine**
+
+Create VxLAN endpoint on the peer machine to send packets with VNI 5001
+
+.. code-block:: console
+
+  # ip link add <vxlan-intf> type vxlan id <vni> remote <remote-ip> local <local-ip> dev <eth-iface> dstport 4789
+  # ifconfig <eth-iface> <ip addr>
+  # ifconfig <vxlan-intf> <ip addr>
+  Ex.
+  # ip link add vxlan-demo type vxlan id 5001 remote 172.168.1.20 local 172.168.1.10 dev eth0 dstport 4789
+  # ifconfig eth0 172.168.1.10/24 up
+  # ifconfig vxlan-demo 30.0.0.11/24 up
+
+Delete the VxLAN interface
+
+.. code-block:: console
+
+  # ip link delete <vxlan-intf>
+  Ex.
+  # ip link delete vxlan-demo
+
+* **Launching dao-ovs-offload**
+
+:ref:`Launch ovs-offload<launching_ovs_offload>`
+
+* **Ping from host interface to peer machine or vice versa**
+
+.. code-block:: console
+
+  # ping 30.0.0.11
+  PING 20.11 (30.0.0.11) 56(84) bytes of data.
+  64 bytes from 30.0.0.11: icmp_seq=1 ttl=64 time=0.367 ms
+  64 bytes from 30.0.0.11: icmp_seq=2 ttl=64 time=0.217 ms
+  64 bytes from 30.0.0.11: icmp_seq=3 ttl=64 time=0.186 ms
+  64 bytes from 30.0.0.11: icmp_seq=4 ttl=64 time=0.237 ms
+  64 bytes from 30.0.0.11: icmp_seq=5 ttl=64 time=0.132 ms
