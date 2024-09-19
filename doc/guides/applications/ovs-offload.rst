@@ -401,7 +401,7 @@ Assign IP to one of the host's netdev which is connected to octeon board
 * **Running Demo**
 
 .. raw:: html
-  :file: ../_static/demo/ood/plain.html
+  :file: ../_static/demo/ood_plain.html
 
 VLAN Traffic
 ````````````
@@ -461,7 +461,7 @@ Delete the VLAN interface
 * **Running Demo**
 
 .. raw:: html
-  :file: ../_static/demo/ood/vlan.html
+  :file: ../_static/demo/ood_vlan.html
 
 VxLAN Traffic
 `````````````
