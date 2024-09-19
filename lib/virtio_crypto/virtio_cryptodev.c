@@ -10,6 +10,7 @@
 #include <dao_virtio_cryptodev.h>
 #include <spec/virtio_crypto.h>
 
+#include "virtio_crypto_akcipher.h"
 #include "virtio_crypto_priv.h"
 #include "virtio_dev_priv.h"
 
@@ -28,10 +29,86 @@ static void
 virtio_cryptodev_cq_cmd_process(struct virtio_dev *dev, struct rte_dma_sge *src,
 				struct rte_dma_sge *dst, uint16_t nb_desc)
 {
-	RTE_SET_USED(dev);
-	RTE_SET_USED(src);
-	RTE_SET_USED(dst);
-	RTE_SET_USED(nb_desc);
+	struct virtio_crypto_op_ctrl_req *ctrl_req =
+		(struct virtio_crypto_op_ctrl_req *)dst[0].addr;
+	struct virtio_cryptodev *cryptodev = virtio_dev_to_cryptodev(dev);
+	struct virtio_crypto_ctrl_header *ctrl_cmd = &ctrl_req->header;
+	struct virtio_crypto_session_input session_input = {0};
+	int16_t mem2dev = dao_dma_ctrl_mem2dev();
+	struct rte_crypto_asym_xform asym_xform;
+	struct virtio_crypto_inhdr inhdr = {0};
+	uint16_t tmo_ms, cnt, cdev_id;
+	bool has_err = 0;
+	int ack_len = 0;
+	int rc;
+
+	cdev_id = cryptodev->cdev_id;
+
+	dao_dbg("[dev %u] cq opcode: %u algo: %u nb_desc %d", dev->dev_id, ctrl_cmd->opcode,
+		ctrl_cmd->algo, nb_desc);
+
+	if (ctrl_cmd->opcode == VIRTIO_CRYPTO_AKCIPHER_CREATE_SESSION) {
+		memset(&asym_xform, 0, sizeof(asym_xform));
+
+		switch (ctrl_cmd->algo) {
+		case VIRTIO_CRYPTO_AKCIPHER_RSA:
+
+			if (virtio_crypto_akcipher_rsa_xform_prepare(ctrl_req, &asym_xform) != 0) {
+				dao_err("Invalid RSA session parameters");
+				break;
+			}
+			session_input.session_id =
+				user_cbs.asym_sess_create_cb(cdev_id, &asym_xform);
+			break;
+		default:
+			dao_warn("[dev %u] opcode:algo=%u:%u  is not supported", dev->dev_id,
+				 ctrl_cmd->opcode, ctrl_cmd->algo);
+			break;
+		}
+
+		/* Prepare ACK status */
+		if (session_input.session_id) {
+			/* Session created successfully. */
+			dao_info("Session id: %lx created", session_input.session_id);
+			session_input.status = VIRTIO_CRYPTO_OK;
+		} else {
+			/* Session creation failed. */
+			dao_err("Session failed");
+			session_input.status = VIRTIO_CRYPTO_ERR;
+		}
+		ack_len = sizeof(session_input);
+		memcpy((void *)dst[0].addr, &session_input, ack_len);
+	} else if (ctrl_cmd->opcode == VIRTIO_CRYPTO_AKCIPHER_DESTROY_SESSION) {
+		user_cbs.asym_sess_destroy_cb(cdev_id, ctrl_req->u.destroy_session.session_id);
+
+		/* Prepare ACK status */
+		inhdr.status = VIRTIO_CRYPTO_OK;
+		ack_len = sizeof(inhdr);
+		memcpy((void *)dst[0].addr, &inhdr, ack_len);
+		dao_info("Session_id: %lx freed", ctrl_req->u.destroy_session.session_id);
+	} else {
+		dao_warn("[dev %u] opcode=%u  is not supported", dev->dev_id, ctrl_cmd->opcode);
+	}
+
+	/* DMA ACK status to the host */
+	rc = rte_dma_copy(mem2dev, dev->dma_vchan, dst[0].addr, src[nb_desc - 1].addr, ack_len,
+			  RTE_DMA_OP_FLAG_SUBMIT);
+	if (rc < 0) {
+		dao_err("[dev %u] Couldn't submit dma for cq ack status", dev->dev_id);
+		return;
+	}
+	tmo_ms = VIRTIO_DMA_TMO_MS;
+	do {
+		rte_delay_us_sleep(1000);
+		cnt = rte_dma_completed(mem2dev, dev->dma_vchan, 1, NULL, &has_err);
+		tmo_ms--;
+		if (unlikely(has_err))
+			dao_err("[dev %u] DMA failed for driver event flag", dev->dev_id);
+		if (!tmo_ms) {
+			dao_err("[dev %u] DMA timeout for driver event flag", dev->dev_id);
+			return;
+		}
+	} while (cnt != 1);
 }
 
 static void
