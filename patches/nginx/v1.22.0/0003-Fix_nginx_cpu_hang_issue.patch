@@ -1,0 +1,30 @@
+diff --git a/src/http/ngx_http_upstream.c b/src/http/ngx_http_upstream.c
+index af06ca0e4..d208ee86a 100644
+--- a/src/http/ngx_http_upstream.c
++++ b/src/http/ngx_http_upstream.c
+@@ -4487,7 +4487,9 @@ static void
+ ngx_http_upstream_finalize_request(ngx_http_request_t *r,
+     ngx_http_upstream_t *u, ngx_int_t rc)
+ {
++    ngx_event_t *aev;
+     ngx_uint_t  flush;
++    ngx_connection_t *conn;
+
+     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                    "finalize http upstream request: %i", rc);
+@@ -4550,6 +4552,15 @@ ngx_http_upstream_finalize_request(ngx_http_request_t *r,
+             u->peer.connection->ssl->no_wait_shutdown = 1;
+
+             (void) ngx_ssl_shutdown(u->peer.connection);
++
++	    conn = (ngx_connection_t *) u->peer.connection;
++	    aev = conn->async;
++
++	    if(conn->asynch && rc == NGX_HTTP_BAD_GATEWAY)
++	    {
++	       aev->ready = 1;
++	       aev->handler(aev);
++	    }
+         }
+ #endif
+
