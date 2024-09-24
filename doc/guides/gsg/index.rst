@@ -12,3 +12,4 @@ Getting started Guide
  install
  build
  kernel
+ firmware
