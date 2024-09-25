@@ -14,3 +14,4 @@ Application User Guide
     smart-nic
     vpp
     tls-proxy-nginx
+    machine-learning
