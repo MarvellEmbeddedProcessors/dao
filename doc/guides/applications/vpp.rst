@@ -325,3 +325,9 @@ Ipsec Linux commands
   ipsec start
   ipsec statusall
   ipsec stop
+
+Installation and application running demo
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+.. raw:: html
+  :file: ../_static/demo/vpp_pktio.html

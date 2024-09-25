@@ -60,6 +60,10 @@ Running First DAO application
 
 [<img src="doc/guides/_static/demo/run.png" style="width:400px;"/>](https://marvellembeddedprocessors.github.io/dao/guides/applications/smart-nic.html#application-running-demo)
 
+Running VPP DAO application
+
+[<img src="doc/guides/_static/demo/run.png" style="width:400px;"/>](https://marvellembeddedprocessors.github.io/dao/guides/applications/vpp.html#installation-and-application-running-demo)
+
 Running NGINX DAO application
 
 [<img src="doc/guides/_static/demo/run.png" style="width:400px;"/>](https://marvellembeddedprocessors.github.io/dao/guides/applications/tls-proxy-nginx.html#application-running-demo)
