@@ -106,12 +106,14 @@ function dao_ovs_setup()
 	# Delete the existing ovs directory and copy the new one
 	ep_device_ssh_cmd "$EP_DEVICE_SUDO rm -rf $EP_DEVICE_OVS_PATH"
 	ep_device_ssh_cmd "mkdir -p $EP_DEVICE_OVS_PATH"
-	ep_device_ssh_cmd "rsync -a $EP_DIR/ep_files/ovs/* $EP_DEVICE_OVS_PATH"
+	ep_device_ssh_cmd "rsync -a $EP_DIR/ep_files/ovs/$OVS_VERSION/* $EP_DEVICE_OVS_PATH"
 
 	if [[ -n $SKIP_SETUP ]]; then
 		echo "Skip EP device setup"
 		return
 	fi
+
+	echo "Copied OVS version: $OVS_VERSION"
 
 	echo "Setting up EP device for ovs tests"
 	ep_device_op hugepage_setup 524288 24 6
