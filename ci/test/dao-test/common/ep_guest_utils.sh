@@ -33,6 +33,7 @@ function ep_guest_setup()
 		mount -t hugetlbfs none /dev/huge
 	fi
 	echo 512 > /proc/sys/vm/nr_hugepages
+	dhclient &
 	cd /home
 	modprobe vfio-pci
 	echo 1 > /sys/module/vfio/parameters/enable_unsafe_noiommu_mode

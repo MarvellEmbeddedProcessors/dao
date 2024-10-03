@@ -173,6 +173,8 @@ function ep_host_launch_guest()
 	touch $in
 	tail -f $in | ($unbuffer $QEMU_BIN -hda "$VM_IMAGE" -name vm1  \
 	-netdev type=vhost-vdpa,vhostdev="/dev/vhost-vdpa-0",id=vhost-vdpa1 \
+	-device e1000,netdev=netdev0,romfile=/usr/share/qemu/efi-virtio.rom \
+	-netdev user,id=netdev0,hostfwd=tcp::2222-:22 \
 	-device virtio-net-pci,netdev=vhost-vdpa1,disable-modern=off,page-per-vq=on,packed=on,mrg_rxbuf=on,mq=on,rss=on,rx_queue_size=1024,tx_queue_size=1024,disable-legacy=on -fsdev local,path=$EP_GUEST_SHARE_DIR,security_model=passthrough,id=hostshare -device virtio-9p-pci,id=fs0,fsdev=hostshare,mount_tag=host_tag \
 	-enable-kvm -nographic -m 2G -cpu host -smp 8 -L /usr/share/qemu &>$out) &
 
