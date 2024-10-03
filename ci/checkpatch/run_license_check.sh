@@ -39,6 +39,10 @@ IGNORE_DIRECTORIES=(
 	".github/"
 )
 
+BSD_LICENSE_FILES=(
+	"lib/virtio/spec/virtio_crypto.h"
+)
+
 FAILED=""
 IGNORED=""
 FILES=$(git ls-files)
@@ -101,6 +105,26 @@ for F in $FILES; do
 	if [[ $C1 == "0" ]] || [[ $C2 == "0" ]]; then
 		echo -n " ... OK"
 		continue
+	fi
+
+	CHECK_BSD=""
+	for B in "${BSD_LICENSE_FILES[@]}"; do
+		if [[ $B == $F ]]; then
+			CHECK_BSD="1"
+			break
+		fi
+	done
+
+	if [[ $CHECK_BSD == "1" ]]; then
+		# BSD-3 License Check
+		grep ' SPDX-License-Identifier: BSD-3-Clause$' $F &> /dev/null
+		C1=$?
+		grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F &> /dev/null
+		C2=$?
+		if [[ $C1 == "0" ]] || [[ $C2 == "0" ]]; then
+			echo -n " ... OK"
+			continue
+		fi
 	fi
 
 	FAILED+="$F\n"

@@ -12,6 +12,7 @@ headers = files(
 
 spec_headers = files(
 	'spec/virtio.h',
+	'spec/virtio_crypto.h',
 	'spec/virtio_net.h',
 )
 
