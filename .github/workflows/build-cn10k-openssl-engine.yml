@@ -109,7 +109,7 @@ jobs:
             until make; do echo "Building OpenSSL failed, retrying"; done
             cd ..
             export OPENSSL_INSTALL=$BASE_DIR/openssl-${OPENSSL_VERSION}
-            wget "https://github.com/MarvellEmbeddedProcessors/marvell-dpdk/releases/download/dpdk-${DPDK_BASE_PKG_VERSION}_${DPDK_PKG_VERSION}-${DISTRO}-${DPDK_PKG_VERSION}/dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
+            wget "https://github.com/MarvellEmbeddedProcessors/marvell-dpdk/releases/download/dpdk-cn10k-${DPDK_BASE_PKG_VERSION}_${DPDK_PKG_VERSION}-${DISTRO}-${DPDK_PKG_VERSION}/dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
             apt-get install -y ./"dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
             git clone "https://github.com/MarvellEmbeddedProcessors/marvell-openssl-engine.git"
             cd "${PWD}/marvell-openssl-engine"
