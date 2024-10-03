@@ -168,8 +168,12 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 	start_off = RTE_BIT64(15);
 
 	queue->shadow_q_head = start_off;
+	queue->shadow_q_tail = start_off;
 	queue->dma_shadow_q_head = start_off;
+	queue->dma_shadow_q_tail = start_off;
 
+	queue->mem2dev_desc_dma_pending = 0;
+	queue->mem2dev_desc_dma_idx = 0;
 	queue->dev2mem_desc_dma_idx = 0;
 
 	queue->qid = queue_id;
@@ -417,6 +421,40 @@ virtio_crypto_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flag
 
 		/* Copy descriptors from host queue to shadow queue. */
 		host_to_local_desc_copy(q, dev2mem, shadow_q_head, next_head);
+	}
+
+	/* Copy descriptors to host */
+
+	for (i = 0; i < qp_count; i++) {
+		q = cryptodev->qs[i];
+
+		/* For DMA copy, at least 2 slots are required. Skip if space is not available. */
+		if (!dao_dma_flush(mem2dev, 2))
+			break;
+
+		/* Check descriptor DMA completion and trigger host interrupt */
+		if (q->cb_intr_addr && q->mem2dev_desc_dma_pending &&
+		    dao_dma_op_status(mem2dev, q->mem2dev_desc_dma_idx)) {
+			dao_err("Interrupt triggered");
+			__atomic_store_n(q->cb_notify_addr, 1, __ATOMIC_RELAXED);
+			__atomic_store_n(q->cb_intr_addr, (1UL << 59), __ATOMIC_RELAXED);
+
+			/* Clear DMA pending status */
+			q->mem2dev_desc_dma_pending = 0;
+		}
+
+		/* Determine the number of descriptors that need to be DMA'ed */
+		start = q->dma_shadow_q_tail;
+		end = __atomic_load_n(&q->shadow_q_tail, __ATOMIC_ACQUIRE);
+		if (start == end)
+			continue;
+
+		/* Need space for at least 2 pointer */
+		if (!dao_dma_flush(mem2dev, 2))
+			break;
+
+		/* Copy descriptors from shadow queue to host queue. */
+		local_to_host_desc_copy(q, mem2dev, start, end);
 	}
 
 	return 0;
