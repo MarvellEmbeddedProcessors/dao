@@ -110,7 +110,7 @@ jobs:
             cd "${PWD}/install"
             echo 'Source: Open vSwitch' > debian/control
             echo 'Package: ovs-'$OVS_VERSION'-cn10k'$PKG_POSTFIX >> DEBIAN/control
-            echo 'Version: '$DPDK_PKG_VERSION >> DEBIAN/control
+            echo 'Version: '$PKG_VERSION_NAME >> DEBIAN/control
             echo "Depends: `dpkg-shlibdeps -O usr/local/sbin/ovs-vswitchd | awk -F'Depends=' '{print $2}'`, dpdk-"$DPDK_BASE_PKG_VERSION"-cn10k (= "$DPDK_PKG_VERSION")" >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
@@ -118,9 +118,9 @@ jobs:
             echo "Description: Open vSwitch (OVS) for Marvell Octeon 10" >> DEBIAN/control
             rm -rf debian
             cd -
-            mv "${PWD}/install" "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${DPDK_PKG_VERSION}_arm64"
-            dpkg --build "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${DPDK_PKG_VERSION}_arm64"
-            cp "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${DPDK_PKG_VERSION}_arm64.deb" /artifacts/.
+            mv "${PWD}/install" "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            dpkg --build "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            cp "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" /artifacts/.
       - name: Export version name
         id: artifacts
         run: |
@@ -146,16 +146,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }} --cleanup-tag -y
+          gh release delete ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }} --cleanup-tag -y
         continue-on-error: true
       - name: Release OVS cn10k package
         uses: softprops/action-gh-release@v2.0.4
         if: ${{ github.event_name == 'push' }}
         with:
           draft: false
-          tag_name: ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
+          tag_name: ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
           files: |
-            ${{ github.workspace }}/artifacts/ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}_arm64.deb
+            ${{ github.workspace }}/artifacts/ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
       - name: Dispatch package update event
         if: ${{ github.event_name == 'push' }}
         run: |
@@ -166,7 +166,7 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "ovs",
-            "tag": "ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
+            "tag": "ovs-${{ steps.artifacts.outputs.OVS_VERSION }}-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
             "dpdk_tag" : "dpdk-cn10k-${{ steps.artifacts.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}",
             "has_dpdk" : "true", "distro" : "${{ steps.artifacts.outputs.DISTRO }}",
             "platform" : "cn10k", "devel": "${{ steps.artifacts.outputs.IS_DEVEL }}"}}'
