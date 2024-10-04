@@ -74,9 +74,9 @@ for F in $FILES; do
 
 	echo -n "Checking $F"
 	# MIT License Check
-	grep ' SPDX-License-Identifier: Marvell-MIT$' $F 2>&1 >/dev/null
+	grep ' SPDX-License-Identifier: Marvell-MIT$' $F &> /dev/null
 	C1=$?
-	grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F 2>&1 >/dev/null
+	grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F &> /dev/null
 	C2=$?
 	if [[ $C1 == "0" ]] || [[ $C2 == "0" ]]; then
 		echo -n " ... OK"
@@ -84,9 +84,9 @@ for F in $FILES; do
 	fi
 
 	# Proprietary License Check
-	grep ' SPDX-License-Identifier: Marvell-Proprietary$' $F 2>&1 >/dev/null
+	grep ' SPDX-License-Identifier: Marvell-Proprietary$' $F &> /dev/null
 	C1=$?
-	grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F 2>&1 >/dev/null
+	grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F &> /dev/null
 	C2=$?
 	if [[ $C1 == "0" ]] || [[ $C2 == "0" ]]; then
 		echo -n " ... OK"
@@ -94,9 +94,9 @@ for F in $FILES; do
 	fi
 
 	# GPL-2.0 License Check
-	grep ' SPDX-License-Identifier: GPL-2.0$' $F 2>&1 >/dev/null
+	grep ' SPDX-License-Identifier: GPL-2.0$' $F &> /dev/null
 	C1=$?
-	grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F 2>&1 >/dev/null
+	grep ' Copyright (c) 202[[:digit:]] Marvell.$' $F &> /dev/null
 	C2=$?
 	if [[ $C1 == "0" ]] || [[ $C2 == "0" ]]; then
 		echo -n " ... OK"
