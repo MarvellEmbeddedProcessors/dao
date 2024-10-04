@@ -5,13 +5,22 @@
 #include "virtio_dev_priv.h"
 #include "virtio_mbox.h"
 
+static inline void
+virtio_mbox_cpy(volatile char *dst, const char *src, size_t len)
+{
+	size_t i;
+
+	for (i = 0; i < len; i++)
+		dst[i] = src[i];
+}
+
 static void
 virtio_mbox_process(struct virtio_dev *dev)
 {
-	struct virtio_mbox *mbox = (struct virtio_mbox *)dev->mbox;
-	uint32_t *data = mbox->data + 1;
+	volatile struct virtio_mbox *mbox = (struct virtio_mbox *)dev->mbox;
+	volatile uint32_t *data = mbox->data + 1;
 	struct virtio_vq_state state;
-	int rc;
+	uint16_t rc;
 
 	if (mbox->hdr.sig != MBOX_REQ_SIG) {
 		rc = EINVAL;
@@ -24,7 +33,8 @@ virtio_mbox_process(struct virtio_dev *dev)
 		state.last_avail_idx = 0;
 		state.last_used_idx = 0;
 
-		memcpy(data, &state, sizeof(struct virtio_vq_state));
+		virtio_mbox_cpy((volatile char *)data, (const char *)&state,
+				sizeof(struct virtio_vq_state));
 		rte_wmb();
 		rc = 0;
 		break;
