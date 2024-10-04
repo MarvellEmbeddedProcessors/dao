@@ -6,6 +6,22 @@
 EP_GUEST_DIR="/root/hostshare"
 source "$EP_GUEST_DIR/testpmd.sh"
 
+function get_avail_virtio_netdev()
+{
+        local net_bdf
+
+        net_bdf=$(lspci -Dd ::0200 | awk '{print $1}')
+        for dev in $net_bdf; do
+                virtio_dir=$(echo /sys/bus/pci/devices/$dev/virtio*)
+                if [[ -d $virtio_dir ]]; then
+                        if [[ -d $virtio_dir/net ]]; then
+                                echo $dev
+                                break
+                        fi
+                fi
+        done
+}
+
 function ep_guest_setup()
 {
 	echo "Setting up hugepages on guest"
@@ -20,7 +36,6 @@ function ep_guest_setup()
 	cd /home
 	modprobe vfio-pci
 	echo 1 > /sys/module/vfio/parameters/enable_unsafe_noiommu_mode
-	./usertools/dpdk-devbind.py -b vfio-pci 0000:00:03.0
 }
 
 function ep_guest_testpmd_launch()
@@ -29,6 +44,11 @@ function ep_guest_testpmd_launch()
 	local args=${@:2}
 	local eal_args
 	local app_args=""
+	local dev
+
+	dev=$(get_avail_virtio_netdev)
+	echo "Binding $dev to vfio-pci driver"
+	/home/usertools/dpdk-devbind.py -b vfio-pci $dev
 
 	for a in $args; do
 		if [[ $a == "--" ]]; then
@@ -40,7 +60,7 @@ function ep_guest_testpmd_launch()
 	done
 
 	echo "Launching testpmd on Guest"
-	testpmd_launch $pfx "$eal_args" "$app_args"
+	testpmd_launch $pfx "$eal_args -a $dev" "$app_args"
 	echo "Launched testpmd on Guest"
 }
 

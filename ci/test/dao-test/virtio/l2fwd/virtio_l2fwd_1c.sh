@@ -193,7 +193,7 @@ function virtio_l2fwd_guest_1c()
 		return 1
 	fi
 
-	args="-c 0xff -a 0000:00:03.0 -- --nb-cores=4 --port-topology=loop --rxq=4 --txq=4 -i"
+	args="-c 0xff -- --nb-cores=4 --port-topology=loop --rxq=4 --txq=4 -i"
 	# Start traffic
 	ep_host_op start_guest_traffic $host_pfx $args
 
