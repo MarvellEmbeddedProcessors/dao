@@ -8,6 +8,8 @@ Developers can refer to the following guide, which provides various options
 for manually compiling DAO sources, allowing them to tailor the process
 according to their specific needs.
 
+.. _getting_dao_sources:
+
 Getting the sources
 -------------------
 Data accelerator offload (DAO) sources can be downloaded from:

@@ -5,13 +5,48 @@
 Getting Started with OVS
 ************************
 
-Compiling Open vSwitch with DPDK
-================================
+This document provides a step-by-step guide to get started with Open vSwitch (OVS)
+on Marvell CN10K platform.
+
+
+Building and Installing OVS
+===========================
+
+There are two ways to get OVS running on the CN10K platform:
+
+1. Use the OVS package from Marvell's distribution repository
+2. Build OVS from source
+
+Installing OVS from the distribution repository
+-----------------------------------------------
+
+.. code-block:: console
+
+ # apt-get install ovs-3.3.0-cn10k
+
+To remove the installed package:
+
+.. code-block:: console
+
+ # apt-get remove ovs-3.3.0-cn10k
+
+Clear cache:
+
+.. code-block:: console
+
+ # rm /var/cache/apt/archives/ovs-3.3*
+
+Building OVS from source
+------------------------
+
+OVS depends on DPDK for packet processing. The following steps describe how to build OVS with
+DPDK support.
 
 Building and installing DPDK
-----------------------------
+````````````````````````````
 
-Get the DPDK sources, build and install the library
+Before building OVS, DPDK should be built and installed. The following steps describe how to
+build and install DPDK.
 
 .. code-block:: console
 
@@ -31,22 +66,32 @@ The above command should return the DPDK version installed. If not found, export
 
  # export PKG_CONFIG_LIBDIR=<DPDK_INSTALL_DIR>/lib/pkgconfig
 
-Building and Installing OVS
-===========================
-
-Get the sources
----------------
+Get the OVS sources
+```````````````````
 Get the OVS sources by cloning the repository or by download from
 `sources <http://www.openvswitch.org/download/>`_
 
 .. code-block:: console
 
  # git clone https://github.com/openvswitch/ovs
- # git checkout master
+ # git checkout branch-3.3
  # ./boot.sh
 
+Apply custom patches
+````````````````````
+
+OVS custom patches are available as part of DAO repository.
+
+:ref:`Cloning DAO repository<getting_dao_sources>`
+
+Apply the patches:
+
+.. code-block:: console
+
+ # patch -p1 < <DAO_repo>patches/ovs/v3.3.0/*.patch
+
 Compilation
------------
+```````````
 
 For OVS to use DPDK, it should be configured to build against the DPDK library (--with-dpdk).
 
