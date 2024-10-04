@@ -11,6 +11,7 @@
 #include <dao_dma.h>
 #include <dao_log.h>
 #include <dao_util.h>
+#include <dao_virtio.h>
 
 #define VIRTIO_PCI_CAP_PTR               0x34
 #define VIRTIO_PCI_CAP_COMMON_CFG_OFFSET VIRTIO_PCI_CAP_PTR + 1
