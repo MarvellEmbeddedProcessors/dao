@@ -32,12 +32,12 @@ https://marvellembeddedprocessors.github.io/dao/guides/contributing/release.html
 
 ## Quick start Guide
 
-Update ubuntu repository to download dao packages
+Update ubuntu repository to download released dao packages
 
 ```sh
 
-curl -fsSL https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
-curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204/dao.list
+curl -fsSL https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2204/release/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
+curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2204/release/dao.list
 sudo chmod 644 /etc/apt/sources.list.d/dao.list
 sudo chmod 644 /etc/apt/keyrings/dao.gpg
 apt-get update
@@ -48,7 +48,7 @@ Installing DAO package
 
 ```sh
 
-apt-get install dao-cn10k-devel
+apt-get install dao-cn10k
 
 ```
 
