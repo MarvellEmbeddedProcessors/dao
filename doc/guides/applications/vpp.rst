@@ -37,6 +37,24 @@ Marvell's VPP leverages OCTEON's specialized workloads to provide a high-perform
 
 - **Inline Traffic Management:** Inline traffic shaping and scheduling hardware that can perform inline QoS at line rates.
 
+Installing and Running VPP for Packet I/O Acceleration Demo
+-----------------------------------------------------------
+
+.. raw:: html
+  :file: ../_static/demo/vpp_pktio.html
+
+
+Running VPP for Crypto offload Demo
+-----------------------------------
+
+.. raw:: html
+  :file: ../_static/demo/vpp_crypto_offload.html
+
+
+VPP FD.io Documentation
+-----------------------
+Comprehensive open-source documentation for VPP release 24.02 is available at the following link.
+`FD.io's VPP documentation for 24.02 release <https://s3-docs.fd.io/vpp/24.02/>`_
 
 VPP Usage and Integrations
 ==========================
@@ -325,9 +343,3 @@ Ipsec Linux commands
   ipsec start
   ipsec statusall
   ipsec stop
-
-Installation and application running demo
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. raw:: html
-  :file: ../_static/demo/vpp_pktio.html

@@ -1,0 +1,32 @@
+<! SPDX-License-Identifier: Marvell-MIT>
+<! Copyright (c) 2023 Marvell.>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="../_static/css/player.css" />
+    <style>
+        #run{
+            margin-left: 0;
+            width: 80ch;
+            height: 32em;
+        }
+    </style>
+</head>
+<body>
+    <div id="run"></div>
+    <script src="https://github.com/asciinema/asciinema-player/releases/download/v3.7.1/asciinema-player.min.js"></script>
+    <script>
+        AsciinemaPlayer.create('../_static/demo/vpp_crypto_offload.cast', document.getElementById('run'), {
+                   fit: "height",
+		   autoplay: true,
+		   markers: [
+                                        [47, 'VPP Startup Configuration'],
+                                        [129, 'VPP Launching'],
+                                        [138, 'Interface And SA Configuration'],
+                                        [165, 'VPP Crypto Offload Performance'],
+                                    ]
+        });
+    </script>
+</body>
+</html>
