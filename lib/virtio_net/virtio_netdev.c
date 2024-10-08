@@ -989,13 +989,16 @@ dao_virtio_netdev_link_sts_update(uint16_t devid, struct dao_virtio_netdev_link_
 	volatile struct virtio_net_config *dev_cfg;
 	struct virtio_dev *dev = &netdev->dev;
 
+	if (!dev->cb_intr_addr[0])
+		return -ENOTSUP;
+
 	dev_cfg = (volatile struct virtio_net_config *)dev->dev_cfg;
 	dev_cfg->status = link_info->status;
 	dev_cfg->duplex = link_info->duplex;
 	dev_cfg->speed = link_info->speed;
 	/* Notify host with link interrupt */
 	*(uint8_t *)dev->isr = 0x2;
-	__atomic_store_n(dev->cb_intr_addr, (1UL << 59), __ATOMIC_RELAXED);
+	__atomic_store_n(dev->cb_intr_addr[0], (1UL << 59), __ATOMIC_RELAXED);
 
 	return 0;
 }
