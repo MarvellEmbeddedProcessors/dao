@@ -17,6 +17,23 @@ struct dao_virtio_cryptodev dao_virtio_cryptodevs[DAO_VIRTIO_DEV_MAX + 1];
 
 static struct dao_virtio_cryptodev_cbs user_cbs;
 
+static void
+virtio_cryptodev_clear_queue_info(struct virtio_cryptodev *cryptodev)
+{
+	struct dao_virtio_cryptodev *dao_cryptodev = virtio_cryptodev_to_dao(cryptodev);
+	uint32_t max_vqs = cryptodev->dev.max_virtio_queues - 1;
+	uint32_t i;
+
+	for (i = 0; i < max_vqs; i++) {
+		/* TODO: flush the queues */
+
+		if (cryptodev->qs[i])
+			rte_free(cryptodev->qs[i]);
+		cryptodev->qs[i] = NULL;
+		dao_cryptodev->qs[i] = NULL;
+	}
+}
+
 static int
 virtio_queue_driver_event_flag(struct virtio_dev *dev, rte_iova_t driver_area)
 {
@@ -124,6 +141,32 @@ virtio_cryptodev_driver_ok_handle(struct virtio_dev *dev)
 }
 
 static int
+virtio_cryptodev_reset_handle(struct virtio_dev *dev)
+{
+	struct virtio_cryptodev *cryptodev = virtio_dev_to_cryptodev(dev);
+	struct virtio_crypto_queue *queue;
+	uint32_t i;
+
+	for (i = 0; i < (DAO_VIRTIO_MAX_QUEUES - 1); i++) {
+		queue = cryptodev->qs[i];
+
+		/*
+		 * DMA vchan is common for a device. Pick vchan from any queue and wait for it's
+		 * completion to make sure all transactions on the device is complete.
+		 */
+
+		if (queue != NULL) {
+			dao_dma_compl_wait(queue->dma_vchan);
+			break;
+		}
+	}
+
+	virtio_cryptodev_clear_queue_info(cryptodev);
+
+	return 0;
+}
+
+static int
 virtio_cryptodev_status_cb(struct virtio_dev *dev, uint8_t status)
 {
 	struct virtio_cryptodev *cryptodev = virtio_dev_to_cryptodev(dev);
@@ -139,6 +182,8 @@ virtio_cryptodev_status_cb(struct virtio_dev *dev, uint8_t status)
 	switch (status) {
 	case VIRTIO_DEV_DRIVER_OK:
 		return virtio_cryptodev_driver_ok_handle(dev);
+	case VIRTIO_DEV_RESET:
+		return virtio_cryptodev_reset_handle(dev);
 	default:
 		dao_err("[dev %u] Unknown status %u", dev->dev_id, status);
 		return -EINVAL;

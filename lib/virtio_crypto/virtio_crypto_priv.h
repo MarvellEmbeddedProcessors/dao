@@ -11,6 +11,7 @@ struct virtio_crypto_queue {
 	/* Read only, shared by both service and worker */
 	uintptr_t desc_base __rte_cache_aligned;
 	uint32_t *notify_addr;
+	uint16_t dma_vchan;
 
 	/* Slow path */
 
