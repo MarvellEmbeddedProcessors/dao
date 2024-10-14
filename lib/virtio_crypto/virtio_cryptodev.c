@@ -130,6 +130,7 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 	struct virtio_crypto_queue *queue;
 	struct virtio_queue_conf *q_conf;
 	uint32_t shadow_area;
+	uint16_t start_off;
 	uint32_t max_vqs;
 
 	cryptodev = virtio_dev_to_cryptodev(dev);
@@ -162,6 +163,15 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 	queue->q_sz = q_conf->queue_size;
 
 	queue->notify_addr = (uint32_t *)(dev->notify_base + (queue_id * dev->notify_off_mltpr));
+
+	/* Initial queue wrap counter is 1 as per spec? */
+	start_off = RTE_BIT64(15);
+
+	queue->shadow_q_head = start_off;
+	queue->dma_shadow_q_head = start_off;
+
+	queue->dev2mem_desc_dma_idx = 0;
+
 	queue->qid = queue_id;
 	queue->dma_vchan = dev->dma_vchan;
 	cryptodev->qs[queue_id] = queue;
@@ -346,9 +356,68 @@ dao_virtio_cryptodev_cb_unregister(void)
 static __rte_always_inline int
 virtio_crypto_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 {
-	RTE_SET_USED(devid);
-	RTE_SET_USED(qp_count);
+	uint16_t start, end, dma_vchan, shadow_q_head, dma_shadow_q_head, nb_pend_desc, next_head;
+	struct dao_virtio_cryptodev *virtio_cryptodev = &dao_virtio_cryptodevs[devid];
+	struct virtio_cryptodev *cryptodev = virtio_cryptodev_priv(virtio_cryptodev);
+	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_dma_vchan_state *dev2mem, *mem2dev;
+	struct virtio_crypto_queue *q;
+	uint32_t notify_data;
+	uint16_t q_sz;
+	int i;
+
 	RTE_SET_USED(flags);
+	RTE_SET_USED(start);
+	RTE_SET_USED(end);
+
+	dma_vchan = cryptodev->qs[0]->dma_vchan;
+	dev2mem = &vchan_info->dev2mem[dma_vchan];
+	mem2dev = &vchan_info->mem2dev[dma_vchan];
+
+	/* Fetch all DMA completed status */
+	dao_dma_check_compl(dev2mem);
+	dao_dma_check_compl(mem2dev);
+
+	/* Copy descriptor from host */
+
+	for (i = 0; i < qp_count; i++) {
+		q = cryptodev->qs[i];
+
+		q_sz = q->q_sz;
+
+		/* Check descriptor DMA completion and update state to notfiy worker cores */
+
+		shadow_q_head = q->shadow_q_head;
+		dma_shadow_q_head = __atomic_load_n(&q->dma_shadow_q_head, __ATOMIC_ACQUIRE);
+		nb_pend_desc = desc_off_diff(shadow_q_head, dma_shadow_q_head, q_sz);
+
+		if (nb_pend_desc && dao_dma_op_status(dev2mem, q->dev2mem_desc_dma_idx)) {
+			/* Validate descriptor */
+			VIRTIO_CRYPTO_DESC_CHECK(q, dma_shadow_q_head, nb_pend_desc, true, false);
+
+			nb_pend_desc = 0;
+
+			/*
+			 * Since the last DMA is complete, all the pending DMAs would be done.
+			 * Update DMA shadow queue head to shadow queue head.
+			 */
+			__atomic_store_n(&q->dma_shadow_q_head, shadow_q_head, __ATOMIC_RELEASE);
+		}
+
+		/* Determine the number of descriptors to be DMA'ed from host */
+
+		notify_data = __atomic_load_n(q->notify_addr, __ATOMIC_RELAXED);
+		next_head = (notify_data >> 16) & 0xFFFF;
+		if (unlikely(nb_pend_desc || next_head == shadow_q_head))
+			continue;
+
+		/* For DMA copy, at least 2 slots are required. Skip if space is not available. */
+		if (!dao_dma_flush(dev2mem, 2))
+			break;
+
+		/* Copy descriptors from host queue to shadow queue. */
+		host_to_local_desc_copy(q, dev2mem, shadow_q_head, next_head);
+	}
 
 	return 0;
 }
