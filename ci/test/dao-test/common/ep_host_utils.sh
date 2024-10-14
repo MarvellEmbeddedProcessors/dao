@@ -5,6 +5,14 @@
 HOST_UTILS_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
 source "$HOST_UTILS_SCRIPT_PATH/ep_common_ops.sh"
 
+HOST_DEPENDENCIES="iperf iperf3"
+
+function ep_host_pre_setup()
+{
+	#Install required packages
+	apt-get install -y $HOST_DEPENDENCIES
+}
+
 function ep_host_sdp_setup()
 {
 	set +e # Module may be already loaded
