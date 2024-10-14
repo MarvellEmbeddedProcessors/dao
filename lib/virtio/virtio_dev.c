@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Marvell-Proprietary
  * Copyright (c) 2024 Marvell.
  */
+#include <linux/virtio_ids.h>
+
 #include <rte_io.h>
 #include <rte_malloc.h>
 
@@ -901,13 +903,30 @@ dao_virtio_common_cfg_cb(void *ctx, uintptr_t shadow, uint32_t offset, uint64_t 
 	return rc;
 }
 
+static uint8_t
+virtio_device_id_get(struct virtio_dev *dev)
+{
+	switch (dev->dev_type) {
+	case VIRTIO_DEV_TYPE_NET:
+		return VIRTIO_ID_NET;
+	case VIRTIO_DEV_TYPE_CRYPTO:
+		return VIRTIO_ID_CRYPTO;
+	default:
+		/* Host kernel vdpa driver treats 0 as invalid device id */
+		dao_err("[dev %u] Invalid device type %u", dev->dev_id, dev->dev_type);
+		return 0;
+	}
+}
+
 static void
 virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 {
 	uint32_t config_base, notify_base, isr_base, dev_cfg_base, mbox_base;
 	volatile struct virtio_pci_cap *isr_cap, *dev_cfg_cap;
+	volatile struct virtio_pci_vndr_data *vndr_cap_ptr;
 	volatile struct virtio_pci_notify_cap *notify_cap;
 	volatile struct virtio_pci_cap *common_cfg_cap;
+	struct virtio_pci_vndr_data vndr_cap;
 	struct virtio_pci_cap cap;
 	uint32_t cap_end = 0;
 	uint32_t off;
@@ -917,6 +936,7 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	config_base += sizeof(struct virtio_pci_notify_cap); /* Notify config cap */
 	config_base += sizeof(struct virtio_pci_cap);        /* ISR config cap */
 	config_base += sizeof(struct virtio_pci_cap);        /* Device config cap */
+	config_base += sizeof(struct virtio_pci_vndr_data);  /* Vendor config cap */
 	/* Common config area aligned to 8B */
 	config_base = RTE_ALIGN(config_base, 8);
 	dev->common_cfg = (volatile struct virtio_pci_common_cfg *)(base + config_base);
@@ -993,19 +1013,32 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	dao_dev_memcpy(isr_cap, &cap, sizeof(cap));
 	cap_end += sizeof(struct virtio_pci_cap);
 
+	/* Populate device config cap */
 	dao_dbg("[dev %u] Device config@%p, offset %u", dev->dev_id, (void *)dev->dev_cfg,
 		dev_cfg_base);
 	dev_cfg_cap = (volatile struct virtio_pci_cap *)(base + cap_end);
 	memset(&cap, 0, sizeof(cap));
 	cap.cap_vndr = PCI_CAP_ID_VNDR;
 	cap.cap_len = sizeof(struct virtio_pci_cap);
-	cap.cap_next = 0;
+	cap.cap_next = cap_end + sizeof(struct virtio_pci_cap);
 	cap.offset = dev_cfg_base;
 	cap.cfg_type = VIRTIO_PCI_CAP_DEVICE_CFG;
 	cap.bar = PCI_CAP_BAR;
 	cap.length = VIRTIO_PCI_DEV_CFG_LENGTH;
 	dao_dev_memcpy(dev_cfg_cap, &cap, sizeof(cap));
 	cap_end += sizeof(struct virtio_pci_cap);
+
+	/* Populate vendor config cap */
+	vndr_cap_ptr = (volatile struct virtio_pci_vndr_data *)(base + cap_end);
+	memset(&vndr_cap, 0, sizeof(vndr_cap));
+	vndr_cap.cap_vndr = PCI_CAP_ID_VNDR;
+	vndr_cap.cap_len = sizeof(struct virtio_pci_vndr_data);
+	vndr_cap.cfg_type = VIRTIO_PCI_CAP_VENDOR_CFG;
+	vndr_cap.vendor_id = PCI_VENDOR_ID_CAVIUM;
+	vndr_cap.id = VIRTIO_PCI_VNDR_CFG_TYPE_VIRTIO_ID;
+	vndr_cap.data = virtio_device_id_get(dev);
+	dao_dev_memcpy(vndr_cap_ptr, &vndr_cap, sizeof(vndr_cap));
+	cap_end += sizeof(struct virtio_pci_vndr_data);
 }
 
 static void

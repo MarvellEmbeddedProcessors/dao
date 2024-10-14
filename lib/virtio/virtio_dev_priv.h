@@ -13,6 +13,8 @@
 #include <dao_util.h>
 #include <dao_virtio.h>
 
+#define PCI_VENDOR_ID_CAVIUM 0x177d
+
 #define VIRTIO_PCI_CAP_PTR               0x34
 #define VIRTIO_PCI_CAP_COMMON_CFG_OFFSET VIRTIO_PCI_CAP_PTR + 1
 #define VIRTIO_PCI_DEV_CFG_LENGTH        64
@@ -40,7 +42,13 @@
 
 enum virtio_dev_type {
 	VIRTIO_DEV_TYPE_NET,
+	VIRTIO_DEV_TYPE_CRYPTO,
 	VIRTIO_DEV_TYPE_MAX,
+};
+
+enum virtio_pci_vndr_cfg_type {
+	VIRTIO_PCI_VNDR_CFG_TYPE_VIRTIO_ID,
+	VIRTIO_PCI_VNDR_CFG_TYPE_MAX,
 };
 
 struct virtio_dev;
@@ -67,6 +75,23 @@ struct virtio_pci_cap {
 	uint8_t padding[2]; /* Pad to full dword. */
 	uint32_t offset;    /* Offset within bar. */
 	uint32_t length;    /* Length of the structure, in bytes. */
+};
+
+struct virtio_pci_vndr_data {
+	uint8_t cap_vndr;   /* Generic PCI field: PCI_CAP_ID_VNDR */
+	uint8_t cap_next;   /* Generic PCI field: next ptr. */
+	uint8_t cap_len;    /* Generic PCI field: capability length */
+	uint8_t cfg_type;   /* Identifies the structure. */
+	uint16_t vendor_id; /* Identifies the vendor-specific format. */
+	uint8_t id;         /* Multiple capabilities of the same type */
+	uint8_t bar;        /* Where to find it. */
+	union {
+		uint64_t data; /* Data if bar space is not used. */
+		struct {
+			uint32_t offset; /* Offset within bar. */
+			uint32_t length; /* Length of the structure, in bytes. */
+		};
+	};
 };
 
 struct virtio_pci_common_cfg {
