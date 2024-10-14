@@ -961,7 +961,6 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 
 		off = __atomic_load_n(&q->sd_mbuf_off, __ATOMIC_ACQUIRE);
 		compl_off = q->compl_off;
-		q_sz = q->q_sz;
 		if (compl_off == off)
 			continue;
 
