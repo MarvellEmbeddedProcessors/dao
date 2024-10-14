@@ -6,6 +6,7 @@ set -euo pipefail
 
 L2FWD_1C_SCRIPT_PATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 source $L2FWD_1C_SCRIPT_PATH/virtio_l2fwd_utils.sh
+source $L2FWD_1C_SCRIPT_PATH/virtio_l2fwd_mac.sh
 
 # List-format "offload-name <csum> <mseg> <in_order>
 virtio_offloads=(
@@ -308,6 +309,146 @@ function virtio_l2fwd_host_net_1c()
         fi
 
         echo ${DAO_TEST}" Test PASSED"
+}
+
+function virtio_l2fwd_mactest()
+{
+	tx_upcap=$EP_DIR/ci/test/dao-test/virtio/l2fwd/pcap/ucast.pcap
+	tx_mpcap=$EP_DIR/ci/test/dao-test/virtio/l2fwd/pcap/mcast.pcap
+
+	umac_list=$(python3 $EP_DIR/ci/test/dao-test/common/scapy/get_dest_mac.py $tx_upcap)
+	mmac_list=$(python3 $EP_DIR/ci/test/dao-test/common/scapy/get_dest_mac.py $tx_mpcap)
+
+	IFS=$'\n' umac_list=($(sort <<<"${umac_list[*]}"))
+	umac_list=($(uniq -c <<<"${umac_list[*]}"))
+	umac_cnt=${#umac_list[@]}
+	unset IFS
+
+	IFS=$'\n' mmac_list=($(sort <<<"${mmac_list[*]}"))
+	mmac_list=($(uniq -c <<<"${mmac_list[*]}"))
+	mmac_cnt=${#mmac_list[@]}
+	unset IFS
+
+	rpcap=/tmp/rx_in.pcap
+
+	local l2fwd_pfx=${DAO_TEST}
+	local host_pfx=${DAO_TEST}_testpmd_host
+	local l2fwd_out=virtio_l2fwd.${l2fwd_pfx}.out
+	local if0=$(ep_device_get_inactive_if)
+	local itr=1
+	local max_mac=3
+	local list=(${umac_list[0]})
+	local pkt_cnt=(${list[0]})
+	local status=0
+	local k=0
+
+	l2fwd_register_sig_handler ${DAO_TEST} $host_pfx $l2fwd_out
+
+	ep_common_bind_driver pci $if0 vfio-pci
+
+	# Launch virtio l2fwd
+	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l"; then
+		echo "Failed to launch virtio l2fwd"
+
+		# Quit l2fwd app
+		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+		return 1
+	fi
+
+	ep_host_op vdpa_setup $(ep_device_get_part)
+
+	#UCAST Test
+	l2fwd_host_launch_testpmd_with_pcap $host_pfx $tx_upcap $rpcap 0 1 1
+
+	# Wait for host to connect before traffic start
+	l2fwd_host_connect_wait $l2fwd_out
+
+	#Disable Promiscuous mode
+	l2fwd_host_set_promisc $host_pfx 1 0
+	echo "Set MAC ${list[1]} test"
+	#Set default MAC address
+	l2fwd_host_set_mac $host_pfx 1 ${list[1]}
+	l2fwd_host_start_traffic_with_pcap $host_pfx
+	l2fwd_host_pkt_recv_test $host_pfx 1 $pkt_cnt
+	k=$?
+	status=$((status+k))
+	l2fwd_host_stop_traffic_with_pcap $host_pfx
+
+	#set ucast address
+	while [ $itr -lt $max_mac ]
+	do
+		list=(${umac_list[$itr]})
+		pkt_cnt=$((pkt_cnt+list[0]))
+		echo "Add UCAST MAC ${list[1]} Test"
+		l2fwd_host_port_start $host_pfx 0 0
+		l2fwd_host_add_mac $host_pfx 1 ${list[1]} 1
+		l2fwd_host_port_start $host_pfx 0 1
+		((++itr))
+	done
+	l2fwd_host_start_traffic_with_pcap $host_pfx
+	l2fwd_host_pkt_recv_test $host_pfx 1 $pkt_cnt
+	k=$?
+	status=$((status+k))
+	l2fwd_host_stop_traffic_with_pcap $host_pfx
+	list=(${umac_list[1]})
+	pkt_cnt=$((pkt_cnt-list[0]))
+	echo "Deleting UCAST MAC ${list[1]} Test"
+	l2fwd_host_port_start $host_pfx 0 0
+	l2fwd_host_add_mac $host_pfx 1 ${list[1]} 0
+	l2fwd_host_port_start $host_pfx 0 1
+	l2fwd_host_start_traffic_with_pcap $host_pfx
+	l2fwd_host_pkt_recv_test $host_pfx 1 $pkt_cnt
+	k=$?
+	status=$((status+k))
+
+	l2fwd_host_stop_traffic $host_pfx
+
+	#MCAST Test
+	l2fwd_host_launch_testpmd_with_pcap $host_pfx $tx_mpcap $rpcap 0 1 1
+
+	# Wait for host to connect before traffic start
+	l2fwd_host_connect_wait $l2fwd_out
+
+	#Disable Promiscuous mode
+	l2fwd_host_set_promisc $host_pfx 1 0
+
+	pkt_cnt=0
+	itr=0
+	#set ucast address
+	while [ $itr -lt $max_mac ]
+	do
+		echo "Iteration $itr Add MCAST MAC Test"
+		list=(${mmac_list[$itr]})
+		pkt_cnt=$((pkt_cnt+list[0]))
+		echo "Add MCAST MAC ${list[1]} Test"
+		l2fwd_host_port_start $host_pfx 0 0
+		l2fwd_host_add_mac $host_pfx 1 ${list[1]} 1
+		l2fwd_host_port_start $host_pfx 0 1
+		((++itr))
+	done
+	l2fwd_host_start_traffic_with_pcap $host_pfx
+	l2fwd_host_pkt_recv_test $host_pfx 1 $pkt_cnt
+	k=$?
+	status=$((status+k))
+	l2fwd_host_stop_traffic_with_pcap $host_pfx
+	list=(${mmac_list[1]})
+	pkt_cnt=$((pkt_cnt-list[0]))
+	echo "Deleting MCAST MAC ${list[1]} Test"
+	l2fwd_host_port_start $host_pfx 0 0
+	l2fwd_host_add_mac $host_pfx 1 ${list[1]} 0
+	l2fwd_host_port_start $host_pfx 0 1
+	l2fwd_host_start_traffic_with_pcap $host_pfx
+	l2fwd_host_pkt_recv_test $host_pfx 1 $pkt_cnt
+	k=$?
+	status=$((status+k))
+
+	l2fwd_host_stop_traffic $host_pfx
+
+	ep_host_op vdpa_cleanup
+	# Quit l2fwd app
+	l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+
+	return $status
 }
 
 test_run ${DAO_TEST} 2

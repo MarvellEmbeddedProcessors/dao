@@ -290,6 +290,15 @@ function l2fwd_host_start_traffic_with_pcap()
 	echo "Started traffic on Host"
 }
 
+function l2fwd_host_stop_traffic_with_pcap()
+{
+	local pfx=$1
+
+	echo "Stop Traffic on Host"
+	ep_host_op testpmd_cmd $pfx stop
+	echo "Stop traffic on Host"
+}
+
 function l2fwd_host_stop_traffic()
 {
 	local pfx=$1
