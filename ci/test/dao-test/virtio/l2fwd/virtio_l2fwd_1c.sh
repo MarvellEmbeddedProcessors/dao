@@ -451,4 +451,106 @@ function virtio_l2fwd_mactest()
 	return $status
 }
 
+function virtio_l2fwd_reset()
+{
+	local l2fwd_pfx=${DAO_TEST}
+	local host_testpmd_pfx=${DAO_TEST}_testpmd_host
+	local l2fwd_out=virtio_l2fwd.${l2fwd_pfx}.out
+	local if0=$(ep_device_get_inactive_if)
+	local init_pool_cnt=0
+	local k=0
+
+	l2fwd_register_sig_handler ${DAO_TEST} $host_testpmd_pfx $l2fwd_out
+
+	ep_common_bind_driver pci $if0 vfio-pci
+
+	# Launch virtio l2fwd
+	if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "4-7" "-p 0x1 -v 0x1 -P -l"; then
+		echo "Failed to launch virtio l2fwd"
+
+		# Quit l2fwd app
+		l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+		return 1
+	fi
+
+	ep_host_op vdpa_setup $(ep_device_get_part)
+
+	init_pool_cnt=$(tail -n 25 $l2fwd_out | grep -oP "buff_cnt=\d+" | cut -d'=' -f2)
+	echo "Initial Pool Count: $init_pool_cnt"
+
+	# Start traffic
+	l2fwd_host_start_traffic $host_testpmd_pfx
+
+	# Check the performance
+	l2fwd_host_check_pps $host_testpmd_pfx
+
+	# Stop Traffic and quit host testpmd
+	l2fwd_host_stop_traffic $host_testpmd_pfx
+
+	curr_pool_cnt=$(tail -n 25 $l2fwd_out | grep -oP "buff_cnt=\d+" | cut -d'=' -f2)
+	if [[ $curr_pool_cnt -ne $init_pool_cnt ]]; then
+		echo "Pool count mismatch: Initial=$init_pool_cnt, Current=$curr_pool_cnt"
+		k=1
+	else
+		echo "host application quit PASSED"
+	fi
+
+	# Start traffic
+	l2fwd_host_start_traffic $host_testpmd_pfx
+
+	# Check the performance
+	l2fwd_host_check_pps $host_testpmd_pfx
+
+	#kill application while traffic is running
+	ep_host_op safe_kill $host_testpmd_pfx
+	sleep 10
+
+	curr_pool_cnt=$(tail -n 25 $l2fwd_out | grep -oP "buff_cnt=\d+" | cut -d'=' -f2)
+	if [[ $curr_pool_cnt -ne $init_pool_cnt ]]; then
+		echo "Pool count mismatch: Initial=$init_pool_cnt, Current=$curr_pool_cnt"
+		k=1
+	else
+		echo "host application KILL PASSED"
+	fi
+
+	# Start traffic
+	l2fwd_host_start_traffic $host_testpmd_pfx
+
+	# Check the performance
+	l2fwd_host_check_pps $host_testpmd_pfx
+
+	#kill application while traffic is running
+	ep_host_op safe_kill $host_testpmd_pfx
+	sleep 10
+	curr_pool_cnt=$(tail -n 25 $l2fwd_out | grep -oP "buff_cnt=\d+" | cut -d'=' -f2)
+	if [[ $curr_pool_cnt -ne $init_pool_cnt ]]; then
+		echo "Pool count mismatch: Initial=$init_pool_cnt, Current=$curr_pool_cnt"
+		k=1
+	else
+		echo "host application KILL PASSED"
+	fi
+
+	# Start traffic
+	l2fwd_host_start_traffic $host_testpmd_pfx
+
+	# Check the performance
+	l2fwd_host_check_pps $host_testpmd_pfx
+
+	# Stop Traffic and quit host testpmd
+	l2fwd_host_stop_traffic $host_testpmd_pfx
+
+	curr_pool_cnt=$(tail -n 25 $l2fwd_out | grep -oP "buff_cnt=\d+" | cut -d'=' -f2)
+	if [[ $curr_pool_cnt -ne $init_pool_cnt ]]; then
+		echo "Pool count mismatch: Initial=$init_pool_cnt, Current=$curr_pool_cnt"
+		k=1
+	else
+		echo "host application quit PASSED"
+	fi
+
+	ep_host_op vdpa_cleanup
+	# Quit l2fwd app
+	l2fwd_app_quit $l2fwd_pfx $l2fwd_out
+	return $k
+}
+
 test_run ${DAO_TEST} 2
