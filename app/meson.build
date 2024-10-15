@@ -6,6 +6,7 @@ apps = [
         'ovs-offload',
         'secgw-graph',
         'smart-nic',
+        'virtio-crypto',
         'virtio-l2fwd',
 ]
 
