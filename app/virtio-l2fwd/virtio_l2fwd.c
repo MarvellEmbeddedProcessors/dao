@@ -2953,7 +2953,6 @@ main(int argc, char **argv)
 	bool service_lcore_flag = false;
 	const char **node_patterns;
 	struct lcore_conf *qconf;
-	uint32_t nb_lcores = 0;
 	struct rte_node *node;
 	uint32_t virtio_devid;
 	uint16_t nb_patterns;
@@ -3000,12 +2999,12 @@ main(int argc, char **argv)
 		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
 			continue;
 
-		if (lcore_conf[lcore_id].nb_virtio_rx || lcore_conf[lcore_id].nb_ethdev_rx) {
-			nb_lcores++;
-		} else if (!service_lcore_flag) {
-			/* Pick one non FP lcore for misc */
+		/* Pick one non FP lcore for misc */
+		if (lcore_conf[lcore_id].nb_virtio_rx == 0 &&
+		    lcore_conf[lcore_id].nb_ethdev_rx == 0) {
 			lcore_conf[lcore_id].service_lcore = true;
 			service_lcore_flag = true;
+			break;
 		}
 	}
 
