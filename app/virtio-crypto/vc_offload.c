@@ -55,6 +55,7 @@ struct lcore_conf {
 	uint16_t nb_crypto_deq;
 	struct lcore_crypto_deq crypto_deq[MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE];
 
+	bool service_lcore;
 } __rte_cache_aligned;
 
 static struct lcore_conf lcore_conf[RTE_MAX_LCORE];
@@ -278,6 +279,8 @@ check_virtio_config(void)
 int
 main(int argc, char **argv)
 {
+	bool service_lcore_flag = false;
+	uint32_t lcore_id;
 	int rc;
 
 	rc = rte_eal_init(argc, argv);
@@ -306,6 +309,22 @@ main(int argc, char **argv)
 
 	if (check_virtio_config() < 0)
 		rte_exit(EXIT_FAILURE, "check_virtio_config() failed\n");
+
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
+			continue;
+
+		/* Pick one non FP lcore for misc */
+		if (lcore_conf[lcore_id].nb_virtio_rx == 0 &&
+		    lcore_conf[lcore_id].nb_crypto_deq == 0) {
+			lcore_conf[lcore_id].service_lcore = true;
+			service_lcore_flag = true;
+			break;
+		}
+	}
+
+	if (!service_lcore_flag)
+		rte_exit(EXIT_FAILURE, "LCORE not available for service lcore\n");
 
 	rte_eal_cleanup();
 
