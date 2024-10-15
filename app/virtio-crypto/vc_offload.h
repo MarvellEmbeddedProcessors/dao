@@ -25,4 +25,16 @@ extern uint64_t crypto_mask_ena;
 extern uint16_t nb_cryptodevs;
 extern uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
+#define VC_NB_QP_MAX 64
+
+struct vc_cdev_ctx {
+	/*
+	 * Primary cryptodevs - Hardware cryptodevs that is used for enq-deq from main worker cores.
+	 */
+	uint8_t nb_primary_cryptodevs;
+	uint8_t enabled_primary_cdevs[RTE_CRYPTO_MAX_DEVS];
+
+	uint16_t nb_qp;
+};
+
 #endif /* _VC_OFFLOAD_H_ */

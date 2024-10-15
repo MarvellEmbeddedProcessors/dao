@@ -8,6 +8,7 @@
 
 #include <rte_common.h>
 #include <rte_cryptodev.h>
+#include <rte_dmadev.h>
 #include <rte_eal.h>
 #include <rte_graph.h>
 #include <rte_log.h>
@@ -58,7 +59,11 @@ struct lcore_conf {
 
 static struct lcore_conf lcore_conf[RTE_MAX_LCORE];
 
+static struct vc_cdev_ctx vc_cdev_ctx;
+
 static volatile bool force_quit;
+
+static int wrkr_dma_devs;
 
 static bool
 is_virtio_dev_enabled(uint16_t virtio_devid)
@@ -142,9 +147,72 @@ check_lcore_params(void)
 }
 
 static int
+check_crypto_config(void)
+{
+	static const char *const primary_cdev_names[] = {
+		"crypto_cn10k",
+	};
+	struct rte_cryptodev_info cryptodev_info;
+	uint16_t cdev_count, dev_id, name_id, i;
+
+	for (name_id = 0; name_id < RTE_DIM(primary_cdev_names); name_id++) {
+		cdev_count = rte_cryptodev_devices_get(primary_cdev_names[name_id],
+						       vc_cdev_ctx.enabled_primary_cdevs,
+						       RTE_CRYPTO_MAX_DEVS);
+		if (cdev_count)
+			break;
+
+		APP_INFO("No crypto devices of type %s found\n", primary_cdev_names[name_id]);
+	}
+
+	/* Validate found cryptodevs. */
+	for (i = 0; i < cdev_count; i++) {
+		dev_id = vc_cdev_ctx.enabled_primary_cdevs[i];
+
+		if (!rte_cryptodev_is_valid_dev(dev_id))
+			continue;
+
+		/* Valid device found. */
+		vc_cdev_ctx.enabled_primary_cdevs[vc_cdev_ctx.nb_primary_cryptodevs] = dev_id;
+		vc_cdev_ctx.nb_primary_cryptodevs++;
+	}
+
+	if (vc_cdev_ctx.nb_primary_cryptodevs == 0) {
+		APP_INFO("No valid crypto devices found. Please enable at least one cryptodev\n");
+		return -ENODEV;
+	}
+
+	APP_INFO("Valid crypto devices found: %u\n", vc_cdev_ctx.nb_primary_cryptodevs);
+	for (i = 0; i < vc_cdev_ctx.nb_primary_cryptodevs; i++)
+		APP_INFO("Crypto dev %u\n", vc_cdev_ctx.enabled_primary_cdevs[i]);
+
+	/* TODO - decide whether we want to support multiple devices */
+	if (vc_cdev_ctx.nb_primary_cryptodevs > 1) {
+		APP_INFO("Multiple primary cryptodevs not supported\n");
+		return -ENODEV;
+	}
+
+	memset(&cryptodev_info, 0, sizeof(cryptodev_info));
+	rte_cryptodev_info_get(vc_cdev_ctx.enabled_primary_cdevs[0], &cryptodev_info);
+
+	APP_INFO("%d\n", cryptodev_info.max_nb_queue_pairs);
+
+	/* TODO - why 63? It should be 64. */
+	if (cryptodev_info.max_nb_queue_pairs < 63) {
+		APP_INFO("Crypto dev %u does not support 63 queue pairs\n",
+			 vc_cdev_ctx.enabled_primary_cdevs[0]);
+		return -ENODEV;
+	}
+
+	vc_cdev_ctx.nb_qp = RTE_MIN(cryptodev_info.max_nb_queue_pairs, (unsigned int)VC_NB_QP_MAX);
+
+	return 0;
+}
+
+static int
 init_lcore_virtio_rx(void)
 {
-	uint16_t nb_crypto_deq, cdev_id = 0;
+	uint16_t nb_crypto_deq, cdev_id = vc_cdev_ctx.enabled_primary_cdevs[0];
 	uint16_t virtio_devid, nb_virtio_rx;
 	uint8_t lcore;
 
@@ -179,6 +247,34 @@ init_lcore_virtio_rx(void)
 	return 0;
 }
 
+static int
+check_virtio_config(void)
+{
+	uint16_t nb_lcores = 0, nb_dma_devs;
+	uint16_t lcore;
+
+	nb_dma_devs = rte_dma_count_avail();
+
+	/* Check if we have enough DMA devices one per lcore */
+	for (lcore = 0; lcore < RTE_MAX_LCORE; lcore++)
+		if (lcore_conf[lcore].nb_virtio_rx)
+			nb_lcores++;
+
+	/* Service lcore, control dma device */
+	nb_lcores += 2;
+
+	/* 2 dma devices for control */
+	wrkr_dma_devs = 2 + (nb_lcores * 2);
+	if (nb_dma_devs < wrkr_dma_devs) {
+		APP_INFO("%u DMA devices not enough, need at least %u for %u lcores,"
+			 " 1 ctrl core, 1 service core\n",
+			 nb_dma_devs, wrkr_dma_devs, nb_lcores - 2);
+		return -1;
+	}
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -202,8 +298,14 @@ main(int argc, char **argv)
 	if (check_lcore_params() < 0)
 		rte_exit(EXIT_FAILURE, "Invalid lcore params\n");
 
+	if (check_crypto_config() < 0)
+		rte_exit(EXIT_FAILURE, "check_crypto_config() failed\n");
+
 	if (init_lcore_virtio_rx() < 0)
 		rte_exit(EXIT_FAILURE, "Failed to init lcore virtio rx\n");
+
+	if (check_virtio_config() < 0)
+		rte_exit(EXIT_FAILURE, "check_virtio_config() failed\n");
 
 	rte_eal_cleanup();
 
