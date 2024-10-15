@@ -2945,7 +2945,6 @@ release_eth_devices(void)
 int
 main(int argc, char **argv)
 {
-	/* Graph initialization. 8< */
 	static const char *const default_patterns[] = {
 		"pkt_drop",
 	};
@@ -3112,7 +3111,6 @@ main(int argc, char **argv)
 
 		qconf->graph_id = graph_id;
 		qconf->graph = rte_graph_lookup(qconf->name);
-		/* >8 End of graph initialization. */
 		if (!qconf->graph)
 			rte_exit(EXIT_FAILURE, "rte_graph_lookup(): graph %s not found\n",
 				 qconf->name);
