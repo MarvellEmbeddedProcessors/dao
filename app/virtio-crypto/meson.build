@@ -7,6 +7,9 @@ endif
 
 sources = files(
 	'vc_offload.c',
+	'vc_parser.c',
 )
+
+deps = ['virtio']
 
 app_deps += DAO_EXT_DEPS_LIBDPDK

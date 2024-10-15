@@ -7,10 +7,22 @@
 
 #include <rte_log.h>
 
+#include <dao_virtio.h>
+
 /* Log type */
 #define RTE_LOGTYPE_VC_OFFLOAD    RTE_LOGTYPE_USER1
 #define APP_INFO(fmt, args...)    RTE_LOG(INFO, VC_OFFLOAD, fmt, ##args)
 #define APP_INFO_NH(fmt, args...) rte_log(RTE_LOG_INFO, RTE_LOGTYPE_VC_OFFLOAD, fmt, ##args)
 #define APP_ERR(fmt, args...)     RTE_LOG(ERR, VC_OFFLOAD, fmt, ##args)
+
+/* Mask of enabled virtio devs */
+extern uint64_t virtio_mask_ena[2];
+extern uint16_t nb_virtiodevs;
+extern uint64_t lcore_virtio_mask[DAO_VIRTIO_DEV_MAX];
+
+/* Mask of enabled crypto devs */
+extern uint64_t crypto_mask_ena;
+extern uint16_t nb_cryptodevs;
+extern uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
 #endif /* _VC_OFFLOAD_H_ */
