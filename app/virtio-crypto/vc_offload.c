@@ -66,6 +66,8 @@ static volatile bool force_quit;
 
 static int wrkr_dma_devs;
 
+#define MEMPOOL_CACHE_SIZE 512
+
 static bool
 is_virtio_dev_enabled(uint16_t virtio_devid)
 {
@@ -276,6 +278,36 @@ check_virtio_config(void)
 	return 0;
 }
 
+static void
+setup_mempools(void)
+{
+	char name[RTE_MEMZONE_NAMESIZE];
+	struct rte_mempool *pool;
+	uint16_t i;
+
+	/* Mempools for datapath is associated with cryptodev qps. Create one per each qp. */
+
+	for (i = 0; i < vc_cdev_ctx.nb_qp; i++) {
+		snprintf(name, sizeof(name), "qp_obj_pool_%u", i);
+		pool = rte_mempool_create(name, VC_NB_DESC_DEFAULT, VC_MEMPOOL_BUF_SIZE,
+					  MEMPOOL_CACHE_SIZE, 0, NULL, NULL, NULL, NULL,
+					  SOCKET_ID_ANY, 0);
+		if (pool == NULL)
+			rte_exit(EXIT_FAILURE, "Cannot init cop pool\n");
+
+		vc_cdev_ctx.qp_pool[i] = pool;
+	}
+}
+
+static void
+mempools_release(void)
+{
+	uint16_t i;
+
+	for (i = 0; i < vc_cdev_ctx.nb_qp; i++)
+		rte_mempool_free(vc_cdev_ctx.qp_pool[i]);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -325,6 +357,11 @@ main(int argc, char **argv)
 
 	if (!service_lcore_flag)
 		rte_exit(EXIT_FAILURE, "LCORE not available for service lcore\n");
+
+	/* Allocate crypto op pool */
+	setup_mempools();
+
+	mempools_release();
 
 	rte_eal_cleanup();
 

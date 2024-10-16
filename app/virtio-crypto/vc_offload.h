@@ -25,7 +25,12 @@ extern uint64_t crypto_mask_ena;
 extern uint16_t nb_cryptodevs;
 extern uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
-#define VC_NB_QP_MAX 64
+#define VC_NB_QP_MAX       64
+#define VC_NB_DESC_DEFAULT 4096
+
+/* FIXME - get buffer size using an API */
+#define VC_MEMPOOL_CACHE_SIZE 512
+#define VC_MEMPOOL_BUF_SIZE   2048
 
 struct vc_cdev_ctx {
 	/*
@@ -35,6 +40,7 @@ struct vc_cdev_ctx {
 	uint8_t enabled_primary_cdevs[RTE_CRYPTO_MAX_DEVS];
 
 	uint16_t nb_qp;
+	struct rte_mempool *qp_pool[VC_NB_QP_MAX];
 };
 
 #endif /* _VC_OFFLOAD_H_ */
