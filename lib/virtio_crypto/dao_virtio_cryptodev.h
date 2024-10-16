@@ -11,6 +11,8 @@
 #ifndef __INCLUDE_DAO_VIRTIO_CRYPTO_H__
 #define __INCLUDE_DAO_VIRTIO_CRYPTO_H__
 
+#include <dao_virtio.h>
+
 /** Virtio crypto device configuration */
 struct dao_virtio_cryptodev_conf {
 	/** PEM device ID */
@@ -21,6 +23,20 @@ struct dao_virtio_cryptodev_conf {
 	struct rte_mempool *pool;
 	/** ID of crypto device associated with this virtio device */
 	uint16_t cdev_id;
+};
+
+/** Virtio crypto device data */
+struct dao_virtio_cryptodev {
+	/** Array of virtio queue pointers */
+	void *qs[DAO_VIRTIO_MAX_QUEUES] __rte_cache_aligned;
+	/** Dequeue function id */
+	uint16_t deq_fn_id;
+	/** Enqueue function id */
+	uint16_t enq_fn_id;
+	/** Descriptors management function id */
+	uint16_t mgmt_fn_id;
+#define DAO_VIRTIO_CRYPTODEV_MEM_SZ 8192
+	uint8_t reserved[DAO_VIRTIO_CRYPTODEV_MEM_SZ];
 };
 
 /**
