@@ -12,6 +12,7 @@
 #include <rte_eal.h>
 #include <rte_errno.h>
 #include <rte_graph.h>
+#include <rte_graph_worker.h>
 #include <rte_log.h>
 #include <rte_malloc.h>
 #include <rte_rcu_qsbr.h>
@@ -72,6 +73,10 @@ struct lcore_conf {
 	int dev2mem_id;
 	int mem2dev_id;
 	int nb_vchans;
+	struct rte_graph *graph;
+	char name[RTE_GRAPH_NAMESIZE];
+	rte_graph_t graph_id;
+	struct rte_rcu_qsbr *qs_v;
 } __rte_cache_aligned;
 
 static struct lcore_conf lcore_conf[RTE_MAX_LCORE];
@@ -85,6 +90,7 @@ static int16_t mem2dev_ids[32];
 static uint16_t dev2mem_cnt;
 static uint16_t mem2dev_cnt;
 static int wrkr_dma_devs;
+static uint16_t dma_flush_thr;
 
 static rte_node_t virtio_rx_nodes[DAO_VIRTIO_DEV_MAX];
 static rte_node_t cryptodev_enq_node;
@@ -997,11 +1003,135 @@ release_virtio_devices(void)
 		printf("Failed to stop virtio device %u: %d\n", virtio_devid, rc);
 }
 
+static __rte_always_inline uint16_t
+vc_virtio_desc_process(uint64_t virt_dev_map, uint16_t *virtio_queue_cnt)
+{
+	uint16_t dev_id = 0;
+
+	while (virt_dev_map) {
+		if (!(virt_dev_map & 0x1)) {
+			virt_dev_map >>= 1;
+			dev_id++;
+			continue;
+		}
+		dao_virtio_crypto_desc_manage(dev_id, virtio_queue_cnt[dev_id]);
+		virt_dev_map >>= 1;
+		dev_id++;
+	}
+
+	return 0;
+}
+
+static int
+service_main_loop(void *conf)
+{
+	struct rte_rcu_qsbr *qs_v;
+	struct lcore_conf *qconf;
+	uint32_t lcore_id;
+	int rc;
+
+	RTE_SET_USED(conf);
+
+	lcore_id = rte_lcore_id();
+	qconf = &lcore_conf[lcore_id];
+	qs_v = qconf->qs_v;
+
+	/* Set per lcore DMA device id */
+	rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
+	rc |= dao_dma_lcore_mem2dev_set(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr);
+	if (rc) {
+		APP_ERR("Error in setting DMA device on lcore\n");
+		return -1;
+	}
+
+	/* Register this thread to report quiescent state */
+	rte_rcu_qsbr_thread_register(qs_v, lcore_id);
+	rte_rcu_qsbr_thread_online(qs_v, lcore_id);
+
+	APP_INFO("Entering service main loop on lcore %u\n", lcore_id);
+
+	while (likely(!force_quit)) {
+		/* Process virtio descriptors */
+		vc_virtio_desc_process(qconf->virt_dev_map, qconf->virtio_queue_cnt);
+
+		/* Flush and submit DMA ops */
+		dao_dma_flush_submit();
+
+		/* Update quiescent state */
+		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
+	}
+
+	rte_rcu_qsbr_thread_offline(qs_v, lcore_id);
+	rte_rcu_qsbr_thread_unregister(qs_v, lcore_id);
+	return 0;
+}
+
+static int
+graph_main_loop(void *conf)
+{
+	struct rte_rcu_qsbr *qs_v;
+	struct lcore_conf *qconf;
+	struct rte_graph *graph;
+	uint32_t lcore_id;
+	int rc;
+
+	RTE_SET_USED(conf);
+
+	lcore_id = rte_lcore_id();
+	qconf = &lcore_conf[lcore_id];
+	qs_v = qconf->qs_v;
+	graph = qconf->graph;
+
+	if (!graph) {
+		APP_INFO("Lcore %u has nothing to do\n", lcore_id);
+		return 0;
+	}
+
+	/* Set per lcore DMA device id */
+	rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
+	rc |= dao_dma_lcore_mem2dev_set(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr);
+	if (rc) {
+		APP_ERR("Error in setting DMA device on lcore\n");
+		return -1;
+	}
+
+	/* Register this thread to rdaort quiescent state */
+	rte_rcu_qsbr_thread_register(qs_v, lcore_id);
+	rte_rcu_qsbr_thread_online(qs_v, lcore_id);
+
+	APP_INFO("Entering graph main loop on lcore %u, %s(%p)\n", lcore_id, qconf->name, graph);
+
+	while (likely(!force_quit)) {
+		/* Walk through graph */
+		rte_graph_walk(graph);
+
+		/* Flush and submit DMA ops */
+		dao_dma_flush_submit();
+
+		/* Update quiescent state */
+		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
+	}
+
+	rte_rcu_qsbr_thread_offline(qs_v, lcore_id);
+	rte_rcu_qsbr_thread_unregister(qs_v, lcore_id);
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
+	static const char *const default_patterns[] = {
+		"cop_drop",
+	};
+	struct rte_graph_param graph_conf;
 	bool service_lcore_flag = false;
+	const char **node_patterns;
+	struct lcore_conf *qconf;
+	struct rte_node *node;
+	uint16_t nb_patterns;
+	rte_node_t node_id;
 	uint32_t lcore_id;
+	uint32_t devid;
 	size_t sz;
 	int rc;
 
@@ -1080,6 +1210,121 @@ main(int argc, char **argv)
 	rc = graph_node_init();
 	if (rc)
 		rte_exit(EXIT_FAILURE, "Could not init graph nodes\n");
+
+	/* Graph Initialization */
+	nb_patterns = RTE_DIM(default_patterns);
+	node_patterns =
+		malloc((MAX_VIRTIO_RX_PER_LCORE + MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE + nb_patterns) *
+		       sizeof(*node_patterns));
+	if (!node_patterns)
+		return -ENOMEM;
+	memcpy(node_patterns, default_patterns, nb_patterns * sizeof(*node_patterns));
+
+	memset(&graph_conf, 0, sizeof(graph_conf));
+	graph_conf.node_patterns = node_patterns;
+
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		rte_graph_t graph_id;
+		rte_edge_t i;
+
+		if (rte_lcore_is_enabled(lcore_id) == 0)
+			continue;
+
+		qconf = &lcore_conf[lcore_id];
+
+		/* Skip Lcore if not needed */
+		if (!qconf->nb_virtio_rx && !qconf->nb_crypto_deq && !qconf->service_lcore)
+			continue;
+
+		qconf->qs_v = qs_v;
+		if (qconf->service_lcore)
+			continue;
+
+		nb_patterns = RTE_DIM(default_patterns);
+		snprintf(qconf->name, sizeof(qconf->name), "worker_%u", lcore_id);
+
+		/* Add virtio rx node pattern of this lcore */
+		for (i = 0; i < qconf->nb_virtio_rx; i++)
+			graph_conf.node_patterns[nb_patterns + i] = qconf->virtio_rx[i].node_name;
+		nb_patterns += i;
+
+		for (i = 0; i < qconf->nb_crypto_deq; i++)
+			graph_conf.node_patterns[nb_patterns + i] = qconf->crypto_deq[i].node_name;
+		nb_patterns += i;
+
+		graph_conf.nb_node_patterns = nb_patterns;
+		graph_conf.socket_id = rte_lcore_to_socket_id(lcore_id);
+
+		graph_id = rte_graph_create(qconf->name, &graph_conf);
+		if (graph_id == RTE_GRAPH_ID_INVALID)
+			rte_exit(EXIT_FAILURE, "Could not create graph for lcore %u\n", lcore_id);
+
+		qconf->graph_id = graph_id;
+		qconf->graph = rte_graph_lookup(qconf->name);
+		if (qconf->graph == NULL)
+			rte_exit(EXIT_FAILURE, "Could not lookup graph: %s\n", qconf->name);
+
+		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+			devid = qconf->virtio_rx[i].virtio_devid;
+
+			/* Virtio Rx ctx */
+			node_id = virtio_rx_nodes[devid];
+			node = rte_graph_node_get(graph_id, node_id);
+			qconf->virtio_rx[i].virtio_rx = (struct vc_virtio_rx_node_ctx *)node->ctx;
+			qconf->virtio_rx[i].virtio_rx->virtio_devid = devid;
+
+			/* Cryptodev enq CTX. CTX is the same but associate with all virtio_rx
+			 * members */
+			node_id = cryptodev_enq_node;
+			node = rte_graph_node_get(graph_id, node_id);
+			qconf->virtio_rx[i].cryptodev_enq =
+				(struct vc_cryptodev_enq_node_ctx *)node->ctx;
+			qconf->virtio_rx[i].cryptodev_enq->devid =
+				vc_cdev_ctx.enabled_primary_cdevs[0];
+		}
+
+		for (i = 0; i < qconf->nb_crypto_deq; i++) {
+			devid = qconf->crypto_deq[i].devid;
+
+			/* Cryptodev deq ctx */
+			node_id = cryptodev_deq_node;
+			node = rte_graph_node_get(graph_id, node_id);
+			qconf->crypto_deq[i].cryptodev_deq =
+				(struct vc_cryptodev_deq_node_ctx *)node->ctx;
+			qconf->crypto_deq[i].cryptodev_deq->devid = devid;
+
+			/* Virtio Tx CTX */
+			node_id = virtio_tx_node;
+			node = rte_graph_node_get(graph_id, node_id);
+			qconf->crypto_deq[i].virtio_tx = (struct vc_virtio_tx_node_ctx *)node->ctx;
+		}
+	}
+
+	APP_INFO("\n");
+
+	/* Launch per lcore service and worker threads */
+	RTE_LCORE_FOREACH_WORKER(lcore_id)
+	{
+		qconf = &lcore_conf[lcore_id];
+
+		if (qconf->service_lcore)
+			rte_eal_remote_launch(service_main_loop, NULL, lcore_id);
+		else if (qconf->graph)
+			rte_eal_remote_launch(graph_main_loop, qconf, lcore_id);
+	}
+
+	/* Wait for worker cores to exit */
+	rc = 0;
+	RTE_LCORE_FOREACH_WORKER(lcore_id)
+	{
+		rc = rte_eal_wait_lcore(lcore_id);
+		/* Destroy graph */
+		if (rc < 0 || rte_graph_destroy(rte_graph_from_name(lcore_conf[lcore_id].name))) {
+			rc = -1;
+			break;
+		}
+	}
+	free(node_patterns);
 
 	release_virtio_devices();
 
