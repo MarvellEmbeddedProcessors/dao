@@ -39,6 +39,15 @@ struct dao_virtio_cryptodev {
 	uint8_t reserved[DAO_VIRTIO_CRYPTODEV_MEM_SZ];
 };
 
+/** Device status callback */
+typedef int (*dao_virtio_cryptodev_status_cb_t)(uint16_t devid, uint8_t status);
+
+/** Virtio crypto device callbacks */
+struct dao_virtio_cryptodev_cbs {
+	/** Device status callback */
+	dao_virtio_cryptodev_status_cb_t status_cb;
+};
+
 /**
  * Virtio crypto device initialize.
  *
