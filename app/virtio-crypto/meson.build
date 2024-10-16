@@ -10,6 +10,6 @@ sources = files(
 	'vc_parser.c',
 )
 
-deps = ['virtio']
+deps = ['virtio', 'virtio_crypto']
 
 app_deps += DAO_EXT_DEPS_LIBDPDK

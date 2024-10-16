@@ -19,6 +19,7 @@
 #include <dao_dma.h>
 #include <dao_pem.h>
 #include <dao_virtio.h>
+#include <dao_virtio_cryptodev.h>
 
 #include "vc_offload.h"
 #include "vc_parser.h"
@@ -625,6 +626,46 @@ release_crypto_devices(void)
 	vc_cdev_ctx.nb_primary_cryptodevs = 0;
 }
 
+static void
+setup_virtio_device(void)
+{
+	uint16_t virtio_devid;
+	int rc;
+
+	/* Initialize virtio crypto device */
+	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
+		struct dao_virtio_cryptodev_conf cryptodev_conf;
+
+		if (!is_virtio_dev_enabled(virtio_devid))
+			continue;
+
+		/* Populate cryptodev conf */
+		memset(&cryptodev_conf, 0, sizeof(cryptodev_conf));
+		cryptodev_conf.pem_devid = pem_devid;
+		cryptodev_conf.dma_vchan = virtio_cryptodev_dma_vchans[virtio_devid];
+		/* FIXME: this need to be saved differently. */
+		cryptodev_conf.pool = vc_cdev_ctx.qp_pool[0];
+
+		cryptodev_conf.cdev_id = vc_cdev_ctx.enabled_primary_cdevs[0];
+
+		/* Initialize virtio crypto device */
+		rc = dao_virtio_cryptodev_init(virtio_devid, &cryptodev_conf);
+		if (rc)
+			rte_exit(EXIT_FAILURE, "Failed to init virtio device\n");
+	}
+}
+
+static void
+release_virtio_devices(void)
+{
+	uint32_t virtio_devid = 0;
+	int rc;
+
+	rc = dao_virtio_cryptodev_fini(virtio_devid);
+	if (rc)
+		printf("Failed to stop virtio device %u: %d\n", virtio_devid, rc);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -700,6 +741,11 @@ main(int argc, char **argv)
 	rc = rte_rcu_qsbr_init(qs_v, RTE_MAX_LCORE);
 	if (rc)
 		rte_exit(EXIT_FAILURE, "rte_rcu_qsbr_init(): failed to init, rc=%d\n", rc);
+
+	/* Initialize virtio devices */
+	setup_virtio_device();
+
+	release_virtio_devices();
 
 	release_crypto_devices();
 
