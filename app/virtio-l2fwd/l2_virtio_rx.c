@@ -8,17 +8,18 @@ l2_virtio_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 				 l2_virtio_rx_node_ctx_t *ctx)
 {
 	uint16_t nb_pkts = 0, next_index, count;
+	uint16_t max_pkts, max_que_per_virt_dev;
 	struct rte_mbuf **mbufs;
 	uint16_t queue, virt_q;
 	uint16_t virtio_devid;
 	uint64_t virt_q_map;
-	uint16_t max_pkts;
 	uint16_t q_count;
 
 	next_index = ctx->eth_next;
 	virt_q_map = ctx->virt_q_map;
 	virtio_devid = ctx->virtio_devid;
 	max_pkts = L2_VIRTIO_RX_BURST_MAX;
+	max_que_per_virt_dev = L2_VIRTIO_RX_Q_MAX - 1;
 
 	/* Get stream for pkts */
 	mbufs = (struct rte_mbuf **)rte_node_next_stream_get(graph, node, next_index, max_pkts);
@@ -27,7 +28,7 @@ l2_virtio_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 	queue = ctx->next_q;
 	while (q_count && nb_pkts < max_pkts) {
 		if (!(virt_q_map & RTE_BIT64(queue))) {
-			queue = queue >= 63 ? 0 : queue + 1;
+			queue = queue >= max_que_per_virt_dev ? 0 : queue + 1;
 			continue;
 		}
 
@@ -41,7 +42,7 @@ l2_virtio_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		}
 
 		nb_pkts += count;
-		queue = queue >= 63 ? 0 : queue + 1;
+		queue = queue >= max_que_per_virt_dev ? 0 : queue + 1;
 		rte_prefetch0(dao_virtio_netdevs[virtio_devid].qs[queue]);
 		q_count--;
 	}
