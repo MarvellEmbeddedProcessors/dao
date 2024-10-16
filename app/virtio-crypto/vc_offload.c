@@ -15,6 +15,7 @@
 #include <rte_log.h>
 
 #include <dao_dma.h>
+#include <dao_pem.h>
 #include <dao_virtio.h>
 
 #include "vc_offload.h"
@@ -32,6 +33,8 @@ uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
 #define MAX_VIRTIO_RX_PER_LCORE         128
 #define MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE 1
+
+static uint16_t pem_devid;
 
 static uint16_t virtio_cryptodev_dma_vchans[DAO_VIRTIO_DEV_MAX];
 
@@ -485,6 +488,26 @@ release_dma_devices(void)
 	}
 }
 
+static void
+setup_pem_device(void)
+{
+	struct dao_pem_dev_conf pem_dev_conf;
+	int rc;
+
+	/* Setup pem0 */
+	memset(&pem_dev_conf, 0, sizeof(pem_dev_conf));
+	rc = dao_pem_dev_init(pem_devid, &pem_dev_conf);
+	if (rc)
+		rte_exit(EXIT_FAILURE, "Error with pem init, rc=%d\n", rc);
+}
+
+static void
+release_pem_device(void)
+{
+	/* Close PEM */
+	dao_pem_dev_fini(pem_devid);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -540,6 +563,11 @@ main(int argc, char **argv)
 
 	/* Initialize DMA device */
 	setup_dma_devices();
+
+	/* Initialize PEM device */
+	setup_pem_device();
+
+	release_pem_device();
 
 	release_dma_devices();
 
