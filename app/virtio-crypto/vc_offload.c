@@ -13,6 +13,8 @@
 #include <rte_errno.h>
 #include <rte_graph.h>
 #include <rte_log.h>
+#include <rte_malloc.h>
+#include <rte_rcu_qsbr.h>
 
 #include <dao_dma.h>
 #include <dao_pem.h>
@@ -81,6 +83,9 @@ static uint16_t mem2dev_cnt;
 static int wrkr_dma_devs;
 
 #define MEMPOOL_CACHE_SIZE 512
+
+/* RCU QSBR variable */
+static struct rte_rcu_qsbr *qs_v;
 
 static bool
 is_virtio_dev_enabled(uint16_t virtio_devid)
@@ -625,6 +630,7 @@ main(int argc, char **argv)
 {
 	bool service_lcore_flag = false;
 	uint32_t lcore_id;
+	size_t sz;
 	int rc;
 
 	rc = rte_eal_init(argc, argv);
@@ -683,6 +689,17 @@ main(int argc, char **argv)
 	rc = setup_crypto_devices();
 	if (rc)
 		rte_exit(EXIT_FAILURE, "Could not setup crypto devices\n");
+
+	/* Setup RCU QSBR variable */
+	sz = rte_rcu_qsbr_get_memsize(RTE_MAX_LCORE);
+	qs_v = (struct rte_rcu_qsbr *)rte_zmalloc_socket(NULL, sz, RTE_CACHE_LINE_SIZE,
+							 SOCKET_ID_ANY);
+	if (!qs_v)
+		rte_exit(EXIT_FAILURE, "Failed to alloc rcu_qsbr variable\n");
+
+	rc = rte_rcu_qsbr_init(qs_v, RTE_MAX_LCORE);
+	if (rc)
+		rte_exit(EXIT_FAILURE, "rte_rcu_qsbr_init(): failed to init, rc=%d\n", rc);
 
 	release_crypto_devices();
 
