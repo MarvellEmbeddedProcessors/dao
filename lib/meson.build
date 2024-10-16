@@ -10,6 +10,7 @@ libraries = [
 	'pem',
 	'virtio',
 	'virtio_net',
+	'virtio_crypto',
 	'workers',
 	'netlink',
 	'pal',
