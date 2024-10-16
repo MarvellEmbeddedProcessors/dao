@@ -508,6 +508,118 @@ release_pem_device(void)
 	dao_pem_dev_fini(pem_devid);
 }
 
+static int
+setup_crypto_devices(void)
+{
+	struct rte_mempool *asym_sess_pool, *sym_sess_pool;
+	struct rte_cryptodev_info cryptodev_info;
+	struct rte_cryptodev_qp_conf qp_conf;
+	struct rte_cryptodev_config conf;
+	uint32_t session_size = 0;
+	int socket_id, ret = 0;
+	uint16_t i, j, dev_id;
+
+	/* Create asymmetric session pool */
+	asym_sess_pool = rte_cryptodev_asym_session_pool_create(
+		"asym_session_pool", VC_NB_ASYM_SESSION, 0, 0, SOCKET_ID_ANY);
+	if (asym_sess_pool == NULL) {
+		APP_ERR("Could not create asymmetric session pool.");
+		return -ENOMEM;
+	}
+
+	/* Initialize crypto device */
+	for (i = 0; i < vc_cdev_ctx.nb_primary_cryptodevs; i++) {
+		dev_id = vc_cdev_ctx.enabled_primary_cdevs[i];
+
+		APP_INFO("Initializing cryptodev: %d", dev_id);
+
+		socket_id = rte_cryptodev_socket_id(dev_id);
+		if (socket_id == SOCKET_ID_ANY)
+			socket_id = 0;
+
+		memset(&cryptodev_info, 0, sizeof(cryptodev_info));
+		rte_cryptodev_info_get(dev_id, &cryptodev_info);
+
+		memset(&conf, 0, sizeof(conf));
+		conf.socket_id = socket_id;
+		conf.nb_queue_pairs = cryptodev_info.max_nb_queue_pairs;
+		ret = rte_cryptodev_configure(dev_id, &conf);
+		if (ret) {
+			APP_ERR("Could not configure cryptodev: %d.", dev_id);
+			goto free_asym_sess_pool;
+		}
+
+		memset(&qp_conf, 0, sizeof(qp_conf));
+		qp_conf.mp_session = asym_sess_pool;
+		qp_conf.nb_descriptors = VC_NB_DESC_DEFAULT;
+
+		for (j = 0; j < conf.nb_queue_pairs; j++) {
+			ret = rte_cryptodev_queue_pair_setup(dev_id, j, &qp_conf, socket_id);
+			if (ret) {
+				APP_ERR("Could not setup queue [cryptodev: %d, queue pair: %d].",
+					dev_id, j);
+				goto free_asym_sess_pool;
+			}
+		}
+
+		ret = rte_cryptodev_start(dev_id);
+		if (ret) {
+			APP_ERR("Could not start cryptodev: %d.", dev_id);
+			goto free_asym_sess_pool;
+		}
+		session_size =
+			RTE_MAX(rte_cryptodev_sym_get_private_session_size(dev_id), session_size);
+	}
+
+	/* Create symmetric session pool */
+	sym_sess_pool = rte_cryptodev_sym_session_pool_create("sym_session_pool", VC_NB_SYM_SESSION,
+							      session_size, 0, 0, SOCKET_ID_ANY);
+	if (sym_sess_pool == NULL) {
+		APP_ERR("Could not create symmetric session pool.");
+		ret = -ENOMEM;
+		goto free_asym_sess_pool;
+	}
+
+	/* Dump offload map */
+	APP_INFO("\n");
+	for (i = 0; i < vc_cdev_ctx.nb_primary_cryptodevs; i++) {
+		dev_id = vc_cdev_ctx.enabled_primary_cdevs[i];
+
+		APP_INFO("VC_MAP: cryptodev_enq[%u] ======> cryptodev_deq[%u] (lcores 0x%lX)\n",
+			 dev_id, dev_id, lcore_crypto_mask[dev_id]);
+	}
+
+	vc_cdev_ctx.asym_sess_pool = asym_sess_pool;
+	vc_cdev_ctx.sym_sess_pool = sym_sess_pool;
+
+	return 0;
+
+free_asym_sess_pool:
+	rte_mempool_free(asym_sess_pool);
+
+	return ret;
+}
+
+static void
+release_crypto_devices(void)
+{
+	uint16_t dev_id, i;
+
+	for (i = 0; i < vc_cdev_ctx.nb_primary_cryptodevs; i++) {
+		dev_id = vc_cdev_ctx.enabled_primary_cdevs[i];
+		rte_cryptodev_stop(dev_id);
+		rte_cryptodev_close(dev_id);
+	}
+
+	rte_mempool_free(vc_cdev_ctx.asym_sess_pool);
+	vc_cdev_ctx.asym_sess_pool = NULL;
+
+	rte_mempool_free(vc_cdev_ctx.sym_sess_pool);
+	vc_cdev_ctx.sym_sess_pool = NULL;
+
+	vc_cdev_ctx.nb_primary_cryptodevs = 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -566,6 +678,13 @@ main(int argc, char **argv)
 
 	/* Initialize PEM device */
 	setup_pem_device();
+
+	/* Initialize crypto devices */
+	rc = setup_crypto_devices();
+	if (rc)
+		rte_exit(EXIT_FAILURE, "Could not setup crypto devices\n");
+
+	release_crypto_devices();
 
 	release_pem_device();
 

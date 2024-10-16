@@ -25,6 +25,8 @@ extern uint64_t crypto_mask_ena;
 extern uint16_t nb_cryptodevs;
 extern uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
+#define VC_NB_SYM_SESSION  4096
+#define VC_NB_ASYM_SESSION 4096
 #define VC_NB_QP_MAX       64
 #define VC_NB_DESC_DEFAULT 4096
 
@@ -38,6 +40,9 @@ struct vc_cdev_ctx {
 	 */
 	uint8_t nb_primary_cryptodevs;
 	uint8_t enabled_primary_cdevs[RTE_CRYPTO_MAX_DEVS];
+
+	struct rte_mempool *sym_sess_pool;
+	struct rte_mempool *asym_sess_pool;
 
 	uint16_t nb_qp;
 	struct rte_mempool *qp_pool[VC_NB_QP_MAX];
