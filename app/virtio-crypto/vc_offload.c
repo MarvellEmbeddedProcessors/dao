@@ -10,9 +10,11 @@
 #include <rte_cryptodev.h>
 #include <rte_dmadev.h>
 #include <rte_eal.h>
+#include <rte_errno.h>
 #include <rte_graph.h>
 #include <rte_log.h>
 
+#include <dao_dma.h>
 #include <dao_virtio.h>
 
 #include "vc_offload.h"
@@ -30,6 +32,8 @@ uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
 #define MAX_VIRTIO_RX_PER_LCORE         128
 #define MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE 1
+
+static uint16_t virtio_cryptodev_dma_vchans[DAO_VIRTIO_DEV_MAX];
 
 struct lcore_crypto_deq {
 	uint16_t devid;
@@ -56,6 +60,9 @@ struct lcore_conf {
 	struct lcore_crypto_deq crypto_deq[MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE];
 
 	bool service_lcore;
+	int dev2mem_id;
+	int mem2dev_id;
+	int nb_vchans;
 } __rte_cache_aligned;
 
 static struct lcore_conf lcore_conf[RTE_MAX_LCORE];
@@ -64,6 +71,10 @@ static struct vc_cdev_ctx vc_cdev_ctx;
 
 static volatile bool force_quit;
 
+static int16_t dev2mem_ids[32];
+static int16_t mem2dev_ids[32];
+static uint16_t dev2mem_cnt;
+static uint16_t mem2dev_cnt;
 static int wrkr_dma_devs;
 
 #define MEMPOOL_CACHE_SIZE 512
@@ -308,6 +319,172 @@ mempools_release(void)
 		rte_mempool_free(vc_cdev_ctx.qp_pool[i]);
 }
 
+static void
+setup_dma_devices(void)
+{
+	struct rte_dma_vchan_conf dma_qconf;
+	uint16_t dev2mem_idx, mem2dev_idx;
+	struct rte_dma_info dma_info;
+	struct rte_dma_conf dma_conf;
+	struct lcore_conf *qconf;
+	uint32_t virtio_devid;
+	uint32_t lcore_id;
+	int16_t dma_devid;
+	uint16_t vchan;
+	uint64_t mask;
+	int i, base;
+
+	dma_devid = 0;
+	/* Prepare half of the worker DMA devices half as dev2mem and half as mem2dev */
+	for (i = 0; i < rte_dma_count_avail(); i += 2) {
+		/* Setup Inbound dma device with one vchan per virtio cryptodev */
+		dma_devid = rte_dma_next_dev(dma_devid);
+		if (dma_devid == -1)
+			break;
+
+		rte_dma_info_get(dma_devid, &dma_info);
+		APP_INFO("Setting up dmadev %s(%d)\n", dma_info.dev_name, dma_devid);
+
+		memset(&dma_conf, 0, sizeof(dma_conf));
+		dma_conf.nb_vchans = nb_virtiodevs;
+
+		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
+			rte_exit(EXIT_FAILURE, "Error with rte_dma_configure()\n");
+
+		mask = virtio_mask_ena[0];
+		base = 0;
+		for (vchan = 0; vchan < nb_virtiodevs; vchan++) {
+			/* Get next virtio device id */
+			virtio_devid = __builtin_ffsl(mask);
+			if (virtio_devid == 0)
+				rte_exit(EXIT_FAILURE, "Error no virtio device\n");
+			virtio_devid -= 1;
+			virtio_devid += base;
+			virtio_cryptodev_dma_vchans[virtio_devid] = vchan;
+
+			memset(&dma_qconf, 0, sizeof(dma_qconf));
+			dma_qconf.direction = RTE_DMA_DIR_DEV_TO_MEM;
+			dma_qconf.nb_desc = 2048;
+			dma_qconf.src_port.pcie.coreid = 0; /* TODO PEM id */
+			dma_qconf.src_port.pcie.vfen = 1;
+			dma_qconf.src_port.pcie.vfid = virtio_devid + 1;
+			dma_qconf.src_port.port_type = RTE_DMA_PORT_PCIE;
+
+			if (rte_dma_vchan_setup(dma_devid, vchan, &dma_qconf) != 0)
+				rte_exit(EXIT_FAILURE, "Error with inbound configuration\n");
+			mask &= ~RTE_BIT64(virtio_devid);
+			if (!mask) {
+				base += 64;
+				mask = virtio_mask_ena[1];
+			}
+		}
+
+		if (rte_dma_start(dma_devid) != 0)
+			rte_exit(EXIT_FAILURE, "Error with rte_dma_start()\n");
+
+		dev2mem_ids[dev2mem_cnt++] = dma_devid;
+		dma_devid++;
+
+		/* Setup Outbound dma device with one vchan per virtio cryptodev */
+		dma_devid = rte_dma_next_dev(dma_devid);
+		if (dma_devid == -1)
+			break;
+
+		rte_dma_info_get(dma_devid, &dma_info);
+		APP_INFO("Setting up dmadev %s(%d)\n", dma_info.dev_name, dma_devid);
+
+		memset(&dma_conf, 0, sizeof(dma_conf));
+		dma_conf.nb_vchans = nb_virtiodevs;
+
+		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
+			rte_exit(EXIT_FAILURE, "Error with rte_dma_configure()\n");
+
+		mask = virtio_mask_ena[0];
+		base = 0;
+		for (vchan = 0; vchan < nb_virtiodevs; vchan++) {
+			/* Get next virtio device id */
+			virtio_devid = __builtin_ffsl(mask);
+			if (virtio_devid == 0)
+				rte_exit(EXIT_FAILURE, "Error no virtio device\n");
+			virtio_devid -= 1;
+			virtio_devid += base;
+
+			memset(&dma_qconf, 0, sizeof(dma_qconf));
+			dma_qconf.direction = RTE_DMA_DIR_MEM_TO_DEV;
+			dma_qconf.nb_desc = 2048;
+			dma_qconf.dst_port.pcie.coreid = 0; /* TODO PEM id */
+			dma_qconf.dst_port.pcie.vfen = 1;
+			dma_qconf.dst_port.pcie.vfid = virtio_devid + 1;
+			dma_qconf.dst_port.port_type = RTE_DMA_PORT_PCIE;
+
+			if (rte_dma_vchan_setup(dma_devid, vchan, &dma_qconf) != 0)
+				rte_exit(EXIT_FAILURE, "Error with outbound chan configuration\n");
+			mask &= ~RTE_BIT64(virtio_devid);
+			if (!mask) {
+				base += 64;
+				mask = virtio_mask_ena[1];
+			}
+		}
+
+		if (rte_dma_start(dma_devid) != 0)
+			rte_exit(EXIT_FAILURE, "Error with rte_dma_start()\n");
+		mem2dev_ids[mem2dev_cnt++] = dma_devid;
+		dma_devid++;
+	}
+
+	if (!dev2mem_cnt || !mem2dev_cnt)
+		rte_exit(EXIT_FAILURE, "Not enough dma devices for workers\n");
+
+	dev2mem_idx = 0;
+	mem2dev_idx = 0;
+
+	/* Provide DMA devices for virtio control */
+	if (dao_dma_ctrl_dev_set(dev2mem_ids[dev2mem_idx++], mem2dev_ids[mem2dev_idx++]))
+		rte_exit(EXIT_FAILURE, "Failed to set virtio control DMA dev\n");
+
+	/* Setup two DMA devices per active DPDK lcore */
+	APP_INFO("Lcore DMA map...\n");
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0)
+			continue;
+		qconf = &lcore_conf[lcore_id];
+
+		/* Skip Lcore if not needed */
+		if (!qconf->nb_virtio_rx && !qconf->service_lcore)
+			continue;
+
+		if (dev2mem_idx == dev2mem_cnt || mem2dev_idx == mem2dev_cnt)
+			rte_exit(EXIT_FAILURE, "Not enough dma devices for workers\n");
+
+		/* Assign DMA device id */
+		qconf->dev2mem_id = dev2mem_ids[dev2mem_idx++];
+		qconf->mem2dev_id = mem2dev_ids[mem2dev_idx++];
+		qconf->nb_vchans = nb_virtiodevs;
+
+		APP_INFO("\tlcore %u ... dev2mem=%u mem2dev=%u\n", lcore_id, qconf->dev2mem_id,
+			 qconf->mem2dev_id);
+	}
+	APP_INFO("\n");
+}
+
+static void
+release_dma_devices(void)
+{
+	int16_t dma_devid;
+	int rc;
+
+	/* stop DMA devices */
+	RTE_DMA_FOREACH_DEV(dma_devid) {
+		rc = rte_dma_stop(dma_devid);
+		if (rc)
+			APP_ERR("Failed to stop dma dev %u: %s\n", dma_devid, rte_strerror(-rc));
+
+		rc = rte_dma_close(dma_devid);
+		if (rc)
+			APP_ERR("Failed to close dma dev %u: %s\n", dma_devid, rte_strerror(-rc));
+	}
+}
+
 int
 main(int argc, char **argv)
 {
@@ -360,6 +537,11 @@ main(int argc, char **argv)
 
 	/* Allocate crypto op pool */
 	setup_mempools();
+
+	/* Initialize DMA device */
+	setup_dma_devices();
+
+	release_dma_devices();
 
 	mempools_release();
 
