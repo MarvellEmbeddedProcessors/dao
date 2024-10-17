@@ -18,6 +18,16 @@ struct dao_virtio_cryptodev dao_virtio_cryptodevs[DAO_VIRTIO_DEV_MAX + 1];
 static struct dao_virtio_cryptodev_cbs user_cbs;
 
 static void
+virtio_cryptodev_cq_cmd_process(struct virtio_dev *dev, struct rte_dma_sge *src,
+				struct rte_dma_sge *dst, uint16_t nb_desc)
+{
+	RTE_SET_USED(dev);
+	RTE_SET_USED(src);
+	RTE_SET_USED(dst);
+	RTE_SET_USED(nb_desc);
+}
+
+static void
 virtio_cryptodev_clear_queue_info(struct virtio_cryptodev *cryptodev)
 {
 	struct dao_virtio_cryptodev *dao_cryptodev = virtio_cryptodev_to_dao(cryptodev);
@@ -230,6 +240,7 @@ dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf
 
 	/* One time setup */
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].dev_status = virtio_cryptodev_status_cb;
+	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].cq_cmd_process = virtio_cryptodev_cq_cmd_process;
 
 	return 0;
 }
