@@ -11,6 +11,7 @@
 #include <spec/virtio_crypto.h>
 
 #include "virtio_crypto_priv.h"
+#include "virtio_dev_priv.h"
 
 /** Virtio crypto devices */
 struct dao_virtio_cryptodev dao_virtio_cryptodevs[DAO_VIRTIO_DEV_MAX + 1];
@@ -113,6 +114,60 @@ virtio_cryptodev_cb_interrupt_conf(struct virtio_cryptodev *cryptodev)
 
 	cryptodev->cb_enabled = 1;
 	dao_dbg("[dev %u] Enabled driver events for %u queues", dev->dev_id, max_vqs);
+}
+
+static int
+virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
+{
+	struct dao_virtio_cryptodev *dao_cryptodev;
+	struct virtio_cryptodev *cryptodev;
+	struct virtio_crypto_queue *queue;
+	struct virtio_queue_conf *q_conf;
+	uint32_t shadow_area;
+	uint32_t max_vqs;
+
+	cryptodev = virtio_dev_to_cryptodev(dev);
+	dao_cryptodev = virtio_cryptodev_to_dao(cryptodev);
+	max_vqs = cryptodev->dev.max_virtio_queues - 1;
+
+	if (queue_id >= max_vqs)
+		return -EINVAL;
+
+	q_conf = &dev->queue_conf[queue_id];
+	if (!q_conf->queue_enable || cryptodev->qs[queue_id] != NULL)
+		return 0;
+
+	/* Setup queue assuming only packed virt queue */
+
+	/*
+	 * Calculate shadow queue size. Shadow queue should be large enough to hold all descriptors.
+	 */
+	shadow_area = q_conf->queue_size * sizeof(struct vring_packed_desc);
+	shadow_area = RTE_ALIGN(shadow_area, RTE_CACHE_LINE_SIZE);
+
+	queue = rte_zmalloc("virtio_crypto_queue", sizeof(*queue) + shadow_area,
+			    RTE_CACHE_LINE_SIZE);
+	if (queue == NULL) {
+		dao_err("[dev %u] Failed to allocate memory for virtio queue", dev->dev_id);
+		return -ENOMEM;
+	}
+
+	queue->desc_base = (((uint64_t)q_conf->queue_desc_hi << 32) | (q_conf->queue_desc_lo));
+	queue->q_sz = q_conf->queue_size;
+
+	queue->notify_addr = (uint32_t *)(dev->notify_base + (queue_id * dev->notify_off_mltpr));
+	queue->qid = queue_id;
+	queue->dma_vchan = dev->dma_vchan;
+	cryptodev->qs[queue_id] = queue;
+	dao_cryptodev->qs[queue_id] = queue;
+	queue->dao_cryptodev = dao_cryptodev;
+
+	dao_dbg("[dev %u] Adding queue%d: desc_base %p q_sz %u", dev->dev_id, queue_id,
+		(void *)queue->desc_base, queue->q_sz);
+	dao_dbg("[dev %u] Adding queue[%d]: notify_addr %p val %08x", dev->dev_id, queue_id,
+		queue->notify_addr, *queue->notify_addr);
+
+	return 0;
 }
 
 static int
@@ -255,6 +310,7 @@ dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].dev_status = virtio_cryptodev_status_cb;
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].cq_cmd_process = virtio_cryptodev_cq_cmd_process;
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].cq_id_get = virtio_cryptodev_cq_id_get;
+	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].queue_enable = virtio_cryptodev_queue_enable;
 
 	return 0;
 }
