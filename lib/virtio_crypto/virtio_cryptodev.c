@@ -258,3 +258,15 @@ dao_virtio_cryptodev_fini(uint16_t devid)
 
 	return virtio_dev_fini(dev);
 }
+
+void
+dao_virtio_cryptodev_cb_register(struct dao_virtio_cryptodev_cbs *cbs)
+{
+	user_cbs = *cbs;
+}
+
+void
+dao_virtio_cryptodev_cb_unregister(void)
+{
+	memset(&user_cbs, 0, sizeof(user_cbs));
+}

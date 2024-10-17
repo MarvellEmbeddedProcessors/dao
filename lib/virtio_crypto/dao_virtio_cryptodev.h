@@ -71,4 +71,17 @@ int dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *
  */
 int dao_virtio_cryptodev_fini(uint16_t devid);
 
+/**
+ * Virtio crypto device callback register
+ *
+ * @param cbs
+ *    Application callbacks for virtio crypto devices
+ */
+void dao_virtio_cryptodev_cb_register(struct dao_virtio_cryptodev_cbs *cbs);
+
+/**
+ * Virtio crypto device callback unregister
+ */
+void dao_virtio_cryptodev_cb_unregister(void);
+
 #endif /* __INCLUDE_DAO_VIRTIO_CRYPTO_H__ */
