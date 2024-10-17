@@ -200,6 +200,15 @@ virtio_cryptodev_status_cb(struct virtio_dev *dev, uint8_t status)
 	}
 }
 
+static uint16_t
+virtio_cryptodev_cq_id_get(struct virtio_dev *dev, uint64_t feature_bits)
+{
+	RTE_SET_USED(dev);
+	RTE_SET_USED(feature_bits);
+
+	return dev->max_virtio_queues - 1;
+}
+
 int
 dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf)
 {
@@ -245,6 +254,7 @@ dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf
 	/* One time setup */
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].dev_status = virtio_cryptodev_status_cb;
 	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].cq_cmd_process = virtio_cryptodev_cq_cmd_process;
+	dev_cbs[VIRTIO_DEV_TYPE_CRYPTO].cq_id_get = virtio_cryptodev_cq_id_get;
 
 	return 0;
 }
