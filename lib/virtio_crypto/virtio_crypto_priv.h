@@ -18,12 +18,28 @@ struct virtio_crypto_queue {
 	uint32_t *notify_addr;
 	uint16_t q_sz;
 	uint16_t dma_vchan;
+	uint16_t cryptodev_id;
+	uint16_t cryptodev_qp_id;
 
 	/* Slow path */
 	struct dao_virtio_cryptodev *dao_cryptodev __rte_cache_aligned;
 	uint16_t qid;
 
+	RTE_CACHE_GUARD;
+
 	/* Read-Write worker. */
+
+	/*
+	 * Data queue head - increment when worker core finishes descriptor processing and issues
+	 * DMA for all descriptors. Accessed only by worker cores.
+	 */
+	uint16_t data_q_head __rte_cache_aligned;
+
+	/*
+	 * DMA Data queue head - increment when worker core finishes DMA(from host) of data pointed
+	 * by descriptors. Accessed only by worker cores.
+	 */
+	uint16_t dma_data_q_head;
 
 	/*
 	 * Shadow queue tail - increment when worker core finishes descriptor processing.
@@ -33,6 +49,20 @@ struct virtio_crypto_queue {
 	 *
 	 */
 	uint16_t shadow_q_tail;
+
+	/*
+	 * Index ID of the DMA transaction initiated from local memory to host memory to update
+	 * data. Updated only by worker cores.
+	 */
+	uint16_t mem2dev_data_dma_idx;
+
+	/*
+	 * Index ID of the DMA transaction initiated from host memory to local memory to update
+	 * data. Updated only by worker cores.
+	 */
+	uint16_t dev2mem_data_dma_idx;
+
+	RTE_CACHE_GUARD;
 
 	/* Read-Write service. */
 
@@ -77,6 +107,11 @@ struct virtio_crypto_queue {
 
 	uint32_t *cb_notify_addr;
 	uint64_t *cb_intr_addr;
+
+	/* Mempool to use for DMA inbound */
+	struct rte_mempool *mp;
+	void *buffer_cache_rx[DAO_VIRTIO_CRYPTO_RX_BUF_CACHE_SZ];
+	uint16_t nb_cache_buf_rx;
 
 	/* Shadow Ring space */
 	uint64_t sd_desc_base[] __rte_cache_aligned;
@@ -125,6 +160,23 @@ virtio_cryptodev_to_dao(struct virtio_cryptodev *cryptodev)
 	return (struct dao_virtio_cryptodev *)((uintptr_t)cryptodev -
 					       offsetof(struct dao_virtio_cryptodev, reserved));
 }
+
+/*
+ * Virtio Crypto Rx Offloads
+ */
+#define VIRTIO_CRYPTO_DEQ_OFFLOAD_NONE    (0)
+#define VIRTIO_CRYPTO_DEQ_OFFLOAD_DEFAULT RTE_BIT64(0)
+#define VIRTIO_CRYPTO_DEQ_OFFLOAD_LAST    RTE_BIT64(1)
+
+#define VIRTIO_CRYPTO_DEQ_FASTPATH_MODES                                                           \
+	R(none, VIRTIO_CRYPTO_DEQ_OFFLOAD_NONE)                                                    \
+	R(default, VIRTIO_CRYPTO_DEQ_OFFLOAD_DEFAULT)
+
+#define R(name, flags)                                                                             \
+	uint16_t virtio_crypto_deq_##name(void *q, struct rte_crypto_op **cops, uint16_t nb_cops);
+
+VIRTIO_CRYPTO_DEQ_FASTPATH_MODES
+#undef R
 
 /*
  * Virtio crypto descriptor management ops

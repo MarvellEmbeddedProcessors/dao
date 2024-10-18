@@ -2,6 +2,7 @@
 # Copyright (c) 2025 Marvell.
 
 sources = files(
+	'virtio_crypto_host_rx.c',
 	'virtio_cryptodev.c',
 )
 
