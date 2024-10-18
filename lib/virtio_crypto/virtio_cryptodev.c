@@ -16,6 +16,12 @@
 /** Virtio crypto devices */
 struct dao_virtio_cryptodev dao_virtio_cryptodevs[DAO_VIRTIO_DEV_MAX + 1];
 
+dao_crypto_desc_manage_fn_t dao_crypto_desc_manage_fns[VIRTIO_CRYPTO_DESC_MANAGE_LAST << 1] = {
+#define M(name, flags) [flags] = virtio_crypto_desc_manage_##name,
+	VIRTIO_CRYPTO_DESC_MANAGE_MODES
+#undef M
+};
+
 static struct dao_virtio_cryptodev_cbs user_cbs;
 
 static void
@@ -336,3 +342,22 @@ dao_virtio_cryptodev_cb_unregister(void)
 {
 	memset(&user_cbs, 0, sizeof(user_cbs));
 }
+
+static __rte_always_inline int
+virtio_crypto_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
+{
+	RTE_SET_USED(devid);
+	RTE_SET_USED(qp_count);
+	RTE_SET_USED(flags);
+
+	return 0;
+}
+
+#define M(name, flags)                                                                             \
+	int virtio_crypto_desc_manage_##name(uint16_t devid, uint16_t qp_count)                    \
+	{                                                                                          \
+		return virtio_crypto_desc_manage(devid, qp_count, (flags));                        \
+	}
+
+VIRTIO_CRYPTO_DESC_MANAGE_MODES
+#undef M

@@ -62,4 +62,22 @@ virtio_cryptodev_to_dao(struct virtio_cryptodev *cryptodev)
 					       offsetof(struct dao_virtio_cryptodev, reserved));
 }
 
+/*
+ * Virtio crypto descriptor management ops
+ */
+#define VIRTIO_CRYPTO_DESC_MANAGE_DEF       (0)
+#define VIRTIO_CRYPTO_DESC_MANAGE_NOINORDER RTE_BIT64(0)
+#define VIRTIO_CRYPTO_DESC_MANAGE_LAST      RTE_BIT64(0)
+
+#define M_NOORDER_F VIRTIO_CRYPTO_DESC_MANAGE_NOINORDER
+
+#define VIRTIO_CRYPTO_DESC_MANAGE_MODES                                                            \
+	M(def, VIRTIO_CRYPTO_DESC_MANAGE_DEF)                                                      \
+	M(noinorder, M_NOORDER_F)
+
+#define M(name, flags) int virtio_crypto_desc_manage_##name(uint16_t devid, uint16_t qp_count);
+
+VIRTIO_CRYPTO_DESC_MANAGE_MODES
+#undef M
+
 #endif /* __INCLUDE_VIRTIO_CRYPTO_PRIV_H__ */

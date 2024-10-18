@@ -39,6 +39,16 @@ struct dao_virtio_cryptodev {
 	uint8_t reserved[DAO_VIRTIO_CRYPTODEV_MEM_SZ];
 };
 
+/** Virtio crypto devices */
+extern struct dao_virtio_cryptodev dao_virtio_cryptodevs[];
+
+/* Fast path data */
+/** Management function */
+typedef int (*dao_crypto_desc_manage_fn_t)(uint16_t devid, uint16_t qp_count);
+
+/** Array of management functions */
+extern dao_crypto_desc_manage_fn_t dao_crypto_desc_manage_fns[];
+
 /** Device status callback */
 typedef int (*dao_virtio_cryptodev_status_cb_t)(uint16_t devid, uint8_t status);
 
@@ -83,5 +93,29 @@ void dao_virtio_cryptodev_cb_register(struct dao_virtio_cryptodev_cbs *cbs);
  * Virtio crypto device callback unregister
  */
 void dao_virtio_cryptodev_cb_unregister(void);
+
+/**
+ * Fetch virtio cryptodev descriptors and acknowledge completions.
+ *
+ * To be called from service core as frequently as possible to
+ * shadow descriptors between Host and Octeon memory.
+ *
+ * @param devid
+ *    Virtio crypto device ID.
+ * @param qp_count
+ *    Number of queue pairs to manage.
+ * @return
+ *    Zero on success.
+ */
+static __rte_always_inline int
+dao_virtio_crypto_desc_manage(uint16_t devid, uint16_t qp_count)
+{
+	struct dao_virtio_cryptodev *cryptodev = &dao_virtio_cryptodevs[devid];
+	dao_crypto_desc_manage_fn_t mgmt_fn;
+
+	mgmt_fn = dao_crypto_desc_manage_fns[cryptodev->mgmt_fn_id];
+
+	return (*mgmt_fn)(devid, qp_count);
+}
 
 #endif /* __INCLUDE_DAO_VIRTIO_CRYPTO_H__ */
