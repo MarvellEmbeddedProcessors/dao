@@ -18,8 +18,10 @@
 #include <dao_virtio.h>
 
 #define DAO_VIRTIO_CRYPTO_RX_BUF_CACHE_SZ 128
+#define DAO_VIRTIO_CRYPTO_TX_BUF_CACHE_SZ 512
 
-#define DAO_VIRTIO_CRYPTO_MAX_CHAIN_READ_DESC 4
+#define DAO_VIRTIO_CRYPTO_MAX_CHAIN_READ_DESC  4
+#define DAO_VIRTIO_CRYPTO_MAX_CHAIN_WRITE_DESC 4
 
 /** Virtio crypto device configuration */
 struct dao_virtio_cryptodev_conf {
@@ -86,11 +88,16 @@ extern struct dao_virtio_cryptodev dao_virtio_cryptodevs[];
 /** Dequeue function */
 typedef uint16_t (*dao_virtio_crypto_deq_fn_t)(void *q, struct rte_crypto_op **cops,
 					       uint16_t nb_cops);
+/** Enqueue function */
+typedef uint16_t (*dao_virtio_crypto_enq_fn_t)(void *q, struct rte_crypto_op **cops,
+					       uint16_t nb_cops);
 /** Management function */
 typedef int (*dao_crypto_desc_manage_fn_t)(uint16_t devid, uint16_t qp_count);
 
 /** Array of dequeue functions */
 extern dao_virtio_crypto_deq_fn_t dao_virtio_crypto_deq_fns[];
+/** Array of enqueue functions */
+extern dao_virtio_crypto_enq_fn_t dao_virtio_crypto_enq_fns[];
 /** Array of management functions */
 extern dao_crypto_desc_manage_fn_t dao_crypto_desc_manage_fns[];
 
@@ -191,6 +198,36 @@ dao_virtio_crypto_host_rx(uint16_t devid, uint16_t qid, struct rte_crypto_op **c
 	deq_fn = dao_virtio_crypto_deq_fns[cryptodev->deq_fn_id];
 
 	return (*deq_fn)(q, cops, nb_cops);
+}
+
+/**
+ * Virtio cryptodev transmit to host
+ *
+ * @param devid
+ *    Virtio crypto device ID.
+ * @param qid
+ *    Virtio queue id.
+ * @param cops
+ *    Array of cop pointers of crypto operation to send to host.
+ * @param nb_cops
+ *    Number of cops to send.
+ * @return
+ *    Number of cops sent to host.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_crypto_host_tx(uint16_t devid, uint16_t qid, struct rte_crypto_op **cops,
+			  uint16_t nb_cops)
+{
+	struct dao_virtio_cryptodev *cryptodev = &dao_virtio_cryptodevs[devid];
+	dao_virtio_crypto_enq_fn_t enq_fn;
+	void *q = cryptodev->qs[qid];
+
+	if (unlikely(q == NULL))
+		return 0;
+
+	enq_fn = dao_virtio_crypto_enq_fns[cryptodev->enq_fn_id];
+
+	return (*enq_fn)(q, cops, nb_cops);
 }
 
 #endif /* __INCLUDE_DAO_VIRTIO_CRYPTO_H__ */

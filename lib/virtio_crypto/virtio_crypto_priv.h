@@ -42,6 +42,18 @@ struct virtio_crypto_queue {
 	uint16_t dma_data_q_head;
 
 	/*
+	 * Data queue tail - increment when worker core finishes crypto_op processing and issues DMA
+	 * for all corresponding descriptors. Accessed only by worker cores.
+	 */
+	uint16_t data_q_tail;
+
+	/*
+	 * DMA Data queue tail - increment when worker core finishes DMA(to host) of data pointed by
+	 * descriptors. Accessed only by worker cores.
+	 */
+	uint16_t dma_data_q_tail;
+
+	/*
 	 * Shadow queue tail - increment when worker core finishes descriptor processing.
 	 * Updated by worker core, read by service core.
 	 *
@@ -112,6 +124,8 @@ struct virtio_crypto_queue {
 	struct rte_mempool *mp;
 	void *buffer_cache_rx[DAO_VIRTIO_CRYPTO_RX_BUF_CACHE_SZ];
 	uint16_t nb_cache_buf_rx;
+	void *buffer_cache_tx[DAO_VIRTIO_CRYPTO_TX_BUF_CACHE_SZ];
+	uint16_t nb_cache_buf_tx;
 
 	/* Shadow Ring space */
 	uint64_t sd_desc_base[] __rte_cache_aligned;
@@ -177,6 +191,23 @@ virtio_cryptodev_to_dao(struct virtio_cryptodev *cryptodev)
 
 VIRTIO_CRYPTO_DEQ_FASTPATH_MODES
 #undef R
+
+/*
+ * Virtio Crypto Tx Offloads
+ */
+#define VIRTIO_CRYPTO_ENQ_OFFLOAD_NONE    (0)
+#define VIRTIO_CRYPTO_ENQ_OFFLOAD_DEFAULT RTE_BIT64(0)
+#define VIRTIO_CRYPTO_ENQ_OFFLOAD_LAST    RTE_BIT64(1)
+
+#define VIRTIO_CRYPTO_ENQ_FASTPATH_MODES                                                           \
+	T(none, VIRTIO_CRYPTO_ENQ_OFFLOAD_NONE)                                                    \
+	T(default, VIRTIO_CRYPTO_ENQ_OFFLOAD_DEFAULT)
+
+#define T(name, flags)                                                                             \
+	uint16_t virtio_crypto_enq_##name(void *q, struct rte_crypto_op **cops, uint16_t nb_cops);
+
+VIRTIO_CRYPTO_ENQ_FASTPATH_MODES
+#undef T
 
 /*
  * Virtio crypto descriptor management ops

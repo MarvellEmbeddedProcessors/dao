@@ -173,7 +173,9 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 	queue->dma_shadow_q_tail = start_off;
 
 	queue->data_q_head = start_off;
+	queue->data_q_tail = start_off;
 	queue->dma_data_q_head = start_off;
+	queue->dma_data_q_tail = start_off;
 
 	queue->mem2dev_desc_dma_pending = 0;
 	queue->mem2dev_desc_dma_idx = 0;
@@ -189,6 +191,7 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 	queue->dao_cryptodev = dao_cryptodev;
 
 	queue->nb_cache_buf_rx = 0;
+	queue->nb_cache_buf_tx = 0;
 
 	dao_dbg("[dev %u] Adding queue%d: desc_base %p q_sz %u", dev->dev_id, queue_id,
 		(void *)queue->desc_base, queue->q_sz);
