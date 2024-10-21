@@ -9,6 +9,8 @@ sources = files(
 	'vc_drop.c',
 	'vc_offload.c',
 	'vc_parser.c',
+	'vc_virtio_rx.c',
+	'vc_virtio_tx.c',
 )
 
 deps = ['virtio', 'virtio_crypto']
