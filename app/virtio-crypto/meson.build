@@ -6,6 +6,7 @@ if host_build
 endif
 
 sources = files(
+	'vc_drop.c',
 	'vc_offload.c',
 	'vc_parser.c',
 )
