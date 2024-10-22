@@ -21,6 +21,7 @@
 #include <dao_virtio.h>
 #include <dao_virtio_cryptodev.h>
 
+#include "vc_node.h"
 #include "vc_offload.h"
 #include "vc_parser.h"
 
@@ -82,6 +83,11 @@ static int16_t mem2dev_ids[32];
 static uint16_t dev2mem_cnt;
 static uint16_t mem2dev_cnt;
 static int wrkr_dma_devs;
+
+static rte_node_t virtio_rx_nodes[DAO_VIRTIO_DEV_MAX];
+static rte_node_t cryptodev_enq_node;
+static rte_node_t cryptodev_deq_node;
+static rte_node_t virtio_tx_node;
 
 #define MEMPOOL_CACHE_SIZE 512
 
@@ -655,6 +661,91 @@ setup_virtio_device(void)
 	}
 }
 
+static int
+graph_node_init(void)
+{
+	uint16_t virtio_devid, cryptodev_id;
+	struct rte_node_register *node_reg;
+	char name[RTE_NODE_NAMESIZE];
+	const char *edge_name = name;
+	rte_node_t node;
+	int rc;
+
+	/* Assumption: only 1 cryptodev is used as primary device. */
+	if (vc_cdev_ctx.nb_primary_cryptodevs != 1)
+		APP_ERR("Only 1 primary cryptodev is mapped\n");
+
+	cryptodev_id = vc_cdev_ctx.enabled_primary_cdevs[0];
+
+	/*
+	 * Setup virtio-Rx nodes per virtio-dev
+	 * Connect virtio-Rx node to cryptodev enqueue.
+	 */
+
+	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
+		/* Clone virtio Rx per virtio-dev */
+		snprintf(name, sizeof(name), "%u", virtio_devid);
+		node_reg = vc_virtio_rx_node_get();
+		node = rte_node_clone(node_reg->id, name);
+		if (node == RTE_NODE_ID_INVALID) {
+			APP_ERR("Could not clone virtio Rx node\n");
+			return -EINVAL;
+		}
+
+		virtio_rx_nodes[virtio_devid] = node;
+
+		/* Update graph edge info for virtio Rx nodes */
+		snprintf(name, sizeof(name), "vc_cryptodev_enq-%u", cryptodev_id);
+		rc = rte_node_edge_update(virtio_rx_nodes[virtio_devid], RTE_EDGE_ID_INVALID,
+					  &edge_name, 1);
+		if (rc == RTE_EDGE_ID_INVALID) {
+			APP_ERR("Could not update edge info for virtio Rx node\n");
+			return -EINVAL;
+		}
+	}
+
+	/*
+	 * Setup cryptodev enqueue-dequeue nodes for cryptodev.
+	 * Connect cryptodev-dequeue to virtio-Tx node.
+	 */
+
+	/* Clone cryptodev nodes for this cryptodev */
+	snprintf(name, sizeof(name), "%u", cryptodev_id);
+
+	node_reg = vc_cryptodev_enq_node_get();
+	node = rte_node_clone(node_reg->id, name);
+	if (node == RTE_NODE_ID_INVALID) {
+		APP_ERR("Could not clone cryptodev enqueue node\n");
+		return -EINVAL;
+	}
+	cryptodev_enq_node = node;
+
+	node_reg = vc_cryptodev_deq_node_get();
+	node = rte_node_clone(node_reg->id, name);
+	if (node == RTE_NODE_ID_INVALID) {
+		APP_ERR("Could not clone cryptodev dequeue node\n");
+		return -EINVAL;
+	}
+	cryptodev_deq_node = node;
+
+	/* Update graph edge info for cryptodev dequeue nodes. */
+	snprintf(name, sizeof(name), "vc_virtio_tx");
+	rc = rte_node_edge_update(cryptodev_deq_node, RTE_EDGE_ID_INVALID, &edge_name, 1);
+	if (rc == RTE_EDGE_ID_INVALID) {
+		APP_ERR("Could not update edge info for cryptodev dequeue node\n");
+		return -EINVAL;
+	}
+
+	node = rte_node_from_name(name);
+	if (node == RTE_NODE_ID_INVALID) {
+		APP_ERR("Could not find virtio Tx node\n");
+		return -EINVAL;
+	}
+	virtio_tx_node = node;
+
+	return 0;
+}
+
 static void
 release_virtio_devices(void)
 {
@@ -744,6 +835,11 @@ main(int argc, char **argv)
 
 	/* Initialize virtio devices */
 	setup_virtio_device();
+
+	/* Initialize graph nodes */
+	rc = graph_node_init();
+	if (rc)
+		rte_exit(EXIT_FAILURE, "Could not init graph nodes\n");
 
 	release_virtio_devices();
 
