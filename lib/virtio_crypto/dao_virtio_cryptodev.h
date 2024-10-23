@@ -11,6 +11,9 @@
 #ifndef __INCLUDE_DAO_VIRTIO_CRYPTO_H__
 #define __INCLUDE_DAO_VIRTIO_CRYPTO_H__
 
+#include <rte_crypto.h>
+#include <rte_crypto_asym.h>
+
 #include <dao_virtio.h>
 
 /** Virtio crypto device configuration */
@@ -37,6 +40,38 @@ struct dao_virtio_cryptodev {
 	uint16_t mgmt_fn_id;
 #define DAO_VIRTIO_CRYPTODEV_MEM_SZ 8192
 	uint8_t reserved[DAO_VIRTIO_CRYPTODEV_MEM_SZ];
+};
+
+/** Virtio crypto buffer */
+struct dao_virtio_crypto_buffer {
+	/** Metadata for carrying common information for batch of packets from a queue. */
+	struct {
+		union {
+			/** Cryptodev */
+			struct {
+				/** Device ID */
+				uint16_t id;
+				/** Queue pair ID */
+				uint16_t qp_id;
+			} cdev;
+			/** Virtio device  */
+			struct {
+				/** Device ID */
+				uint16_t dev_id;
+				/** Queue ID  */
+				uint16_t q_id;
+			} virt;
+		};
+		/* Count of packets from same queue */
+		uint16_t cnt;
+	} metadata;
+
+	uint32_t output_len;
+	rte_iova_t output_addr;
+	struct rte_crypto_op cop;
+	struct rte_crypto_asym_op asym;
+#define DAO_VIRTIO_CRYPTO_OP_MEM_SZ 1512
+	uint8_t reserved[DAO_VIRTIO_CRYPTO_OP_MEM_SZ];
 };
 
 /** Virtio crypto devices */
