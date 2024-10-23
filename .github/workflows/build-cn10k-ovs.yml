@@ -53,7 +53,7 @@ jobs:
           source "${PWD}/artifacts/env"
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
           echo "NIGHTLY=${NIGHTLY}" >> $GITHUB_OUTPUT
-      - uses: uraimo/run-on-arch-action@v2.7.2
+      - uses: uraimo/run-on-arch-action@v2.8.1
         name: Build OVS and generate package
         id: build
         with:

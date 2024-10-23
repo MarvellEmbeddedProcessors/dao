@@ -55,7 +55,7 @@ jobs:
           echo "NIGHTLY=${NIGHTLY}" >> $GITHUB_OUTPUT
           echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> $GITHUB_OUTPUT
           echo "DPDK_BASE_PKG_VERSION=${DPDK_BASE_PKG_VERSION}" >> $GITHUB_OUTPUT
-      - uses: uraimo/run-on-arch-action@v2.7.2
+      - uses: uraimo/run-on-arch-action@v2.8.1
         name: Build DAO and generate package
         id: build
         with:
