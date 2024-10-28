@@ -141,6 +141,9 @@ struct virtio_cryptodev {
 	struct rte_mempool *pool;
 	/* Host interrupt for callback */
 	bool cb_enabled;
+	/* Addresses for control queue interrupt */
+	uint32_t *cq_cb_notify_addr;
+	uint64_t *cq_cb_intr_addr;
 
 	/* Fast path */
 	struct virtio_crypto_queue *qs[DAO_VIRTIO_MAX_QUEUES];

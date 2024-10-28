@@ -26,6 +26,13 @@ dao_crypto_desc_manage_fn_t dao_crypto_desc_manage_fns[VIRTIO_CRYPTO_DESC_MANAGE
 static struct dao_virtio_cryptodev_cbs user_cbs;
 
 static void
+virtio_cryptodev_cq_interrupt_trigger(struct virtio_cryptodev *cryptodev)
+{
+	__atomic_store_n(cryptodev->cq_cb_notify_addr, 1, __ATOMIC_RELAXED);
+	__atomic_store_n(cryptodev->cq_cb_intr_addr, (1UL << 59), __ATOMIC_RELAXED);
+}
+
+static void
 virtio_cryptodev_cq_cmd_process(struct virtio_dev *dev, struct rte_dma_sge *src,
 				struct rte_dma_sge *dst, uint16_t nb_desc)
 {
@@ -103,12 +110,15 @@ virtio_cryptodev_cq_cmd_process(struct virtio_dev *dev, struct rte_dma_sge *src,
 		cnt = rte_dma_completed(mem2dev, dev->dma_vchan, 1, NULL, &has_err);
 		tmo_ms--;
 		if (unlikely(has_err))
-			dao_err("[dev %u] DMA failed for driver event flag", dev->dev_id);
+			dao_err("[dev %u] DMA failed for control queue ack status", dev->dev_id);
 		if (!tmo_ms) {
-			dao_err("[dev %u] DMA timeout for driver event flag", dev->dev_id);
-			return;
+			dao_err("[dev %u] DMA timeout for control queue ack status", dev->dev_id);
+			break;
 		}
 	} while (cnt != 1);
+
+	if (cryptodev->cb_enabled)
+		virtio_cryptodev_cq_interrupt_trigger(cryptodev);
 }
 
 static void
@@ -194,6 +204,16 @@ virtio_cryptodev_cb_interrupt_conf(struct virtio_cryptodev *cryptodev)
 		__atomic_store_n(queue->cb_notify_addr, 0, __ATOMIC_RELAXED);
 		intr_idx = (intr_idx + 1) % dev->nb_cb_intrs;
 	}
+
+	/**
+	 * Configure the necessary addresses to trigger the control queue interrupt.
+	 * This setup is essential for the proper functioning of the control queue
+	 * in the virtio crypto device.
+	 */
+	cryptodev->cq_cb_intr_addr = dev->cb_intr_addr[intr_idx];
+	cryptodev->cq_cb_notify_addr =
+		(uint32_t *)(dev->notify_base + (max_vqs * dev->notify_off_mltpr)) + 1;
+	__atomic_store_n(cryptodev->cq_cb_notify_addr, 0, __ATOMIC_RELAXED);
 
 	cryptodev->cb_enabled = 1;
 	dao_dbg("[dev %u] Enabled driver events for %u queues", dev->dev_id, max_vqs);
