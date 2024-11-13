@@ -582,6 +582,12 @@ setup_crypto_devices(void)
 			}
 		}
 
+		ret = dao_virtio_cryptodev_cdev_add(dev_id, vc_cdev_ctx.nb_qp, vc_cdev_ctx.qp_pool);
+		if (ret) {
+			APP_ERR("Could not add cryptodev: %d to virtio cryptodev map.", dev_id);
+			goto free_asym_sess_pool;
+		}
+
 		ret = rte_cryptodev_start(dev_id);
 		if (ret) {
 			APP_ERR("Could not start cryptodev: %d.", dev_id);
@@ -627,6 +633,8 @@ release_crypto_devices(void)
 
 	for (i = 0; i < vc_cdev_ctx.nb_primary_cryptodevs; i++) {
 		dev_id = vc_cdev_ctx.enabled_primary_cdevs[i];
+
+		dao_virtio_cryptodev_cdev_remove(dev_id);
 		rte_cryptodev_stop(dev_id);
 		rte_cryptodev_close(dev_id);
 	}
@@ -1161,6 +1169,8 @@ main(int argc, char **argv)
 
 	if (check_virtio_config() < 0)
 		rte_exit(EXIT_FAILURE, "check_virtio_config() failed\n");
+
+	dao_virtio_cryptodev_common_cfg_init();
 
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())

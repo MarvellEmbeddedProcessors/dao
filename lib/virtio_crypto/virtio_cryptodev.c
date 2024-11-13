@@ -14,6 +14,15 @@
 #include "virtio_crypto_priv.h"
 #include "virtio_dev_priv.h"
 
+struct virtio_crypto_queue_map {
+	uint16_t cryptodev_id;
+	uint16_t cryptodev_qp_cnt;
+	struct rte_mempool *mempool[DAO_VIRTIO_CRYPTO_QP_MAX];
+	struct dao_virtio_cryptodev_vdev_q crypto_queue_map[DAO_VIRTIO_CRYPTO_QP_MAX];
+};
+
+static struct virtio_crypto_queue_map dev_map[DAO_VIRTIO_CRYPTO_DEV_MAX];
+
 /** Virtio crypto devices */
 struct dao_virtio_cryptodev dao_virtio_cryptodevs[DAO_VIRTIO_DEV_MAX + 1];
 
@@ -131,6 +140,8 @@ virtio_cryptodev_clear_queue_info(struct virtio_cryptodev *cryptodev)
 	for (i = 0; i < max_vqs; i++) {
 		/* TODO: flush the queues */
 
+		dao_virtio_cryptodev_cdev_queue_release(cryptodev->dev.dev_id, i);
+
 		if (cryptodev->qs[i])
 			rte_free(cryptodev->qs[i]);
 		cryptodev->qs[i] = NULL;
@@ -223,12 +234,15 @@ static int
 virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 {
 	struct dao_virtio_cryptodev *dao_cryptodev;
+	uint16_t cryptodev_id, cryptodev_qp_id;
+	struct rte_mempool *mempool = NULL;
 	struct virtio_cryptodev *cryptodev;
 	struct virtio_crypto_queue *queue;
 	struct virtio_queue_conf *q_conf;
 	uint32_t shadow_area;
 	uint16_t start_off;
 	uint32_t max_vqs;
+	int ret;
 
 	cryptodev = virtio_dev_to_cryptodev(dev);
 	dao_cryptodev = virtio_cryptodev_to_dao(cryptodev);
@@ -236,6 +250,23 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 
 	if (queue_id >= max_vqs)
 		return -EINVAL;
+
+	ret = dao_virtio_cryptodev_cdev_queue_assign(dev->dev_id, queue_id);
+	if (ret) {
+		dao_info("[dev %u] Could not assign a cryptodev queue for virt queue %d",
+			 dev->dev_id, queue_id);
+		return -ENOTSUP;
+	}
+
+	ret = dao_virtio_cryptodev_cdev_map_queue_get(dev->dev_id, queue_id, &cryptodev_id,
+						      &cryptodev_qp_id, &mempool);
+	if (ret) {
+		dao_info("[dev %u] No cryptodev queue mapped for queue %d", dev->dev_id, queue_id);
+		return -ENOTSUP;
+	}
+
+	dao_cryptodev->cdev_id = cryptodev_id;
+	dao_cryptodev->cdev_qp_id_map[queue_id] = cryptodev_qp_id;
 
 	q_conf = &dev->queue_conf[queue_id];
 	if (!q_conf->queue_enable || cryptodev->qs[queue_id] != NULL)
@@ -287,6 +318,9 @@ virtio_cryptodev_queue_enable(struct virtio_dev *dev, uint16_t queue_id)
 	dao_cryptodev->qs[queue_id] = queue;
 	queue->dao_cryptodev = dao_cryptodev;
 
+	queue->cryptodev_id = cryptodev_id;
+	queue->cryptodev_qp_id = cryptodev_qp_id;
+	queue->mp = mempool;
 	queue->nb_cache_buf_rx = 0;
 	queue->nb_cache_buf_tx = 0;
 
@@ -478,6 +512,172 @@ dao_virtio_cryptodev_data_queue_cnt_get(uint16_t dev_id)
 	}
 
 	return cnt;
+}
+
+void
+dao_virtio_cryptodev_common_cfg_init(void)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < DAO_VIRTIO_CRYPTO_DEV_MAX; i++) {
+		dev_map[i].cryptodev_id = DAO_VIRTIO_INVALID_ID;
+		for (j = 0; j < DAO_VIRTIO_CRYPTO_QP_MAX; j++) {
+			dev_map[i].crypto_queue_map[j].virtio_dev_id = DAO_VIRTIO_INVALID_ID;
+			dev_map[i].crypto_queue_map[j].virtio_queue_id = DAO_VIRTIO_INVALID_ID;
+		}
+	}
+}
+
+int
+dao_virtio_cryptodev_cdev_add(uint16_t dev_id, uint16_t qp_count, struct rte_mempool *mempool[])
+{
+	uint16_t i;
+
+	if (dev_id >= DAO_VIRTIO_CRYPTO_DEV_MAX)
+		return -EINVAL;
+
+	if (qp_count > DAO_VIRTIO_CRYPTO_QP_MAX)
+		return -EINVAL;
+
+	for (i = 0; i < qp_count; i++) {
+		if (mempool[i] == NULL)
+			return -EINVAL;
+	}
+
+	for (i = 0; i < DAO_VIRTIO_CRYPTO_DEV_MAX; i++) {
+		if (dev_map[i].cryptodev_id == DAO_VIRTIO_INVALID_ID) {
+			dev_map[i].cryptodev_id = dev_id;
+			dev_map[i].cryptodev_qp_cnt = qp_count;
+			memcpy(dev_map[i].mempool, mempool,
+			       sizeof(struct rte_mempool *) * qp_count);
+			return 0;
+		}
+	}
+
+	return -ENOMEM;
+}
+
+int
+dao_virtio_cryptodev_cdev_remove(uint16_t dev_id)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < DAO_VIRTIO_CRYPTO_DEV_MAX; i++) {
+		if (dev_map[i].cryptodev_id == dev_id) {
+			dev_map[i].cryptodev_id = DAO_VIRTIO_INVALID_ID;
+			dev_map[i].cryptodev_qp_cnt = 0;
+			for (j = 0; j < DAO_VIRTIO_CRYPTO_QP_MAX; j++) {
+				dev_map[i].crypto_queue_map[j].virtio_dev_id =
+					DAO_VIRTIO_INVALID_ID;
+				dev_map[i].crypto_queue_map[j].virtio_queue_id =
+					DAO_VIRTIO_INVALID_ID;
+			}
+			return 0;
+		}
+	}
+
+	return -EINVAL;
+}
+
+int
+dao_virtio_cryptodev_cdev_queue_assign(uint16_t virt_dev_id, uint16_t virt_queue_id)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < DAO_VIRTIO_CRYPTO_DEV_MAX; i++) {
+		if (dev_map[i].cryptodev_id == DAO_VIRTIO_INVALID_ID)
+			continue;
+
+		for (j = 0; j < dev_map[i].cryptodev_qp_cnt; j++) {
+			if (dev_map[i].crypto_queue_map[j].virtio_dev_id == DAO_VIRTIO_INVALID_ID) {
+				dev_map[i].crypto_queue_map[j].virtio_dev_id = virt_dev_id;
+				dev_map[i].crypto_queue_map[j].virtio_queue_id = virt_queue_id;
+				return 0;
+			}
+		}
+	}
+
+	return -ENOMEM;
+}
+
+int
+dao_virtio_cryptodev_cdev_queue_release(uint16_t virt_dev_id, uint16_t virt_queue_id)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < DAO_VIRTIO_CRYPTO_DEV_MAX; i++) {
+		if (dev_map[i].cryptodev_id == DAO_VIRTIO_INVALID_ID)
+			continue;
+
+		for (j = 0; j < dev_map[i].cryptodev_qp_cnt; j++) {
+			if (dev_map[i].crypto_queue_map[j].virtio_dev_id == virt_dev_id &&
+			    dev_map[i].crypto_queue_map[j].virtio_queue_id == virt_queue_id) {
+				dev_map[i].crypto_queue_map[j].virtio_dev_id =
+					DAO_VIRTIO_INVALID_ID;
+				dev_map[i].crypto_queue_map[j].virtio_queue_id =
+					DAO_VIRTIO_INVALID_ID;
+				return 0;
+			}
+		}
+	}
+
+	return -EINVAL;
+}
+
+int
+dao_virtio_cryptodev_cdev_map_queue_get(uint16_t virt_dev_id, uint16_t virt_queue_id,
+					uint16_t *cdev_id, uint16_t *cdev_qp_id,
+					struct rte_mempool **mempool)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < DAO_VIRTIO_CRYPTO_DEV_MAX; i++) {
+		if (dev_map[i].cryptodev_id == DAO_VIRTIO_INVALID_ID)
+			continue;
+
+		for (j = 0; j < dev_map[i].cryptodev_qp_cnt; j++) {
+			if (dev_map[i].crypto_queue_map[j].virtio_dev_id == virt_dev_id &&
+			    dev_map[i].crypto_queue_map[j].virtio_queue_id == virt_queue_id) {
+				*cdev_id = dev_map[i].cryptodev_id;
+				*cdev_qp_id = j;
+				*mempool = dev_map[i].mempool[j];
+				return 0;
+			}
+		}
+	}
+
+	return -EINVAL;
+}
+
+int
+dao_virtio_cryptodev_virt_dev_map_queue_get(uint16_t cdev_id, uint16_t cdev_qp_id,
+					    uint16_t *virt_dev_id, uint16_t *virt_queue_id)
+{
+	if (cdev_id >= DAO_VIRTIO_CRYPTO_DEV_MAX)
+		return -EINVAL;
+
+	if (dev_map[cdev_id].cryptodev_id == DAO_VIRTIO_INVALID_ID)
+		return -EINVAL;
+
+	if (cdev_qp_id >= dev_map[cdev_id].cryptodev_qp_cnt)
+		return -EINVAL;
+
+	*virt_dev_id = dev_map[cdev_id].crypto_queue_map[cdev_qp_id].virtio_dev_id;
+	*virt_queue_id = dev_map[cdev_id].crypto_queue_map[cdev_qp_id].virtio_queue_id;
+
+	return 0;
+}
+
+const struct dao_virtio_cryptodev_vdev_q *
+dao_virtio_cryptodev_cdev_map_all_queues_get(uint16_t cdev_id)
+{
+	if (cdev_id >= DAO_VIRTIO_CRYPTO_DEV_MAX)
+		return NULL;
+
+	if (dev_map[cdev_id].cryptodev_id == DAO_VIRTIO_INVALID_ID)
+		return NULL;
+
+	return dev_map[cdev_id].crypto_queue_map;
 }
 
 static __rte_always_inline int

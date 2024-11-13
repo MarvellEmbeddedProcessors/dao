@@ -17,6 +17,12 @@
 
 #include <dao_virtio.h>
 
+#define DAO_VIRTIO_CRYPTO_DEV_MAX 1
+/* TODO - should be 64 */
+#define DAO_VIRTIO_CRYPTO_QP_MAX 128
+
+#define DAO_VIRTIO_INVALID_ID 0xFFFF
+
 #define DAO_VIRTIO_CRYPTO_RX_BUF_CACHE_SZ 128
 #define DAO_VIRTIO_CRYPTO_TX_BUF_CACHE_SZ 512
 
@@ -45,6 +51,10 @@ struct dao_virtio_cryptodev {
 	uint16_t enq_fn_id;
 	/** Descriptors management function id */
 	uint16_t mgmt_fn_id;
+	/** Cryptodev ID */
+	uint16_t cdev_id;
+	/** Cryptodev QP ID mapping. Each index corresponds to one virtio queue */
+	uint8_t cdev_qp_id_map[DAO_VIRTIO_CRYPTO_QP_MAX];
 #define DAO_VIRTIO_CRYPTODEV_MEM_SZ 8192
 	uint8_t reserved[DAO_VIRTIO_CRYPTODEV_MEM_SZ];
 };
@@ -79,6 +89,12 @@ struct dao_virtio_crypto_buffer {
 	struct rte_crypto_asym_op asym;
 #define DAO_VIRTIO_CRYPTO_OP_MEM_SZ 1512
 	uint8_t reserved[DAO_VIRTIO_CRYPTO_OP_MEM_SZ];
+};
+
+/** Virtio dev - queue */
+struct dao_virtio_cryptodev_vdev_q {
+	uint16_t virtio_dev_id;
+	uint16_t virtio_queue_id;
 };
 
 /** Virtio crypto devices */
@@ -174,6 +190,109 @@ void dao_virtio_cryptodev_cb_unregister(void);
 uint16_t dao_virtio_cryptodev_data_queue_cnt_get(uint16_t dev_id);
 
 /**
+ * Initialize common configuration for virtio crypto devices.
+ */
+void dao_virtio_cryptodev_common_cfg_init(void);
+
+/**
+ * Add crypto device to the map.
+ *
+ * @param dev_id
+ *    Virtio crypto device ID.
+ * @param qp_count
+ *    Number of queue pairs.
+ * @param mempool
+ *   Array of mempools for each queue pair.
+ * @return
+ *    Zero on success.
+ */
+int dao_virtio_cryptodev_cdev_add(uint16_t dev_id, uint16_t qp_count,
+				  struct rte_mempool *mempool[]);
+
+/**
+ * Remove crypto device from the map.
+ *
+ * @param dev_id
+ *    Virtio crypto device ID.
+ * @return
+ *    Zero on success.
+ */
+int dao_virtio_cryptodev_cdev_remove(uint16_t dev_id);
+
+/**
+ * Assign a crypto queue for a virtio device ID and queue ID.
+ *
+ * @param virt_dev_id
+ *    Virtio device ID.
+ * @param virt_queue_id
+ *    Virtio queue ID.
+ * @return
+ *    Zero on success.
+ */
+int dao_virtio_cryptodev_cdev_queue_assign(uint16_t virt_dev_id, uint16_t virt_queue_id);
+
+/**
+ * Release a crypto queue for a virtio device ID and queue ID.
+ *
+ * @param virt_dev_id
+ *    Virtio device ID.
+ * @param virt_queue_id
+ *    Virtio queue ID.
+ * @return
+ *    Zero on success.
+ */
+int dao_virtio_cryptodev_cdev_queue_release(uint16_t virt_dev_id, uint16_t virt_queue_id);
+
+/**
+ * Get crypto device ID and queue ID from virtio device ID and queue ID.
+ *
+ * @param virt_dev_id
+ *    Virtio device ID.
+ * @param virt_queue_id
+ *    Virtio queue ID.
+ * @param cdev_id [out]
+ *    Crypto device ID.
+ * @param cdev_qp_id [out]
+ *    Crypto queue ID.
+ * @param mempool [out]
+ *   Mempool for the queue.
+ * @return
+ *    Zero on success.
+ */
+int dao_virtio_cryptodev_cdev_map_queue_get(uint16_t virt_dev_id, uint16_t virt_queue_id,
+					    uint16_t *cdev_id, uint16_t *cdev_qp_id,
+					    struct rte_mempool **mempool);
+
+/**
+ * Get virtio device ID and queue ID from crypto device ID and queue ID.
+ *
+ * @param cdev_id
+ *    Crypto device ID.
+ * @param cdev_qp_id
+ *    Crypto queue ID.
+ * @param virt_dev_id [out]
+ *    Virtio device ID.
+ * @param virt_queue_id [out]
+ *    Virtio queue ID.
+ * @return
+ *    Zero on success.
+ */
+int dao_virtio_cryptodev_virt_dev_map_queue_get(uint16_t cdev_id, uint16_t cdev_qp_id,
+						uint16_t *virt_dev_id, uint16_t *virt_queue_id);
+/**
+ * Get all queues for a crypto device.
+ * This is used to get all the virtio queues mapped to a cryptodev.
+ *
+ * @param cdev_id
+ *   Crypto device ID.
+ *
+ * @return
+ *  Array of virtio queues mapped to the cryptodev.
+ */
+const struct dao_virtio_cryptodev_vdev_q *
+dao_virtio_cryptodev_cdev_map_all_queues_get(uint16_t cdev_id);
+
+/**
  * Fetch virtio cryptodev descriptors and acknowledge completions.
  *
  * To be called from service core as frequently as possible to
@@ -255,6 +374,44 @@ dao_virtio_crypto_host_tx(uint16_t devid, uint16_t qid, struct rte_crypto_op **c
 	enq_fn = dao_virtio_crypto_enq_fns[cryptodev->enq_fn_id];
 
 	return (*enq_fn)(q, cops, nb_cops);
+}
+
+/**
+ * Get crypto device ID from virtio device ID.
+ * This is used to get the cryptodev ID for a virtio device.
+ *
+ * @param virt_dev_id
+ *    Virtio device ID.
+ *
+ * @return
+ *    Crypto device ID.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_cdev_id_get(uint16_t virt_dev_id)
+{
+	struct dao_virtio_cryptodev *cryptodev = &dao_virtio_cryptodevs[virt_dev_id];
+
+	return cryptodev->cdev_id;
+}
+
+/**
+ * Get crypto device queue pair ID from virtio device ID and queue ID.
+ * This is used to get the cryptodev queue pair ID for a virtio queue.
+ *
+ * @param virt_dev_id
+ *    Virtio device ID.
+ * @param virt_q_id
+ *    Virtio queue ID.
+ *
+ * @return
+ *    Crypto device queue pair ID.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_cdev_qp_id_get(uint16_t virt_dev_id, uint16_t virt_q_id)
+{
+	struct dao_virtio_cryptodev *cryptodev = &dao_virtio_cryptodevs[virt_dev_id];
+
+	return cryptodev->cdev_qp_id_map[virt_q_id];
 }
 
 #endif /* __INCLUDE_DAO_VIRTIO_CRYPTO_H__ */
