@@ -197,6 +197,9 @@ static struct rte_eth_conf port_conf = {
 		.mq_mode = RTE_ETH_MQ_TX_NONE,
 		.offloads = RTE_ETH_TX_OFFLOAD_MULTI_SEGS,
 	},
+	.intr_conf = {
+		.lsc = 1,
+	},
 };
 
 static int stats_enable;
