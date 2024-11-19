@@ -2,6 +2,7 @@
 # Copyright (c) 2023 Marvell.
 
 apps = [
+        'crypto-agent',
         'ovs-offload',
         'secgw-graph',
         'smart-nic',
