@@ -39,6 +39,8 @@ uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 #define MAX_VIRTIO_RX_PER_LCORE         128
 #define MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE 1
 
+#define QP_DRAIN_TIMEOUT 100
+
 static uint16_t pem_devid;
 
 static uint16_t virtio_cryptodev_dma_vchans[DAO_VIRTIO_DEV_MAX];
@@ -757,9 +759,51 @@ clear_lcore_queue_mapping(uint16_t virtio_devid)
 }
 
 static int
-reconfig_cryptodev(uint8_t devid)
+cryptodev_queues_flush(uint8_t virt_dev_id)
 {
-	RTE_SET_USED(devid);
+	struct rte_crypto_op *crypto_ops[VC_CRYPTODEV_DEQ_BURST_MAX];
+	uint16_t cdev_id, cdev_qp_id, nb_dequeued, virt_q_id;
+	struct dao_virtio_crypto_buffer *buf;
+	struct rte_mempool *mempool = NULL;
+	uint64_t start, wait;
+	int q_cnt, rc, i;
+
+	q_cnt = dao_virtio_cryptodev_data_queue_cnt_get(virt_dev_id);
+
+	for (virt_q_id = 0; virt_q_id < q_cnt; virt_q_id++) {
+		rc = dao_virtio_cryptodev_cdev_map_queue_get(virt_dev_id, virt_q_id, &cdev_id,
+							     &cdev_qp_id, &mempool);
+
+		if (rc != 0) {
+			APP_ERR("Failed to get cryptodev queue mapping: dev=%d queue id: %d\n",
+				virt_dev_id, virt_q_id);
+			return rc;
+		}
+
+		start = rte_get_timer_cycles();
+		wait = rte_get_timer_hz() / 100; /* 10ms*/
+
+		/* Drain the queue here as the worker threads will not be picking the queue. */
+		while (rte_cryptodev_qp_depth_used(cdev_id, cdev_qp_id) != 0) {
+			nb_dequeued = rte_cryptodev_dequeue_burst(cdev_id, cdev_qp_id, crypto_ops,
+								  RTE_DIM(crypto_ops));
+
+			for (i = 0; i < nb_dequeued; i++) {
+				buf = RTE_PTR_SUB(crypto_ops[i],
+						  offsetof(struct dao_virtio_crypto_buffer, cop));
+				rte_mempool_put(mempool, buf);
+			}
+
+			if ((rte_get_timer_cycles() - start) > wait) {
+				APP_INFO(
+					"Drain queue pair: %d cryptodev=%d nb_dequeued = %d, depth = %d\n",
+					cdev_qp_id, cdev_id, nb_dequeued,
+					rte_cryptodev_qp_depth_used(cdev_id, cdev_qp_id));
+				return 0;
+			}
+		}
+	}
+
 	return 0;
 }
 
@@ -861,7 +905,6 @@ setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 		}
 	}
 
-	dump_lcore_info();
 	return 0;
 }
 
@@ -897,7 +940,7 @@ vc_status_cb(uint16_t virtio_devid, uint8_t status)
 	/* After this point, all the cores see updated queue mapping */
 
 	if (reset_cryptodev)
-		reconfig_cryptodev(virtio_devid);
+		cryptodev_queues_flush(virtio_devid);
 
 	return 0;
 }
