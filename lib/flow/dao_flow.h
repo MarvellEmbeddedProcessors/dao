@@ -30,8 +30,8 @@ struct dao_flow_query_count {
 	uint64_t hits;
 	/** Number of bytes through this rule [out] */
 	uint64_t bytes;
-	/** Number of hits for respective acl rule [out] */
-	uint64_t acl_rule_hits;
+	/** Number of hits for respective rule [out] */
+	uint64_t rule_hits;
 };
 
 /** Structure to retrieve no of flow at different stages per port */
@@ -41,12 +41,13 @@ struct dao_flow_count {
 	/* Number of HW offload flows per port */
 	uint32_t hw_offload_flow;
 	/** Number of ACL rules per port */
-	uint32_t acl_rule;
+	uint32_t rule_per_port;
 };
 
 /** Flow offloading configuration structure */
 struct dao_flow_offload_config {
-#define DAO_FLOW_HW_OFFLOAD_ENABLE RTE_BIT64(0)
+#define DAO_FLOW_HW_OFFLOAD_ENABLE RTE_BIT32(0)
+#define DAO_FLOW_ALG_ACL RTE_BIT32(1)
 	/** Different features supported */
 	uint32_t feature;
 	/** Key exchange profiles supported */
@@ -57,16 +58,15 @@ struct dao_flow_offload_config {
 
 /** DAO flow handle */
 struct dao_flow {
-	/** ACL rule info */
-	struct acl_rule_data *arule;
-	/** ACL rule id */
-	uint32_t acl_rule_id;
+	/** Rule info */
+	void *rule_data;
 	/** HW offload rule info */
 	struct hw_offload_flow *hflow;
 	/** Port ID for which rule is installed */
 	uint16_t port_id;
 	/** Table ID to which rule is installed */
 	uint16_t tbl_id;
+	bool is_hw_offloaded;
 };
 
 /**

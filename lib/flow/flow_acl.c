@@ -93,10 +93,23 @@ acl_lookup_process(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t n
 }
 
 int
-acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
+acl_flow_lookup(void *acl_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
 		uint32_t *result)
 {
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl;
+	uint16_t tbl_id = 0;
 	int i;
+
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[tbl_id];
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d", tbl_id,
+			     port_id);
 
 	if (!acl_tbl)
 		return ACL_RULE_TBL_INVALID;
@@ -116,6 +129,8 @@ acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_o
 	}
 
 	return 0;
+fail:
+	return -1;
 }
 
 static int
@@ -219,22 +234,37 @@ acl_rule_prepare(struct acl_rule_data *rule_data, struct parsed_flow *flow)
 	}
 }
 
-struct acl_rule_data *
-acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
+void *
+acl_create_rule(void *acl_cfg, const struct rte_flow_attr *attr,
 		const struct rte_flow_item pattern[], const struct rte_flow_action actions[],
-		struct rte_flow_error *error)
+		uint16_t port_id, uint32_t *rule_idx, struct rte_flow_error *error)
 {
 	enum rte_acl_classify_alg alg = RTE_ACL_CLASSIFY_SCALAR;
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_config_per_port *acl_cfg_prt;
 	struct rte_acl_config acl_build_param;
 	struct acl_rule_data *rule_data;
 	char name[RTE_ACL_NAMESIZE];
-	struct parsed_flow *flow;
 	struct rte_acl_param param;
+	struct acl_table *acl_tbl;
+	struct parsed_flow *flow;
+	uint16_t tbl_id = 0;
 	int rc, action;
 
 	RTE_SET_USED(error);
 	RTE_SET_USED(attr);
 	RTE_SET_USED(action);
+
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[tbl_id];
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d", tbl_id,
+			     port_id);
+
+	acl_tbl->port_id = port_id;
 
 	if (!acl_tbl)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table handle");
@@ -288,6 +318,7 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 	rule_data->rule->data.priority = attr->priority + 1;
 	rule_data->rule->data.category_mask = -1;
 	rule_data->rule->data.userdata = action;
+	rule_data->tbl_id = tbl_id;
 
 	rte_spinlock_lock(&acl_tbl->ctx_lock);
 	rc = rte_acl_add_rules(acl_tbl->ctx, (struct rte_acl_rule *)rule_data->rule, 1);
@@ -313,7 +344,10 @@ acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
 	TAILQ_INSERT_TAIL(&acl_tbl->flow_list, rule_data, next);
 	dao_dbg("Added new ACL rule data %p rule %p", rule_data, rule_data->rule);
 
-	return rule_data;
+	acl_cfg_prt->num_rules_per_prt++;
+	*rule_idx = rule_data->rule_idx;
+
+	return (void *)rule_data;
 free_rule:
 	rte_spinlock_unlock(&acl_tbl->ctx_lock);
 	rte_free(rule_data->rule);
@@ -327,25 +361,23 @@ fail:
 }
 
 int
-acl_global_config_init(uint16_t port_id, struct flow_global_cfg *gbl_cfg)
+acl_global_config_init(uint16_t port_id, void **gcfg)
 {
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)*gcfg;
 	struct acl_config_per_port *acl_cfg_prt;
-	struct acl_global_config *acl_gbl;
 	struct acl_table *acl_tbl;
 	int i;
 
-	if (!gbl_cfg->acl_gbl) {
+	if (!acl_gbl) {
 		acl_gbl = rte_zmalloc("acl_global_config", sizeof(struct acl_global_config),
 				      RTE_CACHE_LINE_SIZE);
 		if (!acl_gbl)
 			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
 
-		gbl_cfg->acl_gbl = acl_gbl;
-	} else {
-		acl_gbl = gbl_cfg->acl_gbl;
+		*gcfg = (void *)acl_gbl;
 	}
 	/* Initialize global ACL configuration */
-	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
 	if (!acl_cfg_prt)
 		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
 
@@ -362,92 +394,23 @@ fail:
 }
 
 static int
-acl_table_rule_flush(struct acl_table *acl_tbl)
-{
-	struct acl_rule_data *prule;
-	void *tmp;
-	int rc;
-
-	if (!acl_tbl->tbl_val)
-		return 0;
-
-	if (!acl_tbl->num_rules)
-		return 0;
-
-	DAO_TAILQ_FOREACH_SAFE(prule, &acl_tbl->flow_list, next, tmp) {
-		rc = acl_delete_rule(acl_tbl, prule);
-		if (rc)
-			DAO_ERR_GOTO(-rc, fail, "Failed to delete rule %p", prule);
-	}
-
-	return 0;
-fail:
-	return errno;
-}
+delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule);
 
 static int
-acl_table_cleanup(struct acl_table *acl_tbl)
+delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule)
 {
-	if (acl_table_rule_flush(acl_tbl))
-		DAO_ERR_GOTO(errno, fail, "Failed to flush acl rules list for table %d",
-			     acl_tbl->tbl_id);
-
-	rte_free(acl_tbl->action);
-	rte_spinlock_lock(&acl_tbl->ctx_lock);
-	rte_acl_reset(acl_tbl->ctx);
-	rte_acl_free(acl_tbl->ctx);
-	rte_spinlock_unlock(&acl_tbl->ctx_lock);
-	acl_tbl->tbl_val = false;
-
-	return 0;
-fail:
-	return errno;
-}
-
-int
-acl_global_config_fini(uint16_t port_id, struct flow_global_cfg *gbl_cfg)
-{
-	struct acl_config_per_port *acl_cfg_prt;
-	struct acl_global_config *acl_gbl;
-	struct acl_table *acl_tbl;
-	int i;
-
-	acl_gbl = gbl_cfg->acl_gbl;
-	if (!acl_gbl)
-		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl_gbl handle");
-
-	acl_cfg_prt = &gbl_cfg->acl_gbl->acl_cfg_prt[port_id];
-	if (!acl_cfg_prt)
-		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
-
-	for (i = 0; i < ACL_MAX_PORT_TABLES; i++) {
-		acl_tbl = &acl_cfg_prt->acl_tbl[i];
-		if (!acl_tbl)
-			DAO_ERR_GOTO(-EINVAL, fail,
-				     "Failed to get table for tbl_id %d, port id %d", i, port_id);
-		if (acl_table_cleanup(acl_tbl))
-			goto fail;
-	}
-
-	return 0;
-fail:
-	return errno;
-}
-
-uint32_t
-acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule)
-{
-	struct rte_acl_ctx *ctx = acl_tbl->ctx;
 	struct rte_acl_config acl_build_param;
 	struct acl_rule_data *prule;
+	struct rte_acl_ctx *ctx;
 	uint32_t tid, count = 0;
 	int rc;
 
+	ctx = acl_tbl->ctx;
 	rte_spinlock_lock(&acl_tbl->ctx_lock);
 	/* Free all the rules from original context */
 	rte_acl_reset_rules(ctx);
 	/* Add rules back to context except the one to be deleted */
-	TAILQ_FOREACH(prule, &acl_tbl->flow_list, next) {
+	TAILQ_FOREACH (prule, &acl_tbl->flow_list, next) {
 		if ((uintptr_t)prule != (uintptr_t)rule) {
 			count++;
 			dao_dbg("Moving ACL rule %p %p", prule, prule->rule);
@@ -490,10 +453,121 @@ fail:
 	return errno;
 }
 
+static int
+acl_table_rule_flush(struct acl_table *acl_tbl)
+{
+	struct acl_rule_data *prule;
+	void *tmp;
+	int rc;
+
+	if (!acl_tbl->tbl_val)
+		return 0;
+
+	if (!acl_tbl->num_rules)
+		return 0;
+
+	DAO_TAILQ_FOREACH_SAFE(prule, &acl_tbl->flow_list, next, tmp) {
+		rc = delete_rule(acl_tbl, prule);
+		if (rc)
+			DAO_ERR_GOTO(-rc, fail, "Failed to delete rule %p", prule);
+	}
+
+	return 0;
+fail:
+	return errno;
+}
+
+static int
+acl_table_cleanup(struct acl_table *acl_tbl)
+{
+	if (acl_table_rule_flush(acl_tbl))
+		DAO_ERR_GOTO(errno, fail, "Failed to flush acl rules list for table %d",
+			     acl_tbl->tbl_id);
+
+	rte_free(acl_tbl->action);
+	rte_spinlock_lock(&acl_tbl->ctx_lock);
+	rte_acl_reset(acl_tbl->ctx);
+	rte_acl_free(acl_tbl->ctx);
+	rte_spinlock_unlock(&acl_tbl->ctx_lock);
+	acl_tbl->tbl_val = false;
+
+	return 0;
+fail:
+	return errno;
+}
+
 int
-acl_rule_query(struct acl_table *acl_tbl, struct acl_rule_data *rule_data,
+acl_global_config_fini(uint16_t port_id, void *gcfg)
+{
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)gcfg;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl;
+	int i;
+
+	if (!acl_gbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl_gbl handle");
+
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	for (i = 0; i < ACL_MAX_PORT_TABLES; i++) {
+		acl_tbl = &acl_cfg_prt->acl_tbl[i];
+		if (!acl_tbl)
+			DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d",
+				     i, port_id);
+		if (acl_table_cleanup(acl_tbl))
+			goto fail;
+	}
+
+	return 0;
+fail:
+	return errno;
+}
+
+int
+acl_delete_rule(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *arule)
+{
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_rule_data *rule = (struct acl_rule_data *)arule;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl = NULL;
+	int rc;
+
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[tbl_id];
+	if (!acl_tbl)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d", tbl_id,
+			     port_id);
+
+	rc = delete_rule(acl_tbl, rule);
+	if (rc)
+		DAO_ERR_GOTO(-rc, fail, "Failed to delete rule %p", arule);
+
+	acl_cfg_prt->num_rules_per_prt--;
+
+	return 0;
+fail:
+	return errno;
+}
+
+int
+acl_rule_query(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *arule,
 	       struct dao_flow_query_count *query)
 {
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_rule_data *rule_data = (struct acl_rule_data *)arule;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl;
+
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[tbl_id];
 	if (!acl_tbl)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table handle");
 
@@ -501,7 +575,7 @@ acl_rule_query(struct acl_table *acl_tbl, struct acl_rule_data *rule_data,
 		DAO_ERR_GOTO(-EINVAL, fail, "ACL table id %d under port %d not initialized",
 			     acl_tbl->tbl_id, acl_tbl->port_id);
 
-	query->acl_rule_hits = rule_data->rule_hits;
+	query->rule_hits = rule_data->rule_hits;
 
 	/* If user to reset the count */
 	if (query->reset)
@@ -513,23 +587,28 @@ fail:
 }
 
 int
-acl_rule_info(struct acl_rule_data *arule, FILE *file)
+acl_rule_info(void *rule_data, FILE *file, bool is_hw_offloaded)
 {
+	struct acl_rule_data *arule = (struct acl_rule_data *)rule_data;
+
 	fprintf(file, "\t ACL Rule handle: %p ACL Table ID: %d\n", arule->rule, arule->tbl_id);
 	fprintf(file, "\t ACL Rule Index: %d\n", arule->rule_idx);
 	fprintf(file, "\t ACL rule hits: %d\n", arule->rule_hits);
-	fprintf(file, "\t ACL rule HW offloaded: %s\n", arule->is_hw_offloaded ? "true" : "false");
+	fprintf(file, "\t ACL rule HW offloaded: %s\n", is_hw_offloaded ? "true" : "false");
 	fprintf(file, "\n");
 
 	return 0;
 }
 
 int
-acl_rule_flush(struct acl_config_per_port *acl_cfg_prt)
+acl_rule_flush(void *acl_cfg, uint16_t port_id)
 {
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_config_per_port *acl_cfg_prt;
 	struct acl_table *acl_tbl = NULL;
 	int i;
 
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
 	if (!acl_cfg_prt)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl tables for port handle");
 
@@ -550,10 +629,19 @@ fail:
 }
 
 int
-acl_rule_dump(struct acl_table *acl_tbl, struct acl_rule_data *rule_data, FILE *file)
+acl_rule_dump(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *arule, FILE *file)
 {
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_rule_data *rule_data = (struct acl_rule_data *)arule;
+	struct acl_config_per_port *acl_cfg_prt;
+	struct acl_table *acl_tbl;
 	int i;
 
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (!acl_cfg_prt)
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per acl tables for port %d", port_id);
+
+	acl_tbl = &acl_cfg_prt->acl_tbl[tbl_id];
 	if (!acl_tbl)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table handle");
 
@@ -584,3 +672,29 @@ acl_rule_dump(struct acl_table *acl_tbl, struct acl_rule_data *rule_data, FILE *
 fail:
 	return errno;
 }
+
+int
+acl_port_rule_count(void *acl_cfg, uint16_t port_id)
+{
+	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
+	struct acl_config_per_port *acl_cfg_prt;
+
+	acl_cfg_prt = &acl_gbl->acl_cfg_prt[port_id];
+	if (acl_cfg_prt)
+		return acl_cfg_prt->num_rules_per_prt;
+
+	return 0;
+}
+
+struct flow_fops_t acl_flow_ops = {
+	.init = acl_global_config_init,
+	.fini = acl_global_config_fini,
+	.create = acl_create_rule,
+	.destroy = acl_delete_rule,
+	.lookup = acl_flow_lookup,
+	.query = acl_rule_query,
+	.dump = acl_rule_dump,
+	.flush = acl_rule_flush,
+	.info = acl_rule_info,
+	.count = acl_port_rule_count,
+};

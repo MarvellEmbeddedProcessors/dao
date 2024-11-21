@@ -204,20 +204,21 @@ struct acl_global_config {
 	struct acl_config_per_port acl_cfg_prt[RTE_MAX_ETHPORTS];
 };
 
-int acl_global_config_init(uint16_t port_id, struct flow_global_cfg *gbl_cfg);
-int acl_global_config_fini(uint16_t port_id, struct flow_global_cfg *gbl_cfg);
+int acl_global_config_init(uint16_t port_id, void **gbl_cfg);
+int acl_global_config_fini(uint16_t port_id, void *gbl_cfg);
 
-struct acl_rule_data *acl_create_rule(struct acl_table *acl_tbl, const struct rte_flow_attr *attr,
-				      const struct rte_flow_item pattern[],
-				      const struct rte_flow_action actions[],
-				      struct rte_flow_error *error);
+void *acl_create_rule(void *acl_cfg, const struct rte_flow_attr *attr,
+		      const struct rte_flow_item pattern[], const struct rte_flow_action actions[],
+		      uint16_t port_id, uint32_t *rule_idx, struct rte_flow_error *error);
 
-uint32_t acl_delete_rule(struct acl_table *acl_tbl, struct acl_rule_data *rule);
-int acl_flow_lookup(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t nb_objs,
+int acl_delete_rule(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *arule);
+int acl_flow_lookup(void *acl_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
 		    uint32_t *result);
-int acl_rule_info(struct acl_rule_data *arule, FILE *file);
-int acl_rule_flush(struct acl_config_per_port *acl_cfg_prt);
-int acl_rule_dump(struct acl_table *acl_tbl, struct acl_rule_data *rule_data, FILE *file);
-int acl_rule_query(struct acl_table *acl_tbl, struct acl_rule_data *rule_data,
-		   struct dao_flow_query_count *query);
+int acl_rule_info(void *rule_data, FILE *file, bool is_hw_offloaded);
+int acl_rule_flush(void *acl_cfg, uint16_t port_id);
+int acl_rule_dump(void *acl_cfg, uint16_t port_id, uint32_t tbl_id,
+		  void *rule_data, FILE *file);
+int acl_rule_query(void *acl_cfg, uint16_t port_id, uint32_t tbl_id,
+		   void *rule_data, struct dao_flow_query_count *query);
+int acl_port_rule_count(void *acl_gbl, uint16_t port_id);
 #endif /* __FLOW_ACL_PRIV_H__ */

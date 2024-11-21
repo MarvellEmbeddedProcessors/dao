@@ -289,6 +289,7 @@ ood_control_channel_init(struct ood_main_cfg_data *ood_main_cfg)
 
 		memset(&config, 0, sizeof(struct dao_flow_offload_config));
 		config.feature = DAO_FLOW_HW_OFFLOAD_ENABLE;
+		config.feature |= DAO_FLOW_ALG_ACL;
 		rte_strscpy(config.parse_profile, "ovs", DAO_FLOW_PROFILE_NAME_MAX);
 		rc = dao_flow_init(rep_map[i].mac_port, &config);
 		if (rc) {

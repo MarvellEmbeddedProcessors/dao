@@ -294,7 +294,7 @@ flow_test_flush(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 			   "Failed to get flow info for port %d, err %d", gbl_cfg->rx_portid,
 			   errno);
 	DAO_ASSERT_NOT_ZERO(count.dao_flow, "DAO flow count is zero");
-	DAO_ASSERT_NOT_ZERO(count.acl_rule, "ACL rule count is zero");
+	DAO_ASSERT_NOT_ZERO(count.rule_per_port, "ACL rule count is zero");
 
 	/* Flush all the flows */
 	DAO_ASSERT_SUCCESS(dao_flow_flush(gbl_cfg->rx_portid, &error),
@@ -305,7 +305,7 @@ flow_test_flush(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 			   "Failed to get flow info for port %d, err %d", gbl_cfg->rx_portid,
 			   errno);
 	DAO_ASSERT_ZERO(count.dao_flow, "DAO flow count is non zero: %d", count.dao_flow);
-	DAO_ASSERT_ZERO(count.acl_rule, "ACL rule count is non zero: %d", count.acl_rule);
+	DAO_ASSERT_ZERO(count.rule_per_port, "ACL rule count is non zero: %d", count.rule_per_port);
 	DAO_ASSERT_ZERO(count.hw_offload_flow, "HW offload flow count is non zero: %d",
 			count.hw_offload_flow);
 }
@@ -367,10 +367,10 @@ flow_test_query(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 		DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 		DAO_ASSERT_EQUAL(count_query.hits, 0, "HW offload flow hits non-zero: %ld",
 				 count_query.hits);
-		DAO_ASSERT_EQUAL(count_query.acl_rule_hits, BURST_SIZE / 3, "ACL rule hits zero");
+		DAO_ASSERT_EQUAL(count_query.rule_hits, BURST_SIZE / 3, "ACL rule hits zero");
 		dao_dbg("Flow[%d] reset %s HW offload hit_set %d hits %ld acl_rule_hits %ld", i,
 			reset ? "true" : "false", count_query.hits_set, count_query.hits,
-			count_query.acl_rule_hits);
+			count_query.rule_hits);
 	}
 
 	run_test(gbl_cfg);
@@ -382,20 +382,20 @@ flow_test_query(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 			DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 			DAO_ASSERT_EQUAL(count_query.hits, BURST_SIZE / 3,
 					 "HW offload flow hits zero");
-			DAO_ASSERT_EQUAL(count_query.acl_rule_hits, 0, "ACL rule hits %ld non-zero",
-					 count_query.acl_rule_hits);
+			DAO_ASSERT_EQUAL(count_query.rule_hits, 0, "ACL rule hits %ld non-zero",
+					 count_query.rule_hits);
 		} else {
 			hw_flow_count[i] += BURST_SIZE / 3;
 			DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 			DAO_ASSERT_EQUAL(count_query.hits, hw_flow_count[i],
 					 "HW offload flow hits invalid, %ld != %ld",
 					 count_query.hits, hw_flow_count[i]);
-			DAO_ASSERT_EQUAL(count_query.acl_rule_hits, BURST_SIZE / 3,
+			DAO_ASSERT_EQUAL(count_query.rule_hits, BURST_SIZE / 3,
 					 "ACL rule hits zero");
 		}
 		dao_info("Flow[%d] reset %s HW offload hit_set %d hits %ld acl_rule_hits %ld", i,
 			 reset ? "true" : "false", count_query.hits_set, count_query.hits,
-			 count_query.acl_rule_hits);
+			 count_query.rule_hits);
 	}
 
 	run_test(gbl_cfg);
@@ -407,19 +407,19 @@ flow_test_query(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 			DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 			DAO_ASSERT_EQUAL(count_query.hits, BURST_SIZE / 3,
 					 "HW offload flow hits zero");
-			DAO_ASSERT_EQUAL(count_query.acl_rule_hits, 0, "ACL rule hits non-zero");
+			DAO_ASSERT_EQUAL(count_query.rule_hits, 0, "ACL rule hits non-zero");
 		} else {
 			hw_flow_count[i] += BURST_SIZE / 3;
 			DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 			DAO_ASSERT_EQUAL(count_query.hits, hw_flow_count[i],
 					 "HW offload flow hits invalid, %ld != %ld",
 					 count_query.hits, hw_flow_count[i]);
-			DAO_ASSERT_EQUAL(count_query.acl_rule_hits, BURST_SIZE / 3,
+			DAO_ASSERT_EQUAL(count_query.rule_hits, BURST_SIZE / 3,
 					 "ACL rule hits zero");
 		}
 		dao_info("Flow[%d] reset %s HW offload hit_set %d hits %ld acl_rule_hits %ld", i,
 			 reset ? "true" : "false", count_query.hits_set, count_query.hits,
-			 count_query.acl_rule_hits);
+			 count_query.rule_hits);
 	}
 
 	run_test(gbl_cfg);
@@ -431,19 +431,19 @@ flow_test_query(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 			DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 			DAO_ASSERT_EQUAL(count_query.hits, BURST_SIZE / 3,
 					 "HW offload flow hits zero");
-			DAO_ASSERT_EQUAL(count_query.acl_rule_hits, 0, "ACL rule hits non-zero");
+			DAO_ASSERT_EQUAL(count_query.rule_hits, 0, "ACL rule hits non-zero");
 		} else {
 			hw_flow_count[i] += BURST_SIZE / 3;
 			DAO_ASSERT_EQUAL(count_query.hits_set, 1, "HW offload query hits not set");
 			DAO_ASSERT_EQUAL(count_query.hits, hw_flow_count[i],
 					 "HW offload flow hits invalid, %ld != %ld",
 					 count_query.hits, hw_flow_count[i]);
-			DAO_ASSERT_EQUAL(count_query.acl_rule_hits, BURST_SIZE / 3,
+			DAO_ASSERT_EQUAL(count_query.rule_hits, BURST_SIZE / 3,
 					 "ACL rule hits zero");
 		}
 		dao_info("Flow[%d] reset %s HW offload hit_set %d hits %ld acl_rule_hits %ld", i,
 			 reset ? "true" : "false", count_query.hits_set, count_query.hits,
-			 count_query.acl_rule_hits);
+			 count_query.rule_hits);
 	}
 
 	if (dao_flow_destroy(gbl_cfg->rx_portid, flow[0], &error)) {
@@ -548,6 +548,7 @@ profile_tests(struct flow_test_global_cfg *gbl_cfg, const char *prfl, bool hw_of
 		memset(&config, 0, sizeof(struct dao_flow_offload_config));
 		/* Enable HW offloading */
 		config.feature |= hw_offload_enable ? DAO_FLOW_HW_OFFLOAD_ENABLE : 0;
+		config.feature |= DAO_FLOW_ALG_ACL;
 		rte_strscpy(config.parse_profile, prfl, DAO_FLOW_PROFILE_NAME_MAX);
 		rc = dao_flow_init(portid, &config);
 		if (rc) {
