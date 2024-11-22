@@ -426,6 +426,27 @@ virtio_cryptodev_cq_id_get(struct virtio_dev *dev, uint64_t feature_bits)
 	return dev->max_virtio_queues - 1;
 }
 
+static uint32_t
+virtio_cryptodev_max_queues_get(struct virtio_dev *dev)
+{
+	uint16_t max_vfs = dao_pem_max_vfs_get(dev->pem_devid);
+	uint32_t max_qp;
+
+	if (!max_vfs || max_vfs > DAO_VIRTIO_CRYPTO_QP_MAX)
+		return 0;
+
+	max_qp = DAO_VIRTIO_CRYPTO_QP_MAX / max_vfs;
+	if (DAO_VIRTIO_CRYPTO_QP_MAX % max_vfs) {
+		uint16_t rem_qp = DAO_VIRTIO_CRYPTO_QP_MAX % max_vfs;
+
+		if (dev->dev_id < rem_qp)
+			max_qp++;
+	}
+
+	/* Add one for control queue */
+	return max_qp + 1;
+}
+
 int
 dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf)
 {
@@ -442,6 +463,9 @@ dao_virtio_cryptodev_init(uint16_t devid, struct dao_virtio_cryptodev_conf *conf
 	dev->dma_vchan = conf->dma_vchan;
 	cryptodev->pool = conf->pool;
 	cryptodev->cdev_id = conf->cdev_id;
+
+	/* Get the max queues that can be supported and limit the virtio queues. */
+	dev->max_virtio_queues_limit = virtio_cryptodev_max_queues_get(dev);
 
 	/* Initialize base virtio device */
 	rc = virtio_dev_init(dev);
