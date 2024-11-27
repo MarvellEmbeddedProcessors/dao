@@ -743,6 +743,54 @@ reconfig_cryptodev(uint8_t devid)
 	return 0;
 }
 
+static uint64_t
+vc_sym_sess_create_cb(uint16_t cdev_id, struct rte_crypto_sym_xform *sym_xform)
+{
+	void *session = NULL;
+
+	rte_errno = 0;
+
+	session = rte_cryptodev_sym_session_create(cdev_id, sym_xform, vc_cdev_ctx.sym_sess_pool);
+	if (rte_errno) {
+		APP_ERR("Sym session create failed with errno: %d", rte_errno);
+		return 0;
+	}
+
+	APP_INFO("Sym session: %lx created\n", (uint64_t)session);
+
+	return (uint64_t)session;
+}
+
+static uint64_t
+vc_asym_sess_create_cb(uint16_t cdev_id, struct rte_crypto_asym_xform *asym_xform)
+{
+	void *session = NULL;
+	int ret;
+
+	ret = rte_cryptodev_asym_session_create(cdev_id, asym_xform, vc_cdev_ctx.asym_sess_pool,
+						&session);
+	if (ret) {
+		APP_ERR("Asym session create failed with errno: %d", ret);
+		return 0;
+	}
+
+	APP_INFO("Asym session: %lx created\n", (uint64_t)session);
+
+	return (uint64_t)session;
+}
+
+static void
+vc_sym_sess_destroy_cb(uint16_t cdev_id, uint64_t session)
+{
+	rte_cryptodev_sym_session_free(cdev_id, (void *)session);
+}
+
+static void
+vc_asym_sess_destroy_cb(uint16_t cdev_id, uint64_t session)
+{
+	rte_cryptodev_asym_session_free(cdev_id, (void *)session);
+}
+
 static int
 vc_status_cb(uint16_t virtio_devid, uint8_t status)
 {
@@ -807,6 +855,10 @@ setup_virtio_device(void)
 
 	memset(&cbs, 0, sizeof(cbs));
 	cbs.status_cb = vc_status_cb;
+	cbs.sym_sess_create_cb = vc_sym_sess_create_cb;
+	cbs.asym_sess_create_cb = vc_asym_sess_create_cb;
+	cbs.sym_sess_destroy_cb = vc_sym_sess_destroy_cb;
+	cbs.asym_sess_destroy_cb = vc_asym_sess_destroy_cb;
 	dao_virtio_cryptodev_cb_register(&cbs);
 }
 
