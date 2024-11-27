@@ -104,10 +104,27 @@ extern dao_crypto_desc_manage_fn_t dao_crypto_desc_manage_fns[];
 /** Device status callback */
 typedef int (*dao_virtio_cryptodev_status_cb_t)(uint16_t devid, uint8_t status);
 
+/** Crypto symmetric session create callback */
+typedef uint64_t (*dao_virtio_cryptodev_sym_sess_create_cb_t)(uint16_t dev_id,
+							      struct rte_crypto_sym_xform *x);
+/** Crypto asymmetric session create callback */
+typedef uint64_t (*dao_virtio_cryptodev_asym_sess_create_cb_t)(uint16_t dev_id,
+							       struct rte_crypto_asym_xform *x);
+/** Crypto session destroy callback */
+typedef void (*dao_virtio_cryptodev_session_destroy_cb_t)(uint16_t dev_id, uint64_t session_id);
+
 /** Virtio crypto device callbacks */
 struct dao_virtio_cryptodev_cbs {
 	/** Device status callback */
 	dao_virtio_cryptodev_status_cb_t status_cb;
+	/** Crypto symmetric session create callback */
+	dao_virtio_cryptodev_sym_sess_create_cb_t sym_sess_create_cb;
+	/** Crypto session destroy callback */
+	dao_virtio_cryptodev_session_destroy_cb_t sym_sess_destroy_cb;
+	/** Crypto asymmetric session create callback */
+	dao_virtio_cryptodev_asym_sess_create_cb_t asym_sess_create_cb;
+	/** Crypto session destroy callback */
+	dao_virtio_cryptodev_session_destroy_cb_t asym_sess_destroy_cb;
 };
 
 /**
