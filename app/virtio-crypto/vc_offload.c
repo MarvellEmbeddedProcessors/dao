@@ -60,6 +60,7 @@ struct lcore_virtio_rx {
 /* Lcore conf */
 struct lcore_conf {
 	/* Fast path accessed */
+	uint64_t virt_dev_map;
 
 	uint16_t nb_virtio_rx;
 	struct lcore_virtio_rx virtio_rx[MAX_VIRTIO_RX_PER_LCORE];
@@ -633,8 +634,152 @@ release_crypto_devices(void)
 }
 
 static void
+dump_lcore_info(void)
+{
+	struct vc_cryptodev_deq_node_ctx *cryptodev_deq;
+	struct vc_virtio_rx_node_ctx *virtio_rx;
+	struct lcore_conf *qconf;
+	uint32_t lcore_id;
+	uint16_t i, q_id;
+	uint64_t map;
+
+	APP_INFO("\n");
+	APP_INFO("Lcore info...\n");
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
+			continue;
+
+		qconf = &lcore_conf[lcore_id];
+		if (!qconf->nb_crypto_deq && !qconf->nb_virtio_rx && !qconf->service_lcore)
+			continue;
+
+		if (qconf->service_lcore) {
+			APP_INFO("\tService lcore %u\n", lcore_id);
+			continue;
+		}
+
+		APP_INFO("\tRx queues on lcore %u ... ", lcore_id);
+		fflush(stdout);
+
+		map = 0;
+		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+			virtio_rx = qconf->virtio_rx[i].virtio_rx;
+#ifdef UNSELECT
+			map = virtio_rx->virt_q_map;
+#endif
+			q_id = 0;
+			while (map) {
+				if (map & 0x1)
+					APP_INFO_NH("virtio_rxq=%d,%d ", virtio_rx->virtio_devid,
+						    q_id);
+				q_id++;
+				map = map >> 1;
+			}
+		}
+
+		fflush(stdout);
+
+		map = 0;
+		for (i = 0; i < qconf->nb_crypto_deq; i++) {
+			cryptodev_deq = qconf->crypto_deq[i].cryptodev_deq;
+			map = cryptodev_deq->crypto_q_map;
+			q_id = 0;
+			while (map) {
+				if (map & 0x1)
+					APP_INFO_NH("crypto_deq=%d,%d ", cryptodev_deq->devid,
+						    q_id);
+				q_id++;
+				map = map >> 1;
+			}
+		}
+		APP_INFO_NH("\n");
+	}
+	APP_INFO("\n");
+}
+
+static void
+clear_lcore_queue_mapping(uint16_t virtio_devid)
+{
+	struct vc_virtio_rx_node_ctx *virtio_rx;
+	struct lcore_conf *qconf;
+	uint32_t lcore_id;
+	uint16_t i;
+
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0)
+			continue;
+		qconf = &lcore_conf[lcore_id];
+
+		/* Skip Lcore if not needed */
+		if (!qconf->nb_virtio_rx && !qconf->service_lcore)
+			continue;
+
+		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+			/* Check for matching virtio devid */
+			if (qconf->virtio_rx[i].virtio_devid != virtio_devid)
+				continue;
+
+			/* Clear valid virtio queue map */
+			virtio_rx = qconf->virtio_rx[i].virtio_rx;
+
+			virtio_rx->virt_q_map = 0;
+			virtio_rx->virt_q_count = 0;
+		}
+
+		if (qconf->nb_crypto_deq)
+			qconf->crypto_deq[0].cryptodev_deq->crypto_q_map = 0;
+
+		if (qconf->service_lcore)
+			qconf->virt_dev_map &= ~RTE_BIT64(virtio_devid);
+	}
+	rte_io_wmb();
+	dump_lcore_info();
+}
+
+static int
+reconfig_cryptodev(uint8_t devid)
+{
+	RTE_SET_USED(devid);
+	return 0;
+}
+
+static int
+vc_status_cb(uint16_t virtio_devid, uint8_t status)
+{
+	bool reset_cryptodev = false;
+
+	APP_INFO("virtio_dev=%d: status=%s\n", virtio_devid, dao_virtio_dev_status_to_str(status));
+
+	switch (status) {
+	case VIRTIO_DEV_RESET:
+	case VIRTIO_DEV_NEEDS_RESET:
+		clear_lcore_queue_mapping(virtio_devid);
+		reset_cryptodev = true;
+		break;
+	case VIRTIO_DEV_DRIVER_OK:
+		/* TODO: Cryptodev specific feature config
+		 * and lcore queue mapping for crypto dev.
+		 */
+		break;
+	default:
+		break;
+	};
+
+	/* Synchronize RCU */
+	rte_rcu_qsbr_synchronize(qs_v, RTE_QSBR_THRID_INVALID);
+
+	/* After this point, all the cores see updated queue mapping */
+
+	if (reset_cryptodev)
+		reconfig_cryptodev(virtio_devid);
+
+	return 0;
+}
+
+static void
 setup_virtio_device(void)
 {
+	struct dao_virtio_cryptodev_cbs cbs;
 	uint16_t virtio_devid;
 	int rc;
 
@@ -659,6 +804,10 @@ setup_virtio_device(void)
 		if (rc)
 			rte_exit(EXIT_FAILURE, "Failed to init virtio device\n");
 	}
+
+	memset(&cbs, 0, sizeof(cbs));
+	cbs.status_cb = vc_status_cb;
+	dao_virtio_cryptodev_cb_register(&cbs);
 }
 
 static int
