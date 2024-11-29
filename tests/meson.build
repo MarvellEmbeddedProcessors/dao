@@ -11,6 +11,7 @@ tests = [
 	'liquid-crypto-perf-test',
 	'virtio-extbuf',
 	'flow-offload',
+	'test-flow-perf',
 ]
 
 # Mandatory dependency
