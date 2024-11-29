@@ -13,6 +13,7 @@ sources = files(
         'flow_dbg.c',
         'ovs_profile.c',
         'default_profile.c',
+        'flow_em.c',
 )
 
 headers = files(

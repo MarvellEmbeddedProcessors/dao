@@ -42,7 +42,7 @@ dao_flow_create(uint16_t port_id, const struct rte_flow_attr *attr,
 		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
 
 	flow->rule_data = rule;
-	/* ACL userdata can establish as relation between acl and HW flow rule */
+	/* Userdata and HW flow rule mapping */
 	flow->port_id = port_id;
 	flow->tbl_id = tbl_id;
 
@@ -80,7 +80,7 @@ dao_flow_create(uint16_t port_id, const struct rte_flow_attr *attr,
 	TAILQ_INSERT_TAIL(&flow_cfg_prt->flow_list, fdata, next);
 	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
 
-	dao_dbg("New DAO flow created %p - acl rule %p HW flow %p", flow, flow->rule_data,
+	dao_dbg("New DAO flow created %p - rule %p HW flow %p", flow, flow->rule_data,
 		flow->hflow);
 
 	return flow;
@@ -176,14 +176,16 @@ dao_flow_init(uint16_t port_id, struct dao_flow_offload_config *hw_offload_cfg)
 
 	parse_profile_setup(port_id, gbl_cfg, config);
 
-	if (config->feature & DAO_FLOW_ALG_ACL)
+	if (config->feature & DAO_FLOW_ALG_EM)
+		gbl_cfg->flow_ops = &em_flow_ops;
+	else if (config->feature & DAO_FLOW_ALG_ACL)
 		gbl_cfg->flow_ops = &acl_flow_ops;
 	else
 		DAO_ERR_GOTO(-EINVAL, error, "Flow alg not supported.");
 
 	rc = gbl_cfg->flow_ops->init(port_id, &gbl_cfg->sw_flow_cfg);
 	if (rc)
-		DAO_ERR_GOTO(rc, fail, "Failed to initialize acl ctx map");
+		DAO_ERR_GOTO(rc, fail, "Failed to initialize ctx map");
 
 	rc = hw_offload_global_config_init(gbl_cfg);
 	if (rc)
@@ -244,8 +246,7 @@ dao_flow_fini(uint16_t port_id)
 		dao_err("Failed to cleanup flows for port %d", port_id);
 
 	if (gbl_cfg->flow_ops->fini(port_id, gbl_cfg->sw_flow_cfg))
-		dao_err("Failed to cleanup ACL global config for port %d",
-			port_id);
+		dao_err("Failed to cleanup global config for port %d", port_id);
 
 	gbl_cfg->num_initialized_ports--;
 	if (!gbl_cfg->num_initialized_ports) {
@@ -349,7 +350,7 @@ dao_flow_destroy(uint16_t port_id, struct dao_flow *fl, struct rte_flow_error *e
 	DAO_TAILQ_FOREACH_SAFE(fdata, &flow_cfg_prt->flow_list, next, tmp) {
 		if (flow == fdata->flow) {
 			TAILQ_REMOVE(&flow_cfg_prt->flow_list, fdata, next);
-			dao_dbg("Removing flow %p, acl rule %p hw flow %p", fdata->flow,
+			dao_dbg("Removing flow %p, rule %p hw flow %p", fdata->flow,
 				fdata->flow->rule_data, fdata->flow->hflow);
 			rte_free(fdata->flow);
 			rte_free(fdata);
@@ -449,7 +450,7 @@ dao_flow_query(uint16_t port_id, struct dao_flow *fl, const struct rte_flow_acti
 	rc = gbl_cfg->flow_ops->query(gbl_cfg->sw_flow_cfg, port_id, flow->tbl_id, flow->rule_data,
 				      fquery);
 	if (rc)
-		DAO_ERR_GOTO(rc, fail, "Failed to dump the ACL rule %p for port %d", hflow->flow,
+		DAO_ERR_GOTO(rc, fail, "Failed to dump the rule %p for port %d", hflow->flow,
 			     port_id);
 	return 0;
 fail:
@@ -482,7 +483,7 @@ dao_flow_dev_dump(uint16_t port_id, struct dao_flow *fl, FILE *file, struct rte_
 	rc = gbl_cfg->flow_ops->dump(gbl_cfg->sw_flow_cfg, port_id, flow->tbl_id, flow->rule_data,
 				     file);
 	if (rc)
-		DAO_ERR_GOTO(rc, fail, "Failed to dump the ACL rule %p for port %d", hflow->flow,
+		DAO_ERR_GOTO(rc, fail, "Failed to dump the rule %p for port %d", hflow->flow,
 			     port_id);
 
 	return 0;
@@ -539,10 +540,10 @@ dao_flow_info(uint16_t port_id, FILE *file, struct rte_flow_error *error)
 			}
 		}
 
-		/* ACL rules information */
+		/* rules information */
 		rc = gbl_cfg->flow_ops->info(fdata->flow->rule_data, file, fdata->flow->is_hw_offloaded);
 		if (rc)
-			DAO_ERR_GOTO(rc, fail, "Failed to flush all ACL rules for port %d",
+			DAO_ERR_GOTO(rc, fail, "Failed to flush all rules for port %d",
 				     port_id);
 	}
 	rte_spinlock_unlock(&flow_cfg_prt->flow_list_lock);
@@ -571,10 +572,10 @@ dao_flow_flush(uint16_t port_id, struct rte_flow_error *error)
 		hw_off_cfg->num_rules = 0;
 	}
 
-	/* Flush ACL rules */
+	/* Flush rules */
 	rc = gbl_cfg->flow_ops->flush(gbl_cfg->sw_flow_cfg, port_id);
 	if (rc)
-		DAO_ERR_GOTO(rc, fail, "Failed to flush all ACL rules for port %d", port_id);
+		DAO_ERR_GOTO(rc, fail, "Failed to flush all rules for port %d", port_id);
 
 	/* Flushing DAO flows */
 	flow_cfg_prt = &gbl_cfg->flow_cfg[port_id];

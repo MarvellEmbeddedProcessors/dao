@@ -13,6 +13,8 @@
 
 #include <rte_flow.h>
 
+#include "dao_util.h"
+
 /** Key exchange profile name maximum length */
 #define DAO_FLOW_PROFILE_NAME_MAX 60
 
@@ -46,8 +48,9 @@ struct dao_flow_count {
 
 /** Flow offloading configuration structure */
 struct dao_flow_offload_config {
-#define DAO_FLOW_HW_OFFLOAD_ENABLE RTE_BIT32(0)
-#define DAO_FLOW_ALG_ACL RTE_BIT32(1)
+#define DAO_FLOW_HW_OFFLOAD_ENABLE DAO_BIT(0)
+#define DAO_FLOW_ALG_ACL           DAO_BIT(1)
+#define DAO_FLOW_ALG_EM            DAO_BIT(2)
 	/** Different features supported */
 	uint32_t feature;
 	/** Key exchange profiles supported */

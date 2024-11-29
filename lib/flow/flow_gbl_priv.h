@@ -6,6 +6,7 @@
 #define __FLOW_GBL_PRIV_H__
 
 #include "flow_acl_priv.h"
+#include "flow_em_priv.h"
 #include "flow_hw_offload_priv.h"
 
 #include "flow_parser_priv.h"
@@ -14,6 +15,7 @@
 #define FLOW_DEFAULT_AGING_TIMEOUT 20
 
 extern struct flow_global_cfg *gbl_cfg;
+
 struct flow_data {
 	TAILQ_ENTRY(flow_data) next;
 	struct dao_flow *flow;
@@ -79,6 +81,7 @@ extern struct parse_profile_ops default_prfl_ops;
 extern struct flow_parser_tcam_kex ovs_kex_profile;
 extern struct parse_profile_ops ovs_prfl_ops;
 extern struct flow_fops_t acl_flow_ops;
+extern struct flow_fops_t em_flow_ops;
 
 static inline void
 reverse_memcpy(uint8_t *ptr, const uint8_t *data, int len)
