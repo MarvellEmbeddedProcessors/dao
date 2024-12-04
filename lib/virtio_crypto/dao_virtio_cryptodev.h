@@ -164,6 +164,16 @@ void dao_virtio_cryptodev_cb_register(struct dao_virtio_cryptodev_cbs *cbs);
 void dao_virtio_cryptodev_cb_unregister(void);
 
 /**
+ * Get number of data queues for a virtio crypto device
+ *
+ * @param dev_id
+ *   Virtio crypto device ID
+ * @return
+ *  Number of data queues
+ */
+uint16_t dao_virtio_cryptodev_data_queue_cnt_get(uint16_t dev_id);
+
+/**
  * Fetch virtio cryptodev descriptors and acknowledge completions.
  *
  * To be called from service core as frequently as possible to

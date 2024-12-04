@@ -368,6 +368,21 @@ dao_virtio_cryptodev_cb_unregister(void)
 	memset(&user_cbs, 0, sizeof(user_cbs));
 }
 
+uint16_t
+dao_virtio_cryptodev_data_queue_cnt_get(uint16_t dev_id)
+{
+	struct dao_virtio_cryptodev *virtio_cryptodev = &dao_virtio_cryptodevs[dev_id];
+	struct virtio_cryptodev *cryptodev = virtio_cryptodev_priv(virtio_cryptodev);
+	uint16_t cnt;
+
+	for (cnt = 0; cnt < cryptodev->dev.max_virtio_queues - 1; cnt++) {
+		if (cryptodev->qs[cnt] == NULL)
+			break;
+	}
+
+	return cnt;
+}
+
 static __rte_always_inline int
 virtio_crypto_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 {
