@@ -19,4 +19,5 @@ Programmer's Guide
     port_queue_group
     vfio_lib
     virtio_lib
+    virtio_crypto_lib
     virtio_net_lib

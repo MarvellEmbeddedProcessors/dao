@@ -41,6 +41,8 @@ struct dao_virtio_cryptodev_conf {
 	uint16_t cdev_id;
 };
 
+/* End of structure dao_virtio_cryptodev_conf. */
+
 /** Virtio crypto device data */
 struct dao_virtio_cryptodev {
 	/** Array of virtio queue pointers */
@@ -141,6 +143,8 @@ struct dao_virtio_cryptodev_cbs {
 	/** Crypto session destroy callback */
 	dao_virtio_cryptodev_session_destroy_cb_t asym_sess_destroy_cb;
 };
+
+/* End of structure dao_virtio_cryptodev_cbs. */
 
 /**
  * Virtio crypto device initialize.
