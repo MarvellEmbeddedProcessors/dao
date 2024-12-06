@@ -29,6 +29,7 @@ typedef struct vc_virtio_rx_node_ctx {
 
 typedef struct vc_virtio_tx_node_ctx {
 	uint16_t virtio_devid;
+	const struct dao_virtio_cryptodev_vdev_q *cdev_vdev_map;
 } vc_virtio_tx_node_ctx_t;
 
 DAO_STATIC_ASSERT(sizeof(vc_virtio_rx_node_ctx_t) <= RTE_NODE_CTX_SZ);

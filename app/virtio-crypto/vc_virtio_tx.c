@@ -17,6 +17,9 @@ vc_virtio_tx_node_process(struct rte_graph *graph, struct rte_node *node, void *
 	vc_virtio_tx_node_ctx_t *ctx = (vc_virtio_tx_node_ctx_t *)node->ctx;
 	struct dao_virtio_crypto_buffer *buf;
 
+	if (ctx->cdev_vdev_map == NULL)
+		return 0;
+
 	nb_tx_total = 0;
 
 again:
@@ -33,11 +36,8 @@ again:
 		nb_tx_iter = buf->metadata.cnt;
 	}
 
-	virt_dev_id = 0;
-	virt_q_id = 0;
-
-	RTE_SET_USED(cdev_qp_id);
-	RTE_SET_USED(ctx);
+	virt_dev_id = ctx->cdev_vdev_map[cdev_qp_id].virtio_dev_id;
+	virt_q_id = ctx->cdev_vdev_map[cdev_qp_id].virtio_queue_id;
 
 	dao_virtio_crypto_host_tx(virt_dev_id, virt_q_id, (struct rte_crypto_op **)&objs[i],
 				  nb_tx_iter);

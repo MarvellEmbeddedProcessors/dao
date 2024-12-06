@@ -741,8 +741,10 @@ clear_lcore_queue_mapping(uint16_t virtio_devid)
 			virtio_rx->virt_q_count = 0;
 		}
 
-		if (qconf->nb_crypto_deq)
+		if (qconf->nb_crypto_deq) {
 			qconf->crypto_deq[0].cryptodev_deq->crypto_q_map = 0;
+			qconf->crypto_deq[0].virtio_tx->cdev_vdev_map = NULL;
+		}
 
 		if (qconf->service_lcore) {
 			qconf->virtio_queue_cnt[virtio_devid] = 0;
@@ -812,13 +814,13 @@ vc_asym_sess_destroy_cb(uint16_t cdev_id, uint64_t session)
 static int
 setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 {
+	uint8_t cdev_id = vc_cdev_ctx.enabled_primary_cdevs[0];
 	struct lcore_conf *qconf;
 	uint32_t lcore_id;
+	int i;
 
-	/* TODO: Implement properly considering all queues etc.*/
-
-	qconf = &lcore_conf[5];
-	qconf->virtio_rx[0].virtio_rx->virt_q_map = 0xffffffffffffffff;
+	const struct dao_virtio_cryptodev_vdev_q *cdev_vdev_q_map =
+		dao_virtio_cryptodev_cdev_map_all_queues_get(cdev_id);
 
 	/* Add virtio device to service lcore */
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
@@ -826,6 +828,29 @@ setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 			continue;
 
 		qconf = &lcore_conf[lcore_id];
+
+		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+			/* Update only matching contexts */
+			if (qconf->virtio_rx[i].virtio_devid != virtio_devid)
+				continue;
+
+			/* TODO - get this from command line */
+			if (lcore_id == 5) {
+				/* Set mask corresponding to all queues */
+				qconf->virtio_rx[i].virtio_rx->virt_q_map = (1 << virt_q_count) - 1;
+			}
+		}
+
+		if (qconf->nb_crypto_deq) {
+			/* TODO - derive this from virt_q_map. */
+			if (lcore_id == 5) {
+				/* Set mask corresponding to all queues */
+				qconf->crypto_deq[0].cryptodev_deq->crypto_q_map =
+					(1 << vc_cdev_ctx.nb_qp) - 1;
+			}
+
+			qconf->crypto_deq[0].virtio_tx->cdev_vdev_map = cdev_vdev_q_map;
+		}
 
 		if (qconf->service_lcore) {
 			qconf->virt_dev_map |= RTE_BIT64(virtio_devid);
