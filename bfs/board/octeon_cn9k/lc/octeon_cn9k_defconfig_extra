@@ -1,0 +1,5 @@
+# rootfs Overlay
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MRVL_PATH)/board/octeon_cn9k/lc/rootfs_overlay"
+
+# Post Build Script
+BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_MRVL_PATH)/board/octeon_cn9k/lc/build_scripts/post-build.sh"

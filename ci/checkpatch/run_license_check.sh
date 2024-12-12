@@ -6,6 +6,12 @@ IGNORE_FILES=(
 	".checkpatch.conf"
 	".gitignore"
 	".gitreview"
+	"bfs/board/octeon_cn9k/lc/octeon_cn9k_defconfig_extra"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/dma_config.ini"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/lc_env"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/README.md"
+	"bfs/external.desc"
+	"bfs/README.md"
 	"ci/klocwork/kw_override.h"
 	"ci/klocwork/local.kb"
 	"ci/checkpatch/dictionary.txt"
@@ -19,8 +25,6 @@ IGNORE_FILES=(
 	"DPDK_VERSION"
 	"VERSION"
 	"README.md"
-	"bfs/README.md"
-	"bfs/external.desc"
 )
 
 IGNORE_DIRECTORIES=(

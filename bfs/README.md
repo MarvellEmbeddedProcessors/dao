@@ -94,6 +94,17 @@ $ cd <build_dir>/buildroot
 $ BR2_EXTERNAL=<build_dir>/dao/bfs make octeon_cn9k_defconfig
 
 ```
+
+### Create configuration for specific board use case (ex: Liquid Crypto)
+
+```sh
+
+$ cat ../dao/bfs/configs/octeon_cn9k_defconfig ../dao/bfs/board/octeon_cn9k/lc/octeon_cn9k_defconfig_extra > ../dao/bfs/configs/octeon_cn9k_lc_defconfig
+$ cd <build_dir>/buildroot
+$ BR2_EXTERNAL=<build_dir>/dao/bfs make octeon_cn9k_lc_defconfig
+
+```
+
 ### Update configuration (Optional step)
 If needed update buildroot's and LINUX's default configuration using:
 

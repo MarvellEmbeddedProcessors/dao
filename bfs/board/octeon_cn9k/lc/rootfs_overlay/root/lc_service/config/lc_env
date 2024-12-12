@@ -1,0 +1,5 @@
+ARGUMENT=run_agent
+#ARGUMENT=skip
+#ARGUMENT=run_stress_test
+#NUM_ITR=5
+LC_IP_ADDRESS=192.168.1.100
