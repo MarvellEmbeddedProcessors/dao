@@ -17,6 +17,7 @@ static const char short_options[] = "V:" /* virtio-config */
 				    "v:" /* virtio dev mask */
 				    "c:" /* crypto dev mask */
 				    "m:" /* offload map */
+				    "n:" /* number of descriptors */
 	;
 
 #define CMD_LINE_OPT_VIRTIO_CONFIG "virtio-config"
@@ -24,6 +25,10 @@ static const char short_options[] = "V:" /* virtio-config */
 #define CMD_LINE_OPT_VIRTIO_MASK   "virtio-mask"
 #define CMD_LINE_OPT_CRYPTO_MASK   "crypto-mask"
 #define CMD_LINE_OPT_OFFLOAD_MAP   "offload-map"
+#define CMD_LINE_OPT_DESC          "nb_cryptodev_desc"
+
+#define VC_NB_DESC_MIN 1024
+#define VC_NB_DESC_MAX 16384
 
 enum {
 	/* Long options mapped to a short option */
@@ -36,6 +41,7 @@ enum {
 	CMD_LINE_OPT_CRYPTO_CONFIG_NUM,
 	CMD_LINE_OPT_VIRTIO_MASK_NUM,
 	CMD_LINE_OPT_CRYPTO_MASK_NUM,
+	CMD_LINE_OPT_DESC_NUM,
 };
 
 static const struct option lgopts[] = {
@@ -43,6 +49,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_CRYPTO_CONFIG, required_argument, 0, CMD_LINE_OPT_CRYPTO_CONFIG_NUM},
 	{CMD_LINE_OPT_VIRTIO_MASK, required_argument, 0, CMD_LINE_OPT_VIRTIO_MASK_NUM},
 	{CMD_LINE_OPT_CRYPTO_MASK, required_argument, 0, CMD_LINE_OPT_CRYPTO_MASK_NUM},
+	{CMD_LINE_OPT_DESC, required_argument, 0, CMD_LINE_OPT_DESC_NUM},
 	{NULL, 0, 0, 0}};
 
 static void
@@ -55,8 +62,9 @@ print_usage(const char *prgname)
 		"  -v, --virtio-mask=<VIRTO_MASK_L[,VIRTIO_MARK_H]> Hexadecimal bitmask of virtio devices\n"
 		"  -c, --crypto-mask=<CRYPTO_MASK_L[,CRYPTO_MARK_H]> Hexadecimal bitmask of crypto devices\n"
 		"  -V, --virtio-config=(dev,lcore_mask)[,(dev,lcore_mask)] : Virtio rx lcore mapping\n"
-		"  -C, --crypto-config=(dev,lcore_mask)[,(dev,lcore_mask)] : Crypto enq lcore mapping\n",
-		prgname);
+		"  -C, --crypto-config=(dev,lcore_mask)[,(dev,lcore_mask)] : Crypto enq lcore mapping\n"
+		"  -n, --nb_cryptodev_desc=NB_DESC : Number of descriptors (in range %d to %d)\n",
+		prgname, VC_NB_DESC_MIN, VC_NB_DESC_MAX);
 }
 
 static int
@@ -156,11 +164,13 @@ parse_args(int argc, char **argv)
 	uint16_t service_lcore = 0;
 	char *prgname = argv[0];
 	uint16_t devid, j = 0;
+	uint16_t nb_desc = 0;
 	char *str, *save_ptr;
 	int option_index;
 	char **argvopt;
 	uint8_t lcore;
 	int opt;
+	vc_cdev_ctx.nb_desc = VC_NB_DESC_DEFAULT;
 
 	for (lcore = 0; lcore < RTE_MAX_LCORE; lcore++) {
 		if (!rte_lcore_is_enabled(lcore) || (lcore == rte_get_main_lcore()))
@@ -234,6 +244,16 @@ parse_args(int argc, char **argv)
 				return -1;
 			}
 			nb_cryptodevs = __builtin_popcountll(crypto_mask_ena);
+			break;
+		case 'n':
+		case CMD_LINE_OPT_DESC_NUM:
+			nb_desc = strtol(optarg, NULL, 10);
+			if ((nb_desc < VC_NB_DESC_MIN) || (nb_desc > VC_NB_DESC_MAX)) {
+				APP_ERR("Invalid number of descriptors\n");
+				print_usage(prgname);
+				return -1;
+			}
+			vc_cdev_ctx.nb_desc = nb_desc;
 			break;
 		default:
 			print_usage(argv[0]);

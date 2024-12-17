@@ -83,7 +83,7 @@ struct lcore_conf {
 
 static struct lcore_conf lcore_conf[RTE_MAX_LCORE];
 
-static struct vc_cdev_ctx vc_cdev_ctx;
+struct vc_cdev_ctx vc_cdev_ctx;
 
 static volatile bool force_quit;
 
@@ -573,7 +573,7 @@ setup_crypto_devices(void)
 
 		memset(&qp_conf, 0, sizeof(qp_conf));
 		qp_conf.mp_session = asym_sess_pool;
-		qp_conf.nb_descriptors = VC_NB_DESC_DEFAULT;
+		qp_conf.nb_descriptors = vc_cdev_ctx.nb_desc;
 
 		for (j = 0; j < conf.nb_queue_pairs; j++) {
 			ret = rte_cryptodev_queue_pair_setup(dev_id, j, &qp_conf, socket_id);
