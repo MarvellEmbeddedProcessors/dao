@@ -3,6 +3,7 @@
 
 libraries = [
 	'common',
+	'eth_transport',
 	'portgroup',
 	'vfio',
 	'pem',

@@ -55,3 +55,6 @@ The public API headers are grouped by topics
 - **feature_arc**
   - [feature_arc]         (@ref dao_graph_feature_arc.h)
   - [feature_arc_worker]  (@ref dao_graph_feature_arc_worker.h)
+
+- **transport**
+  - [eth_transport]         (@ref dao_eth_trs.h)
