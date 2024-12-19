@@ -4,3 +4,9 @@
 headers = files(
 	'dao_eth_trs.h',
 )
+
+sources = files(
+	'eth_trs.c',
+)
+
+deps += ['common']
