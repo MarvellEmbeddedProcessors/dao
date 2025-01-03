@@ -4,6 +4,7 @@
 libraries = [
 	'common',
 	'eth_transport',
+	'liquid_crypto',
 	'portgroup',
 	'vfio',
 	'pem',

@@ -58,3 +58,6 @@ The public API headers are grouped by topics
 
 - **transport**
   - [eth_transport]         (@ref dao_eth_trs.h)
+
+- **liquid crypto**
+  - [liquid crypto]         (@ref dao_liquid_crypto.h)
