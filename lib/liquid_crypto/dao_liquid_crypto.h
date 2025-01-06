@@ -20,6 +20,46 @@
 #define DAO_CRYPTO_MAX_NB_DEV 1
 
 /**
+ * The completion code returned by the CPT.
+ */
+union dao_cpt_res_s {
+	/** CPT_RES_S for cn10k */
+	struct cpt_cn10k_res_s {
+		/** HW Completion code */
+		uint64_t compcode : 7;
+		/** HW Done interrupt */
+		uint64_t doneint : 1;
+		/** Microcode Completion code */
+		uint64_t uc_compcode : 8;
+		/** Rlen */
+		uint64_t rlen : 16;
+		/** SPI from inbound IPsec operations */
+		uint64_t spi : 32;
+
+		/** ESN from inbound IPsec operations */
+		uint64_t esn;
+	} cn10k;
+
+	/** CPT_RES_S for cn9k */
+	struct cpt_cn9k_res_s {
+		/** HW Completion code */
+		uint64_t compcode : 8;
+		/** Microcode Completion code */
+		uint64_t uc_compcode : 8;
+		/** HW Done Interrupt */
+		uint64_t doneint : 1;
+		/** Reserved */
+		uint64_t reserved_17_63 : 47;
+
+		/** Reserved */
+		uint64_t reserved_64_127;
+	} cn9k;
+
+	/** 2x 64-bit values */
+	uint64_t u64[2];
+};
+
+/**
  * The liquid crypto information structure.
  */
 struct dao_liquid_crypto_info {
@@ -47,6 +87,28 @@ struct dao_liquid_crypto_qp_conf {
 	uint16_t nb_desc;
 	/** The maximum segment size. */
 	uint16_t max_seg_size;
+};
+
+/**
+ * The liquid crypto result structure.
+ *
+ * This structure is used to store the result of a liquid crypto operation.
+ */
+struct dao_crypto_res {
+	/** The result of the operation returned by CPT */
+	union dao_cpt_res_s res;
+	/** Additional metadata from the operation */
+	union {
+		/** Metadata associated with RSA decrypt operation */
+		struct {
+			/** The length of the message */
+			uint16_t msg_len;
+		} rsa_dec;
+		/** Generic 64-bit metadata */
+		uint64_t u64;
+	};
+	/** The cookie associated with the operation */
+	uint64_t op_cookie;
 };
 
 /**
@@ -166,5 +228,37 @@ int dao_liquid_crypto_dev_start(uint8_t dev_id);
  * - On failure, a negative value is returned indicating the cause
  */
 int dao_liquid_crypto_dev_stop(uint8_t dev_id);
+
+/**
+ * Enqueue passthrough operation to the liquid crypto device.
+ *
+ * @param dev_id
+ * The identifier of the device.
+ * @param qp_id
+ * The index of the queue pair on which the operation is to be enqueued.
+ * @param op_cookie
+ * The cookie to be associated with the operation. This cookie is returned
+ * in the *dao_crypto_res* structure when the operation is dequeued.
+ */
+int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie);
+
+/**
+ * Dequeue burst of crypto operations from the crypto device.
+ *
+ * @param dev_id
+ * The identifier of the device.
+ * @param qp_id
+ * The index of the queue pair on which ops are to be dequeued.
+ * @param res [out]
+ * The array of pointers to *dao_crypto_res* structures where the results
+ * of the operations are stored.
+ * @param nb_ops
+ * The maximum number of operations to dequeue.
+ *
+ * @return
+ * The number of operations dequeued.
+ */
+uint16_t dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_crypto_res *res,
+					 uint16_t nb_ops);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

@@ -121,3 +121,35 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 
 	return -ENOTSUP;
 }
+
+int
+dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie)
+{
+	/* Call eth TRS API
+	 * - Enqueue the operation
+	 * rte_eth_tx_burst()
+	 */
+
+	RTE_SET_USED(dev_id);
+	RTE_SET_USED(qp_id);
+	RTE_SET_USED(op_cookie);
+
+	return -ENOTSUP;
+}
+
+uint16_t
+dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_crypto_res *res,
+				uint16_t nb_res)
+{
+	/* Call eth TRS API
+	 * - Dequeue the operation
+	 * rte_eth_rx_burst()
+	 */
+
+	RTE_SET_USED(dev_id);
+	RTE_SET_USED(qp_id);
+	RTE_SET_USED(res);
+	RTE_SET_USED(nb_res);
+
+	return 0;
+}
