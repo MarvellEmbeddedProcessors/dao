@@ -316,29 +316,29 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 int
 dao_liquid_crypto_dev_start(uint8_t dev_id)
 {
-	/* Call eth TRS API
-	 * - Start the eth device
-	 * rte_eth_promiscuous_enable()
-	 * rte_eth_dev_start()
-	 * rte_eth_link_get()
-	 */
+	int rc;
 
-	RTE_SET_USED(dev_id);
+	rc = dao_eth_trs_dev_start(dev_id);
+	if (rc != 0) {
+		dao_err("Could not start ethernet transport device.");
+		return rc;
+	}
 
-	return -ENOTSUP;
+	return 0;
 }
 
 int
 dao_liquid_crypto_dev_stop(uint8_t dev_id)
 {
-	/* Call eth TRS API
-	 * - Stop the eth device
-	 * rte_eth_dev_stop()
-	 */
+	int rc;
 
-	RTE_SET_USED(dev_id);
+	rc = dao_eth_trs_dev_stop(dev_id);
+	if (rc != 0) {
+		dao_err("Could not stop ethernet transport device.");
+		return rc;
+	}
 
-	return -ENOTSUP;
+	return 0;
 }
 
 int
