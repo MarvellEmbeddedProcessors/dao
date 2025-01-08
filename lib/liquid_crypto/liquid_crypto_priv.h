@@ -32,6 +32,13 @@ struct liquid_crypto_qp {
 	struct rte_mempool *rx_mp;
 	/** TX mempool */
 	struct rte_mempool *tx_mp;
+	/** Inflight request queue */
+	struct liquid_crypto_inflight_req *req_queue;
 } __rte_cache_aligned;
+
+struct liquid_crypto_inflight_req {
+	/** Field provided by application during request submission */
+	uint64_t op_cookie;
+};
 
 #endif /* __LIQUID_CRYPTO_PRIV_H__ */

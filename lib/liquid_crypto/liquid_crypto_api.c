@@ -181,7 +181,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct rte_mempool *mp;
-	int rc;
+	int rc, size;
 
 	if (conf == NULL) {
 		dao_err("Invalid argument.");
@@ -259,23 +259,35 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	qp->tx_mp = mp;
 
+	snprintf(name, sizeof(name), "liquid_crypto_req_q_%u_%u", dev_id, qp_id);
+	size = nb_desc * sizeof(struct liquid_crypto_inflight_req);
+
+	qp->req_queue = rte_zmalloc(name, size, 0);
+	if (qp->req_queue == NULL) {
+		dao_err("Could not allocate memory for request queue.");
+		goto tx_mp_free;
+	}
+
 	trs_queue_conf.rx_mp = qp->rx_mp;
 	trs_queue_conf.queue_size = nb_desc;
 	rc = dao_eth_trs_dev_queue_configure(dev_id, qp_id, &trs_queue_conf);
 	if (rc != 0) {
 		dao_err("Could not configure ethernet transport queue.");
-		goto tx_mp_free;
+		goto req_queue_free;
 	}
 
 	rc = dao_eth_trs_dev_queue_map(dev_id, qp_id, &qp->port_id, &qp->queue_id);
 	if (rc != 0) {
 		dao_err("Could not map ethernet transport queue.");
-		goto tx_mp_free;
+		goto req_queue_free;
 	}
 
 	dev->qp[qp_id] = qp;
 
 	return 0;
+
+req_queue_free:
+	rte_free(qp->req_queue);
 
 tx_mp_free:
 	rte_mempool_free(qp->tx_mp);
@@ -300,6 +312,7 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	if (qp == NULL)
 		return 0;
 
+	rte_free(qp->req_queue);
 	rte_mempool_free(qp->rx_mp);
 	rte_mempool_free(qp->tx_mp);
 	rte_free(qp);
