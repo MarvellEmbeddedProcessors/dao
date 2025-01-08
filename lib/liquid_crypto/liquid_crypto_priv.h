@@ -15,6 +15,10 @@
 #define LIQUID_CRYPTO_MAX_BURST 32
 #define LIQUID_CRYPTO_MAX_NB_QP 64
 
+#define LIQUID_CRYPTO_RSA_MOD_LEN_MIN     34
+#define LIQUID_CRYPTO_RSA_MOD_LEN_MAX     1024
+#define LIQUID_CRYPTO_RSA_MSG_LEN_PADDING 11
+
 /** Liquid crypto device */
 struct liquid_crypto_dev {
 	/** Is created */
@@ -46,6 +50,8 @@ struct liquid_crypto_qp {
 struct liquid_crypto_inflight_req {
 	/** Field provided by application during request submission */
 	uint64_t op_cookie;
+	/** Output buffer given for a crypto operation. */
+	void *data_out;
 };
 
 static inline uint32_t

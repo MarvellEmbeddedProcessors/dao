@@ -14,8 +14,10 @@
 #include <dao_liquid_crypto.h>
 #include <dao_log.h>
 
+#include "hw/cpt.h"
 #include "liquid_crypto_priv.h"
 #include "liquid_crypto_trs.h"
+#include "mc/ae.h"
 
 static struct dao_lc_info lc_info;
 
@@ -448,6 +450,427 @@ mbuf_free:
 	return rc;
 }
 
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+static inline int
+cpt_ae_rsa_mod_len_check(uint16_t mod_len)
+{
+	if (mod_len % 2 != 0) {
+		dao_err("Invalid modulus length. mod_len must be even.");
+		return -EINVAL;
+	}
+
+	if (mod_len < LIQUID_CRYPTO_RSA_MOD_LEN_MIN || mod_len > LIQUID_CRYPTO_RSA_MOD_LEN_MAX) {
+		dao_err("Invalid modulus length. mod_len should be at least %u and at most %u bytes.",
+			LIQUID_CRYPTO_RSA_MOD_LEN_MIN, LIQUID_CRYPTO_RSA_MOD_LEN_MAX);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline int
+cpt_ae_rsa_msg_len_check(uint16_t mod_len, uint16_t msg_len)
+{
+	if (msg_len > mod_len - LIQUID_CRYPTO_RSA_MSG_LEN_PADDING) {
+		dao_err("Invalid message length. msg_len should be at most %u bytes.",
+			mod_len - LIQUID_CRYPTO_RSA_MSG_LEN_PADDING);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline int
+cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
+			    uint8_t *qInv)
+{
+	if (q == NULL || dQ == NULL || p == NULL || dP == NULL || qInv == NULL) {
+		dao_err("Invalid CRT parameters. None of the parameters can be NULL.");
+		return -EINVAL;
+	}
+
+	if (q[mod_len / 2 - 1] % 2 == 0) {
+		dao_err("Invalid CRT parameter. q must be odd.");
+		return -EINVAL;
+	}
+
+	if (p[mod_len / 2 - 1] % 2 == 0) {
+		dao_err("Invalid CRT parameter. p must be odd.");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#endif
+
+int
+dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
+				  enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
+				  uint16_t exp_len, uint16_t msg_len, uint8_t *mod, uint8_t *exp,
+				  uint8_t *msg, uint8_t *em, uint64_t op_cookie)
+{
+	uint32_t dlen = mod_len + exp_len + msg_len;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	dev = &liquid_crypto_devs[dev_id];
+	qp = dev->qp[qp_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	if (rc != 0)
+		return rc;
+#endif
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate mbuf.");
+#endif
+		return -ENOMEM;
+	}
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+	qp->req_queue[req_idx].data_out = em;
+
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
+		dao_err("Buffer length is less than the minimum supported.");
+		rc = -EINVAL;
+		goto mbuf_free;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_PKCS_ENC;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = ((uint16_t)(exp_len) << 1) | (key_type != DAO_LC_RSA_KEY_TYPE_PRIVATE);
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+
+	/* Add data */
+	dptr = req->dptr;
+	memcpy(dptr, mod, mod_len);
+	dptr += mod_len;
+	memcpy(dptr, exp, exp_len);
+	dptr += exp_len;
+	memcpy(dptr, msg, msg_len);
+
+	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
+int
+dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
+				  enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
+				  uint16_t exp_len, uint8_t *mod, uint8_t *exp, uint8_t *em,
+				  uint8_t *msg, uint64_t op_cookie)
+{
+	uint32_t dlen = mod_len * 2 + exp_len;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	dev = &liquid_crypto_devs[dev_id];
+	qp = dev->qp[qp_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	if (rc != 0)
+		return rc;
+#endif
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate mbuf.");
+#endif
+		return -ENOMEM;
+	}
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+	qp->req_queue[req_idx].data_out = msg;
+
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
+		dao_err("Buffer length is less than the minimum supported.");
+		rc = -EINVAL;
+		goto mbuf_free;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_PKCS_DEC;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = ((uint16_t)(exp_len) << 1) | (key_type == DAO_LC_RSA_KEY_TYPE_PRIVATE);
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+
+	/* Add data */
+	dptr = req->dptr;
+	memcpy(dptr, mod, mod_len);
+	dptr += mod_len;
+	memcpy(dptr, exp, exp_len);
+	dptr += exp_len;
+	memcpy(dptr, em, mod_len);
+
+	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
+int
+dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+				      uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
+				      uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
+				      uint64_t op_cookie)
+{
+	uint32_t dlen = (mod_len / 2) * 5 + msg_len;
+	uint16_t comp_len = mod_len / 2;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	dev = &liquid_crypto_devs[dev_id];
+	qp = dev->qp[qp_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_msg_len_check(mod_len, msg_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_crt_params_check(mod_len, q, dQ, p, dP, qInv);
+	if (rc != 0)
+		return rc;
+#endif
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate mbuf.");
+#endif
+		return -ENOMEM;
+	}
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+	qp->req_queue[req_idx].data_out = em;
+
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
+		dao_err("Buffer length is less than the minimum supported.");
+		rc = -EINVAL;
+		goto mbuf_free;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_PKCS_ENC_CRT;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = 0;
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+
+	/* Add data */
+	dptr = req->dptr;
+	memcpy(dptr, q, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dQ, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, p, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dP, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, qInv, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, msg, msg_len);
+
+	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
+int
+dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len, uint8_t *q,
+				      uint8_t *dQ, uint8_t *p, uint8_t *dP, uint8_t *qInv,
+				      uint8_t *em, uint8_t *msg, uint64_t op_cookie)
+{
+	uint32_t dlen = (mod_len / 2) * 5 + mod_len;
+	uint16_t comp_len = mod_len / 2;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	dev = &liquid_crypto_devs[dev_id];
+	qp = dev->qp[qp_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_crt_params_check(mod_len, q, dQ, p, dP, qInv);
+	if (rc != 0)
+		return rc;
+#endif
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate mbuf.");
+#endif
+		return -ENOMEM;
+	}
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+	qp->req_queue[req_idx].data_out = msg;
+
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
+		dao_err("Buffer length is less than the minimum supported.");
+		rc = -EINVAL;
+		goto mbuf_free;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_PKCS_DEC_CRT;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = 0x1;
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+
+	/* Add data */
+	dptr = req->dptr;
+	memcpy(dptr, q, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dQ, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, p, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dP, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, qInv, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, em, mod_len);
+
+	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
+static inline void
+dao_lc_post_process_asym(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+			 struct rte_mbuf *mbuf)
+{
+	struct __dao_lc_resp_asym *resp;
+
+	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_asym *);
+	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
+	res->rsa.data_out_len = resp->res.cn9k.reserved_17_63;
+	memcpy((uint8_t *)req->data_out, resp->rptr, resp->res.cn9k.reserved_17_63);
+}
+
 uint16_t
 dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 				uint16_t nb_res)
@@ -479,7 +902,10 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_START:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
+			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
+			dao_lc_post_process_asym(req, &res[i], mbuf);
+			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
 		default:
 			dao_err("Invalid op_type.");
