@@ -4,6 +4,7 @@
 
 #include <string.h>
 
+#include <rte_bitmap.h>
 #include <rte_eal.h>
 #include <rte_malloc.h>
 #include <rte_mbuf.h>
@@ -14,6 +15,7 @@
 #include <dao_log.h>
 
 #include "liquid_crypto_priv.h"
+#include "liquid_crypto_trs.h"
 
 static struct dao_lc_info lc_info;
 
@@ -181,6 +183,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct rte_mempool *mp;
+	uint32_t bm_mem_size;
 	int rc, size;
 
 	if (conf == NULL) {
@@ -284,7 +287,29 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	dev->qp[qp_id] = qp;
 
+	bm_mem_size = rte_bitmap_get_memory_footprint(nb_desc);
+	if (bm_mem_size == 0) {
+		dao_err("Could not get memory footprint for bitmap.");
+		goto req_queue_free;
+	}
+
+	snprintf(name, sizeof(name), "liquid_crypto_bm_%u_%u", dev_id, qp_id);
+	qp->req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
+	if (qp->req_bm_mem == NULL) {
+		dao_err("Could not allocate memory for bitmap.");
+		goto req_queue_free;
+	}
+
+	qp->req_bm = rte_bitmap_init_with_all_set(nb_desc, qp->req_bm_mem, bm_mem_size);
+	if (qp->req_bm == NULL) {
+		dao_err("Could not initialize bitmap.");
+		goto bm_mem_free;
+	}
+
 	return 0;
+
+bm_mem_free:
+	rte_free(qp->req_bm_mem);
 
 req_queue_free:
 	rte_free(qp->req_queue);
@@ -312,6 +337,8 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	if (qp == NULL)
 		return 0;
 
+	rte_bitmap_free(qp->req_bm);
+	rte_free(qp->req_bm_mem);
 	rte_free(qp->req_queue);
 	rte_mempool_free(qp->rx_mp);
 	rte_mempool_free(qp->tx_mp);
@@ -353,31 +380,119 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 int
 dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie)
 {
-	/* Call eth TRS API
-	 * - Enqueue the operation
-	 * rte_eth_tx_burst()
-	 */
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct __dao_lc_hdr *lc_hdr;
+	struct rte_mbuf *mbuf;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	int rc;
 
-	RTE_SET_USED(dev_id);
-	RTE_SET_USED(qp_id);
-	RTE_SET_USED(op_cookie);
+	dev = &liquid_crypto_devs[dev_id];
+	qp = dev->qp[qp_id];
 
-	return -ENOTSUP;
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp == NULL) {
+		dao_err("Invalid queue pair. Queue pair(%d, %d) not configured.", dev_id, qp_id);
+		return -EINVAL;
+	}
+#endif
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate mbuf.");
+#endif
+		return -ENOMEM;
+	}
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (req_idx == UINT32_MAX) {
+		dao_err("No available request index.");
+		rc = -ENOSPC;
+		goto mbuf_free;
+	}
+#endif
+
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+
+	buf_len = RTE_MAX(sizeof(struct __dao_lc_hdr), LIQUID_CRYPTO_BUF_SZ_MIN);
+
+	rte_pktmbuf_append(mbuf, buf_len);
+
+	lc_hdr = rte_pktmbuf_mtod(mbuf, struct __dao_lc_hdr *);
+	lc_hdr->trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_REFLECT;
+	lc_hdr->trs_hdr.op_len = sizeof(struct __dao_lc_hdr);
+	lc_hdr->req_idx = req_idx;
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto bm_put;
+	}
+#endif
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+bm_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+#endif
+	return rc;
 }
 
 uint16_t
 dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 				uint16_t nb_res)
 {
-	/* Call eth TRS API
-	 * - Dequeue the operation
-	 * rte_eth_rx_burst()
-	 */
+	struct rte_mbuf *mbuf, *mbufs[LIQUID_CRYPTO_MAX_BURST];
+	struct liquid_crypto_inflight_req *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct __dao_lc_hdr *lc_hdr;
+	uint16_t nb_rx, i;
 
-	RTE_SET_USED(dev_id);
-	RTE_SET_USED(qp_id);
-	RTE_SET_USED(res);
-	RTE_SET_USED(nb_res);
+	dev = &liquid_crypto_devs[dev_id];
+	qp = dev->qp[qp_id];
 
-	return 0;
+	nb_res = RTE_MIN(nb_res, LIQUID_CRYPTO_MAX_BURST);
+	nb_rx = rte_eth_rx_burst(dev_id, qp_id, mbufs, nb_res);
+
+	for (i = 0; i < nb_rx; i++) {
+		mbuf = mbufs[i];
+
+		lc_hdr = rte_pktmbuf_mtod(mbuf, struct __dao_lc_hdr *);
+
+		req = &qp->req_queue[lc_hdr->req_idx];
+
+		/* Process the packet base on op_type */
+		switch (lc_hdr->trs_hdr.op_type) {
+		case DAO_ETH_TRS_OP_TYPE_REFLECT:
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_START:
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
+		default:
+			dao_err("Invalid op_type.");
+			break;
+		}
+
+		res[i].op_cookie = req->op_cookie;
+
+		rte_pktmbuf_free(mbuf);
+
+		/* Free the request index */
+		rte_bitmap_set(qp->req_bm, lc_hdr->req_idx);
+	}
+
+	return nb_rx;
 }
