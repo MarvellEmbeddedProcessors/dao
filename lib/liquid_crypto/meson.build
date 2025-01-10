@@ -9,4 +9,4 @@ headers = files(
 	'dao_liquid_crypto.h',
 )
 
-deps += ['common']
+deps += ['common', 'eth_transport']

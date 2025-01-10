@@ -6,28 +6,78 @@
 
 #include <rte_eal.h>
 
+#include <dao_eth_trs.h>
 #include <dao_liquid_crypto.h>
 #include <dao_log.h>
 
+#include "liquid_crypto_priv.h"
+
 static struct dao_liquid_crypto_info liquid_crypto_info;
+
+static struct liquid_crypto_dev liquid_crypto_devs[DAO_CRYPTO_MAX_NB_DEV];
 
 int
 dao_liquid_crypto_init(void)
 {
+	struct dao_eth_trs_info trs_info;
+	int rc, i;
+
 	memset(&liquid_crypto_info, 0, sizeof(liquid_crypto_info));
+	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 
-	/* Call eth TRS API
-	 * - Get the count of eth devices
-	 */
+	rc = dao_eth_trs_init();
+	if (rc != 0) {
+		dao_err("Could not initialize ethernet transport.");
+		return rc;
+	}
 
-	/* Save the info here. */
+	rc = dao_eth_trs_info(&trs_info);
+	if (rc != 0) {
+		dao_err("Could not get ethernet transport information.");
+		goto trs_fini;
+	}
+
+	if (trs_info.nb_devs > DAO_CRYPTO_MAX_NB_DEV) {
+		dao_err("[Internal error] Number of devices exceeds the maximum supported.");
+		rc = -EINVAL;
+		goto trs_fini;
+	}
+
+	if (trs_info.nb_queues > LIQUID_CRYPTO_MAX_NB_QP) {
+		dao_err("[Internal error] Number of queues exceeds the maximum supported.");
+		rc = -EINVAL;
+		goto trs_fini;
+	}
+
+	liquid_crypto_info.nb_dev = trs_info.nb_devs;
+
+	for (i = 0; i < trs_info.nb_devs; i++)
+		liquid_crypto_info.nb_qp[i] = trs_info.nb_queues;
 
 	return 0;
+
+trs_fini:
+	dao_eth_trs_fini();
+	return rc;
 }
 
 int
 dao_liquid_crypto_fini(void)
 {
+	int i, rc;
+
+	for (i = 0; i < liquid_crypto_info.nb_dev; i++) {
+		if (liquid_crypto_devs[i].is_created)
+			dao_liquid_crypto_dev_destroy(i);
+	}
+
+	rc = dao_eth_trs_fini();
+	if (rc != 0) {
+		dao_err("Could not finalize ethernet transport.");
+		return rc;
+	}
+
+	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 	memset(&liquid_crypto_info, 0, sizeof(liquid_crypto_info));
 
 	return 0;
