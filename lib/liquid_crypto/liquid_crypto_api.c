@@ -99,29 +99,68 @@ dao_liquid_crypto_info_get(struct dao_liquid_crypto_info *info)
 int
 dao_liquid_crypto_dev_create(uint8_t dev_id, uint16_t nb_qp)
 {
-	/* Call eth TRS API
-	 * - Create the eth device
-	 * rte_eth_dev_configure()
-	 * rte_eth_dev_adjust_nb_rx_tx_desc()
-	 */
+	struct dao_eth_trs_dev_config trs_conf;
+	struct liquid_crypto_dev *dev;
+	int rc;
 
-	RTE_SET_USED(dev_id);
-	RTE_SET_USED(nb_qp);
+	if (dev_id >= liquid_crypto_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.",
+			liquid_crypto_info.nb_dev - 1);
+		return -EINVAL;
+	}
 
-	return -ENOTSUP;
+	if (nb_qp == 0 || nb_qp > liquid_crypto_info.nb_qp[dev_id]) {
+		dao_err("Invalid argument. nb_qp must be between 1 and %u.",
+			liquid_crypto_info.nb_qp[dev_id]);
+		return -EINVAL;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	if (dev->is_created) {
+		dao_err("Device already created.");
+		return -EEXIST;
+	}
+
+	dev->nb_qp = nb_qp;
+
+	trs_conf.nb_queues = nb_qp;
+	trs_conf.promiscuous = 1;
+
+	rc = dao_eth_trs_dev_alloc(dev_id, &trs_conf);
+	if (rc != 0) {
+		dao_err("Could not allocate ethernet transport device.");
+		return rc;
+	}
+
+	dev->is_created = true;
+
+	return 0;
 }
 
 int
 dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 {
-	/* Call eth TRS API
-	 * - Destroy the eth device
-	 * rte_eth_dev_close()
-	 */
+	struct liquid_crypto_dev *dev;
+	int rc;
 
-	RTE_SET_USED(dev_id);
+	if (dev_id >= liquid_crypto_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.",
+			liquid_crypto_info.nb_dev - 1);
+		return -EINVAL;
+	}
 
-	return -ENOTSUP;
+	rc = dao_eth_trs_dev_free(dev_id);
+	if (rc != 0) {
+		dao_err("Could not free ethernet transport device.");
+		return rc;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	memset(dev, 0, sizeof(*dev));
+
+	return 0;
 }
 
 int
