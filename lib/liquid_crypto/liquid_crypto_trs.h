@@ -2,8 +2,8 @@
  * Copyright (c) 2025 Marvell
  */
 
-#ifndef __LC_TRANSPORT_H__
-#define __LC_TRANSPORT_H__
+#ifndef __LIQUID_CRYPTO_TRS_H__
+#define __LIQUID_CRYPTO_TRS_H__
 
 #include <rte_common.h>
 
@@ -45,4 +45,4 @@ struct __rte_packed __dao_lc_resp_asym {
 	uint8_t rptr[];
 };
 
-#endif /*  __LC_TRANSPORT_H__ */
+#endif /*  __LIQUID_CRYPTO_TRS_H__ */
