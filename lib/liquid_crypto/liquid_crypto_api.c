@@ -37,6 +37,12 @@ dao_liquid_crypto_init(void)
 	memset(&lc_info, 0, sizeof(lc_info));
 	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 
+	/*
+	 * Call manager API
+	 * - Check if manager is alive (dao_manager_alive())
+	 * - Inform that lc has started
+	 */
+
 	rc = dao_eth_trs_init();
 	if (rc != 0) {
 		dao_err("Could not initialize ethernet transport.");
@@ -48,6 +54,13 @@ dao_liquid_crypto_init(void)
 		dao_err("Could not get ethernet transport information.");
 		goto trs_fini;
 	}
+
+	/*
+	 * Call manager API
+	 * - Check if additional info is required from card
+	 * - May need to call dao_manager_get_info() and get the number of SDP queues in the card
+	 *    - May need to get the max number of sessions that can be supported
+	 */
 
 	if (trs_info.nb_devs > DAO_CRYPTO_MAX_NB_DEV) {
 		dao_err("[Internal error] Number of devices exceeds the maximum supported.");
@@ -88,6 +101,11 @@ dao_liquid_crypto_fini(void)
 		dao_err("Could not finalize ethernet transport.");
 		return rc;
 	}
+
+	/*
+	 * Call manager API
+	 * - Inform that liquid crypto is done
+	 */
 
 	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 	memset(&lc_info, 0, sizeof(lc_info));
@@ -162,6 +180,10 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 
 	dev->is_created = true;
 
+	/*
+	 * Call manager API to inform about dev creation
+	 */
+
 	return 0;
 }
 
@@ -170,6 +192,10 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 {
 	struct liquid_crypto_dev *dev;
 	int rc, i;
+
+	/*
+	 * Call manager API to inform about dev destruction
+	 */
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
@@ -225,6 +251,15 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		dao_err("Could not get ethernet transport information.");
 		return rc;
 	}
+
+	/*
+	 * Call manager API to create SDP queues in target
+	 * - queue depth
+	 * - max packet size
+	 *
+	 * Target will create pools based on this. SDP queues also will need to be created upon
+	 * handling this.
+	 */
 
 	if (conf->nb_desc < trs_info.min_queue_size || conf->nb_desc > trs_info.max_queue_size) {
 		dao_err("Invalid argument. nb_desc must be between %u and %u.",
@@ -370,6 +405,11 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	if (qp == NULL)
 		return 0;
 
+	/*
+	 * Call manager API to destroy SDP queues in target
+	 * - Free pools
+	 */
+
 	rte_bitmap_free(qp->req_bm);
 	rte_free(qp->req_bm_mem);
 	rte_free(qp->req_queue);
@@ -392,6 +432,9 @@ dao_liquid_crypto_dev_start(uint8_t dev_id)
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
 		return -EINVAL;
 	}
+	/*
+	 * Call manager API to inform that liquid crypto is started
+	 */
 
 	dev = &liquid_crypto_devs[dev_id];
 
@@ -454,6 +497,10 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 	}
 
 	dev->is_started = false;
+
+	/*
+	 * Call manager API to inform that liquid crypto is stopped
+	 */
 
 	return 0;
 }
