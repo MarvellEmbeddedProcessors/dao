@@ -508,6 +508,7 @@ main(int argc, char **argv)
 
 	while (!force_quit) {
 		ca_eth_rx(ca_glb_ctx.nb_valid_ethdevs, &ca_glb_ctx.cpt_pq[0]);
+		ca_cpt_deq(&ca_glb_ctx.cpt_pq[0]);
 	}
 
 	eth_devs_fini();
