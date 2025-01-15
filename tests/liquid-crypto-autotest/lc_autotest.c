@@ -6,19 +6,18 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include <rte_cycles.h>
 #include <rte_eal.h>
 
 #include <dao_liquid_crypto.h>
 
 #include "lc_autotest.h"
+#include "lc_test_generic.h"
+#include "test.h"
 
 int
 main(int argc, char **argv)
 {
-	uint64_t timeout, op_cookie = 0xdeadbeef;
 	struct dao_lc_qp_conf conf;
-	struct dao_lc_res res[1];
 	struct dao_lc_info info;
 	uint16_t qp_id;
 	uint8_t dev_id;
@@ -68,6 +67,9 @@ main(int argc, char **argv)
 	dev_id = 0;
 	qp_id = 0;
 
+	glb_params.dev_id = dev_id;
+	glb_params.qp_id = qp_id;
+
 	ret = dao_liquid_crypto_dev_create(dev_id, 1);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not create liquid crypto device");
@@ -92,39 +94,8 @@ main(int argc, char **argv)
 		goto dev_destroy;
 	}
 
-	ret = dao_liquid_crypto_enqueue_op_passthrough(dev_id, qp_id, op_cookie);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not enqueue passthrough operation");
-		goto dev_stop;
-	}
+	unit_test_suite_runner(&lc_testsuite_generic);
 
-	/* Set a timeout of 1 second. */
-	timeout = rte_get_timer_cycles() + rte_get_timer_hz();
-
-	TEST_LC_INFO("Enqueued passthrough operation with cookie 0x%" PRIx64, op_cookie);
-
-	do {
-		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, res, 1);
-		if (ret == 1) {
-			TEST_LC_INFO("Operation completed successfully");
-			break;
-		}
-
-		if (rte_get_timer_cycles() > timeout) {
-			ret = -ETIMEDOUT;
-			TEST_LC_ERR("Operation timed out");
-			goto dev_stop;
-		}
-	} while (ret == 0);
-
-	if (ret != 1) {
-		TEST_LC_ERR("Could not dequeue operation");
-		goto dev_stop;
-	}
-
-	ret = 0;
-
-dev_stop:
 	dao_liquid_crypto_dev_stop(dev_id);
 
 dev_destroy:
