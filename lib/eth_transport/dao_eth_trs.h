@@ -57,6 +57,10 @@ enum dao_eth_trs_op_type {
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM,
 	/** Asymmetric crypto ops (RSA etc) */
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM,
+	/** Session create */
+	DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE,
+	/** Session destroy */
+	DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY,
 	/** OP type crypto end */
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_END = 0x1fff,
 };

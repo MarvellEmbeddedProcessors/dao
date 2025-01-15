@@ -1290,3 +1290,148 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 
 	return nb_rx;
 }
+
+int
+dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *ctx,
+				  uint64_t op_cookie)
+{
+	struct __dao_lc_req_sess_create *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mb;
+	uint32_t req_idx;
+	uint16_t buf_len;
+	int rc;
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	const uint16_t qp_id = dev->cmd_qp_idx;
+
+	if (qp_id == DAO_CMD_QP_IDX_INVALID) {
+		dao_err("Command queue is disabled!");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+		dao_err("No available request index.");
+		return -ENOSPC;
+	}
+
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+
+	mb = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mb == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+
+	buf_len = sizeof(struct __dao_lc_req_sess_create) + sizeof(struct dao_lc_sym_ctx);
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+	rte_pktmbuf_append(mb, buf_len);
+
+	req = rte_pktmbuf_mtod(mb, struct __dao_lc_req_sess_create *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	memcpy(req->cptr, &ctx->fc, sizeof(ctx->fc));
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mb, 1);
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+
+	return 0;
+
+mbuf_free:
+	rte_pktmbuf_free(mb);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	return rc;
+}
+
+uint16_t
+dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *events,
+				    uint16_t nb_events)
+{
+	struct rte_mbuf *mbuf, *mbufs[LIQUID_CRYPTO_MAX_BURST];
+	struct __dao_lc_req_resp_sess_destroy *sess_destroy;
+	struct __dao_lc_resp_sess_create *sess_create;
+	struct liquid_crypto_inflight_req *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct __dao_lc_hdr *lc_hdr;
+	uint16_t nb_rx, i;
+
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	const uint16_t qp_id = dev->cmd_qp_idx;
+
+	if (qp_id == DAO_CMD_QP_IDX_INVALID) {
+		dao_err("Command queue is disabled!");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+
+	nb_events = RTE_MIN(nb_events, LIQUID_CRYPTO_MAX_BURST);
+	nb_rx = rte_eth_rx_burst(dev_id, qp_id, mbufs, nb_events);
+
+	for (i = 0; i < nb_rx; i++) {
+		mbuf = mbufs[i];
+
+		lc_hdr = rte_pktmbuf_mtod(mbuf, struct __dao_lc_hdr *);
+
+		req = &qp->req_queue[lc_hdr->req_idx];
+
+		/* Process the packet base on op_type */
+		switch (lc_hdr->trs_hdr.op_type) {
+		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
+			sess_create = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sess_create *);
+			events[i].event_type = DAO_LC_CMD_EVENT_SESS_CREATE;
+			events[i].sess_event.sess_id = sess_create->sess_id;
+			events[i].sess_event.sess_cookie = req->op_cookie;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY:
+			sess_destroy =
+				rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_resp_sess_destroy *);
+			events[i].event_type = DAO_LC_CMD_EVENT_SESS_DESTROY;
+			events[i].sess_event.sess_id = sess_destroy->sess_id;
+			events[i].sess_event.sess_cookie = req->op_cookie;
+			break;
+		default:
+			dao_err("Invalid op_type.");
+			break;
+		}
+
+		rte_pktmbuf_free(mbuf);
+
+		/* Free the request index */
+		rte_bitmap_set(qp->req_bm, lc_hdr->req_idx);
+	}
+
+	return nb_rx;
+}

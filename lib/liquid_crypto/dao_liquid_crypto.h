@@ -190,6 +190,224 @@ enum dao_liquid_crypto_rsa_key_type {
 };
 
 /**
+ * The liquid crypto command event type.
+ *
+ * This enumeration defines the command event types supported by liquid crypto.
+ * The command event type is used to indicate the type of command event.
+ */
+enum dao_lc_cmd_event_type {
+	/** Event type for session create */
+	DAO_LC_CMD_EVENT_SESS_CREATE = 0,
+	/** Event type for session destroy */
+	DAO_LC_CMD_EVENT_SESS_DESTROY = 1,
+};
+
+/**
+ * The event structure for liquid crypto commands associated with a session.
+ *
+ * This structure defines the session event information.
+ */
+struct dao_lc_cmd_sess_event {
+	/** The session ID */
+	uint64_t sess_id;
+	/** The cookie associated with the session operation */
+	uint64_t sess_cookie;
+};
+
+/**
+ * The liquid crypto command event structure.
+ *
+ * This structure defines the command event information.
+ */
+struct dao_lc_cmd_event {
+	/** The event type */
+	uint8_t event_type;
+	union {
+		/** Session event */
+		struct dao_lc_cmd_sess_event sess_event;
+	};
+};
+
+/**
+ * The liquid crypto symmetric op code.
+ *
+ * This enumeration defines the symmetric operation codes supported by the microcode.
+ */
+enum dao_lc_sym_opcode {
+	/** Opcode for Flexi Crypto */
+	DAO_LC_SYM_OPCODE_FC = 0x33,
+};
+
+/**
+ * The liquid crypto flexi crypto IV source.
+ */
+enum dao_lc_fc_iv_src {
+	/** Flexi Crypto IV Source = CTX */
+	DAO_LC_FC_IV_SRC_CTX = 0,
+	/** Flexi Crypto IV Source = OP */
+	DAO_LC_FC_IV_SRC_OP = 1
+};
+
+/**
+ * The liquid crypto flexi crypto AES key length.
+ */
+enum dao_lc_fc_aes_key_len {
+	/** Flexi Crypto AES Key Length = 128 */
+	DAO_LC_FC_AES_KEY_LEN_128 = 1,
+	/** Flexi Crypto AES Key Length = 192 */
+	DAO_LC_FC_AES_KEY_LEN_192 = 2,
+	/** Flexi Crypto AES Key Length = 256 */
+	DAO_LC_FC_AES_KEY_LEN_256 = 3
+};
+
+/**
+ * The liquid crypto flexi crypto encryption cipher.
+ */
+enum dao_lc_fc_enc_cipher {
+	/** Flexi Crypto Encryption Cipher Type = NULL */
+	DAO_LC_FC_ENC_CIPHER_NULL = 0,
+	/** Flexi Crypto Encryption Cipher Type = 3DES-CBC */
+	DAO_LC_FC_ENC_CIPHER_3DES_CBC = 1,
+	/** Flexi Crypto Encryption Cipher Type = 3DES-ECB */
+	DAO_LC_FC_ENC_CIPHER_3DES_ECB = 2,
+	/** Flexi Crypto Encryption Cipher Type = AES-CBC */
+	DAO_LC_FC_ENC_CIPHER_AES_CBC = 3,
+	/** Flexi Crypto Encryption Cipher Type = AES-ECB */
+	DAO_LC_FC_ENC_CIPHER_AES_ECB = 4,
+	/** Flexi Crypto Encryption Cipher Type = AES-CFB */
+	DAO_LC_FC_ENC_CIPHER_AES_CFB = 5,
+	/** Flexi Crypto Encryption Cipher Type = AES-CTR */
+	DAO_LC_FC_ENC_CIPHER_AES_CTR = 6,
+	/** Flexi Crypto Encryption Cipher Type = AES-GCM */
+	DAO_LC_FC_ENC_CIPHER_AES_GCM = 7,
+	/** Flexi Crypto Encryption Cipher Type = AES-XTS */
+	DAO_LC_FC_ENC_CIPHER_AES_XTS = 8,
+	/** Flexi Crypto Encryption Cipher Type = ChaCha */
+	DAO_LC_FC_ENC_CIPHER_CHACHA = 9,
+	/** Flexi Crypto Encryption Cipher Type = AES-CCM */
+	DAO_LC_FC_ENC_CIPHER_AES_CCM = 10,
+};
+
+/**
+ * The liquid crypto flexi crypto authentication input type.
+ */
+enum dao_lc_fc_auth_input_type {
+	/** Flexi Crypto Authentication Input Type = OPAD/IPAD */
+	DAO_LC_FC_AUTH_INPUT_OPAD_IPAD = 0,
+	/** Flexi Crypto Authentication Input Type = Key */
+	DAO_LC_FC_AUTH_INPUT_KEY = 1
+};
+
+/**
+ * The liquid crypto flexi crypto authentication key source.
+ */
+enum dao_lc_fc_auth_key_src {
+	/** Flexi Crypto Authentication Key Source = CTX */
+	DAO_LC_FC_AUTH_KEY_SRC_CTX = 0,
+	/** Flexi Crypto Authentication Key Source = OP */
+	DAO_LC_FC_AUTH_KEY_SRC_OP = 1,
+};
+
+/**
+ * The liquid crypto flexi crypto hash type.
+ */
+enum dao_lc_fc_hash_type {
+	/** Flexi Crypto Hash Type = NULL */
+	DAO_LC_FC_HASH_TYPE_NULL = 0,
+	/** Flexi Crypto Hash Type = MD5 */
+	DAO_LC_FC_HASH_TYPE_MD5 = 1,
+	/** Flexi Crypto Hash Type = SHA1 */
+	DAO_LC_FC_HASH_TYPE_SHA1 = 2,
+	/** Flexi Crypto Hash Type = SHA2-SHA224 */
+	DAO_LC_FC_HASH_TYPE_SHA2_SHA224 = 3,
+	/** Flexi Crypto Hash Type = SHA2-SHA256 */
+	DAO_LC_FC_HASH_TYPE_SHA2_SHA256 = 4,
+	/** Flexi Crypto Hash Type = SHA2-SHA384 */
+	DAO_LC_FC_HASH_TYPE_SHA2_SHA384 = 5,
+	/** Flexi Crypto Hash Type = SHA2-SHA512 */
+	DAO_LC_FC_HASH_TYPE_SHA2_SHA512 = 6,
+	/** Flexi Crypto Hash Type = GMAC */
+	DAO_LC_FC_HASH_TYPE_GMAC = 7,
+	/** Flexi Crypto Hash Type = POLY1305 */
+	DAO_LC_FC_HASH_TYPE_POLY1305 = 8,
+};
+
+/**
+ * The liquid crypto flexi crypto context.
+ */
+struct dao_lc_sym_fc_ctx {
+	/**
+	 * Encr_IV_Source: IV source for the operation.
+	 * @see enum dao_lc_fc_iv_src
+	 *
+	 * Must be set to DAO_LC_FC_IV_SRC_OP
+	 */
+	uint64_t iv_source : 1;
+	/**
+	 * AES_key_len (when enc_cipher = AES*, else ignored)
+	 * @see enum dao_lc_fc_aes_key_len
+	 */
+	uint64_t aes_key_len : 2;
+	/** Reserved Bit 59 */
+	uint64_t rsvd_59 : 1;
+	/**
+	 * Encr_cipher_type: Encryption cipher type
+	 * @see enum dao_lc_fc_enc_cipher
+	 */
+	uint64_t enc_cipher : 4;
+	/**
+	 * Auth_input_type: Authentication key input type
+	 * @see enum dao_lc_fc_auth_input_type
+	 *
+	 * Must be set to DAO_LC_FC_AUTH_INPUT_OPAD_IPAD
+	 */
+	uint64_t auth_input_type : 1;
+	/**
+	 * Auth_key_source: Authentication key source
+	 * @see enum dao_lc_fc_auth_key_src
+	 *
+	 * Must be set to DAO_LC_FC_AUTH_KEY_SRC_CTX
+	 */
+	uint64_t auth_key_src : 1;
+	/** Reserved Bit 50-51 */
+	uint64_t rsvd_50_51 : 2;
+	/**
+	 * MAC_Select: Authentication algorithm
+	 * @see enum dao_lc_fc_hash_type
+	 */
+	uint64_t hash_type : 4;
+	/** MAC_Len (MAC_Len ranges from 1 to MAC length of the respective MAC algorithm) */
+	uint64_t mac_len : 8;
+	/** Reserved Bit 16-39 */
+	uint64_t rsvd_16_39 : 24;
+	/** HMAC_Key_Size: Key size (valid for HMAC only; auth_input_type must be 1). */
+	uint64_t hmac_key_sz : 16;
+	/** Encr_Key or KEY1 for AES-XTS or ChaCha key. */
+	uint8_t encr_key[32];
+	/** Encr_IV or Tweak for AES-XTS. Set to 0 when Encrypt_IV_Source == 1 and not AES_GCM. */
+	uint8_t encr_iv[16];
+	/** IPAD or KEY2 for AES-XTS. */
+	uint8_t ipad[64];
+	/**
+	 * OPAD or Key (Authentication key; supported range is 1 to 64 bytes. Application should
+	 * take care of padding with zeroes if the key is less than 64 bytes.)
+	 */
+	uint8_t opad[64];
+};
+
+/**
+ * The liquid crypto symmetric context.
+ */
+struct dao_lc_sym_ctx {
+	/** The operation code */
+	enum dao_lc_sym_opcode opcode;
+	union {
+		/** Flexi Crypto context */
+		struct dao_lc_sym_fc_ctx fc;
+	};
+};
+
+/**
  * Initialize liquid crypto.
  *
  * This function initializes the liquid crypto library. This API must be called
@@ -488,5 +706,63 @@ int dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16
  */
 uint16_t dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 					 uint16_t nb_ops);
+
+/**
+ * Create a symmetric session on the liquid crypto device.
+ *
+ * The session create request would be submitted via the command queue designated by cmd_qp_idx
+ * of the device.
+ *
+ * @param dev_id
+ * The identifier of the device.
+ * @param ctx
+ * The symmetric context.
+ * @param sess_cookie
+ * The cookie to be associated with the operation. This cookie is returned in the
+ * *dao_lc_cmd_sess_event* structure when the operation is dequeued. The session ID of the session
+ * created would be returned in the *dao_lc_cmd_sess_event* structure.
+ *
+ * @return
+ * - On success, 0 is returned.
+ * - On failure, a negative value is returned indicating the cause
+ */
+int dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *ctx,
+				      uint64_t sess_cookie);
+
+/**
+ * Destroy a symmetric session on the liquid crypto device.
+ *
+ * The session destroy request would be submitted via the command queue designated by cmd_qp_idx
+ * of the device.
+ *
+ * @param dev_id
+ * The identifier of the device.
+ * @param sess_id
+ * The session identifier.
+ * @param sess_cookie
+ * The cookie to be associated with the operation. This cookie is returned in the
+ * *dao_lc_sess_event* structure when the operation is dequeued.
+ *
+ * @return
+ * - On success, 0 is returned.
+ * - On failure, a negative value is returned indicating the cause
+ */
+int dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t sess_cookie);
+
+/**
+ * Dequeue burst of command events from the command queue.
+ *
+ * @param dev_id
+ * The identifier of the device.
+ * @param events
+ * The array of pointers to *dao_lc_cmd_event* structures where the command events
+ * can be stored.
+ * @param nb_events
+ * The maximum number of command events to dequeue.
+ * @return
+ * The number of command events dequeued.
+ */
+uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *events,
+					     uint16_t nb_events);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

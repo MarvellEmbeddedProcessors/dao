@@ -47,4 +47,19 @@ struct __rte_packed __dao_lc_resp_asym {
 	uint8_t rptr[];
 };
 
+struct __rte_packed __dao_lc_req_sess_create {
+	struct __dao_lc_hdr hdr;
+	uint8_t cptr[];
+};
+
+struct __rte_packed __dao_lc_resp_sess_create {
+	struct __dao_lc_hdr hdr;
+	uint64_t sess_id;
+};
+
+struct __rte_packed __dao_lc_req_resp_sess_destroy {
+	struct __dao_lc_hdr hdr;
+	uint64_t sess_id;
+};
+
 #endif /*  __LIQUID_CRYPTO_TRS_H__ */
