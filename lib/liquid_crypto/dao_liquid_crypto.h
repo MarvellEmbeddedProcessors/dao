@@ -62,7 +62,7 @@ union dao_cpt_res_s {
 /**
  * The liquid crypto information structure.
  */
-struct dao_liquid_crypto_info {
+struct dao_lc_info {
 	/** The version of the liquid crypto library. */
 	char version[DAO_CRYPTO_VERSION_LEN];
 	/** The number of devices supported by the liquid crypto library. */
@@ -77,7 +77,7 @@ struct dao_liquid_crypto_info {
  * This structure is used to configure a liquid crypto queue pair.
  *
  */
-struct dao_liquid_crypto_qp_conf {
+struct dao_lc_qp_conf {
 	/** Enable out of order delivery. */
 	bool out_of_order_delivery_en;
 	/**
@@ -94,7 +94,7 @@ struct dao_liquid_crypto_qp_conf {
  *
  * This structure is used to store the result of a liquid crypto operation.
  */
-struct dao_crypto_res {
+struct dao_lc_res {
 	/** The result of the operation returned by CPT */
 	union dao_cpt_res_s res;
 	/** Additional metadata from the operation */
@@ -147,7 +147,7 @@ int dao_liquid_crypto_fini(void);
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
  */
-int dao_liquid_crypto_info_get(struct dao_liquid_crypto_info *info);
+int dao_liquid_crypto_info_get(struct dao_lc_info *info);
 
 /**
  * Create a liquid crypto device.
@@ -156,7 +156,7 @@ int dao_liquid_crypto_info_get(struct dao_liquid_crypto_info *info);
  *
  * @param dev_id
  * The device identifier. Value must between 0 and
- * ``dao_liquid_crypto_info.nb_dev`` - 1.
+ * ``dao_lc_info.nb_dev`` - 1.
  * @param nb_qp
  * The number of queue pairs.
  *
@@ -189,18 +189,17 @@ int dao_liquid_crypto_dev_destroy(uint8_t dev_id);
  *
  * @param dev_id
  * The device identifier. Value must between 0 and
- * ``dao_liquid_crypto_info.nb_dev`` - 1.
+ * ``dao_lc_info.nb_dev`` - 1.
  * @param qp_id
  * The queue pair identifier. Value must between 0 and
- * ``dao_liquid_crypto_info.nb_qp[dev_id]`` - 1.
+ * ``dao_lc_info.nb_qp[dev_id]`` - 1.
  * @param conf
  * A pointer to the liquid crypto queue pair configuration structure.
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
  */
-int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id,
-				   struct dao_liquid_crypto_qp_conf *conf);
+int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_conf *conf);
 
 /**
  * Start a liquid crypto device.
@@ -238,7 +237,7 @@ int dao_liquid_crypto_dev_stop(uint8_t dev_id);
  * The index of the queue pair on which the operation is to be enqueued.
  * @param op_cookie
  * The cookie to be associated with the operation. This cookie is returned
- * in the *dao_crypto_res* structure when the operation is dequeued.
+ * in the *dao_lc_res* structure when the operation is dequeued.
  */
 int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie);
 
@@ -250,7 +249,7 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  * @param qp_id
  * The index of the queue pair on which ops are to be dequeued.
  * @param res [out]
- * The array of pointers to *dao_crypto_res* structures where the results
+ * The array of pointers to *dao_lc_res* structures where the results
  * of the operations are stored.
  * @param nb_ops
  * The maximum number of operations to dequeue.
@@ -258,7 +257,7 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  * @return
  * The number of operations dequeued.
  */
-uint16_t dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_crypto_res *res,
+uint16_t dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 					 uint16_t nb_ops);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */
