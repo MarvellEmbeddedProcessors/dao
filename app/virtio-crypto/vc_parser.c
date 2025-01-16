@@ -16,6 +16,7 @@
 static const char short_options[] = "C:" /* crypto-config */
 				    "v:" /* virtio dev mask */
 				    "c:" /* crypto dev mask */
+				    "b:" /* buffer size */
 				    "n:" /* number of descriptors */
 				    "q:" /* lcore and virtio queue map */
 	;
@@ -25,6 +26,7 @@ static const char short_options[] = "C:" /* crypto-config */
 #define CMD_LINE_OPT_CRYPTO_MASK        "crypto-mask"
 #define CMD_LINE_OPT_DESC               "nb_cryptodev_desc"
 #define CMD_LINE_OPT_VIRTIO_Q_LCORE_MAP "virtio-q-lcore-map"
+#define CMD_LINE_OPT_BUFFER_SIZE        "buffer-size"
 
 #define VC_NB_DESC_MIN     1024
 #define VC_NB_DESC_MAX     16384
@@ -41,6 +43,7 @@ enum {
 	CMD_LINE_OPT_CRYPTO_CONFIG_NUM,
 	CMD_LINE_OPT_VIRTIO_MASK_NUM,
 	CMD_LINE_OPT_CRYPTO_MASK_NUM,
+	CMD_LINE_OPT_BUFFER_SIZE_NUM,
 	CMD_LINE_OPT_DESC_NUM,
 	CMD_LINE_OPT_VIRTIO_Q_LCORE_MAP_NUM,
 };
@@ -49,6 +52,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_CRYPTO_CONFIG, required_argument, 0, CMD_LINE_OPT_CRYPTO_CONFIG_NUM},
 	{CMD_LINE_OPT_VIRTIO_MASK, required_argument, 0, CMD_LINE_OPT_VIRTIO_MASK_NUM},
 	{CMD_LINE_OPT_CRYPTO_MASK, required_argument, 0, CMD_LINE_OPT_CRYPTO_MASK_NUM},
+	{CMD_LINE_OPT_BUFFER_SIZE, required_argument, 0, CMD_LINE_OPT_BUFFER_SIZE_NUM},
 	{CMD_LINE_OPT_DESC, required_argument, 0, CMD_LINE_OPT_DESC_NUM},
 	{CMD_LINE_OPT_VIRTIO_Q_LCORE_MAP, required_argument, 0,
 	 CMD_LINE_OPT_VIRTIO_Q_LCORE_MAP_NUM},
@@ -65,8 +69,10 @@ print_usage(const char *prgname)
 		"  -c, --crypto-mask=<CRYPTO_MASK_L[,CRYPTO_MARK_H]> Hexadecimal bitmask of crypto devices\n"
 		"  -C, --crypto-config=(dev,lcore_mask)[,(dev,lcore_mask)] : Crypto enq lcore mapping\n"
 		"  -n, --nb_cryptodev_desc=NB_DESC : Number of descriptors (in range %d to %d)\n"
-		"  -q, --virtio-q-lcore-map=(lcore_id, vdev_id, vq_id)[, (lcore_id, vdev_id, vq_id1, vq_id2)] : Lcore and virtio-queue id map\n",
-		prgname, VC_NB_DESC_MIN, VC_NB_DESC_MAX);
+		"  -q, --virtio-q-lcore-map=(lcore_id, vdev_id, vq_id)[, (lcore_id, vdev_id, vq_id1, vq_id2)] : Lcore and virtio-queue id map\n"
+		"  -b, --buffer-size=<BUFFER_SIZE> : Virtio mempool buffer size [%d, %d]\n",
+		prgname, VC_NB_DESC_MIN, VC_NB_DESC_MAX, VC_MEMPOOL_BUF_RESERVED_MIN,
+		VC_MEMPOOL_BUF_RESERVED_MAX);
 }
 
 static int
@@ -247,6 +253,8 @@ parse_args(int argc, char **argv)
 	for (devid = 0; devid < DAO_VIRTIO_DEV_MAX; devid++)
 		lcore_virtio_mask[devid] = virtio_mask_dflt;
 
+	vc_mempool_buffer_size = VC_MEMPOOL_BUF_RESERVED_DEFAULT;
+
 	argvopt = argv;
 	while ((opt = getopt_long(argc, argvopt, short_options, lgopts, &option_index)) != EOF) {
 		switch (opt) {
@@ -289,6 +297,20 @@ parse_args(int argc, char **argv)
 			}
 			nb_cryptodevs = __builtin_popcountll(crypto_mask_ena);
 			break;
+		case 'b':
+		case CMD_LINE_OPT_BUFFER_SIZE_NUM:
+			str = strtok_r(optarg, ",", &save_ptr);
+			if (str) {
+				vc_mempool_buffer_size = strtoull(str, NULL, 10);
+				if (vc_mempool_buffer_size < VC_MEMPOOL_BUF_RESERVED_MIN ||
+				    vc_mempool_buffer_size > VC_MEMPOOL_BUF_RESERVED_MAX) {
+					APP_ERR("Buffer size out of allowed range [%d, %d]\n",
+						VC_MEMPOOL_BUF_RESERVED_MIN,
+						VC_MEMPOOL_BUF_RESERVED_MAX);
+					return -1;
+				}
+			}
+			break;
 		case 'n':
 		case CMD_LINE_OPT_DESC_NUM:
 			nb_desc = strtol(optarg, NULL, 10);
@@ -318,5 +340,6 @@ parse_args(int argc, char **argv)
 		}
 	}
 
+	vc_mempool_buffer_size += sizeof(struct dao_virtio_crypto_buffer);
 	return 0;
 }

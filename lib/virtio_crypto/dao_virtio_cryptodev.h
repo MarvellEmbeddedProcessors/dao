@@ -87,8 +87,7 @@ struct dao_virtio_crypto_buffer {
 	rte_iova_t output_addr;
 	struct rte_crypto_op cop;
 	struct rte_crypto_asym_op asym;
-#define DAO_VIRTIO_CRYPTO_OP_MEM_SZ 1512
-	uint8_t reserved[DAO_VIRTIO_CRYPTO_OP_MEM_SZ];
+	uint8_t reserved[];
 };
 
 /** Virtio dev - queue */

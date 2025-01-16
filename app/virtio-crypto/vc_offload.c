@@ -35,6 +35,7 @@ uint64_t lcore_virtio_mask[DAO_VIRTIO_DEV_MAX];
 uint64_t crypto_mask_ena;
 uint16_t nb_cryptodevs;
 uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
+uint64_t vc_mempool_buffer_size;
 
 struct lcore_vdev_vq_map lcore_vdev_vq_map[RTE_MAX_LCORE];
 
@@ -332,7 +333,7 @@ setup_mempools(void)
 
 	for (i = 0; i < vc_cdev_ctx.nb_qp; i++) {
 		snprintf(name, sizeof(name), "qp_obj_pool_%u", i);
-		pool = rte_mempool_create(name, VC_NB_DESC_DEFAULT, VC_MEMPOOL_BUF_SIZE,
+		pool = rte_mempool_create(name, VC_NB_DESC_DEFAULT, vc_mempool_buffer_size,
 					  MEMPOOL_CACHE_SIZE, 0, NULL, NULL, NULL, NULL,
 					  SOCKET_ID_ANY, 0);
 		if (pool == NULL)

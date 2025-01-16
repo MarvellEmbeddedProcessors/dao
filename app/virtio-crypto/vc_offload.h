@@ -25,6 +25,7 @@ extern uint64_t crypto_mask_ena;
 extern uint16_t nb_cryptodevs;
 extern uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
+extern uint64_t vc_mempool_buffer_size;
 extern struct vc_cdev_ctx vc_cdev_ctx;
 
 #define VC_NB_SYM_SESSION  4096
@@ -34,9 +35,10 @@ extern struct vc_cdev_ctx vc_cdev_ctx;
 #define VC_NB_DESC_MIN     1024
 #define VC_NB_DESC_MAX     16384
 
-/* FIXME - get buffer size using an API */
-#define VC_MEMPOOL_CACHE_SIZE 512
-#define VC_MEMPOOL_BUF_SIZE   2048
+#define VC_MEMPOOL_CACHE_SIZE           512
+#define VC_MEMPOOL_BUF_RESERVED_MIN     64
+#define VC_MEMPOOL_BUF_RESERVED_DEFAULT 2048
+#define VC_MEMPOOL_BUF_RESERVED_MAX     9216
 
 struct vc_cdev_ctx {
 	/*
