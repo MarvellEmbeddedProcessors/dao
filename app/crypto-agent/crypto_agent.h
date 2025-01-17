@@ -9,6 +9,10 @@
 #include <rte_mempool.h>
 
 #include "ca_admin.h"
+#include "ca_crypto_queue.h"
+
+/* Default command timeout in seconds */
+#define DEFAULT_COMMAND_TIMEOUT 4
 
 /* Log type */
 #define RTE_LOGTYPE_AGENT        RTE_LOGTYPE_USER1
@@ -25,6 +29,8 @@ struct ca_global_ctx {
 	uint8_t cryptodev_ids[RTE_CRYPTO_MAX_DEVS];
 	uint8_t nb_valid_ethdevs;
 	struct ca_ethdev_ctx eth_ctx[RTE_MAX_ETHPORTS];
+	uint16_t nb_cpt_qp;
+	struct pending_queue cpt_pq[CA_CPT_MAX_QP];
 };
 
 #endif /* __CRYPTO_AGENT_H__ */

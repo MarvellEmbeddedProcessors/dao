@@ -9,8 +9,11 @@
 #include <rte_cryptodev.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
+#include <rte_memzone.h>
 
 #include "ca_admin.h"
+#include "ca_crypto_queue.h"
+#include "ca_dp.h"
 #include "crypto_agent.h"
 
 #define ETH_DEV_PMD_NAME "net_cn9k"
@@ -178,18 +181,34 @@ mempool_fini(void)
 		rte_mempool_free(ca_glb_ctx.eth_ctx[i].mempool);
 }
 
+static void
+crypto_queue_name_get(uint16_t dev_id, uint16_t qp_id, char *name)
+{
+	snprintf(name, RTE_MEMZONE_NAMESIZE, "ca_cryptodev_%u_qp_%u", dev_id, qp_id);
+}
+
 static int
 crypto_devs_init(struct ca_dev_config *dev_config)
 {
 	struct rte_cryptodev_qp_conf qp_conf;
 	struct rte_cryptodev_config conf;
-	uint16_t i, dev_id;
-	int ret;
+	const struct rte_memzone *pq_mem;
+	char name[RTE_MEMZONE_NAMESIZE];
+	uint16_t i, dev_id, nb_desc;
+	int ret, len;
 
 	/* Using only first device. */
 	dev_id = ca_glb_ctx.cryptodev_ids[0];
 
 	CA_INFO("Initializing cryptodev: %d", dev_id);
+
+	/* Update nb_desc to next power of 2 to aid in pending queue checks */
+	nb_desc = rte_align32pow2(dev_config->crypto.nb_desc);
+
+	if (nb_desc < CA_CPT_MIN_QUEUE_DEPTH) {
+		CA_INFO("Using minimum queue depth: %d", nb_desc);
+		nb_desc = CA_CPT_MIN_QUEUE_DEPTH;
+	}
 
 	memset(&conf, 0, sizeof(conf));
 	conf.socket_id = SOCKET_ID_ANY;
@@ -202,13 +221,35 @@ crypto_devs_init(struct ca_dev_config *dev_config)
 
 	for (i = 0; i < conf.nb_queue_pairs; i++) {
 		memset(&qp_conf, 0, sizeof(qp_conf));
-		qp_conf.nb_descriptors = dev_config->crypto.nb_desc;
+		qp_conf.nb_descriptors = nb_desc;
 		ret = rte_cryptodev_queue_pair_setup(dev_id, i, &qp_conf, SOCKET_ID_ANY);
 		if (ret) {
 			CA_ERR("Could not setup queue [cryptodev: %d, qp: %d].", dev_id, i);
 			return ret;
 		}
+
+		/* Allocate SW queue to hold state */
+
+		len = sizeof(struct cpt_inflight_req) * qp_conf.nb_descriptors;
+
+		crypto_queue_name_get(dev_id, i, name);
+
+		pq_mem = rte_memzone_reserve_aligned(name, len, SOCKET_ID_ANY, 0,
+						     RTE_CACHE_LINE_SIZE);
+		if (pq_mem == NULL) {
+			CA_ERR("Could not reserve memzone for pending queue [cryptodev: %d, qp: %d].",
+			       dev_id, i);
+			conf.nb_queue_pairs = i;
+			goto pq_mem_free;
+		}
+
+		ca_glb_ctx.cpt_pq[i].req_queue = pq_mem->addr;
+		memset(ca_glb_ctx.cpt_pq[i].req_queue, 0, len);
+
+		ca_glb_ctx.cpt_pq[i].pq_mask = qp_conf.nb_descriptors - 1;
 	}
+
+	ca_glb_ctx.nb_cpt_qp = conf.nb_queue_pairs;
 
 	ret = rte_cryptodev_start(dev_id);
 	if (ret) {
@@ -216,17 +257,43 @@ crypto_devs_init(struct ca_dev_config *dev_config)
 		return ret;
 	}
 
+	for (i = 0; i < conf.nb_queue_pairs; i++) {
+		ca_glb_ctx.cpt_pq[i].cpt_qptr = rte_pmd_cnxk_crypto_qptr_get(dev_id, i);
+		if (ca_glb_ctx.cpt_pq[i].cpt_qptr == NULL) {
+			CA_ERR("Could not get CPT QPTR for [cryptodev: %d, qp: %d].", dev_id, i);
+			ret = -ENODEV;
+			goto cryptodev_stop;
+		}
+	}
+
 	return 0;
+
+cryptodev_stop:
+	rte_cryptodev_stop(dev_id);
+
+pq_mem_free:
+	for (i = 0; i < conf.nb_queue_pairs; i++) {
+		crypto_queue_name_get(dev_id, i, name);
+		rte_memzone_free(rte_memzone_lookup(name));
+	}
+
+	return ret;
 }
 
 static void
 crypto_devs_fini(void)
 {
+	char name[RTE_MEMZONE_NAMESIZE];
 	uint16_t dev_id;
-	int ret;
+	int ret, i;
 
 	/* Using only first device. */
 	dev_id = ca_glb_ctx.cryptodev_ids[0];
+
+	for (i = 0; i < ca_glb_ctx.nb_cpt_qp; i++) {
+		crypto_queue_name_get(dev_id, i, name);
+		rte_memzone_free(rte_memzone_lookup(name));
+	}
 
 	CA_INFO("Closing cryptodev: %d", dev_id);
 
@@ -440,16 +507,7 @@ main(int argc, char **argv)
 	}
 
 	while (!force_quit) {
-		uint16_t nb_rx, port_id;
-		struct rte_mbuf *mb[16];
-
-		for (port_id = 0; port_id < ca_glb_ctx.nb_valid_ethdevs; port_id++) {
-			nb_rx = rte_eth_rx_burst(port_id, 0, mb, 16);
-			if (nb_rx) {
-				CA_INFO("Received %u packets on port %u", nb_rx, port_id);
-				rte_pktmbuf_free_bulk(mb, nb_rx);
-			}
-		}
+		ca_eth_rx(ca_glb_ctx.nb_valid_ethdevs, &ca_glb_ctx.cpt_pq[0]);
 	}
 
 	eth_devs_fini();
