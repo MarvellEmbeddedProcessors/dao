@@ -16,4 +16,7 @@
 /* Test timeout */
 #define TEST_LC_TIMEOUT 10
 
+/* Maximum length of output buffer */
+#define TEST_LC_MAX_OUTPUT_LEN 512
+
 #endif /* __LC_AUTOTEST_H__ */

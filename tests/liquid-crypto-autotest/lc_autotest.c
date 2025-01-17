@@ -11,6 +11,7 @@
 #include <dao_liquid_crypto.h>
 
 #include "lc_autotest.h"
+#include "lc_test_asym.h"
 #include "lc_test_generic.h"
 #include "test.h"
 
@@ -95,6 +96,7 @@ main(int argc, char **argv)
 	}
 
 	unit_test_suite_runner(&lc_testsuite_generic);
+	unit_test_suite_runner(&lc_testsuite_asym);
 
 	dao_liquid_crypto_dev_stop(dev_id);
 
