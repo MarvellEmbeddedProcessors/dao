@@ -2,6 +2,7 @@
 # Copyright (c) 2025 Marvell.
 
 sources = files(
+	'cpt_debug.c',
 	'crypto_agent.c',
 	'ca_eth_rx.c',
 )

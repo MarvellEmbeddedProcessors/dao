@@ -12,11 +12,13 @@
 
 #include "ca_crypto_queue.h"
 #include "ca_dp.h"
+#include "cpt_debug.h"
 #include "crypto_agent.h"
 #include "dao_eth_trs.h"
 #include "liquid_crypto_trs.h"
 
 #define CA_ETHDEV_RX_BURST 32
+#define CPT_DEBUG_ENABLE
 
 static void
 process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *pq)
@@ -84,6 +86,9 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		/* Save handle of the packet */
 		infl_req->mbuf = rx_pkts[i];
 
+#ifdef CPT_DEBUG_ENABLE
+		cpt_debug_res_print(infl_req);
+#endif
 		pending_queue_advance(&head, pq_mask);
 	}
 
