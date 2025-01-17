@@ -10,16 +10,42 @@
 #include <rte_graph.h>
 #include <rte_mbuf.h>
 
+#include <dao_eth_trs.h>
 #include <dao_liquid_crypto.h>
+#include <liquid_crypto_trs.h>
+#include <mc/ae.h>
 
 #include "ca_crypto_queue.h"
 #include "ca_dp.h"
 #include "crypto_agent.h"
 
 static inline void
+ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
+{
+	struct __dao_lc_resp_asym *resp;
+	uint8_t *rptr;
+
+	resp = rte_pktmbuf_mtod(infl_req->mbuf, struct __dao_lc_resp_asym *);
+	rptr = resp->rptr;
+	if (infl_req->rsa_is_decrypt) {
+		/* For PKCS decryption operations, the decrypted message length is stored in the
+		 * reserved field of the response buffer.
+		 */
+		res->cn9k.reserved_17_63 = rte_cpu_to_be_16(*((uint16_t *)RTE_PTR_SUB(rptr, 2)));
+	} else {
+		/* For encryption operations, the dequeue API in the host library needs the
+		 * modulus length to copy the data from the inflight request to the response buffer.
+		 */
+		res->cn9k.reserved_17_63 = infl_req->rsa_mod_len;
+	}
+	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+}
+
+static inline void
 ca_cpt_deq(struct pending_queue *pq)
 {
 	struct cpt_inflight_req *infl_req;
+	struct dao_eth_trs_pkt *req;
 	union dao_cpt_res_s res;
 	uint16_t nb_pending, i;
 	uint64_t head, tail;
@@ -49,7 +75,17 @@ ca_cpt_deq(struct pending_queue *pq)
 		}
 
 		pending_queue_advance(&tail, pq_mask);
+
 		/* Process the packet */
+		req = rte_pktmbuf_mtod(infl_req->mbuf, struct dao_eth_trs_pkt *);
+		switch (req->hdr.op_type) {
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
+			ca_cpt_post_process_asym(infl_req, &res);
+			break;
+		default:
+			break;
+		}
+
 		nb_tx = rte_eth_tx_burst(0, 0, &infl_req->mbuf, 1);
 		CA_ERR("%d packets sent to host", nb_tx);
 	}

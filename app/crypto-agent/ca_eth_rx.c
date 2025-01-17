@@ -30,6 +30,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	uint16_t pkt_id, nb_cpt_bypass;
 	struct __dao_lc_req_sym *sym;
 	struct dao_eth_trs_pkt *req;
+	union cpt_inst_w4 w4;
 	uint64_t head, tail;
 	uint16_t i;
 
@@ -80,11 +81,24 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			asym = (struct __dao_lc_req_asym *)req;
 			asym_resp = (struct __dao_lc_resp_asym *)req;
-			inst[i].w4.u64 = asym->w4;
+			w4.u64 = asym->w4;
+			inst[i].w4.u64 = w4.u64;
 			inst[i].w5.u64 = (uint64_t)asym->dptr;
 			inst[i].w6.u64 = (uint64_t)asym_resp->rptr;
 			inst[i].w7.u64 = 0;
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
+
+			if (w4.s.opcode_major == ROC_AE_MAJOR_OP_MODEX) {
+				infl_req->rsa_mod_len = w4.s.param1;
+				infl_req->rsa_is_decrypt = 0;
+
+				if (w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC_CRT ||
+				    w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC) {
+					infl_req->rsa_is_decrypt = 1;
+					/* Reserve two bytes for output length */
+					inst->rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
+				}
+			}
 			break;
 		default:
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
