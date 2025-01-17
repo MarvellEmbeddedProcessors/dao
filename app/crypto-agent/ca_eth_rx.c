@@ -22,7 +22,9 @@ static void
 process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *pq)
 {
 	struct cpt_inst_s inst[CA_ETHDEV_RX_BURST];
+	struct __dao_lc_resp_asym *asym_resp;
 	struct cpt_inflight_req *infl_req;
+	struct __dao_lc_req_asym *asym;
 	struct __dao_lc_req_sym *sym;
 	struct dao_eth_trs_pkt *req;
 	uint64_t head, tail;
@@ -58,6 +60,22 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w5.u64 = (uint64_t)sym->dptr;
 			inst[i].w7.u64 = 0;
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
+			sym = (struct __dao_lc_req_sym *)req;
+			inst[i].w4.u64 = sym->w4;
+			inst[i].w5.u64 = (uint64_t)sym->dptr;
+			inst[i].w6.u64 = 0;
+			inst[i].w7.u64 = sym->w7;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
+			asym = (struct __dao_lc_req_asym *)req;
+			asym_resp = (struct __dao_lc_resp_asym *)req;
+			inst[i].w4.u64 = asym->w4;
+			inst[i].w5.u64 = (uint64_t)asym->dptr;
+			inst[i].w6.u64 = (uint64_t)asym_resp->rptr;
+			inst[i].w7.u64 = 0;
+			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			break;
 		default:
 			CA_INFO("Invalid DAO ETH opcode %d", req->hdr.op_type);
