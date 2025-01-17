@@ -42,8 +42,8 @@ op_dequeue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res)
 	uint64_t timeout;
 	int ret;
 
-	/* Set a timeout of 1 second. */
-	timeout = rte_get_timer_cycles() + rte_get_timer_hz();
+	/* Set a timeout of TEST_LC_TIMEOUT second. */
+	timeout = rte_get_timer_cycles() + rte_get_timer_hz() * TEST_LC_TIMEOUT;
 
 	do {
 		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, res, 1);

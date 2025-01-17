@@ -13,4 +13,7 @@
 #define TEST_LC_INFO_NH(fmt, args...) rte_log(RTE_LOG_INFO, RTE_LOGTYPE_AGENT, fmt "\n", ##args)
 #define TEST_LC_ERR(fmt, args...)     RTE_LOG(ERR, TEST, fmt "\n", ##args)
 
+/* Test timeout */
+#define TEST_LC_TIMEOUT 10
+
 #endif /* __LC_AUTOTEST_H__ */
