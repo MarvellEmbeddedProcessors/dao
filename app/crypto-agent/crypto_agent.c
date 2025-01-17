@@ -16,7 +16,8 @@
 #include "ca_dp.h"
 #include "crypto_agent.h"
 
-#define ETH_DEV_PMD_NAME "net_cn9k"
+#define ETH_DEV_PMD_NAME_CN9K  "net_cn9k"
+#define ETH_DEV_PMD_NAME_CN10K "net_cn10k"
 
 static volatile bool force_quit;
 
@@ -120,7 +121,8 @@ eth_devs_validate(void)
 			return ret;
 		}
 
-		if (strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME) == 0) {
+		if ((strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME_CN9K) == 0) ||
+		    (strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME_CN10K) == 0)) {
 			/* Valid device found. */
 			ca_glb_ctx.eth_ctx[nb_valid_devs].port_id = dev_id;
 			nb_valid_devs++;
