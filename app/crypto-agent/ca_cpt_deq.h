@@ -39,7 +39,7 @@ ca_cpt_deq(struct pending_queue *pq)
 
 		res.u64[0] = __atomic_load_n(&infl_req->res.u64[0], __ATOMIC_RELAXED);
 
-		if (unlikely(res.cn10k.compcode == CPT_COMP_NOT_DONE)) {
+		if (unlikely(res.cn9k.compcode == DAO_CPT_COMP_NOT_DONE)) {
 			if (unlikely(rte_get_timer_cycles() > pq->time_out)) {
 				CA_ERR("Request timed out");
 				pq->time_out = rte_get_timer_cycles() +

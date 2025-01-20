@@ -46,7 +46,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 
 		req = rte_pktmbuf_mtod(rx_pkts[pkt_id], struct dao_eth_trs_pkt *);
 
-		infl_req->res.cn10k.compcode = CPT_COMP_NOT_DONE;
+		infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
 
 		i = pkt_id - nb_cpt_bypass;
 		inst[i].w0.u64 = 0;
@@ -56,7 +56,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 
 		switch (req->hdr.op_type) {
 		case DAO_ETH_TRS_OP_TYPE_REFLECT:
-			infl_req->res.cn10k.compcode = CPT_COMP_GOOD;
+			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
@@ -87,7 +87,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			break;
 		default:
-			infl_req->res.cn10k.compcode = CPT_COMP_GOOD;
+			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 			nb_cpt_bypass++;
 			CA_INFO("Invalid DAO ETH opcode %d", req->hdr.op_type);
 			req->hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_END;

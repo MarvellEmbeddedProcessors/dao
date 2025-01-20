@@ -19,24 +19,24 @@ cpt_debug_res_print(struct cpt_inflight_req *req)
 
 	CA_INFO("Result: %lx %lx", res.u64[0], res.u64[1]);
 
-	switch (res.cn10k.compcode) {
-	case CPT_COMP_GOOD:
-		snprintf(log_str, sizeof(log_str), "CPT_COMP_GOOD");
+	switch (res.cn9k.compcode) {
+	case DAO_CPT_COMP_GOOD:
+		snprintf(log_str, sizeof(log_str), "DAO_CPT_COMP_GOOD");
 		break;
-	case CPT_COMP_FAULT:
-		snprintf(log_str, sizeof(log_str), "CPT_COMP_FAULT");
+	case DAO_CPT_COMP_FAULT:
+		snprintf(log_str, sizeof(log_str), "DAO_CPT_COMP_FAULT");
 		break;
-	case CPT_COMP_SWERR:
-		snprintf(log_str, sizeof(log_str), "CPT_COMP_SWERR");
+	case DAO_CPT_COMP_SWERR:
+		snprintf(log_str, sizeof(log_str), "DAO_CPT_COMP_SWERR");
 		break;
-	case CPT_COMP_HWERR:
-		snprintf(log_str, sizeof(log_str), "CPT_COMP_HWERR");
+	case DAO_CPT_COMP_HWERR:
+		snprintf(log_str, sizeof(log_str), "DAO_CPT_COMP_HWERR");
 		break;
-	case CPT_COMP_INSTERR:
-		snprintf(log_str, sizeof(log_str), "CPT_COMP_INSTERR");
+	case DAO_CPT_COMP_INSTERR:
+		snprintf(log_str, sizeof(log_str), "DAO_CPT_COMP_INSTERR");
 		break;
-	case CPT_COMP_WARN:
-		snprintf(log_str, sizeof(log_str), "CPT_COMP_WARN");
+	case DAO_CPT_COMP_WARN:
+		snprintf(log_str, sizeof(log_str), "DAO_CPT_COMP_WARN");
 		break;
 	default:
 		snprintf(log_str, sizeof(log_str), "Unknown");

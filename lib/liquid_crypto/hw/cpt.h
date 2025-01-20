@@ -7,15 +7,6 @@
 
 #define ROC_ALIGN 128
 
-/* Completion codes */
-#define CPT_COMP_NOT_DONE (0x0ull)
-#define CPT_COMP_GOOD     (0x1ull)
-#define CPT_COMP_FAULT    (0x2ull)
-#define CPT_COMP_SWERR    (0x3ull)
-#define CPT_COMP_HWERR    (0x4ull)
-#define CPT_COMP_INSTERR  (0x5ull)
-#define CPT_COMP_WARN     (0x6ull)
-
 /* CPT instruction words */
 union cpt_inst_w4 {
 	uint64_t u64;

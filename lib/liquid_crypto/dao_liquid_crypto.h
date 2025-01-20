@@ -20,12 +20,35 @@
 #define DAO_CRYPTO_MAX_NB_DEV 1
 
 /**
+ * CPT hardware completion codes.
+ */
+enum dao_cpt_comp_code {
+	/** Request not completed. */
+	DAO_CPT_COMP_NOT_DONE = 0,
+	/** Request completed successfully. */
+	DAO_CPT_COMP_GOOD,
+	/** CPT detected a memory fault. */
+	DAO_CPT_COMP_FAULT,
+	/** Microcode detected an illegal instruction. */
+	DAO_CPT_COMP_SWERR,
+	/** CPT detected an uncorrectable error. */
+	DAO_CPT_COMP_HWERR,
+	/** CPT detected an illegal instruction. */
+	DAO_CPT_COMP_INSTERR,
+	/** Request completed with a warning. */
+	DAO_CPT_COMP_WARN
+};
+
+/**
  * The completion code returned by the CPT.
  */
 union dao_cpt_res_s {
 	/** CPT_RES_S for cn10k */
 	struct cpt_cn10k_res_s {
-		/** HW Completion code */
+		/**
+		 * HW Completion code.
+		 * @see enum dao_cpt_comp_code
+		 */
 		uint64_t compcode : 7;
 		/** HW Done interrupt */
 		uint64_t doneint : 1;
@@ -42,7 +65,10 @@ union dao_cpt_res_s {
 
 	/** CPT_RES_S for cn9k */
 	struct cpt_cn9k_res_s {
-		/** HW Completion code */
+		/**
+		 * HW Completion code.
+		 * @see enum dao_cpt_comp_code
+		 */
 		uint64_t compcode : 8;
 		/** Microcode Completion code */
 		uint64_t uc_compcode : 8;
