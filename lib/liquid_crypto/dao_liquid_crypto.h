@@ -147,11 +147,11 @@ struct dao_lc_res {
 	union dao_cpt_res_s res;
 	/** Additional metadata from the operation */
 	union {
-		/** Metadata associated with RSA decrypt operation */
+		/** Metadata associated with RSA operations */
 		struct {
-			/** The length of the message */
-			uint16_t msg_len;
-		} rsa_dec;
+			/** The length of the output data */
+			uint16_t data_out_len;
+		} rsa;
 		/** Generic 64-bit metadata */
 		uint64_t u64;
 	};
