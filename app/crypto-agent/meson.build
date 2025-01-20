@@ -1,6 +1,10 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
+if host_build
+	skip_app = true
+endif
+
 sources = files(
 	'cpt_debug.c',
 	'crypto_agent.c',
