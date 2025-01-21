@@ -40,6 +40,22 @@ enum dao_cpt_comp_code {
 };
 
 /**
+ * CPT microcode completion codes.
+ */
+enum dao_uc_rsa_comp_code {
+	/** Request completed. */
+	DAO_UC_RSA_SUCCESS = 0x00,
+	/** Scatter/Gather not supported. */
+	DAO_UC_RSA_SG_NOT_SUPPORTED = 0x04,
+	/** Invalid mod length. */
+	DAO_UC_RSA_MOD_LEN_INVALID = 0x06,
+	/** Mod length not even. */
+	DAO_UC_RSA_MOD_LEN_NOT_EVEN = 0x09,
+	/** PKCS decrypt incorrect. */
+	DAO_UC_RSA_PKCS_DEC_INCORRECT = 0x0A
+};
+
+/**
  * The completion code returned by the CPT.
  */
 union dao_cpt_res_s {
@@ -52,7 +68,10 @@ union dao_cpt_res_s {
 		uint64_t compcode : 7;
 		/** HW Done interrupt */
 		uint64_t doneint : 1;
-		/** Microcode Completion code */
+		/**
+		 * Microcode Completion code.
+		 * @see enum dao_uc_rsa_comp_code
+		 */
 		uint64_t uc_compcode : 8;
 		/** Rlen */
 		uint64_t rlen : 16;
@@ -70,7 +89,10 @@ union dao_cpt_res_s {
 		 * @see enum dao_cpt_comp_code
 		 */
 		uint64_t compcode : 8;
-		/** Microcode Completion code */
+		/**
+		 * Microcode Completion code.
+		 * @see enum dao_uc_rsa_comp_code
+		 */
 		uint64_t uc_compcode : 8;
 		/** HW Done Interrupt */
 		uint64_t doneint : 1;
