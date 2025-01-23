@@ -1,10 +1,10 @@
 #!/bin/bash
 # SPDX-License-Identifier: Marvell-MIT
-# Copyright (c) 2023 Marvell.
+# Copyright (c) 2025 Marvell.
 
 set -euo pipefail
 shopt -s extglob
-
+#set -x
 function fetch_dep() {
 	local url=$1
 	local cache_dir=${PKG_CACHE_DIR:-}
@@ -62,6 +62,20 @@ LIBNL_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
 LIBNL_INSTALL_DIR=$LIBNL_PREFIX_DIR
 LIBNL_TARBALL=libnl-3.7.0
 
+#grpc variables
+GRPC_SRC_TAG=v1.66.0
+GRPC_SRC_URL=https://github.com/grpc/grpc
+GRPC_SRC_DIR=$BUILD_DEPS_ROOT/host/grpc
+GRPC_HOST_INSTALL_PREFIX=$HOST_DEPS_INSTALL_DIR/
+GRPC_HOST_CONFIG_LIBDIR=$GRPC_HOST_INSTALL_PREFIX/lib/pkgconfig
+GRPC_HOST_BUILD_DIR=$GRPC_SRC_DIR/cmake/build_host
+GRPC_OCT_BUILD_DIR=$GRPC_SRC_DIR/cmake/build_aarch64
+GRPC_OCT_INSTALL_PREFIX=$EP_DEPS_INSTALL_DIR/
+GRPC_CXX_ABI_STANDARD=17
+GRPC_CMAKE_CROSS_FILE=$(mktemp)
+GRPC_CXX_CROSS_COMPILER=
+GRPC_C_CROSS_COMPILER=
+
 # fall back to pkg-config if specified one does not exist
 if [ ! -x ${PKGCONFIG} ]; then
   PKGCONFIG=pkg-config
@@ -71,23 +85,6 @@ export PKG_CONFIG_LIBDIR=$EP_DEPS_INSTALL_DIR/lib/pkgconfig
 if [[ $DEPS_TO_BUILD == "all" ]]; then
 	DEPS_TO_BUILD=$ALL_DEPS
 fi
-
-# DPDK
-function clone_dpdk() {
-	# Source dpdk env
-	mkdir -p $DPDK_DIR
-	cd $DPDK_DIR
-	git clone ssh://$GIT_USER@$DPDK_REPO --single-branch --branch $DPDK_BRANCH .
-	git checkout $DPDK_COMMIT
-}
-
-# DPDK for host
-function clone_dpdk_host() {
-	# Source dpdk env
-	mkdir -p $HOST_DPDK_DIR
-	cd $HOST_DPDK_DIR
-	git clone https://github.com/DPDK/dpdk.git --single-branch --branch $HOST_DPDK_BRANCH .
-}
 
 function build_dpdk() {
 	local plat=$1
@@ -101,7 +98,10 @@ function build_dpdk() {
 	source $DPDK_ENV
 
 	# Cloning the repositories
-	clone_dpdk
+	mkdir -p $DPDK_DIR
+	cd $DPDK_DIR
+	git clone ssh://$GIT_USER@$DPDK_REPO --single-branch --branch $DPDK_BRANCH .
+	git checkout $DPDK_COMMIT
 
 	# enable verbose
 	if [[ -n $VERBOSE ]]; then
@@ -132,7 +132,9 @@ function build_dpdk_host() {
 	fi
 
 	# Cloning the repositories
-	clone_dpdk_host
+	mkdir -p $HOST_DPDK_DIR
+	cd $HOST_DPDK_DIR
+	git clone https://github.com/DPDK/dpdk.git --single-branch --branch $HOST_DPDK_BRANCH .
 
 	# enable verbose
 	if [[ -n $VERBOSE ]]; then
@@ -144,30 +146,6 @@ function build_dpdk_host() {
 
 	ninja -C $HOST_BUILD_DPDK_DIR -j $MAKE_J $verbose
 	ninja -C $HOST_BUILD_DPDK_DIR -j $MAKE_J $verbose install
-}
-
-function compile_libnl() {
-	mkdir -p $LIBNL_BUILD_DIR
-	cd $LIBNL_BUILD_DIR
-	if [ ! -f $LIBNL_TARBALL.tar.gz ]; then
-		fetch_dep https://github.com/thom311/libnl/releases/download/libnl3_7_0/$LIBNL_TARBALL.tar.gz
-	fi
-	tar xvf $LIBNL_TARBALL.tar.gz --strip-components=1
-	./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBNL_PREFIX_DIR --enable-static=no
-	make;
-	make install;
-	set +x
-	if ($PKGCONFIG --modversion libnl-xfrm-3.0); then
-		echo "libnl-xfrm-3.0 installed."
-		if ($PKGCONFIG --modversion libnl-route-3.0); then
-			echo "libnl-route-3.0 installed."
-			if ($PKGCONFIG --modversion libnl-3.0); then
-				echo "libnl-3.0 installed."
-				return 0
-			fi
-		fi
-	fi
-	return 1
 }
 
 function build_libnl() {
@@ -188,14 +166,128 @@ function build_libnl() {
 	fi
 
 	if [ $libnl_is_enabled == 1 ]; then
-		compile_libnl $@
+		mkdir -p $LIBNL_BUILD_DIR
+		cd $LIBNL_BUILD_DIR
+		if [ ! -f $LIBNL_TARBALL.tar.gz ]; then
+			fetch_dep https://github.com/thom311/libnl/releases/download/libnl3_7_0/$LIBNL_TARBALL.tar.gz
+		fi
+		tar xvf $LIBNL_TARBALL.tar.gz --strip-components=1
+		./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBNL_PREFIX_DIR --enable-static=no
+		make;
+		make install;
+		set +x
+		if ($PKGCONFIG --modversion libnl-xfrm-3.0); then
+			echo "libnl-xfrm-3.0 installed."
+			if ($PKGCONFIG --modversion libnl-route-3.0); then
+				echo "libnl-route-3.0 installed."
+				if ($PKGCONFIG --modversion libnl-3.0); then
+					echo "libnl-3.0 installed."
+					return 0
+				fi
+			fi
+		fi
+		return 1
+	fi
+}
+
+function build_grpc_host() {
+	if [[ "$DEPS_TO_BUILD" != *"grpc"* ]]; then
+		return 1
+	fi
+
+	# Source dpdk env
+	if [[ ! -d $GRPC_SRC_DIR ]]; then
+		mkdir -p $GRPC_SRC_DIR
+		cd $GRPC_SRC_DIR
+		git clone --recurse-submodules -b $GRPC_SRC_TAG --depth 1 --shallow-submodules $GRPC_SRC_URL .
+	fi
+
+	#compile_grpc_host
+	GRPC_CMAKE_CMD_VERBOSE=
+	if [[ -n $VERBOSE ]]; then
+		GRPC_CMAKE_CMD_VERBOSE="-DCMAKE_VERBOSE_MAKEFILE:BOOL=ON"
+	fi
+
+	if [[ ! -d $GRPC_HOST_BUILD_DIR ]]; then
+		mkdir -p $GRPC_HOST_BUILD_DIR
+		pushd $GRPC_HOST_BUILD_DIR
+		GRPC_HOST_CMAKE_CMD="-DCMAKE_CXX_STANDARD=$GRPC_CXX_ABI_STANDARD -DCMAKE_INSTALL_PREFIX=$GRPC_HOST_INSTALL_PREFIX \
+			-DCMAKE_BUILD_TYPE=Release -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DgRPC_SSL_PROVIDER=package "
+		cmake $GRPC_HOST_CMAKE_CMD $GRPC_CMAKE_CMD_VERBOSE $GRPC_SRC_DIR
+		make -j $MAKE_J
+		make install
+		popd
+	fi
+	return 0
+}
+
+function build_grpc() {
+	if [[ "$DEPS_TO_BUILD" != *"grpc"* ]]; then
+		return
+	fi
+
+	build_grpc_host || return
+
+	#Override pkg_config_libdir to chk if host has valid re2
+	tmp=$PKG_CONFIG_LIBDIR
+	export PKG_CONFIG_LIBDIR=$GRPC_HOST_CONFIG_LIBDIR:/usr/local/lib/pkgconfig
+	if [[ "$($PKGCONFIG --modversion re2)" == "" ]]; then
+		echo "$0: libre2-devel host package missing"
+		return 1
+	fi
+	export PKG_CONFIG_LIBDIR=$tmp
+
+	[[ $GRPC_CXX_CROSS_COMPILER='' ]] && GRPC_CXX_CROSS_COMPILER="aarch64-marvell-linux-gnu-g++"
+	[[ $GRPC_C_CROSS_COMPILER='' ]] && GRPC_C_CROSS_COMPILER="aarch64-marvell-linux-gnu-gcc"
+
+	if [[ -z $(which $GRPC_CXX_CROSS_COMPILER) ]]; then
+		echo "Unable to find $GRPC_CXX_CROSS_COMPILER compiler"
+		return
+	fi
+
+	if [[ -z $(which $GRPC_C_CROSS_COMPILER) ]]; then
+		echo "Unable to find $GRPC_C_CROSS_COMPILER compiler"
+		return
+	fi
+
+	GRPC_CROSS_COMPILER_PATH=$(dirname $(which $GRPC_CXX_CROSS_COMPILER))
+
+	#Create cmake cross fille
+	echo "set(CMAKE_SYSTEM_NAME Linux)" >$GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_SYSTEM_PROCESSOR aarch64)" >>$GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_C_COMPILER $GRPC_CROSS_COMPILER_PATH/$GRPC_C_CROSS_COMPILER)" >> $GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_CXX_COMPILER $GRPC_CROSS_COMPILER_PATH/$GRPC_CXX_CROSS_COMPILER)" >> $GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_CXX_STANDARD $GRPC_CXX_ABI_STANDARD)" >> $GRPC_CMAKE_CROSS_FILE
+	if [[ "$GRPC_C_CROSS_COMPILER" == *"marvell"* ]]; then
+		echo "set(CMAKE_SYSROOT $GRPC_CROSS_COMPILER_PATH/../aarch64-marvell-linux-gnu/sys-root)" >> $GRPC_CMAKE_CROSS_FILE
+	fi
+	if [[ -n $VERBOSE ]]; then
+		echo "set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL "Verbose Makefile" FORCE)" >> $GRPC_CMAKE_CROSS_FILE
+	fi
+	echo "set(ENV{PATH} \"$GRPC_HOST_INSTALL_PREFIX/bin:\$ENV{PATH}\")" >> $GRPC_CMAKE_CROSS_FILE
+	echo "set(ENV{PKG_CONFIG_PATH} \"$GRPC_HOST_INSTALL_PREFIX/lib/pkgconfig/:\$ENV{PKG_CONFIG_PATH}\")" >> $GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)" >>$GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)" >>$GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)" >>$GRPC_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)" >>$GRPC_CMAKE_CROSS_FILE
+
+	#Compile grpc for octeon
+	if [[ ! -d $GRPC_OCT_BUILD_DIR ]]; then
+		mkdir -p $GRPC_OCT_BUILD_DIR
+		pushd $GRPC_OCT_BUILD_DIR
+		GRPC_OCT_CMAKE_CMD="-DCMAKE_TOOLCHAIN_FILE=$GRPC_CMAKE_CROSS_FILE -DCMAKE_CXX_STANDARD=$GRPC_CXX_ABI_STANDARD \
+					-DCMAKE_INSTALL_PREFIX=$GRPC_OCT_INSTALL_PREFIX -DCMAKE_BUILD_TYPE=Release"
+		cmake $GRPC_OCT_CMAKE_CMD $GRPC_SRC_DIR
+		make -j $MAKE_J
+		make install
+		popd
 	fi
 }
 
 # Building DPDK
 build_dpdk $PLAT
 build_libnl $@
-
+build_grpc
 
 # Building DPDK for host
 build_dpdk_host
