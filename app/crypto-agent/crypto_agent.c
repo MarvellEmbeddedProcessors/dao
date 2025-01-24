@@ -75,11 +75,8 @@ crypto_devs_validate(void)
 	for (i = 0; i < nb_valid_devs; i++)
 		CA_INFO("Crypto dev %u", nb_valid_devs);
 
-	/* TODO - decide whether we want to support multiple devices */
-	if (nb_valid_devs > 1) {
-		CA_INFO("Multiple primary cryptodevs not supported");
-		return -ENODEV;
-	}
+	if (nb_valid_devs > 1)
+		CA_INFO("Only one crypto device supported. Using first device.");
 
 	memset(&cryptodev_info, 0, sizeof(cryptodev_info));
 	rte_cryptodev_info_get(ca_glb_ctx.cryptodev_ids[0], &cryptodev_info);
