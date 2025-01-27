@@ -11,6 +11,8 @@ sources = files(
 	'ca_eth_rx.c',
 )
 
+cflags += [ '-DCA_DEBUG_ENABLE_PERIODIC_PRINT' ]
+
 deps += ['liquid_crypto']
 
 app_deps += DAO_EXT_DEPS_LIBDPDK

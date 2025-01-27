@@ -154,18 +154,32 @@ process_pkts_reflect(struct rte_mbuf **rx_pkts, uint16_t *nb_pkts, uint8_t port_
 }
 #endif /* CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT */
 
+#ifdef CA_DEBUG_ENABLE_PERIODIC_PRINT
+static inline void
+periodic_print(void)
+{
+	static uint64_t last_time;
+	uint64_t cur_time;
+
+	cur_time = rte_get_timer_cycles();
+
+	/* Print every minute */
+	if (cur_time - last_time > 60 * rte_get_timer_hz()) {
+		CA_INFO("Waiting for packets on ethdevs");
+		last_time = cur_time;
+	}
+}
+#endif /* CA_DEBUG_ENABLE_PERIODIC_PRINT */
+
 void
 ca_eth_rx(uint16_t nb_valid_ethdevs, struct pending_queue *pq)
 {
 	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
 	uint16_t nb_rx, port_id;
-	static int count;
 
-	if (count % 10 == 0)
-		CA_INFO("Waiting for packets on ethdevs");
-
-	count++;
-	rte_delay_ms(100);
+#ifdef CA_DEBUG_ENABLE_PERIODIC_PRINT
+	periodic_print();
+#endif
 
 	for (port_id = 0; port_id < nb_valid_ethdevs; port_id++) {
 		nb_rx = rte_eth_rx_burst(port_id, 0, mb, CA_ETHDEV_RX_BURST);
