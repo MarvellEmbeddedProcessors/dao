@@ -17,28 +17,63 @@
 
 #include "ca_crypto_queue.h"
 #include "ca_dp.h"
+#include "cpt_debug.h"
 #include "crypto_agent.h"
+
+#define CPT_DEBUG_ENABLE
 
 static inline void
 ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
 {
 	struct __dao_lc_resp_asym *resp;
+	uint16_t rlen, pkt_len;
+	struct rte_mbuf *mb;
 	uint8_t *rptr;
 
-	resp = rte_pktmbuf_mtod(infl_req->mbuf, struct __dao_lc_resp_asym *);
+	mb = infl_req->mbuf;
+	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_asym *);
+
+	if (unlikely(infl_req->res.cn9k.uc_compcode != DAO_UC_RSA_SUCCESS)) {
+		rlen = 0;
+		goto rlen_set;
+	}
+
 	rptr = resp->rptr;
 	if (infl_req->rsa_is_decrypt) {
-		/* For PKCS decryption operations, the decrypted message length is stored in the
-		 * reserved field of the response buffer.
+		/* For decryption operations, the dequeue API in the host library needs the
+		 * length of the decrypted data to copy the data from the inflight request to the
+		 * response buffer.
 		 */
-		res->cn9k.reserved_17_63 = rte_cpu_to_be_16(*((uint16_t *)RTE_PTR_SUB(rptr, 2)));
+		rlen = rte_cpu_to_be_16(*((uint16_t *)RTE_PTR_SUB(rptr, 2)));
 	} else {
-		/* For encryption operations, the dequeue API in the host library needs the
-		 * modulus length to copy the data from the inflight request to the response buffer.
+		/* For encryption operations, the length of the encrypted data is already
+		 * present in the response buffer.
 		 */
-		res->cn9k.reserved_17_63 = infl_req->rsa_mod_len;
+		rlen = infl_req->rsa_mod_len;
 	}
+
+rlen_set:
+	/* Copy the response in reserved field of response buffer */
+	res->cn9k.reserved_17_63 = rlen;
+
 	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+
+	/* Set the length of the response buffer */
+	pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+	resp->hdr.trs_hdr.op_len = pkt_len;
+
+	pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
+
+#ifdef CA_DEBUG_ENABLE
+	if (unlikely(pkt_len > mb->buf_len)) {
+		CA_ERR("Response buffer too small. Trimming buffer.");
+		pkt_len = mb->buf_len;
+	}
+#endif /* CA_DEBUG_ENABLE */
+
+	/* Set the length of the packet */
+	mb->pkt_len = pkt_len;
+	mb->data_len = pkt_len;
 }
 
 static inline void
@@ -85,6 +120,10 @@ ca_cpt_deq(struct pending_queue *pq)
 		default:
 			break;
 		}
+
+#ifdef CPT_DEBUG_ENABLE
+		cpt_debug_res_print(infl_req);
+#endif
 
 		nb_tx = rte_eth_tx_burst(0, 0, &infl_req->mbuf, 1);
 		CA_ERR("%d packets sent to host", nb_tx);

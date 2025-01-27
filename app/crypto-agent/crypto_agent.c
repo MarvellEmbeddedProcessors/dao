@@ -126,6 +126,16 @@ eth_devs_validate(void)
 			CA_INFO("Eth dev %u, max rx queues: %d", ca_glb_ctx.eth_ctx[dev_id].port_id,
 				ethdev_info.max_rx_queues);
 		}
+
+		if (ethdev_info.min_rx_bufsize < ETH_DEV_MIN_BUF_LEN ||
+		    ethdev_info.max_rx_pktlen > ETH_DEV_MAX_BUF_LEN) {
+			CA_ERR("Eth dev %u, invalid buffer size", dev_id);
+			CA_ERR("Min buffer size: %u, Max packet size: %u",
+			       ethdev_info.min_rx_bufsize, ethdev_info.max_rx_pktlen);
+			CA_ERR("Min buffer size should be >= %lu and max buffer size should be <= %lu",
+			       ETH_DEV_MIN_BUF_LEN, ETH_DEV_MAX_BUF_LEN);
+			return -EINVAL;
+		}
 	}
 
 	CA_INFO("Valid eth devices found: %u\n", nb_valid_devs);

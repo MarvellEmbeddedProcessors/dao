@@ -14,6 +14,9 @@
 /* Default command timeout in seconds */
 #define DEFAULT_COMMAND_TIMEOUT 4
 
+#define ETH_DEV_MIN_BUF_LEN 44ul
+#define ETH_DEV_MAX_BUF_LEN 65531ul
+
 /* Log type */
 #define RTE_LOGTYPE_AGENT        RTE_LOGTYPE_USER1
 #define CA_INFO(fmt, args...)    RTE_LOG(INFO, AGENT, fmt "\n", ##args)
