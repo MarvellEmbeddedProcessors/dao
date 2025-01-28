@@ -8,6 +8,6 @@
 #include "ca_cpt_deq.h"
 #include "ca_crypto_queue.h"
 
-void ca_eth_rx(uint16_t nb_valid_ethdevs, struct pending_queue *pq);
+void ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
 
 #endif /* __CA_DP_H__ */

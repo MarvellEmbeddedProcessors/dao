@@ -8,13 +8,12 @@
 #include <rte_common.h>
 #include <rte_cryptodev.h>
 #include <rte_mbuf.h>
-#include <rte_pmd_cnxk_crypto.h>
 
 #include <dao_liquid_crypto.h>
+#include <dao_util.h>
 
 #include "hw/cpt.h"
 
-#define CA_CPT_MAX_QP          24
 #define CA_CPT_MIN_QUEUE_DEPTH 1024
 
 struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
@@ -24,6 +23,8 @@ struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 	uint8_t rsa_is_decrypt : 1;
 	uint8_t rsa_mod_len;
 };
+
+DAO_STATIC_ASSERT(sizeof(struct cpt_inflight_req) == 128);
 
 struct pending_queue {
 	/** Array of pending requests */
@@ -36,8 +37,10 @@ struct pending_queue {
 	uint64_t pq_mask;
 	/** Timeout to track h/w being unresponsive */
 	uint64_t time_out;
-	/** CPT QPTR */
-	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
+	/** Ethdev port ID this pending queue is associated with */
+	uint16_t eth_port_id;
+	/** Ethdev queue ID this pending queue is associated with */
+	uint16_t eth_queue_id;
 };
 
 static __rte_always_inline void
