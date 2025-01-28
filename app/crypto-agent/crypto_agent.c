@@ -12,8 +12,9 @@
 #include <rte_memzone.h>
 
 #include "ca_admin.h"
+#include "ca_cpt_deq.h"
 #include "ca_crypto_queue.h"
-#include "ca_dp.h"
+#include "ca_eth_rx.h"
 #include "crypto_agent.h"
 
 #define ETH_DEV_PMD_NAME_CN9K  "net_cn9k"

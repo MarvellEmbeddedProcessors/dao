@@ -16,7 +16,6 @@
 #include <mc/ae.h>
 
 #include "ca_crypto_queue.h"
-#include "ca_dp.h"
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 

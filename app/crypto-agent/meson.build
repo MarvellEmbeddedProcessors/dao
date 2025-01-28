@@ -8,7 +8,6 @@ endif
 sources = files(
 	'cpt_debug.c',
 	'crypto_agent.c',
-	'ca_eth_rx.c',
 )
 
 cflags += [ '-DCA_DEBUG_ENABLE_PERIODIC_PRINT' ]

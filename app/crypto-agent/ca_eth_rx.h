@@ -2,16 +2,18 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#ifndef __CA_ETH_RX_H__
+#define __CA_ETH_RX_H__
+
 #include <rte_common.h>
 #include <rte_ethdev.h>
 #include <rte_graph.h>
 #include <rte_mbuf.h>
 
-#include "hw/cpt.h"
-#include "mc/se.h"
+#include "../../lib/liquid_crypto/mc/ae.h"
+#include "../../lib/liquid_crypto/mc/se.h"
 
 #include "ca_crypto_queue.h"
-#include "ca_dp.h"
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 #include "dao_eth_trs.h"
@@ -19,7 +21,7 @@
 
 #define CA_ETHDEV_RX_BURST 32
 
-static void
+static inline void
 process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *pq,
 	     struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 {
@@ -168,7 +170,7 @@ periodic_print(void)
 }
 #endif /* CA_DEBUG_ENABLE_PERIODIC_PRINT */
 
-void
+static inline void
 ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 {
 	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
@@ -192,3 +194,5 @@ ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 		process_pkts(mb, nb_rx, pq, cpt_qptr);
 	}
 }
+
+#endif /* __CA_ETH_RX_H__ */
