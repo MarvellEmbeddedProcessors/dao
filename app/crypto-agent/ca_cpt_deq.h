@@ -21,6 +21,8 @@
 
 #define CPT_DEBUG_ENABLE
 
+#define CA_ETHDEV_TX_BURST 64
+
 static inline void
 ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
 {
@@ -78,6 +80,7 @@ rlen_set:
 static inline void
 ca_cpt_deq(struct pending_queue *pq)
 {
+	struct rte_mbuf *mb[CA_ETHDEV_TX_BURST];
 	struct cpt_inflight_req *infl_req;
 	struct dao_eth_trs_pkt *req;
 	union dao_cpt_res_s res;
@@ -94,6 +97,8 @@ ca_cpt_deq(struct pending_queue *pq)
 	if (nb_pending == 0)
 		return;
 
+	nb_pending = RTE_MIN(nb_pending, CA_ETHDEV_TX_BURST);
+
 	for (i = 0; i < nb_pending; i++) {
 		infl_req = &pq->req_queue[tail];
 
@@ -105,6 +110,9 @@ ca_cpt_deq(struct pending_queue *pq)
 				pq->time_out = rte_get_timer_cycles() +
 					       DEFAULT_COMMAND_TIMEOUT * rte_get_timer_hz();
 			}
+
+			if (unlikely(i == 0))
+				return;
 			break;
 		}
 
@@ -123,10 +131,17 @@ ca_cpt_deq(struct pending_queue *pq)
 #ifdef CPT_DEBUG_ENABLE
 		cpt_debug_res_print(infl_req);
 #endif
-
-		nb_tx = rte_eth_tx_burst(0, 0, &infl_req->mbuf, 1);
-		CA_ERR("%d packets sent to host", nb_tx);
+		mb[i] = infl_req->mbuf;
 	}
+
+	nb_tx = rte_eth_tx_burst(pq->eth_port_id, pq->eth_queue_id, mb, i);
+
+#ifdef CA_DEBUG_ENABLE
+	if (unlikely(nb_tx < i))
+		CA_ERR("Could not transmit all packets");
+#endif /* CA_DEBUG_ENABLE */
+
+	RTE_SET_USED(nb_tx);
 
 	pq->tail = tail;
 }
