@@ -7,6 +7,7 @@ endif
 
 sources = files(
 	'ca_ethdev.c',
+	'ca_sess_mgr.c',
 	'cpt_debug.c',
 	'crypto_agent.c',
 )

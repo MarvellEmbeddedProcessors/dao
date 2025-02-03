@@ -12,7 +12,6 @@
 #include <rte_rcu_qsbr.h>
 #include <rte_security.h>
 
-#include "ca_admin.h"
 #include "ca_crypto_queue.h"
 
 /* Default command timeout in seconds */
@@ -27,6 +26,8 @@
 #define CA_MAX_QUEUE_PER_CORE 64
 #define CA_MAX_LCORE          24
 #define CA_MAX_PAYLOAD_SIZE   5120
+#define CA_MAX_HOST_DEV       1
+#define CA_MAX_SYM_SESSIONS   8192
 
 DAO_STATIC_ASSERT(CA_MAX_ETH_DEV <= RTE_MAX_ETHPORTS);
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= RTE_MAX_QUEUES_PER_PORT);
@@ -50,6 +51,11 @@ struct ca_eth_dev_ctx {
 	struct pending_queue cpt_pq[CA_MAX_ETH_QUEUE];
 };
 
+struct ca_hostdev_ctx {
+	uint16_t nb_sym_sess;
+	struct rte_mempool *sess_mempool;
+};
+
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= 64);
 
 struct ca_cryptodev_ctx {
@@ -64,6 +70,9 @@ struct ca_global_ctx {
 	uint16_t nb_cpt_qp;
 	struct ca_cryptodev_ctx cryptodev_ctx[CA_MAX_LCORE];
 	struct rte_rcu_qsbr *qsbr;
+	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr[CA_MAX_LCORE];
+	uint16_t nb_host_dev;
+	struct ca_hostdev_ctx host_ctx[CA_MAX_HOST_DEV];
 };
 
 struct lcore_conf {
@@ -73,5 +82,6 @@ struct lcore_conf {
 
 struct ca_eth_dev_ctx *ca_eth_dev_ctx_get(uint16_t port_id);
 struct rte_rcu_qsbr *ca_rcu_qsbr_get(void);
+struct rte_mempool *ca_host_sess_mempool_get(uint8_t dev_id);
 
 #endif /* __CRYPTO_AGENT_H__ */

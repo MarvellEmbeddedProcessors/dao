@@ -535,6 +535,82 @@ card_fini(void)
 	rte_eal_cleanup();
 }
 
+struct rte_mempool *
+ca_host_sess_mempool_get(uint8_t dev_id)
+{
+	if (dev_id >= ca_glb_ctx.nb_host_dev) {
+		CA_ERR("Invalid host dev id: %u", dev_id);
+		return NULL;
+	}
+
+	return ca_glb_ctx.host_ctx[dev_id].sess_mempool;
+}
+
+static int
+host_dev_sess_mempool_init(uint8_t dev_id, uint32_t nb_sess)
+{
+	char name[RTE_MEMZONE_NAMESIZE];
+	struct rte_mempool *mp;
+	uint16_t sess_sz;
+
+	if (nb_sess == 0) {
+		CA_ERR("Invalid number of sessions: %u", nb_sess);
+		return -EINVAL;
+	}
+
+	snprintf(name, sizeof(name), "ca_host_sess_%u", dev_id);
+
+	sess_sz = sizeof(struct dao_lc_sym_fc_ctx);
+
+	mp = rte_mempool_create(name, nb_sess, sess_sz, 0, 0, NULL, NULL, NULL, NULL, SOCKET_ID_ANY,
+				0);
+	if (mp == NULL) {
+		CA_ERR("Could not create mempool for host sessionsfor dev: %u", dev_id);
+		return -ENOMEM;
+	}
+
+	ca_glb_ctx.host_ctx[dev_id].sess_mempool = mp;
+
+	return 0;
+}
+
+static int
+host_dev_init(void)
+{
+	uint16_t i, dev_id, nb_sess;
+	int ret;
+
+	for (i = 0; i < CA_MAX_HOST_DEV; i++) {
+		dev_id = i;
+		nb_sess = CA_MAX_SYM_SESSIONS;
+
+		ret = host_dev_sess_mempool_init(dev_id, nb_sess);
+		if (ret) {
+			CA_ERR("Could not initialize host dev: %u", dev_id);
+			return ret;
+		}
+
+		ca_glb_ctx.nb_host_dev++;
+	}
+
+	return 0;
+}
+
+static int
+host_dev_fini(void)
+{
+	uint16_t i;
+
+	for (i = 0; i < ca_glb_ctx.nb_host_dev; i++) {
+		rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
+		ca_glb_ctx.host_ctx[i].sess_mempool = NULL;
+	}
+
+	ca_glb_ctx.nb_host_dev = 0;
+
+	return 0;
+}
+
 int
 main(int argc, char **argv)
 {
@@ -573,12 +649,21 @@ main(int argc, char **argv)
 		goto card_fini;
 	}
 
+	rc = host_dev_init();
+	if (rc) {
+		CA_ERR("Could not initialize host devices");
+		goto eth_devs_fini;
+	}
+
 	/* Launch on every worker lcore */
 	rte_eal_mp_remote_launch(worker_thread, NULL, SKIP_MAIN);
 
 	/* Wait for all cores to return */
 	rte_eal_mp_wait_lcore();
 
+	host_dev_fini();
+
+eth_devs_fini:
 	eth_devs_fini();
 card_fini:
 	card_fini();

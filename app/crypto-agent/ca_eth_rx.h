@@ -16,6 +16,7 @@
 #include <mc/se.h>
 
 #include "ca_crypto_queue.h"
+#include "ca_sess_mgr.h"
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 
@@ -35,6 +36,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	union cpt_inst_w4 w4;
 	uint64_t head;
 	uint16_t i;
+	int rc = 0;
 
 	const uint64_t pq_mask = pq->pq_mask;
 
@@ -98,6 +100,20 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 					inst->rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
 				}
 			}
+			break;
+		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
+			rc = ca_sess_handle_create(rx_pkts[pkt_id]);
+			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
+			if (rc != 0)
+				CA_INFO("Could not create session: rc: %d", rc);
+			nb_cpt_bypass++;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY:
+			rc = ca_sess_handle_destroy(rx_pkts[pkt_id]);
+			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
+			if (rc != 0)
+				CA_INFO("Could not destroy session: rc: %d", rc);
+			nb_cpt_bypass++;
 			break;
 		default:
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
