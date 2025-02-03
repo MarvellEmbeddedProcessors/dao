@@ -16,6 +16,7 @@
 
 #include "hw/cpt.h"
 #include "liquid_crypto_priv.h"
+#include "liquid_crypto_sym.h"
 #include "liquid_crypto_trs.h"
 #include "mc/ae.h"
 
@@ -1319,6 +1320,10 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 
 	qp = dev->qp[qp_id];
 
+	rc = liquid_crypto_sym_sess_verify(ctx);
+	if (rc != 0)
+		return rc;
+
 	req_idx = liquid_crypto_qp_req_idx_get(qp);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
@@ -1348,6 +1353,75 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 	memcpy(req->cptr, &ctx->fc, sizeof(ctx->fc));
 
 	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mb, 1);
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+
+	return 0;
+
+mbuf_free:
+	rte_pktmbuf_free(mb);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	return rc;
+}
+
+int
+dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t sess_cookie)
+{
+	struct __dao_lc_req_resp_sess_destroy *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mb;
+	uint32_t req_idx;
+	uint16_t buf_len;
+	int rc;
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	const uint16_t qp_id = dev->cmd_qp_idx;
+
+	if (qp_id == DAO_CMD_QP_IDX_INVALID) {
+		dao_err("Command queue is disabled!");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+		dao_err("No available request index.");
+		return -ENOSPC;
+	}
+
+	qp->req_queue[req_idx].op_cookie = sess_cookie;
+
+	mb = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(mb == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+
+	buf_len = sizeof(struct __dao_lc_req_resp_sess_destroy);
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+	req = (struct __dao_lc_req_resp_sess_destroy *)rte_pktmbuf_append(mb, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY;
+	req->hdr.trs_hdr.op_len = sizeof(struct __dao_lc_req_resp_sess_destroy);
+	req->hdr.req_idx = req_idx;
+	req->sess_id = sess_id;
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mb, 1);
+
 	if (rc != 1) {
 		dao_err("Failed to transmit packet.");
 		rc = -EIO;

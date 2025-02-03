@@ -2,7 +2,8 @@
 # Copyright (c) 2025 Marvell.
 
 sources = files(
-	'liquid_crypto_api.c'
+	'liquid_crypto_api.c',
+	'liquid_crypto_sym.c',
 )
 
 headers = files(
