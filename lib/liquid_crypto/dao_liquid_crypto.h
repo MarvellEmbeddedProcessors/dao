@@ -24,6 +24,57 @@
 #define DAO_LC_SESS_ID_INVALID 0
 
 /**
+ * The liquid crypto buffer
+ */
+struct dao_lc_buf {
+	/** The data buffer */
+	void *data;
+	/**< Total pkt len: sum of all segments. Need to be set only for the first segment. */
+	uint32_t total_len;
+	/** The length of the data buffer */
+	uint32_t seg_len;
+	/** Pointer to the next buffer */
+	struct dao_lc_buf *next;
+};
+
+/**
+ * The liquid crypto op structure.
+ */
+struct dao_lc_sym_op {
+	/**
+	 * The cookie to be associated with the operation. This cookie is returned in the
+	 * *dao_crypto_res* structure when the operation is dequeued.
+	 */
+	uint64_t op_cookie;
+	/** Session ID to be used. */
+	uint64_t sess_id;
+	/** Data buffer input for the operation */
+	struct dao_lc_buf *in_buffer;
+	/** Data buffer output for the operation. NULL value means in-place operation */
+	struct dao_lc_buf *out_buffer;
+	/** Cipher offset from beginning of buffer */
+	uint32_t cipher_offset;
+	/** Auth offset from beginning of buffer */
+	uint32_t auth_offset;
+	/** Cipher length */
+	uint32_t cipher_len;
+	/** Auth length */
+	uint32_t auth_len;
+	/** Cipher IV */
+	uint8_t *cipher_iv;
+	/** Auth IV */
+	uint8_t *auth_iv;
+	/** AAD. Ignored for non-AEAD operations. */
+	uint8_t *aad;
+	/** AAD length. Ignored for non-AEAD operations. */
+	uint8_t aad_len;
+	/** Digest. Ignored for non auth use cases. */
+	uint8_t *digest;
+	/** Operation. Whether the operation is Encrypt or Decrypt */
+	bool encrypt;
+};
+
+/**
  * CPT hardware completion codes.
  */
 enum dao_cpt_comp_code {
@@ -689,6 +740,26 @@ int dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16
 					  uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
 					  uint8_t *qInv, uint8_t *em, uint8_t *msg,
 					  uint64_t op_cookie);
+
+/**
+ * Enqueue a burst of requests to perform symmetric crypto operations on the
+ * crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operations are to be enqueued.
+ * @param op
+ *  The array of pointers to *dao_lc_sym_op* structures containing the operations
+ *  to be enqueued.
+ * @param nb_ops
+ *  The number of operations to enqueue.
+ *
+ * @return
+ *  The number of operations enqueued.
+ */
+uint16_t dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
+					     struct dao_lc_sym_op *op, uint16_t nb_ops);
 
 /**
  * Dequeue burst of crypto operations from the crypto device.

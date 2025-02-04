@@ -8,6 +8,7 @@
 #include <rte_common.h>
 
 #include <dao_eth_trs.h>
+#include <dao_liquid_crypto.h>
 #include <dao_util.h>
 
 struct __rte_packed __dao_lc_hdr {
