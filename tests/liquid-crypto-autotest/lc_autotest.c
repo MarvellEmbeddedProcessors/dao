@@ -18,7 +18,8 @@
 int
 main(int argc, char **argv)
 {
-	struct dao_lc_qp_conf conf;
+	struct dao_lc_dev_conf dev_conf;
+	struct dao_lc_qp_conf qp_conf;
 	struct dao_lc_info info;
 	uint16_t qp_id;
 	uint8_t dev_id;
@@ -71,19 +72,23 @@ main(int argc, char **argv)
 	glb_params.dev_id = dev_id;
 	glb_params.qp_id = qp_id;
 
-	ret = dao_liquid_crypto_dev_create(dev_id, 1);
+	memset(&dev_conf, 0, sizeof(dev_conf));
+	dev_conf.dev_id = dev_id;
+	dev_conf.nb_qp = 1;
+
+	ret = dao_liquid_crypto_dev_create(&dev_conf);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not create liquid crypto device");
 		goto fini;
 	}
 
-	memset(&conf, 0, sizeof(conf));
+	memset(&qp_conf, 0, sizeof(qp_conf));
 
-	conf.nb_desc = 2048;
-	conf.out_of_order_delivery_en = false;
-	conf.max_seg_size = 2048;
+	qp_conf.nb_desc = 2048;
+	qp_conf.out_of_order_delivery_en = false;
+	qp_conf.max_seg_size = 2048;
 
-	ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &conf);
+	ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &qp_conf);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not configure liquid crypto queue pair");
 		goto dev_destroy;

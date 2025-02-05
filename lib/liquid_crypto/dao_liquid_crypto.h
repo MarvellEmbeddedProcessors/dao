@@ -120,6 +120,18 @@ struct dao_lc_info {
 };
 
 /**
+ * The liquid crypto device configuration structure.
+ *
+ * This structure is used to configure a liquid crypto device.
+ */
+struct dao_lc_dev_conf {
+	/** The device identifier. Value must be between 0 and ``dao_lc_info.nb_dev`` - 1. */
+	uint8_t dev_id;
+	/** The number of queue pairs. */
+	uint16_t nb_qp;
+};
+
+/**
  * The liquid crypto queue pair configuration structure.
  *
  * This structure is used to configure a liquid crypto queue pair.
@@ -212,17 +224,14 @@ int dao_liquid_crypto_info_get(struct dao_lc_info *info);
  *
  * This function creates a liquid crypto device.
  *
- * @param dev_id
- * The device identifier. Value must between 0 and
- * ``dao_lc_info.nb_dev`` - 1.
- * @param nb_qp
- * The number of queue pairs.
+ * @param conf
+ * A pointer to the liquid crypto device configuration structure.
  *
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
  */
-int dao_liquid_crypto_dev_create(uint8_t dev_id, uint16_t nb_qp);
+int dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf);
 
 /**
  * Destroy a liquid crypto device.

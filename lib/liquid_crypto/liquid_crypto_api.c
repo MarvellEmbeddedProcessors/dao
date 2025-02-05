@@ -107,11 +107,21 @@ dao_liquid_crypto_info_get(struct dao_lc_info *info)
 }
 
 int
-dao_liquid_crypto_dev_create(uint8_t dev_id, uint16_t nb_qp)
+dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 {
 	struct dao_eth_trs_dev_config trs_conf;
 	struct liquid_crypto_dev *dev;
+	uint8_t dev_id;
+	uint16_t nb_qp;
 	int rc;
+
+	if (conf == NULL) {
+		dao_err("Invalid argument.");
+		return -EINVAL;
+	}
+
+	dev_id = conf->dev_id;
+	nb_qp = conf->nb_qp;
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
