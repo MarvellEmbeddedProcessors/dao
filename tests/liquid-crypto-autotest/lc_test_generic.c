@@ -65,10 +65,8 @@ op_dequeue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res)
 }
 
 static int
-ut_passthrough(void)
+ut_passthrough(uint8_t dev_id, uint16_t qp_id)
 {
-	uint8_t dev_id = glb_params.dev_id;
-	uint16_t qp_id = glb_params.qp_id;
 	uint64_t op_cookie = 0xdeadbeef;
 	struct dao_lc_res res;
 	int ret;
@@ -90,12 +88,40 @@ ut_passthrough(void)
 	return TEST_SUCCESS;
 }
 
+static int
+ut_passthrough_single_queue(void)
+{
+	return ut_passthrough(glb_params.dev_id, glb_params.qp_id);
+}
+
+static int
+ut_passthrough_multi_queue(void)
+{
+	uint8_t dev_id;
+	uint16_t qp_id;
+
+	for (dev_id = 0; dev_id < glb_params.info.nb_dev; dev_id++) {
+		for (qp_id = 0; qp_id < glb_params.info.nb_qp[dev_id]; qp_id++) {
+#ifdef UT_VERBOSE
+			printf("\t\tDev_id: %u, qp_id: %u\n", dev_id, qp_id);
+#endif
+			if (ut_passthrough(dev_id, qp_id) != TEST_SUCCESS)
+				return TEST_FAILED;
+		}
+	}
+
+	return TEST_SUCCESS;
+}
+
 struct unit_test_suite lc_testsuite_generic = {
 	.suite_name = "Liquid Crypto Generic Test Suite",
 	.setup = testsuite_setup,
 	.teardown = testsuite_teardown,
 	.unit_test_cases = {
-		TEST_CASE_NAMED_ST("Passthrough Operation", ut_setup, ut_teardown, ut_passthrough),
+		TEST_CASE_NAMED_ST("Passthrough Operation (Single Queue)", ut_setup, ut_teardown,
+				   ut_passthrough_single_queue),
+		TEST_CASE_NAMED_ST("Passthrough Operation (Multi Queue)", ut_setup, ut_teardown,
+				   ut_passthrough_multi_queue),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

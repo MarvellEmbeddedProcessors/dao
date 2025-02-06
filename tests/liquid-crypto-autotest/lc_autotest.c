@@ -34,10 +34,10 @@ main(int argc, char **argv)
 {
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_qp_conf qp_conf;
-	struct dao_lc_info info;
+	struct dao_lc_info *info;
 	uint16_t qp_id;
 	uint8_t dev_id;
-	int ret;
+	int ret, i;
 
 	TEST_LC_INFO("Starting liquid crypto autotest");
 
@@ -56,70 +56,91 @@ main(int argc, char **argv)
 		goto eal_cleanup;
 	}
 
-	memset(&info, 0, sizeof(info));
+	info = &glb_params.info;
 
-	ret = dao_liquid_crypto_info_get(&info);
+	memset(info, 0, sizeof(*info));
+
+	ret = dao_liquid_crypto_info_get(info);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not get liquid crypto information");
 		goto fini;
 	}
 
-	if (info.nb_dev == 0) {
+	if (info->nb_dev == 0) {
 		TEST_LC_ERR("No liquid crypto devices found");
 		ret = -1;
 		goto fini;
 	}
 
-	if (info.nb_qp[0] == 0) {
-		TEST_LC_ERR("No queue pairs found for device 0");
-		ret = -1;
+	for (i = 0; i < info->nb_dev; i++) {
+		if (info->nb_qp[i] != 0)
+			break;
+	}
+
+	if (i == info->nb_dev) {
+		TEST_LC_ERR("No queue pairs found for any device");
+		ret = -ENODEV;
 		goto fini;
 	}
 
-	TEST_LC_INFO("Liquid crypto version: %s", info.version);
-	TEST_LC_INFO("Number of liquid crypto devices: %u", info.nb_dev);
+	glb_params.dev_id = i;
+	glb_params.qp_id = 0;
 
-	/* Use dev_id = 0 & qp_id = 0 for tests. */
-	dev_id = 0;
-	qp_id = 0;
+	TEST_LC_INFO("Liquid crypto version: %s", info->version);
+	TEST_LC_INFO("Number of liquid crypto devices: %u", info->nb_dev);
+	for (dev_id = 0; dev_id < info->nb_dev; dev_id++) {
+		TEST_LC_INFO("Number of queue pairs for device %u: %u", dev_id, info->nb_qp[i]);
 
-	glb_params.dev_id = dev_id;
-	glb_params.qp_id = qp_id;
+		if (info->nb_qp[dev_id] == 0)
+			continue;
 
-	memset(&dev_conf, 0, sizeof(dev_conf));
-	dev_conf.dev_id = dev_id;
-	dev_conf.nb_qp = 1;
+		memset(&dev_conf, 0, sizeof(dev_conf));
+		dev_conf.dev_id = dev_id;
+		dev_conf.nb_qp = info->nb_qp[dev_id];
 
-	ret = dao_liquid_crypto_dev_create(&dev_conf);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not create liquid crypto device");
-		goto fini;
-	}
+		ret = dao_liquid_crypto_dev_create(&dev_conf);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not create liquid crypto device");
+			goto fini;
+		}
 
-	memset(&qp_conf, 0, sizeof(qp_conf));
+		memset(&qp_conf, 0, sizeof(qp_conf));
 
-	qp_conf.nb_desc = 2048;
-	qp_conf.out_of_order_delivery_en = false;
-	qp_conf.max_seg_size = 2048;
+		qp_conf.nb_desc = 2048;
+		qp_conf.out_of_order_delivery_en = false;
+		qp_conf.max_seg_size = 2048;
 
-	ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &qp_conf);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not configure liquid crypto queue pair");
-		goto dev_destroy;
-	}
+		for (qp_id = 0; qp_id < info->nb_qp[dev_id]; qp_id++) {
+			ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &qp_conf);
+			if (ret < 0) {
+				TEST_LC_ERR("Could not configure liquid crypto queue pair");
+				info->nb_qp[dev_id] = dev_id;
+				goto dev_destroy;
+			}
+		}
 
-	ret = dao_liquid_crypto_dev_start(dev_id);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not start liquid crypto device");
-		goto dev_destroy;
+		ret = dao_liquid_crypto_dev_start(dev_id);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not start liquid crypto device");
+			info->nb_qp[dev_id] = dev_id;
+			goto dev_destroy;
+		}
 	}
 
 	ret = unit_test_suite_runner(&ts);
 
-	dao_liquid_crypto_dev_stop(dev_id);
+	for (dev_id = 0; dev_id < info->nb_dev; dev_id++) {
+		if (info->nb_qp[dev_id] == 0)
+			continue;
+		dao_liquid_crypto_dev_stop(dev_id);
+	}
 
 dev_destroy:
-	dao_liquid_crypto_dev_destroy(dev_id);
+	for (dev_id = 0; dev_id < info->nb_dev; dev_id++) {
+		if (info->nb_qp[dev_id] == 0)
+			continue;
+		dao_liquid_crypto_dev_destroy(dev_id);
+	}
 fini:
 	dao_liquid_crypto_fini();
 

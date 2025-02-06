@@ -12,6 +12,7 @@
 struct global_params {
 	uint8_t dev_id;
 	uint16_t qp_id;
+	struct dao_lc_info info;
 };
 
 int testsuite_setup(void);
