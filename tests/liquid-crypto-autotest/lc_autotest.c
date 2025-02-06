@@ -15,6 +15,20 @@
 #include "lc_test_generic.h"
 #include "test.h"
 
+struct unit_test_suite *test_suites[] = {
+	&lc_testsuite_generic,
+	&lc_testsuite_asym,
+	NULL
+};
+
+static struct unit_test_suite ts = {
+	.suite_name = "Liquid Crypto Unit Test Suite",
+	.setup = testsuite_setup,
+	.teardown = testsuite_teardown,
+	.unit_test_cases = {TEST_CASES_END()},
+	.unit_test_suites = test_suites
+};
+
 int
 main(int argc, char **argv)
 {
@@ -100,8 +114,7 @@ main(int argc, char **argv)
 		goto dev_destroy;
 	}
 
-	unit_test_suite_runner(&lc_testsuite_generic);
-	unit_test_suite_runner(&lc_testsuite_asym);
+	ret = unit_test_suite_runner(&ts);
 
 	dao_liquid_crypto_dev_stop(dev_id);
 
