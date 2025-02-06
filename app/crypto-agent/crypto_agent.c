@@ -18,9 +18,6 @@
 #include "ca_ethdev.h"
 #include "crypto_agent.h"
 
-#define ETH_DEV_PMD_NAME_CN9K  "net_cn9k"
-#define ETH_DEV_PMD_NAME_CN10K "net_cn10k"
-
 static volatile bool force_quit;
 
 static struct ca_global_ctx ca_glb_ctx;
@@ -435,11 +432,37 @@ eth_cpt_mapping_clear(void)
 	}
 }
 
+static int
+eth_flow_create_all(void)
+{
+	uint8_t i;
+	int ret;
+
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
+		ret = ca_eth_flow_create(ca_glb_ctx.eth_ctx[i].port_id);
+		if (ret) {
+			CA_ERR("Could not initialize flow rules for ethdev: %d", i);
+			return ret;
+		}
+	}
+
+	return 0;
+}
+
+static void
+eth_flow_clear_all(void)
+{
+	uint8_t i;
+
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++)
+		ca_eth_flow_clear(ca_glb_ctx.eth_ctx[i].port_id);
+}
+
 int
 main(int argc, char **argv)
 {
 	struct ca_dev_config dev_config;
-	int rc;
+	int rc, i;
 
 	rc = rte_eal_init(argc, argv);
 	if (rc < 0)
@@ -470,9 +493,11 @@ main(int argc, char **argv)
 
 	dev_config.crypto.nb_desc = 1024;
 	dev_config.eth.nb_devs = ca_glb_ctx.nb_valid_ethdevs;
-	dev_config.eth.nb_queue[0] = 1;
-	dev_config.eth.nb_queue[1] = 1;
-	dev_config.max_payload_size = 9000;
+
+	for (i = 0; i < dev_config.eth.nb_devs; i++)
+		dev_config.eth.nb_queue[i] = CA_MAX_ETH_QUEUE;
+
+	dev_config.max_payload_size = 2048;
 
 	rc = mempool_init(&dev_config);
 	if (rc) {
@@ -504,6 +529,12 @@ main(int argc, char **argv)
 		goto cpt_pq_fini;
 	}
 
+	rc = eth_flow_create_all();
+	if (rc) {
+		CA_ERR("Could not initialize flow rules");
+		goto eth_cpt_mapping_clear;
+	}
+
 	while (!force_quit) {
 		struct lcore_conf *lconf;
 		int i;
@@ -516,6 +547,9 @@ main(int argc, char **argv)
 		}
 	}
 
+	eth_flow_clear_all();
+
+eth_cpt_mapping_clear:
 	eth_cpt_mapping_clear();
 
 cpt_pq_fini:

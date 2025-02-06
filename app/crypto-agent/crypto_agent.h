@@ -21,14 +21,16 @@
 #define ETH_DEV_MAX_BUF_LEN 65531ul
 
 #define CA_MAX_ETH_DEV        8
-#define CA_MAX_ETH_QUEUE      64
-#define CA_MAX_QUEUE_PER_CORE 8
+#define CA_MAX_ETH_QUEUE      8
+#define CA_ETH_RETA_SIZE      64
+#define CA_MAX_QUEUE_PER_CORE 64
 #define CA_MAX_LCORE          24
 
 /* Log type */
 #define RTE_LOGTYPE_AGENT        RTE_LOGTYPE_USER1
 #define CA_INFO(fmt, args...)    RTE_LOG(INFO, AGENT, fmt "\n", ##args)
 #define CA_INFO_NH(fmt, args...) rte_log(RTE_LOG_INFO, RTE_LOGTYPE_AGENT, fmt "\n", ##args)
+#define CA_WARN(fmt, args...)    RTE_LOG(WARNING, AGENT, fmt "\n", ##args)
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
 
 struct ca_ethdev_ctx {
