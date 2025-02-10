@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Marvell-MIT
- * Copyright (c) 2024 Marvell.
+ * Copyright (c) 2025 Marvell.
  */
 
 #include <rte_acl.h>
@@ -13,94 +13,41 @@
 
 #define L2L3_BCAST_NIB	0
 
-struct flow_parser_tcam_kex default_kex_profile = {
+struct flow_parser_tcam_kex exact_match_kex_profile = {
 	.mkex_sign = MKEX_SIGN,
-	.name = "default",
+	.name = "exact_match",
 	.prfl_version = FLOW_PARSER_PROFILE_VER,
 	.keyx_cfg = {
 		/* nibble: LA..LE (ltype only) + Error code + Channel */
-		[NIX_INTF_RX] = ((uint64_t)PROFILE_TCAM_KEY_X2 << 32) | PARSE_NIBBLE_INTF_RX |
-				(uint64_t)PROFILE_EXACT_NIBBLE_HIT,
+		[NIX_INTF_RX] = ((uint64_t)PROFILE_TCAM_KEY_X2 << 32),
 		/* nibble: LA..LE (ltype only) */
 		[NIX_INTF_TX] = ((uint64_t)PROFILE_TCAM_KEY_X2 << 32) | PARSE_NIBBLE_INTF_TX,
 	},
 	.intf_lid_lt_ld = {
-		/* Default RX MCAM KEX profile */
+		/* Exact Match RX MCAM KEX profile */
 		[NIX_INTF_RX] = {
-			[PROFILE_LID_LA] = {
-				/* Layer A: Ethernet: */
-				[PROFILE_LT_LA_ETHER] = {
-					/* DMAC: 6 bytes, KW1[55:8], PROFILE_KEXOF_DMAC:9*/
-					KEX_LD_CFG(0x05, 0x0, 0x1, 0x0, PROFILE_KEXOF_DMAC),
-					/* Ethertype: 2 bytes, KW0[55:40] */
-					KEX_LD_CFG(0x01, 0xc, 0x1, 0x0, 0x5),
-				},
-				[PROFILE_LT_LA_CPT_HDR] = {
-					/* DMAC: 6 bytes, KW1[55:8] */
-					KEX_LD_CFG(0x05, 0x0, 0x1, 0x0, PROFILE_KEXOF_DMAC),
-					/* Ethertype: 2 bytes, KW0[55:40] */
-					KEX_LD_CFG(0x01, 0xc, 0x1, 0x0, 0x5),
-				},
-				/* Layer A: HiGig2: */
-				[PROFILE_LT_LA_HIGIG2_ETHER] = {
-					/* Classification: 2 bytes, KW1[23:8] */
-					KEX_LD_CFG(0x01, 0x8, 0x1, 0x0, PROFILE_KEXOF_DMAC),
-					/* VID: 2 bytes, KW1[39:24] */
-					KEX_LD_CFG(0x01, 0xc, 0x1, 0x0,
-						   PROFILE_KEXOF_DMAC + 2),
-				},
-			},
-			[PROFILE_LID_LB] = {
-				/* Layer B: Single VLAN (CTAG) */
-				[PROFILE_LT_LB_CTAG] = {
-					/* CTAG VLAN: 2 bytes, KW1[7:0], KW0[63:56] */
-					KEX_LD_CFG(0x01, 0x2, 0x1, 0x0, 0x7),
-					/* Ethertype: 2 bytes, KW0[55:40] */
-					KEX_LD_CFG(0x01, 0x4, 0x1, 0x0, 0x5),
-				},
-				/* Layer B: Stacked VLAN (STAG|QinQ) */
-				[PROFILE_LT_LB_STAG_QINQ] = {
-					/* Outer VLAN: 2 bytes, KW1[7:0], KW0[63:56] */
-					KEX_LD_CFG(0x01, 0x2, 0x1, 0x0, 0x7),
-					/* Ethertype: 2 bytes, KW0[55:40] */
-					KEX_LD_CFG(0x01, 0x8, 0x1, 0x0, 0x5),
-				},
-				[PROFILE_LT_LB_FDSA] = {
-					/* SWITCH PORT: 1 byte, KW0[63:56] */
-					KEX_LD_CFG(0x0, 0x1, 0x1, 0x0, 0x7),
-					/* Ethertype: 2 bytes, KW0[55:40] */
-					KEX_LD_CFG(0x01, 0x4, 0x1, 0x0, 0x5),
-				},
-			},
 			[PROFILE_LID_LC] = {
 				/* Layer C: IPv4 */
 				[PROFILE_LT_LC_IP] = {
-					/* SIP+DIP: 8 bytes, KW2[63:0] */
-					KEX_LD_CFG(0x07, 0xc, 0x1, 0x0, 0x10),
-					/* TOS: 1 byte, KW1[63:56] */
-					KEX_LD_CFG(0x0, 0x1, 0x1, 0x0, 0xf),
-				},
-				/* Layer C: IPv6 */
-				[PROFILE_LT_LC_IP6] = {
-					/* Everything up to SADDR: 8 bytes, KW2[63:0] */
-					KEX_LD_CFG(0x07, 0x0, 0x1, 0x0, 0x10),
+					KEX_LD_CFG(0x07, 0xc, 0x1, 0x0, 0x0),
+					KEX_LD_CFG(0x0, 0x9, 0x1, 0x0, 0x8),
 				},
 			},
 			[PROFILE_LID_LD] = {
 				/* Layer D:UDP */
 				[PROFILE_LT_LD_UDP] = {
 					/* SPORT+DPORT: 4 bytes, KW3[31:0] */
-					KEX_LD_CFG(0x3, 0x0, 0x1, 0x0, 0x18),
+					KEX_LD_CFG(0x3, 0x0, 0x1, 0x0, 0x9),
 				},
 				/* Layer D:TCP */
 				[PROFILE_LT_LD_TCP] = {
 					/* SPORT+DPORT: 4 bytes, KW3[31:0] */
-					KEX_LD_CFG(0x3, 0x0, 0x1, 0x0, 0x18),
+					KEX_LD_CFG(0x3, 0x0, 0x1, 0x0, 0x9),
 				},
 			},
 		},
 
-		/* Default TX MCAM KEX profile */
+		/* Exact Match TX MCAM KEX profile */
 		[NIX_INTF_TX] = {
 			[PROFILE_LID_LA] = {
 				/* Layer A: NIX_INST_HDR_S + Ethernet */
@@ -166,7 +113,7 @@ struct flow_parser_tcam_kex default_kex_profile = {
 };
 
 static int
-default_profile_key_generation(struct rte_mbuf *pkt, uint16_t channel, uint8_t *key_buf)
+exact_match_profile_key_generation(struct rte_mbuf *pkt, uint16_t channel, uint8_t *key_buf)
 {
 	struct rte_vlan_hdr *outer_vlan_hdr, *inner_vlan_hdr;
 	struct rte_ether_hdr *eth_hdr;
@@ -179,21 +126,14 @@ default_profile_key_generation(struct rte_mbuf *pkt, uint16_t channel, uint8_t *
 	uint16_t eth_type;
 
 	RTE_ASSERT(pkt != NULL);
-
-	key_buf[0] = channel & 0xFF;
-	key_buf[1] = (channel & 0xF00) >> 8;
-	key_buf[1] = key_buf[1] | (L2L3_BCAST_NIB << 4);
-
-	key_buf[2] = PROFILE_LT_LA_ETHER;
+	RTE_SET_USED(channel);
 
 	/* ETH */
 	eth_hdr = rte_pktmbuf_mtod_offset(pkt, struct rte_ether_hdr *, 0);
 
 	eth_type = rte_be_to_cpu_16(eth_hdr->ether_type);
 
-	*(uint16_t *)&key_buf[6] = eth_hdr->ether_type;
-	reverse_memcpy(&key_buf[9], (uint8_t *)eth_hdr->dst_addr.addr_bytes, 6);
-
+	next_proto = eth_type;
 	offset += sizeof(struct rte_ether_hdr);
 
 	/* VLAN */
@@ -222,13 +162,11 @@ default_profile_key_generation(struct rte_mbuf *pkt, uint16_t channel, uint8_t *
 	if (next_proto == RTE_ETHER_TYPE_IPV4) {
 		ipv4_hdr = rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, offset);
 
-		*(uint32_t *)&key_buf[15] = ipv4_hdr->type_of_service;
-		*(uint32_t *)&key_buf[16] = rte_be_to_cpu_32(ipv4_hdr->dst_addr);
-		*(uint32_t *)&key_buf[20] = rte_be_to_cpu_32(ipv4_hdr->src_addr);
-
-		key_buf[3] = PROFILE_LT_LC_IP;
+		*(uint32_t *)&key_buf[0] = rte_be_to_cpu_32(ipv4_hdr->dst_addr);
+		*(uint32_t *)&key_buf[4] = rte_be_to_cpu_32(ipv4_hdr->src_addr);
 
 		next_proto = ipv4_hdr->next_proto_id;
+		*(uint8_t *)&key_buf[8] = next_proto;
 
 		offset += sizeof(struct rte_ipv4_hdr);
 	} else if (next_proto == RTE_ETHER_TYPE_IPV6) {
@@ -246,10 +184,8 @@ default_profile_key_generation(struct rte_mbuf *pkt, uint16_t channel, uint8_t *
 	if (next_proto == IPPROTO_UDP) {
 		udp_hdr = rte_pktmbuf_mtod_offset(pkt, struct rte_udp_hdr *, offset);
 
-		*(uint32_t *)&key_buf[24] = rte_be_to_cpu_32(*(uint32_t *)udp_hdr);
+		*(uint32_t *)&key_buf[9] = rte_be_to_cpu_32(*(uint32_t *)udp_hdr);
 
-		key_buf[3] = key_buf[3] | (PROFILE_LT_LD_UDP << 4);
-		next_proto = udp_hdr->dst_port;
 		offset += sizeof(struct rte_udp_hdr);
 	} else if (next_proto == IPPROTO_TCP) {
 		tcp_hdr = rte_pktmbuf_mtod_offset(pkt, struct rte_tcp_hdr *, offset);
@@ -262,6 +198,6 @@ default_profile_key_generation(struct rte_mbuf *pkt, uint16_t channel, uint8_t *
 	return 0;
 }
 
-struct parse_profile_ops default_prfl_ops = {
-	.key_generation = default_profile_key_generation,
+struct parse_profile_ops exact_match_prfl_ops = {
+	.key_generation = exact_match_profile_key_generation,
 };

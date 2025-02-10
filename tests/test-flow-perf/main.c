@@ -43,7 +43,7 @@
 
 #include <dao_flow.h>
 
-#define MAX_BATCHES_COUNT   100
+#define MAX_BATCHES_COUNT   100000
 #define DEFAULT_RULES_COUNT 4000000
 #define DEFAULT_RULES_BATCH 100000
 #define DEFAULT_GROUP       0
@@ -78,6 +78,10 @@ static volatile bool force_quit;
 static bool dump_iterations;
 static bool delete_flag;
 static bool lookup_flag;
+static bool hw_offload_enable;
+static uint64_t flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
+static uint64_t flow_alg;
+static char kex_profile_name[DAO_FLOW_PROFILE_NAME_MAX];
 static bool dump_socket_mem_flag;
 static bool enable_fwd;
 static bool unique_data;
@@ -352,6 +356,11 @@ usage(char *progname)
 	       " calculations\n");
 	printf("  --flow-lookup: Enable deletion rate"
 	       " calculations\n");
+	printf("  --flow-lookup: Enable flow lookup rate"
+	       " calculations\n");
+	printf("  --flow-kex-profile=default,ovs,exact_match:"
+	       " key extraction profile to use\n");
+	printf("  --hw-offload: Enable flow hardware offload\n");
 	printf("  --dump-socket-mem: To dump all socket memory\n");
 	printf("  --enable-fwd: To enable packets forwarding"
 	       " after insertion\n");
@@ -521,6 +530,9 @@ args_parse(int argc, char **argv)
 		{"dump-iterations", 0, 0, 0},
 		{"deletion-rate", 0, 0, 0},
 		{"flow-lookup", 0, 0, 0},
+		{"hw-offload", 0, 0, 0},
+		{"flow-kex-profile", 1, 0, 0},
+		{"flow-alg", 1, 0, 0},
 		{"dump-socket-mem", 0, 0, 0},
 		{"enable-fwd", 0, 0, 0},
 		{"unique-data", 0, 0, 0},
@@ -729,6 +741,27 @@ args_parse(int argc, char **argv)
 				delete_flag = true;
 			if (strcmp(lgopts[opt_idx].name, "flow-lookup") == 0)
 				lookup_flag = true;
+			if (strcmp(lgopts[opt_idx].name, "hw-offload") == 0)
+				hw_offload_enable = true;
+			if (strcmp(lgopts[opt_idx].name, "flow-kex-profile") == 0) {
+				if (strcmp(optarg, "ovs") == 0)
+					flow_kex_profile = DAO_FLOW_KEX_OVS;
+				else if (strcmp(optarg, "default") == 0)
+					flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
+				else
+					rte_exit(EXIT_FAILURE, "Invalid kex profile:%s\n", optarg);
+
+				strncpy(kex_profile_name, optarg, DAO_FLOW_PROFILE_NAME_MAX - 1);
+			}
+			if (strcmp(lgopts[opt_idx].name, "flow-alg") == 0) {
+				if (strcmp(optarg, "acl") == 0)
+					flow_alg = DAO_FLOW_ALG_ACL;
+				else if (strcmp(optarg, "em") == 0)
+					flow_alg = DAO_FLOW_ALG_EM;
+				else
+					rte_exit(EXIT_FAILURE, "Invalid kex profile:%s\n", optarg);
+			}
+
 			if (strcmp(lgopts[opt_idx].name, "dump-socket-mem") == 0)
 				dump_socket_mem_flag = true;
 			if (strcmp(lgopts[opt_idx].name, "enable-fwd") == 0)
@@ -895,7 +928,7 @@ print_flow_error(struct rte_flow_error error)
 static inline void
 print_rules_batches(double *cpu_time_per_batch)
 {
-	uint8_t idx;
+	uint32_t idx;
 	double delta;
 	double rate;
 
@@ -2028,10 +2061,11 @@ main(int argc, char **argv)
 			continue;
 		memset(&config, 0, sizeof(struct dao_flow_offload_config));
 		/* Enable HW offloading */
-		//		config.feature |= hw_offload_enable ? DAO_FLOW_HW_OFFLOAD_ENABLE :
-		//0;
-		config.feature |= DAO_FLOW_ALG_EM;
-		rte_strscpy(config.parse_profile, "default", DAO_FLOW_PROFILE_NAME_MAX);
+		config.feature |= hw_offload_enable ? DAO_FLOW_HW_OFFLOAD_ENABLE : 0;
+		config.feature |= flow_kex_profile;
+		config.feature |= flow_alg;
+		rte_strscpy(config.parse_profile, kex_profile_name, DAO_FLOW_PROFILE_NAME_MAX);
+
 		ret = dao_flow_init(portid, &config);
 		if (ret) {
 			printf("Error: DAO flow init failed, err %d", ret);

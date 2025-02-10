@@ -2,6 +2,8 @@
  * Copyright (c) 2024 Marvell.
  */
 
+#include <getopt.h>
+
 #include "flow.h"
 
 #define RX_RING_SIZE 1024
@@ -14,6 +16,11 @@
 #define MAX_RTE_FLOW_PATTERN 16
 
 #define ACTION_MARK_ID 0x777
+
+static bool hw_offload_flag;
+static uint64_t flow_kex_profile;
+static uint64_t flow_alg;
+static char kex_profile_name[DAO_FLOW_PROFILE_NAME_MAX];
 
 enum port_type {
 	RX_PORT = 1,
@@ -36,6 +43,8 @@ struct flow_test_global_cfg {
 	struct lcore_conf lconf[RTE_MAX_LCORE];
 	bool start_rx_thread;
 	bool start_tx_thread;
+	struct dao_flow_offload_config *config;
+	bool no_flow_match;
 };
 
 static inline void
@@ -166,6 +175,8 @@ receive_thread_main(struct flow_test_global_cfg *gbl_cfg)
 
 		for (i = 0; i < nb_rx; i++) {
 			mbuf = bufs[i];
+			if (gbl_cfg->no_flow_match)
+				continue;
 			if (bufs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID) {
 				rc = validate_flow_match(mbuf, mbuf->hash.fdir.hi);
 				if (rc) {
@@ -201,7 +212,9 @@ transmit_thread_main(struct flow_test_global_cfg *gbl_cfg)
 
 	while (gbl_cfg->start_tx_thread) {
 		wait_for_tx_trigger(gbl_cfg);
+
 		sample_packet(gbl_cfg->mbp, pkts);
+
 		nb_tx = rte_eth_tx_burst(gbl_cfg->tx_portid, 0, pkts, BURST_SIZE);
 
 		dao_dbg("	Transmitting lcore_id %d pkt %p nb_tx %d", rte_lcore_id(), pkts[0],
@@ -251,6 +264,8 @@ flow_test_info(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb)
 	struct rte_flow_error error = {0};
 	struct dao_flow *flow[10];
 	int i;
+
+	gbl_cfg->no_flow_match = true;
 
 	dao_info("### Executing %s ###", __func__);
 	for (i = 0; i < 10; i++) {
@@ -471,18 +486,6 @@ flow_test_create_destroy(struct flow_test_global_cfg *gbl_cfg, flow_test_create_
 
 	run_test(gbl_cfg);
 
-	flow[3] = test_cb(gbl_cfg->rx_portid, 0);
-	flow[4] = test_cb(gbl_cfg->rx_portid, 1);
-	if (!flow[3] || !flow[4])
-		dao_exit("Failed to create a flow");
-
-	flow[6] = test_cb(gbl_cfg->rx_portid, 0);
-	flow[7] = test_cb(gbl_cfg->rx_portid, 1);
-	if (!flow[6] || !flow[7])
-		dao_exit("Failed to create a flow");
-
-	run_test(gbl_cfg);
-
 	if (dao_flow_destroy(gbl_cfg->rx_portid, flow[0], &error)) {
 		print_flow_error(error);
 		dao_err("error in deleting flow");
@@ -492,17 +495,7 @@ flow_test_create_destroy(struct flow_test_global_cfg *gbl_cfg, flow_test_create_
 		dao_err("error in deleting flow");
 	}
 
-	run_test(gbl_cfg);
-
-	if (dao_flow_destroy(gbl_cfg->rx_portid, flow[3], &error)) {
-		print_flow_error(error);
-		dao_err("error in deleting flow");
-	}
-	if (dao_flow_destroy(gbl_cfg->rx_portid, flow[4], &error)) {
-		print_flow_error(error);
-		dao_err("error in deleting flow");
-	}
-
+	gbl_cfg->no_flow_match = true;
 	run_test(gbl_cfg);
 
 	flow[0] = test_cb(gbl_cfg->rx_portid, 0);
@@ -510,6 +503,9 @@ flow_test_create_destroy(struct flow_test_global_cfg *gbl_cfg, flow_test_create_
 	if (!flow[0] || !flow[1])
 		dao_exit("Failed to create a flow");
 
+	gbl_cfg->no_flow_match = false;
+	run_test(gbl_cfg);
+
 	run_test(gbl_cfg);
 	run_test(gbl_cfg);
 	run_test(gbl_cfg);
@@ -522,25 +518,18 @@ flow_test_create_destroy(struct flow_test_global_cfg *gbl_cfg, flow_test_create_
 		print_flow_error(error);
 		dao_err("error in deleting flow");
 	}
-	if (dao_flow_destroy(gbl_cfg->rx_portid, flow[6], &error)) {
-		print_flow_error(error);
-		dao_err("error in deleting flow");
-	}
-	if (dao_flow_destroy(gbl_cfg->rx_portid, flow[7], &error)) {
-		print_flow_error(error);
-		dao_err("error in deleting flow");
-	}
 }
 
 static void
-profile_tests(struct flow_test_global_cfg *gbl_cfg, const char *prfl, bool hw_offload_enable)
+profile_tests(struct flow_test_global_cfg *gbl_cfg, uint8_t flow_kex_profile, char *profile_name,
+	      bool hw_offload_enable)
 {
 	struct dao_flow_offload_config config;
 	char name[RTE_ETH_NAME_MAX_LEN];
 	uint16_t portid;
 	int rc;
 
-	dao_info("##### Executing tests for profile: %s, hw_offload: %s #####", prfl,
+	dao_info("##### Executing tests for profile: %s, hw_offload: %s #####", profile_name,
 		 hw_offload_enable ? "enable" : "disable");
 	RTE_ETH_FOREACH_DEV(portid) {
 		if (rte_eth_dev_get_name_by_port(portid, name) < 0)
@@ -548,25 +537,40 @@ profile_tests(struct flow_test_global_cfg *gbl_cfg, const char *prfl, bool hw_of
 		memset(&config, 0, sizeof(struct dao_flow_offload_config));
 		/* Enable HW offloading */
 		config.feature |= hw_offload_enable ? DAO_FLOW_HW_OFFLOAD_ENABLE : 0;
-		config.feature |= DAO_FLOW_ALG_ACL;
-		rte_strscpy(config.parse_profile, prfl, DAO_FLOW_PROFILE_NAME_MAX);
+		config.feature |= flow_kex_profile;
+		config.feature |= flow_alg;
+
+		rte_strscpy(config.parse_profile, profile_name, DAO_FLOW_PROFILE_NAME_MAX);
 		rc = dao_flow_init(portid, &config);
 		if (rc) {
 			dao_err("Error: DAO flow init failed, err %d", rc);
 			return;
 		}
 	}
+	gbl_cfg->config = &config;
 
-	if (strncmp(config.parse_profile, "ovs", DAO_FLOW_PROFILE_NAME_MAX) == 0) {
+	switch (flow_kex_profile) {
+	case DAO_FLOW_KEX_OVS:
 		flow_test_create_destroy(gbl_cfg, ovs_flow_test_create);
-		flow_test_query(gbl_cfg, basic_flow_test_create, false);
-		flow_test_query(gbl_cfg, basic_flow_test_create, true);
+		if (hw_offload_enable) {
+			flow_test_query(gbl_cfg, basic_flow_test_create, false);
+			flow_test_query(gbl_cfg, basic_flow_test_create, true);
+		}
 		flow_test_info(gbl_cfg, basic_flow_test_create);
 		flow_test_dump(gbl_cfg, basic_flow_test_create);
 		flow_test_flush(gbl_cfg, basic_flow_test_create);
-	} else if (strncmp(config.parse_profile, "default", DAO_FLOW_PROFILE_NAME_MAX) == 0) {
+		break;
+	case DAO_FLOW_KEX_DEFAULT:
 		flow_test_create_destroy(gbl_cfg, default_flow_test_create);
-	} else {
+		if (hw_offload_enable) {
+			flow_test_query(gbl_cfg, default_flow_test_create, false);
+			flow_test_query(gbl_cfg, default_flow_test_create, true);
+		}
+		flow_test_info(gbl_cfg, default_flow_test_create);
+		flow_test_dump(gbl_cfg, default_flow_test_create);
+		flow_test_flush(gbl_cfg, default_flow_test_create);
+		break;
+	default:
 		dao_err("Invalid parse profile name %s", config.parse_profile);
 	}
 
@@ -576,6 +580,72 @@ profile_tests(struct flow_test_global_cfg *gbl_cfg, const char *prfl, bool hw_of
 		dao_flow_fini(portid);
 	}
 	dao_info("## Done ##");
+}
+
+static void
+usage(char *progname)
+{
+	printf("\nusage: %s\n", progname);
+	printf("  --flow-kex-profile=default|ovs:"
+	       " key extraction profile to use\n");
+	printf("  --flow-alg=acl|em:"
+	       " flow algorithm to use\n");
+	printf("  --hw-offload: enable flow offload to hardware\n");
+}
+
+static void
+args_parse(int argc, char **argv)
+{
+	char **argvopt;
+	int opt_idx;
+	int opt;
+
+	static const struct option lgopts[] = {
+		/* Control */
+		{"help", 0, 0, 0},
+		{"flow-kex-profile", 1, 0, 0},
+		{"flow-alg", 1, 0, 0},
+		{"hw-offload", 0, 0, 0},
+	};
+
+	argvopt = argv;
+
+	while ((opt = getopt_long(argc, argvopt, "", lgopts, &opt_idx)) != EOF) {
+		switch (opt) {
+		case 0:
+			if (strcmp(lgopts[opt_idx].name, "help") == 0) {
+				usage(argv[0]);
+				exit(EXIT_SUCCESS);
+			}
+
+			if (strcmp(lgopts[opt_idx].name, "flow-kex-profile") == 0) {
+				if (strcmp(optarg, "ovs") == 0)
+					flow_kex_profile = DAO_FLOW_KEX_OVS;
+				else if (strcmp(optarg, "default") == 0)
+					flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
+				else
+					flow_kex_profile = DAO_FLOW_KEX_OVS;
+				strncpy(kex_profile_name, optarg, DAO_FLOW_PROFILE_NAME_MAX - 1);
+			}
+			if (strcmp(lgopts[opt_idx].name, "flow-alg") == 0) {
+				if (strcmp(optarg, "acl") == 0)
+					flow_alg = DAO_FLOW_ALG_ACL;
+				else if (strcmp(optarg, "em") == 0)
+					flow_alg = DAO_FLOW_ALG_EM;
+				else
+					flow_alg = DAO_FLOW_ALG_EM;
+			}
+
+			if (strcmp(lgopts[opt_idx].name, "hw-offload") == 0)
+				hw_offload_flag = true;
+
+			break;
+		default:
+			usage(argv[0]);
+			rte_exit(EXIT_FAILURE, "Invalid option: %s\n", argv[optind - 1]);
+			break;
+		}
+	}
 }
 
 int
@@ -592,6 +662,11 @@ main(int argc, char *argv[])
 	rc = rte_eal_init(argc, argv);
 	if (rc < 0)
 		dao_err("Error with EAL initialization");
+
+	argc -= rc;
+	argv += rc;
+	if (argc > 1)
+		args_parse(argc, argv);
 
 	nb_ports = rte_eth_dev_count_avail();
 	if (nb_ports != 2)
@@ -635,8 +710,8 @@ main(int argc, char *argv[])
 	/* Create a thread for handling msgs from VFs */
 	rte_eal_mp_remote_launch(flow_offload_launch_one_lcore, gbl_cfg, SKIP_MAIN);
 	/* Test cases */
-	profile_tests(gbl_cfg, "ovs", true);
-	profile_tests(gbl_cfg, "default", true);
+
+	profile_tests(gbl_cfg, flow_kex_profile, kex_profile_name, hw_offload_flag);
 
 	/* Exiting the mbox sync thread */
 	if (gbl_cfg->start_tx_thread) {

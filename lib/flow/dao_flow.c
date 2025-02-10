@@ -145,18 +145,33 @@ fail:
 	return NULL;
 }
 
+static int
+validate_feature(struct dao_flow_offload_config *config)
+{
+	if (config->feature & DAO_FLOW_KEX_OVS && config->feature & DAO_FLOW_KEX_DEFAULT) {
+		dao_err("More than one KEX profile specified");
+		return -EINVAL;
+	}
+	if (config->feature & DAO_FLOW_ALG_EM && config->feature & DAO_FLOW_ALG_ACL) {
+		dao_err("More than one flow algorithm specified");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 static void
 parse_profile_setup(uint16_t port_id, struct flow_global_cfg *gbl_cfg,
 		    struct dao_flow_offload_config *config)
 {
-	if (strncmp(config->parse_profile, "ovs", DAO_FLOW_PROFILE_NAME_MAX) == 0) {
+	if (config->feature & DAO_FLOW_KEX_OVS) {
 		gbl_cfg->flow_cfg[port_id].prfl_ops = &ovs_prfl_ops;
 		gbl_cfg->flow_cfg[port_id].parse_prfl = &ovs_kex_profile;
-	} else if (strncmp(config->parse_profile, "default", DAO_FLOW_PROFILE_NAME_MAX) == 0) {
+	} else if (config->feature & DAO_FLOW_KEX_DEFAULT) {
 		gbl_cfg->flow_cfg[port_id].prfl_ops = &default_prfl_ops;
 		gbl_cfg->flow_cfg[port_id].parse_prfl = &default_kex_profile;
 	} else {
-		dao_err("Invalid parse profile name %s", config->parse_profile);
+		dao_err("Invalid kex profile: %s", config->parse_profile);
 	}
 }
 
@@ -173,6 +188,10 @@ dao_flow_init(uint16_t port_id, struct dao_flow_offload_config *hw_offload_cfg)
 		if (!gbl_cfg)
 			DAO_ERR_GOTO(-ENOMEM, error, "Failed to reserve mem for main_cfg");
 	}
+
+	rc = validate_feature(config);
+	if (rc)
+		return rc;
 
 	parse_profile_setup(port_id, gbl_cfg, config);
 
@@ -365,6 +384,9 @@ dao_flow_destroy(uint16_t port_id, struct dao_flow *fl, struct rte_flow_error *e
 		DAO_ERR_GOTO(-rc, fail, "Failed to delete flow");
 
 	/* HW offload Flow destroy */
+	if (!hflow || hflow->offloaded)
+		return 0;
+
 	hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
 	rc = hw_offload_flow_destroy(hw_off_cfg, hflow);
 	if (rc)
@@ -438,7 +460,7 @@ dao_flow_query(uint16_t port_id, struct dao_flow *fl, const struct rte_flow_acti
 
 	/* Query the HW offloaded flow */
 	hflow = flow->hflow;
-	if (hflow->offloaded) {
+	if (hflow && hflow->offloaded) {
 		hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
 		rc = hw_offload_flow_query(hw_off_cfg, hflow, action, fquery, error);
 		if (rc)
@@ -471,7 +493,7 @@ dao_flow_dev_dump(uint16_t port_id, struct dao_flow *fl, FILE *file, struct rte_
 
 	/* Dump the HW offloaded flow */
 	hflow = flow->hflow;
-	if (hflow->offloaded) {
+	if (hflow && hflow->offloaded) {
 		hw_off_cfg = &gbl_cfg->hw_off_gbl->hw_off_cfg[port_id];
 		rc = hw_offload_flow_dump(hw_off_cfg, hflow, file, error);
 		if (rc)

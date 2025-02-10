@@ -59,9 +59,6 @@ add_ipv4(struct rte_flow_item *items, uint8_t items_counter, struct additional_p
 	ipv4_specs[ti].hdr.dst_addr = RTE_BE32(para.src_ip);
 	ipv4_masks[ti].hdr.dst_addr = RTE_BE32(0xffffffff);
 
-	ipv4_specs[ti].hdr.next_proto_id = 0x11;
-	ipv4_masks[ti].hdr.next_proto_id = 0xff;
-
 	items[items_counter].type = RTE_FLOW_ITEM_TYPE_IPV4;
 	items[items_counter].spec = &ipv4_specs[ti];
 	items[items_counter].mask = &ipv4_masks[ti];

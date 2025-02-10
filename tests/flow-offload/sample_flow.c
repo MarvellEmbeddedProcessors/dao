@@ -10,7 +10,8 @@
 #define VXLAN_VNI          0x11223344
 #define FRAG_OFFSET        0x7766
 #define VLAN_TCI           0x1234
-#define UDP_SRC_PORT       0x4256
+#define UDP_SRC_PORT       0xabcd
+#define UDP_DST_PORT       0x1234
 
 static struct rte_flow_item_eth eth = {
 	.dst = {.addr_bytes = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff}},
@@ -152,6 +153,81 @@ error:
 }
 
 struct dao_flow *
+exact_match_flow_test_create(uint16_t portid, int test_val_idx)
+{
+	struct rte_flow_action action[MAX_RTE_FLOW_ACTIONS] = {};
+	struct rte_flow_item pattern[MAX_RTE_FLOW_PATTERN] = {};
+	struct rte_flow_action_mark *act_mark;
+	struct rte_flow_attr attr = {};
+	struct rte_flow_error err = {};
+	struct rte_flow_item_ipv4 ip_spec;
+	struct rte_flow_item_ipv4 ip_mask;
+	struct rte_flow_item_udp udp_spec;
+	struct rte_flow_item_udp udp_mask;
+	int pattern_idx = 0, act_idx = 0;
+	struct dao_flow *dflow;
+
+	/* Define attributes */
+	attr.egress = 0;
+	attr.ingress = 1;
+
+	act_mark = rte_zmalloc("Act_mark", sizeof(struct rte_flow_action_mark), 0);
+	if (!act_mark) {
+		dao_err("Failed to get memory mark action config");
+		return NULL;
+	}
+	memset(action, 0, MAX_RTE_FLOW_ACTIONS * sizeof(struct rte_flow_action));
+	memset(pattern, 0, MAX_RTE_FLOW_PATTERN * sizeof(struct rte_flow_item));
+	memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&udp_spec, 0, sizeof(struct rte_flow_item_udp));
+	memset(&udp_mask, 0, sizeof(struct rte_flow_item_udp));
+	/* Add mark ID action */
+	action[act_idx].type = RTE_FLOW_ACTION_TYPE_MARK;
+	act_mark->id = test_vals[test_val_idx].mark;
+	action[act_idx].conf = (struct rte_flow_action_mark *)act_mark;
+	act_idx++;
+	action[act_idx].type = RTE_FLOW_ACTION_TYPE_COUNT;
+	act_idx++;
+	action[act_idx].type = RTE_FLOW_ACTION_TYPE_END;
+	action[act_idx].conf = NULL;
+
+	/* Define patterns */
+	pattern[pattern_idx].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	ip_spec.hdr.src_addr = test_vals[test_val_idx].ipv4.hdr.src_addr;
+	ip_mask.hdr.src_addr = 0xFFFFFFFF;
+	ip_spec.hdr.dst_addr = test_vals[test_val_idx].ipv4.hdr.dst_addr;
+	ip_mask.hdr.dst_addr = 0xFFFFFFFF;
+	ip_spec.hdr.next_proto_id = IPPROTO_UDP;
+	ip_mask.hdr.next_proto_id = 0xff;
+
+	pattern[pattern_idx].spec = &ip_spec;
+	pattern[pattern_idx].mask = &ip_mask;
+	pattern[pattern_idx].last = NULL;
+	pattern_idx++;
+
+	pattern[pattern_idx].type = RTE_FLOW_ITEM_TYPE_UDP;
+	udp_spec.hdr.src_port = rte_cpu_to_be_16(UDP_SRC_PORT);
+	udp_mask.hdr.src_port = 0xFFFF;
+	udp_spec.hdr.dst_port = rte_cpu_to_be_16(UDP_DST_VXLAN_PORT);
+	udp_mask.hdr.dst_port = 0xFFFF;
+	pattern[pattern_idx].spec = &udp_spec;
+	pattern[pattern_idx].mask = &udp_mask;
+	pattern_idx++;
+
+	pattern[pattern_idx].type = RTE_FLOW_ITEM_TYPE_END;
+
+	/* Flow create */
+	dflow = dao_flow_create(portid, &attr, pattern, action, &err);
+	if (!dflow)
+		DAO_ERR_GOTO(errno, error, "Failed to create DOS rule");
+
+	return dflow;
+error:
+	return NULL;
+}
+
+struct dao_flow *
 ovs_flow_test_create(uint16_t portid, int test_val_idx)
 {
 	struct dao_flow *dflow;
@@ -174,7 +250,6 @@ ovs_flow_test_create(uint16_t portid, int test_val_idx)
 	struct rte_flow_item_eth inner_eth_mask;
 	struct rte_flow_item_ipv4 inner_ip_spec;
 	struct rte_flow_item_ipv4 inner_ip_mask;
-	uint8_t eth_addr[6] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
 	uint8_t eth_addr_mask[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
 	memset(pattern, 0, sizeof(pattern));
@@ -198,24 +273,29 @@ ovs_flow_test_create(uint16_t portid, int test_val_idx)
 
 	action[0].type = RTE_FLOW_ACTION_TYPE_MARK;
 	action[0].conf = &mark;
-	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+	action[1].type = RTE_FLOW_ACTION_TYPE_COUNT;
+	action[2].type = RTE_FLOW_ACTION_TYPE_END;
 
 	pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
-	memcpy(&eth_spec.hdr.dst_addr, eth_addr, sizeof(struct rte_ether_addr));
+	memcpy(&eth_spec.hdr.dst_addr, &eth.dst, sizeof(struct rte_ether_addr));
 	memcpy(&eth_mask.hdr.dst_addr, eth_addr_mask, sizeof(struct rte_ether_addr));
+	memcpy(&eth_spec.hdr.src_addr, &eth.src, sizeof(struct rte_ether_addr));
+	memcpy(&eth_mask.hdr.src_addr, eth_addr_mask, sizeof(struct rte_ether_addr));
 	pattern[0].spec = &eth_spec;
 	pattern[0].mask = &eth_mask;
 
 	pattern[1].type = RTE_FLOW_ITEM_TYPE_VLAN;
 	vlan_spec.hdr.vlan_tci = rte_cpu_to_be_16(VLAN_TCI);
 	vlan_mask.hdr.vlan_tci = 0xFFFF;
+	vlan_spec.inner_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+	vlan_mask.inner_type = 0xFFFF;
 	pattern[1].spec = &vlan_spec;
 	pattern[1].mask = &vlan_mask;
 
 	pattern[2].type = RTE_FLOW_ITEM_TYPE_IPV4;
-	ip_spec.hdr.src_addr = (test_vals[test_val_idx].ipv4.hdr.src_addr);
+	ip_spec.hdr.src_addr = test_vals[test_val_idx].ipv4.hdr.src_addr;
 	ip_mask.hdr.src_addr = 0xFFFFFFFF;
-	ip_spec.hdr.dst_addr = (test_vals[test_val_idx].ipv4.hdr.dst_addr);
+	ip_spec.hdr.dst_addr = test_vals[test_val_idx].ipv4.hdr.dst_addr;
 	ip_mask.hdr.dst_addr = 0xFFFFFFFF;
 	pattern[2].spec = &ip_spec;
 	pattern[2].mask = &ip_mask;
@@ -239,6 +319,8 @@ ovs_flow_test_create(uint16_t portid, int test_val_idx)
 	memcpy(&inner_eth_mask.hdr.dst_addr, eth_addr_mask, sizeof(struct rte_ether_addr));
 	memcpy(&inner_eth_spec.hdr.src_addr, &inner_eth.src, sizeof(struct rte_ether_addr));
 	memcpy(&inner_eth_mask.hdr.src_addr, eth_addr_mask, sizeof(struct rte_ether_addr));
+	inner_eth_spec.type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+	inner_eth_mask.type = 0xFFFF;
 	pattern[5].spec = &inner_eth_spec;
 	pattern[5].mask = &inner_eth_mask;
 
@@ -294,7 +376,8 @@ default_flow_test_create(uint16_t portid, int test_val_idx)
 
 	action[0].type = RTE_FLOW_ACTION_TYPE_MARK;
 	action[0].conf = &mark;
-	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+	action[1].type = RTE_FLOW_ACTION_TYPE_COUNT;
+	action[2].type = RTE_FLOW_ACTION_TYPE_END;
 
 	pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
 	memcpy(&eth_spec.hdr.dst_addr, eth_addr, sizeof(struct rte_ether_addr));
@@ -305,13 +388,15 @@ default_flow_test_create(uint16_t portid, int test_val_idx)
 	pattern[1].type = RTE_FLOW_ITEM_TYPE_VLAN;
 	vlan_spec.hdr.vlan_tci = rte_cpu_to_be_16(VLAN_TCI);
 	vlan_mask.hdr.vlan_tci = 0xFFFF;
+	vlan_spec.inner_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+	vlan_mask.inner_type = 0xFFFF;
 	pattern[1].spec = &vlan_spec;
 	pattern[1].mask = &vlan_mask;
 
 	pattern[2].type = RTE_FLOW_ITEM_TYPE_IPV4;
-	ip_spec.hdr.src_addr = (test_vals[test_val_idx].ipv4.hdr.src_addr);
+	ip_spec.hdr.src_addr = test_vals[test_val_idx].ipv4.hdr.src_addr;
 	ip_mask.hdr.src_addr = 0xFFFFFFFF;
-	ip_spec.hdr.dst_addr = (test_vals[test_val_idx].ipv4.hdr.dst_addr);
+	ip_spec.hdr.dst_addr = test_vals[test_val_idx].ipv4.hdr.dst_addr;
 	ip_mask.hdr.dst_addr = 0xFFFFFFFF;
 	pattern[2].spec = &ip_spec;
 	pattern[2].mask = &ip_mask;

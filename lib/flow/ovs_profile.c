@@ -21,10 +21,10 @@ struct flow_parser_tcam_kex ovs_kex_profile = {
 	.prfl_version = FLOW_PARSER_PROFILE_VER,
 	.keyx_cfg = {
 		/* nibble: LA..LE (ltype only) + Error code + Channel */
-		[NIX_INTF_RX] = ((uint64_t)PROFILE_TCAM_KEY_X2 << 32) | PARSE_NIBBLE_INTF_RX |
+		[NIX_INTF_RX] = ((uint64_t)PROFILE_TCAM_KEY_X4 << 32) | PARSE_NIBBLE_INTF_RX |
 				(uint64_t)PROFILE_EXACT_NIBBLE_HIT,
 		/* nibble: LA..LE (ltype only) */
-		[NIX_INTF_TX] = ((uint64_t)PROFILE_TCAM_KEY_X2 << 32) | PARSE_NIBBLE_INTF_TX,
+		[NIX_INTF_TX] = ((uint64_t)PROFILE_TCAM_KEY_X4 << 32) | PARSE_NIBBLE_INTF_TX,
 	},
 	.kex_ld_flags[NIX_INTF_RX] = PROFILE_LID_LC,
 	.intf_ld_flags = {

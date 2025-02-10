@@ -69,7 +69,6 @@ struct em_per_port {
 	struct em_actions *action;
 	uint32_t size;
 	struct parse_profile_ops *prfl_ops;
-	uint32_t num_rules_per_prt;
 	/* Spinlock */
 	rte_spinlock_t hash_lock;
 

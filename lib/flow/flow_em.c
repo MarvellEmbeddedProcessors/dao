@@ -53,7 +53,7 @@ em_delete_rule(void *em_cfg, uint16_t port_id, uint32_t tbl_id, void *arule)
 	TAILQ_FOREACH(prule, &em->flow_list, next) {
 		if ((uintptr_t)prule == (uintptr_t)rule) {
 			rc = rte_hash_del_key(em->hash, prule->parsed_flow_data);
-			if (rc < 0)
+			if (rc == -EINVAL)
 				goto fail;
 			TAILQ_REMOVE(&em->flow_list, rule, next);
 		}
@@ -183,8 +183,8 @@ em_create_rule(void *em_cfg, const struct rte_flow_attr *attr,
 	struct em_rule_data *rule_data;
 	struct parsed_flow *flow;
 	struct em_per_port *em;
+	int ret, keyw = 0;
 	char name[32];
-	int ret;
 
 	RTE_SET_USED(error);
 	RTE_SET_USED(attr);
@@ -192,10 +192,24 @@ em_create_rule(void *em_cfg, const struct rte_flow_attr *attr,
 	em = &em_gbl->em_cfg_prt[port_id];
 	em->port_id = port_id;
 
+	switch(gbl_cfg->flow_cfg[em->port_id].parser.keyw[PROFILE_CAM_RX]) {
+		case PROFILE_TCAM_KEY_X1:
+			keyw = 15;
+			break;
+		case PROFILE_TCAM_KEY_X2:
+			keyw = 29;
+			break;
+		case PROFILE_TCAM_KEY_X4:
+			keyw = 56;
+			break;
+		default:
+			keyw = 29;
+	}
+
 	if (!em->hash) {
 		memset(&hparam, 0, sizeof(struct rte_hash_parameters));
 		hparam.entries = EM_MAX_RULES_PER_PORT;
-		hparam.key_len = 13;
+		hparam.key_len = keyw;
 		hparam.hash_func = rte_jhash;
 		hparam.hash_func_init_val = 0;
 		hparam.socket_id = rte_socket_id();
@@ -229,7 +243,6 @@ em_create_rule(void *em_cfg, const struct rte_flow_attr *attr,
 
 	rule_data = rte_zmalloc("em_rule_data", sizeof(struct em_rule_data), RTE_CACHE_LINE_SIZE);
 	if (!rule_data) {
-		//DAO_ERR_GOTO(-ENOMEM, free, "Failed to allocate rule_data memory");
 		dao_info("Failed to allocate rule_data memory");
 		return NULL;
 	}
@@ -253,7 +266,6 @@ em_create_rule(void *em_cfg, const struct rte_flow_attr *attr,
 	TAILQ_INSERT_TAIL(&em->flow_list, rule_data, next);
 	dao_dbg("Added new ACL rule data %p ", rule_data);
 
-	em->num_rules_per_prt++;
 	*rule_idx = rule_data->rule_idx;
 
 	return (void *)rule_data;
@@ -314,7 +326,7 @@ em_lookup_process(struct em_per_port *em, struct rte_mbuf **objs, uint16_t nb_ob
 		  uint32_t *result)
 {
 	uint8_t key_buf[nb_objs][EM_X4_RULE_DEF_SIZE * 4];
-	int i, j;
+	int i, j, res;
 
 	memset(key_buf, 0, nb_objs * EM_X4_RULE_DEF_SIZE * 4);
 
@@ -323,7 +335,11 @@ em_lookup_process(struct em_per_port *em, struct rte_mbuf **objs, uint16_t nb_ob
 		em->prfl_ops->key_generation(objs[i], 0, key_buf[j]);
 
 		rte_spinlock_lock(&em->hash_lock);
-		result[i] = rte_hash_lookup(em->hash, (const void *)key_buf[j]);
+		res = rte_hash_lookup(em->hash, (const void *)key_buf[j]);
+		if (res == -EINVAL)
+			return res;
+		result[i] = (res == -ENOENT) ? UINT32_MAX : (uint32_t)res;
+
 		rte_spinlock_unlock(&em->hash_lock);
 		j++;
 	}
@@ -337,7 +353,7 @@ em_flow_lookup(void *em_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t 
 {
 	struct em_global_config *em_gbl = (struct em_global_config *)em_cfg;
 	struct em_per_port *em;
-	int i;
+	int i, rc = 0;
 
 	em = &em_gbl->em_cfg_prt[port_id];
 
@@ -350,7 +366,9 @@ em_flow_lookup(void *em_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t 
 	if (!objs)
 		return EM_RULE_OBJ_INVALID;
 
-	em_lookup_process(em, objs, nb_objs, result);
+	rc = em_lookup_process(em, objs, nb_objs, result);
+	if (rc)
+		return rc;
 	for (i = 0; i < nb_objs; i++) {
 		if (objs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
 			continue;
@@ -401,8 +419,33 @@ em_rule_dump(void *em_cfg, uint16_t port_id, uint32_t tbl_id, void *arule, FILE 
 int
 em_rule_flush(void *em_cfg, uint16_t port_id)
 {
-	RTE_SET_USED(em_cfg);
-	RTE_SET_USED(port_id);
+	struct em_global_config *em_gbl = (struct em_global_config *)em_cfg;
+	struct em_per_port *port_em;
+	struct em_rule_data *prule;
+	const void *next_key;
+	uint32_t iter = 0;
+	void *next_data;
+	void *tmp;
+	int rc;
+
+	port_em = &em_gbl->em_cfg_prt[port_id];
+
+	dao_info("Taking lock.. %s", __func__);
+	rte_spinlock_lock(&port_em->hash_lock);
+	while (rte_hash_iterate(port_em->hash, &next_key, &next_data, &iter) >= 0) {
+		rc = rte_hash_del_key(port_em->hash, next_key);
+		if (rc < 0) {
+			rte_spinlock_unlock(&port_em->hash_lock);
+			return -1;
+		}
+	}
+
+	DAO_TAILQ_FOREACH_SAFE(prule, &port_em->flow_list, next, tmp) {
+		TAILQ_REMOVE(&port_em->flow_list, prule, next);
+		rte_free(prule);
+	}
+
+	port_em->num_rules = 0;
 
 	return 0;
 }
@@ -429,7 +472,7 @@ em_port_rule_count(void *em_cfg, uint16_t port_id)
 
 	em_cfg_prt = &em_gbl->em_cfg_prt[port_id];
 	if (em_cfg_prt)
-		return em_cfg_prt->num_rules_per_prt;
+		return em_cfg_prt->num_rules;
 
 	return 0;
 }
