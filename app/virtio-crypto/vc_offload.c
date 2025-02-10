@@ -36,6 +36,8 @@ uint64_t crypto_mask_ena;
 uint16_t nb_cryptodevs;
 uint64_t lcore_crypto_mask[RTE_CRYPTO_MAX_DEVS];
 
+struct lcore_vdev_vq_map lcore_vdev_vq_map[RTE_MAX_LCORE];
+
 #define MAX_VIRTIO_RX_PER_LCORE         128
 #define MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE 1
 
@@ -260,8 +262,13 @@ init_lcore_virtio_rx(void)
 			continue;
 
 		for (lcore = 0; lcore < RTE_MAX_LCORE; lcore++) {
-			if (!(RTE_BIT64(lcore) & lcore_virtio_mask[virtio_devid]))
-				continue;
+			if (!(RTE_BIT64(lcore) & lcore_virtio_mask[virtio_devid])) {
+				/* Virtio RX nodes must be created for the default worker core
+				 * because all virtio queues are mapped to the default core
+				 */
+				if (lcore != vc_cdev_ctx.default_worker_lcore)
+					continue;
+			}
 
 			nb_virtio_rx = lcore_conf[lcore].nb_virtio_rx;
 
@@ -650,6 +657,56 @@ release_crypto_devices(void)
 	vc_cdev_ctx.nb_primary_cryptodevs = 0;
 }
 
+static int
+clear_virtio_q_config_on_default_core(uint16_t lcore_id, uint16_t vdev_id)
+{
+	uint64_t *default_q_map =
+		&lcore_vdev_vq_map[vc_cdev_ctx.default_worker_lcore].virt_q_map[vdev_id];
+	uint64_t q_map = lcore_vdev_vq_map[lcore_id].virt_q_map[vdev_id];
+	uint16_t q_id;
+
+	while (q_map > 0) {
+		q_id = __builtin_ffsl(q_map);
+		q_id -= 1;
+		*default_q_map &= ~RTE_BIT64(q_id);
+		q_map &= ~RTE_BIT64(q_id);
+	}
+	return 0;
+}
+
+static int
+setup_lcore_virtio_queue_config(void)
+{
+	uint8_t default_wkr_core = vc_cdev_ctx.default_worker_lcore;
+	uint16_t virtio_devid, virt_q_count;
+	uint8_t lcore;
+
+	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
+		if (!is_virtio_dev_enabled(virtio_devid))
+			continue;
+
+		virt_q_count = dao_virtio_cryptodev_max_dataqueue_cnt_get(virtio_devid);
+
+		/* Map all virtio queues on default worker core */
+		lcore_vdev_vq_map[default_wkr_core].virt_q_map[virtio_devid] =
+			(1 << virt_q_count) - 1;
+	}
+
+	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
+		if (!is_virtio_dev_enabled(virtio_devid))
+			continue;
+
+		for (lcore = 0; lcore < RTE_MAX_LCORE; lcore++) {
+			if ((lcore != default_wkr_core) &&
+			    (lcore_vdev_vq_map[lcore].virt_q_map[virtio_devid])) {
+				if (clear_virtio_q_config_on_default_core(lcore, virtio_devid))
+					return -ENOTSUP;
+			}
+		}
+	}
+	return 0;
+}
+
 static void
 dump_lcore_info(void)
 {
@@ -856,55 +913,75 @@ vc_asym_sess_destroy_cb(uint16_t cdev_id, uint64_t session)
 }
 
 static int
+setup_lcore_cryptodev_qp_config(struct lcore_conf *qconf, uint64_t virt_q_map,
+				uint16_t virtio_devid)
+{
+	struct rte_mempool *mp = NULL;
+	uint16_t cdev_qp_id, cdev_id;
+	uint64_t q_map = virt_q_map;
+	uint16_t queue_id = 0;
+	int ret;
+
+	while (q_map > 0) {
+		queue_id = __builtin_ffsl(q_map);
+		queue_id -= 1;
+
+		ret = dao_virtio_cryptodev_cdev_map_queue_get(virtio_devid, queue_id, &cdev_id,
+							      &cdev_qp_id, &mp);
+		if (ret) {
+			dao_info("[dev %u] No cryptodev queue mapped for queue %d", virtio_devid,
+				 queue_id);
+			return -ENOTSUP;
+		}
+
+		qconf->crypto_deq[0].cryptodev_deq->crypto_q_map |= RTE_BIT64(cdev_qp_id);
+		q_map &= ~RTE_BIT64(queue_id);
+	}
+	return 0;
+}
+
+static int
 setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 {
 	uint8_t cdev_id = vc_cdev_ctx.enabled_primary_cdevs[0];
 	struct lcore_conf *qconf;
 	uint32_t lcore_id;
+	uint64_t vq_map;
 	int i;
 
 	const struct dao_virtio_cryptodev_vdev_q *cdev_vdev_q_map =
 		dao_virtio_cryptodev_cdev_map_all_queues_get(cdev_id);
 
-	/* Add virtio device to service lcore */
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		if (rte_lcore_is_enabled(lcore_id) == 0)
 			continue;
 
 		qconf = &lcore_conf[lcore_id];
 
-		for (i = 0; i < qconf->nb_virtio_rx; i++) {
-			/* Update only matching contexts */
-			if (qconf->virtio_rx[i].virtio_devid != virtio_devid)
-				continue;
-
-			/* TODO - get this from command line */
-			if (lcore_id == 5) {
-				/* Set mask corresponding to all queues */
-				qconf->virtio_rx[i].virtio_rx->virt_q_map = (1 << virt_q_count) - 1;
-			}
-		}
-
-		if (qconf->nb_crypto_deq) {
-			/* TODO - derive this from virt_q_map. */
-			if (lcore_id == 5) {
-				/* Set mask corresponding to all queues */
-				qconf->crypto_deq[0].cryptodev_deq->crypto_q_map =
-					(1 << vc_cdev_ctx.nb_qp) - 1;
-			}
-
-			qconf->crypto_deq[0].virtio_tx->cdev_vdev_map = cdev_vdev_q_map;
-		}
-
+		/* Add virtio device to service lcore */
 		if (qconf->service_lcore) {
 			qconf->virt_dev_map |= RTE_BIT64(virtio_devid);
 			qconf->virtio_queue_cnt[virtio_devid] = virt_q_count;
 			APP_INFO("Added virtio_devid=%d (queue count: %d) to service lcore=%d\n",
 				 virtio_devid, virt_q_count, lcore_id);
-			break;
+		}
+
+		if (!qconf->nb_virtio_rx)
+			continue;
+
+		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+			/* Update only matching contexts */
+			if (qconf->virtio_rx[i].virtio_devid != virtio_devid)
+				continue;
+
+			qconf->crypto_deq[0].virtio_tx->cdev_vdev_map = cdev_vdev_q_map;
+			vq_map = lcore_vdev_vq_map[lcore_id].virt_q_map[virtio_devid];
+			qconf->virtio_rx[i].virtio_rx->virt_q_map = vq_map;
+
+			if (setup_lcore_cryptodev_qp_config(qconf, vq_map, virtio_devid))
+				return -ENOTSUP;
 		}
 	}
-
 	return 0;
 }
 
@@ -1199,8 +1276,10 @@ main(int argc, char **argv)
 	static const char *const default_patterns[] = {
 		"cop_drop",
 	};
+	bool default_lcore_wkr_flag = false;
 	struct rte_graph_param graph_conf;
 	bool service_lcore_flag = false;
+	bool is_lcore_used = false;
 	const char **node_patterns;
 	struct lcore_conf *qconf;
 	struct rte_node *node;
@@ -1209,7 +1288,7 @@ main(int argc, char **argv)
 	uint32_t lcore_id;
 	uint32_t devid;
 	size_t sz;
-	int rc;
+	int rc, i;
 
 	rc = rte_eal_init(argc, argv);
 	if (rc < 0)
@@ -1231,6 +1310,30 @@ main(int argc, char **argv)
 
 	if (check_crypto_config() < 0)
 		rte_exit(EXIT_FAILURE, "check_crypto_config() failed\n");
+
+	/* Pick one lcore for default worker core */
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
+			continue;
+		is_lcore_used = false;
+
+		for (i = 0; i < DAO_VIRTIO_DEV_MAX; ++i) {
+			if (!is_virtio_dev_enabled(i))
+				continue;
+			if ((RTE_BIT64(lcore_id) & lcore_virtio_mask[i])) {
+				is_lcore_used = true;
+				break;
+			}
+		}
+		if (!is_lcore_used) {
+			vc_cdev_ctx.default_worker_lcore = lcore_id;
+			default_lcore_wkr_flag = true;
+			break;
+		}
+	}
+
+	if (!default_lcore_wkr_flag)
+		rte_exit(EXIT_FAILURE, "LCORE not available for default worker lcore\n");
 
 	if (init_lcore_virtio_rx() < 0)
 		rte_exit(EXIT_FAILURE, "Failed to init lcore virtio rx\n");
@@ -1283,6 +1386,9 @@ main(int argc, char **argv)
 
 	/* Initialize virtio devices */
 	setup_virtio_device();
+
+	if (setup_lcore_virtio_queue_config() < 0)
+		rte_exit(EXIT_FAILURE, "init_lcore_virtio_queue_config() failed\n");
 
 	/* Initialize graph nodes */
 	rc = graph_node_init();

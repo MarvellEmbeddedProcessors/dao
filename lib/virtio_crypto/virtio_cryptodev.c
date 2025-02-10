@@ -538,6 +538,15 @@ dao_virtio_cryptodev_data_queue_cnt_get(uint16_t dev_id)
 	return cnt;
 }
 
+uint16_t
+dao_virtio_cryptodev_max_dataqueue_cnt_get(uint16_t dev_id)
+{
+	struct dao_virtio_cryptodev *virtio_cryptodev = &dao_virtio_cryptodevs[dev_id];
+	struct virtio_cryptodev *cryptodev = virtio_cryptodev_priv(virtio_cryptodev);
+
+	return cryptodev->dev.max_virtio_queues - 1;
+}
+
 void
 dao_virtio_cryptodev_common_cfg_init(void)
 {

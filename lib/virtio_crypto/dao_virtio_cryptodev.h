@@ -190,6 +190,16 @@ void dao_virtio_cryptodev_cb_unregister(void);
 uint16_t dao_virtio_cryptodev_data_queue_cnt_get(uint16_t dev_id);
 
 /**
+ * Get max number of data queues for a virtio crypto device
+ *
+ * @param dev_id
+ *   Virtio crypto device ID
+ * @return
+ *  Max number of data queues
+ */
+uint16_t dao_virtio_cryptodev_max_dataqueue_cnt_get(uint16_t dev_id);
+
+/**
  * Initialize common configuration for virtio crypto devices.
  */
 void dao_virtio_cryptodev_common_cfg_init(void);

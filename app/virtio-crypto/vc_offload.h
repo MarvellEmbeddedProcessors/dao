@@ -52,6 +52,14 @@ struct vc_cdev_ctx {
 	struct rte_mempool *qp_pool[VC_NB_QP_MAX];
 
 	uint16_t nb_desc;
+
+	uint16_t default_worker_lcore;
 };
+
+struct lcore_vdev_vq_map {
+	uint64_t virt_q_map[DAO_VIRTIO_DEV_MAX];
+};
+
+extern struct lcore_vdev_vq_map lcore_vdev_vq_map[RTE_MAX_LCORE];
 
 #endif /* _VC_OFFLOAD_H_ */
