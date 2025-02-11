@@ -886,7 +886,7 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 	qp = dev->qp[qp_id];
 
 	nb_res = RTE_MIN(nb_res, LIQUID_CRYPTO_MAX_BURST);
-	nb_rx = rte_eth_rx_burst(dev_id, qp_id, mbufs, nb_res);
+	nb_rx = rte_eth_rx_burst(qp->port_id, qp->queue_id, mbufs, nb_res);
 
 	for (i = 0; i < nb_rx; i++) {
 		mbuf = mbufs[i];
