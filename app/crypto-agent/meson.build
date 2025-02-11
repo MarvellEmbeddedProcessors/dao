@@ -6,6 +6,7 @@ if host_build
 endif
 
 sources = files(
+	'ca_ethdev.c',
 	'cpt_debug.c',
 	'crypto_agent.c',
 )

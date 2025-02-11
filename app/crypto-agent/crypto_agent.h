@@ -5,9 +5,11 @@
 #ifndef __CRYPTO_AGENT_H__
 #define __CRYPTO_AGENT_H__
 
+#include <rte_cryptodev.h>
 #include <rte_log.h>
 #include <rte_mempool.h>
 #include <rte_pmd_cnxk_crypto.h>
+#include <rte_security.h>
 
 #include "ca_admin.h"
 #include "ca_crypto_queue.h"
