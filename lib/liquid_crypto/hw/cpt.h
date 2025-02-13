@@ -5,17 +5,27 @@
 #ifndef __HW_CPT_H__
 #define __HW_CPT_H__
 
+#include <rte_byteorder.h>
+
 #define ROC_ALIGN 128
 
 /* CPT instruction words */
 union cpt_inst_w4 {
 	uint64_t u64;
 	struct {
+#if RTE_BYTE_ORDER == RTE_LITTLE_ENDIAN
 		uint64_t dlen : 16;
 		uint64_t param2 : 16;
 		uint64_t param1 : 16;
 		uint64_t opcode_major : 8;
 		uint64_t opcode_minor : 8;
+#else
+		uint64_t opcode_minor : 8;
+		uint64_t opcode_major : 8;
+		uint64_t param1 : 16;
+		uint64_t param2 : 16;
+		uint64_t dlen : 16;
+#endif
 	} s;
 };
 
