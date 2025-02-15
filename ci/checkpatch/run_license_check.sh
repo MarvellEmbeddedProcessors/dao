@@ -19,6 +19,8 @@ IGNORE_FILES=(
 	"DPDK_VERSION"
 	"VERSION"
 	"README.md"
+	"bfs/README.md"
+	"bfs/external.desc"
 )
 
 IGNORE_DIRECTORIES=(

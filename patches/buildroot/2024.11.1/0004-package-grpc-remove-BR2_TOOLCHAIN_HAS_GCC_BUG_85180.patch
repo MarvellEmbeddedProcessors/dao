@@ -1,0 +1,41 @@
+From cf35e78a4dbcbade9047a5fae6ad67b3f7eea554 Mon Sep 17 00:00:00 2001
+From: Thomas Petazzoni <thomas.petazzoni@bootlin.com>
+Date: Thu, 7 Nov 2024 12:16:34 -0700
+Subject: [PATCH 4/6] package/grpc: remove BR2_TOOLCHAIN_HAS_GCC_BUG_85180 dead
+ code
+
+This work-around was added in commit
+716f8b34c526c702aa19e9a66a25df5d3a6ea663 ("package/grpc: work around
+gcc bug 85180") to work around a bug on Microblaze. However, since
+commit
+ae0557403a3a4cbf5354f0ab1784a08623382e5e ("package/libabseil-cpp: add
+BR2_PACKAGE_LIBABSEIL_CPP_ARCH_SUPPORTS"), grpc depends on
+libaseil-cpp, which isn't available on Microblaze, making the
+GCC_BUG_85180 no longer needed, and effectively dead code. This commit
+drops it.
+
+Signed-off-by: Thomas Petazzoni <thomas.petazzoni@bootlin.com>
+Signed-off-by: Arnout Vandecappelle <arnout@mind.be>
+---
+ package/grpc/grpc.mk | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/package/grpc/grpc.mk b/package/grpc/grpc.mk
+index 47ebf1997c..39be4f583f 100644
+--- a/package/grpc/grpc.mk
++++ b/package/grpc/grpc.mk
+@@ -59,11 +59,6 @@ GRPC_CFLAGS += -DGPR_DISABLE_WRAPPED_MEMCPY
+ GRPC_CXXFLAGS += -DGPR_DISABLE_WRAPPED_MEMCPY
+ endif
+ 
+-ifeq ($(BR2_TOOLCHAIN_HAS_GCC_BUG_85180),y)
+-GRPC_CFLAGS += -O0
+-GRPC_CXXFLAGS += -O0
+-endif
+-
+ GRPC_CONF_OPTS += \
+ 	-DCMAKE_C_FLAGS="$(GRPC_CFLAGS)" \
+ 	-DCMAKE_CXX_FLAGS="$(GRPC_CXXFLAGS)"
+-- 
+2.34.1
+

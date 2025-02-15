@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2025 Marvell.
+
+config BR2_MARVELL_CNXK_SOC
+	string "Marvell CNXK SoC: OCTEON9 or OCTEON10"
+	help
+	SoC family string: OCTEON9 or OCTEON10
+
+config BR2_MARVELL_SOC_IS_OCTEON10
+	bool
+	default y if BR2_MARVELL_CNXK_SOC = "OCTEON10"
+
+config BR2_MARVELL_SOC_IS_OCTEON9
+	bool
+	default y if BR2_MARVELL_CNXK_SOC = "OCTEON9"
+
+config BR2_MARVELL_MESON_PROPERTIES_PLATFORM
+	string "Meson platform string under properties section of meson config file"
+	default "cn9k" \
+		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON9
+	default "cn10k" \
+		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON10
+
+config BR2_MARVELL_MESON_PROPERTIES_MACHINE_ARGS
+	string "Meson machine_args string under properties section of meson config file"
+	default "octeontx2+crc+crypto+lse" \
+		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON9
+	default "neoverse-n2" \
+		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON10
+
+source "$BR2_EXTERNAL_MRVL_PATH/package/marvell-dpdk/Config.in"
+source "$BR2_EXTERNAL_MRVL_PATH/package/dao/Config.in"

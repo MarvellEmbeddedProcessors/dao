@@ -1,0 +1,156 @@
+From 811538cec03329952ffc52a8cf743ce784a0d2e2 Mon Sep 17 00:00:00 2001
+From: James Hilliard <james.hilliard1@gmail.com>
+Date: Thu, 7 Nov 2024 12:16:32 -0700
+Subject: [PATCH 5/6] package/{python-}protobuf: bump to version 28.1
+
+Migrate protobuf build from autotools to cmake.
+
+Migrate protobuf-python to use pypi sources which are now required
+for setup.py builds:
+https://github.com/protocolbuffers/protobuf/tree/v28.1/python#building-from-setuppy
+
+The BR2_or1k workaround is removed, as protobuf depends on
+libabseil-cpp, which isn't available on OpenRISC.
+
+The BR2_TOOLCHAIN_HAS_GCC_BUG_85180 workaround is removed, as this
+workaround is for Microblaze, and protobuf depends on libabseil-cpp,
+which isn't avialable on Microblaze.
+
+Signed-off-by: James Hilliard <james.hilliard1@gmail.com>
+[Arnout: remove netbird whch was accidentally added]
+Signed-off-by: Arnout Vandecappelle <arnout@mind.be>
+---
+ package/protobuf/Config.in     |  8 +++--
+ package/protobuf/protobuf.hash |  2 +-
+ package/protobuf/protobuf.mk   | 60 +++++++++++++++++++---------------
+ 3 files changed, 40 insertions(+), 30 deletions(-)
+
+diff --git a/package/protobuf/Config.in b/package/protobuf/Config.in
+index 47e987fa2b..633201b38c 100644
+--- a/package/protobuf/Config.in
++++ b/package/protobuf/Config.in
+@@ -37,6 +37,7 @@ config BR2_PACKAGE_PROTOBUF_ARCH_SUPPORTS
+ 	default y if BR2_sparc64
+ 	default y if BR2_TOOLCHAIN_HAS_ATOMIC
+ 	depends on BR2_PACKAGE_HOST_PROTOBUF_ARCH_SUPPORTS
++	depends on BR2_PACKAGE_LIBABSEIL_CPP_ARCH_SUPPORTS
+ 	depends on BR2_USE_MMU # fork()
+ 
+ config BR2_PACKAGE_PROTOBUF
+@@ -44,8 +45,9 @@ config BR2_PACKAGE_PROTOBUF
+ 	depends on BR2_INSTALL_LIBSTDCPP
+ 	depends on BR2_TOOLCHAIN_HAS_THREADS
+ 	depends on BR2_PACKAGE_PROTOBUF_ARCH_SUPPORTS
+-	depends on BR2_TOOLCHAIN_GCC_AT_LEAST_4_8 # C++11
++	depends on BR2_TOOLCHAIN_GCC_AT_LEAST_8 # libabseil-cpp
+ 	depends on !BR2_STATIC_LIBS
++	select BR2_PACKAGE_LIBABSEIL_CPP
+ 	help
+ 	  Protocol buffers are Google's language-neutral,
+ 	  platform-neutral, extensible mechanism for serializing
+@@ -53,7 +55,7 @@ config BR2_PACKAGE_PROTOBUF
+ 
+ 	  https://developers.google.com/protocol-buffers
+ 
+-comment "protobuf needs a toolchain w/ C++, threads, dynamic library, gcc >= 4.8"
++comment "protobuf needs a toolchain w/ C++, threads, dynamic library, gcc >= 8"
+ 	depends on !BR2_INSTALL_LIBSTDCPP || !BR2_TOOLCHAIN_HAS_THREADS \
+-		|| BR2_STATIC_LIBS || !BR2_TOOLCHAIN_GCC_AT_LEAST_4_8
++		|| BR2_STATIC_LIBS || !BR2_TOOLCHAIN_GCC_AT_LEAST_8
+ 	depends on BR2_PACKAGE_PROTOBUF_ARCH_SUPPORTS
+diff --git a/package/protobuf/protobuf.hash b/package/protobuf/protobuf.hash
+index b092c9303f..06f4924394 100644
+--- a/package/protobuf/protobuf.hash
++++ b/package/protobuf/protobuf.hash
+@@ -1,3 +1,3 @@
+ # Locally calculated
+ sha256  6e5e117324afd944dcf67f36cf329843bc1a92229a8cd9bb573d7a83130fea7d  LICENSE
+-sha256  4eab9b524aa5913c6fffb20b2a8abf5ef7f95a80bc0701f3a6dbb4c607f73460  protobuf-cpp-3.21.12.tar.gz
++sha256  3b8bf6e96499a744bd014c60b58f797715a758093abf859f1d902194b8e1f8c9  protobuf-28.1.tar.gz
+diff --git a/package/protobuf/protobuf.mk b/package/protobuf/protobuf.mk
+index 8cd4e99e06..ffed3166c7 100644
+--- a/package/protobuf/protobuf.mk
++++ b/package/protobuf/protobuf.mk
+@@ -7,45 +7,53 @@
+ # When bumping this package, make sure to also verify if the
+ # python-protobuf package still works and to update its hash,
+ # as they share the same version/site variables.
+-PROTOBUF_VERSION = 21.12
+-PROTOBUF_SOURCE = protobuf-cpp-3.$(PROTOBUF_VERSION).tar.gz
++PROTOBUF_VERSION = 28.1
+ PROTOBUF_SITE = https://github.com/protocolbuffers/protobuf/releases/download/v$(PROTOBUF_VERSION)
+ PROTOBUF_LICENSE = BSD-3-Clause
+ PROTOBUF_LICENSE_FILES = LICENSE
+ PROTOBUF_CPE_ID_VENDOR = google
+ 
+ # N.B. Need to use host protoc during cross compilation.
+-PROTOBUF_DEPENDENCIES = host-protobuf
+-PROTOBUF_CONF_OPTS = --with-protoc=$(HOST_DIR)/bin/protoc
+-
+-PROTOBUF_CXXFLAGS = $(TARGET_CXXFLAGS)
+-
+-ifeq ($(BR2_TOOLCHAIN_HAS_GCC_BUG_85180),y)
+-PROTOBUF_CXXFLAGS += -O0
+-endif
+-
+-ifeq ($(BR2_or1k),y)
+-PROTOBUF_CXXFLAGS += -mcmodel=large
+-endif
+-
+-PROTOBUF_CONF_ENV = CXXFLAGS="$(PROTOBUF_CXXFLAGS)"
++PROTOBUF_DEPENDENCIES = host-protobuf libabseil-cpp
++PROTOBUF_CONF_OPTS = \
++	-Dprotobuf_ABSL_PROVIDER=package \
++	-Dprotobuf_ALLOW_CCACHE=ON \
++	-Dprotobuf_BUILD_CONFORMANCE=OFF \
++	-Dprotobuf_BUILD_LIBPROTOC=OFF \
++	-Dprotobuf_BUILD_LIBUPB=ON \
++	-Dprotobuf_BUILD_PROTOBUF_BINARIES=ON \
++	-Dprotobuf_BUILD_PROTOC_BINARIES=OFF \
++	-Dprotobuf_BUILD_TESTS=OFF \
++	-Dprotobuf_DISABLE_RTTI=OFF \
++	-Dprotobuf_INSTALL=ON \
++	-DWITH_PROTOC=$(HOST_DIR)/bin/protoc
++
++HOST_PROTOBUF_DEPENDENCIES = host-libabseil-cpp
++HOST_PROTOBUF_CONF_OPTS = \
++	-Dprotobuf_ABSL_PROVIDER=package \
++	-Dprotobuf_ALLOW_CCACHE=ON \
++	-Dprotobuf_BUILD_CONFORMANCE=OFF \
++	-Dprotobuf_BUILD_LIBPROTOC=ON \
++	-Dprotobuf_BUILD_LIBUPB=OFF \
++	-Dprotobuf_BUILD_PROTOBUF_BINARIES=ON \
++	-Dprotobuf_BUILD_PROTOC_BINARIES=ON \
++	-Dprotobuf_BUILD_TESTS=OFF \
++	-Dprotobuf_DISABLE_RTTI=OFF \
++	-Dprotobuf_INSTALL=ON \
++	-Dprotobuf_WITH_ZLIB=OFF
+ 
+ ifeq ($(BR2_TOOLCHAIN_HAS_LIBATOMIC),y)
+-PROTOBUF_CONF_ENV += LIBS=-latomic
++PROTOBUF_CONF_OPTS += -DCMAKE_EXE_LINKER_FLAGS=-latomic
+ endif
+ 
+ PROTOBUF_INSTALL_STAGING = YES
+ 
+ ifeq ($(BR2_PACKAGE_ZLIB),y)
+ PROTOBUF_DEPENDENCIES += zlib
++PROTOBUF_CONF_OPTS += -Dprotobuf_WITH_ZLIB=ON
++else
++PROTOBUF_CONF_OPTS += -Dprotobuf_WITH_ZLIB=OFF
+ endif
+ 
+-define PROTOBUF_REMOVE_UNNECESSARY_TARGET_FILES
+-	rm -rf $(TARGET_DIR)/usr/bin/protoc
+-	rm -rf $(TARGET_DIR)/usr/lib/libprotoc.so*
+-endef
+-
+-PROTOBUF_POST_INSTALL_TARGET_HOOKS += PROTOBUF_REMOVE_UNNECESSARY_TARGET_FILES
+-
+-$(eval $(autotools-package))
+-$(eval $(host-autotools-package))
++$(eval $(cmake-package))
++$(eval $(host-cmake-package))
+-- 
+2.34.1
+

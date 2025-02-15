@@ -1,0 +1,49 @@
+From d7e149d4b15dcfaac133608e82c9cfd4b937529b Mon Sep 17 00:00:00 2001
+From: Nitin Saxena <nsaxena@marvell.com>
+Date: Mon, 17 Feb 2025 21:09:19 +0530
+Subject: [PATCH 2/6] toolchain: external custom config fixup
+
+correct ld-aarch64.so.1 link by linking to toolchain
+
+Signed-off-by: Nitin Saxena <nsaxena@marvell.com>
+---
+ .../toolchain-external-custom/Config.in.options        |  5 +++++
+ .../toolchain-external-custom.mk                       | 10 ++++++++++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/toolchain/toolchain-external/toolchain-external-custom/Config.in.options b/toolchain/toolchain-external/toolchain-external-custom/Config.in.options
+index fcffeb6b77..bf781e5201 100644
+--- a/toolchain/toolchain-external/toolchain-external-custom/Config.in.options
++++ b/toolchain/toolchain-external/toolchain-external-custom/Config.in.options
+@@ -612,4 +612,9 @@ config BR2_TOOLCHAIN_EXTERNAL_OPENMP
+ 	  support. If you don't know, leave the default value,
+ 	  Buildroot will tell you if it's correct or not.
+ 
++config BR2_TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT
++	string "Toolchain fixup script"
++	help
++	  This script allows to fixup the external toolchain sysroot.
++
+ endif
+diff --git a/toolchain/toolchain-external/toolchain-external-custom/toolchain-external-custom.mk b/toolchain/toolchain-external/toolchain-external-custom/toolchain-external-custom.mk
+index f2ec01f88c..43461b9df7 100644
+--- a/toolchain/toolchain-external/toolchain-external-custom/toolchain-external-custom.mk
++++ b/toolchain/toolchain-external/toolchain-external-custom/toolchain-external-custom.mk
+@@ -17,4 +17,14 @@ endif
+ endif
+ endif
+ 
++TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT = \
++	$(call qstrip,$(BR2_TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT))
++
++ifneq ($(TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT),)
++define TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT_HOOK
++	$(TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT) $(STAGING_DIR) $(BR2_TOOLCHAIN_EXTERNAL_PATH)
++endef
++TOOLCHAIN_EXTERNAL_CUSTOM_POST_INSTALL_STAGING_HOOKS += TOOLCHAIN_EXTERNAL_FIXUP_SYSROOT_SCRIPT_HOOK
++endif
++
+ $(eval $(toolchain-external-package))
+-- 
+2.34.1
+

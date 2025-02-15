@@ -1,0 +1,42 @@
+From 53040fb027deeeeee0d1a4d30b537ad54d82fc2c Mon Sep 17 00:00:00 2001
+From: Nitin Saxena <nsaxena@marvell.com>
+Date: Mon, 17 Feb 2025 20:19:16 +0530
+Subject: [PATCH] arm64: add generic arch64
+
+Signed-off-by: Nitin Saxena <nsaxena@marvell.com>
+---
+ arch/Config.in.arm | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/arch/Config.in.arm b/arch/Config.in.arm
+index 219215d122..b2b5573b71 100644
+--- a/arch/Config.in.arm
++++ b/arch/Config.in.arm
+@@ -474,6 +474,15 @@ config BR2_neoverse_n1
+ 	select BR2_ARM_CPU_HAS_FP_ARMV8
+ 	select BR2_ARM_CPU_ARMV8A
+ 	select BR2_ARCH_NEEDS_GCC_AT_LEAST_9
++config BR2_generic
++	bool "generic"
++	select BR2_ARM_CPU_HAS_ARM if !BR2_ARCH_IS_64
++	select BR2_ARM_CPU_HAS_NEON if !BR2_ARCH_IS_64
++	select BR2_ARM_CPU_HAS_THUMB2 if !BR2_ARCH_IS_64
++	select BR2_ARM_CPU_HAS_FP_ARMV8
++	select BR2_ARM_CPU_ARMV8A
++	select BR2_ARCH_HAS_MMU_OPTIONAL
++	select BR2_ARCH_NEEDS_GCC_AT_LEAST_9
+ config BR2_tsv110
+ 	bool "tsv110"
+ 	depends on BR2_ARCH_IS_64
+@@ -880,6 +889,8 @@ config BR2_GCC_TARGET_CPU
+ 	default "tsv110"	if BR2_tsv110
+ 	# armv8.4a
+ 	default "saphira"	if BR2_saphira
++	# generic
++	default "generic"	if BR2_generic
+ 
+ config BR2_GCC_TARGET_ABI
+ 	default "aapcs-linux"	if BR2_arm || BR2_armeb
+-- 
+2.34.1
+

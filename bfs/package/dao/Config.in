@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2025 Marvell.
+
+config BR2_PACKAGE_DAO_ARCH_SUPPORTS
+	bool
+	default y if BR2_aarch64
+
+config BR2_PACKAGE_DAO
+	bool "Marvell DAO"
+	default y if BR2_PACKAGE_DAO_ARCH_SUPPORTS
+	select BR2_PACKAGE_MARVELL_DPDK
+	select BR2_PACKAGE_GRPC
+
+if BR2_PACKAGE_DAO
+
+config BR2_PACKAGE_DAO_DEBUG_BUILD
+	bool
+	default n
+	prompt "Generate DAO for debugging."
+
+config BR2_PACKAGE_DAO_CONFIG
+	string "DAO Configuration filename"
+	default "arm64_cn9k_linux_gcc" \
+		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON9
+	default "arm64_cn10k_linux_gcc" \
+		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON10
+
+endif
+
+comment "DAO needs aarch64 or x86 arch"
+	depends on BR2_PACKAGE_DAO_ARCH_SUPPORTS
