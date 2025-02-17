@@ -45,6 +45,7 @@ struct flow_test_global_cfg {
 	bool start_tx_thread;
 	struct dao_flow_offload_config *config;
 	bool no_flow_match;
+	bool mtable_test;
 };
 
 static inline void
@@ -297,6 +298,7 @@ flow_test_flush(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 	struct dao_flow *flow[10];
 	int i;
 
+	gbl_cfg->mtable_test = false;
 	dao_info("### Executing %s ###", __func__);
 	for (i = 0; i < 10; i++) {
 		flow[i] = test_cb(gbl_cfg->rx_portid, i % 2);
@@ -332,6 +334,7 @@ flow_test_dump(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb)
 	struct dao_flow *flow[2];
 	int rc;
 
+	gbl_cfg->mtable_test = false;
 	dao_info("### Executing %s ###", __func__);
 	flow[0] = test_cb(gbl_cfg->rx_portid, 0);
 	flow[1] = test_cb(gbl_cfg->rx_portid, 1);
@@ -366,6 +369,7 @@ flow_test_query(struct flow_test_global_cfg *gbl_cfg, flow_test_create_t test_cb
 	struct dao_flow *flow[2];
 	int i;
 
+	gbl_cfg->mtable_test = false;
 	dao_info("### Executing %s ###", __func__);
 	flow[0] = test_cb(gbl_cfg->rx_portid, 0);
 	flow[1] = test_cb(gbl_cfg->rx_portid, 1);
@@ -478,6 +482,7 @@ flow_test_create_destroy(struct flow_test_global_cfg *gbl_cfg, flow_test_create_
 	struct rte_flow_error error = {0};
 	struct dao_flow *flow[9];
 
+	gbl_cfg->mtable_test = false;
 	dao_info("### Executing %s ###", __func__);
 	flow[0] = test_cb(gbl_cfg->rx_portid, 0);
 	flow[1] = test_cb(gbl_cfg->rx_portid, 1);
@@ -521,6 +526,44 @@ flow_test_create_destroy(struct flow_test_global_cfg *gbl_cfg, flow_test_create_
 }
 
 static void
+flow_test_mtables(struct flow_test_global_cfg *gbl_cfg, flow_test_mtables_t test_cb)
+{
+	struct rte_flow_error error = {0};
+	struct dao_flow *flow[20];
+	int i = 0;
+	int rc;
+	int n;
+	int j;
+
+	gbl_cfg->mtable_test = true;
+	dao_info("### Executing %s ###", __func__);
+	rc = test_cb(gbl_cfg->rx_portid, 0, flow, &i);
+	if (rc < 0)
+		dao_exit("Failed to create flows");
+
+	n = i;
+	rc = test_cb(gbl_cfg->rx_portid, 1, flow, &i);
+	if (rc < 0) {
+		for (j = 0; j < n; j++) {
+			if (dao_flow_destroy(gbl_cfg->rx_portid, flow[j], &error)) {
+				print_flow_error(error);
+				dao_err("error in deleting flow");
+			}
+		}
+		dao_exit("Failed to create flows");
+	}
+
+	run_test(gbl_cfg);
+
+	for (j = 0; j < i; j++) {
+		if (dao_flow_destroy(gbl_cfg->rx_portid, flow[j], &error)) {
+			print_flow_error(error);
+			dao_err("error in deleting flow");
+		}
+	}
+}
+
+static void
 profile_tests(struct flow_test_global_cfg *gbl_cfg, uint8_t flow_kex_profile, char *profile_name,
 	      bool hw_offload_enable)
 {
@@ -559,6 +602,9 @@ profile_tests(struct flow_test_global_cfg *gbl_cfg, uint8_t flow_kex_profile, ch
 		flow_test_info(gbl_cfg, basic_flow_test_create);
 		flow_test_dump(gbl_cfg, basic_flow_test_create);
 		flow_test_flush(gbl_cfg, basic_flow_test_create);
+		flow_test_mtables(gbl_cfg, ovs_mtable_flow_test_create);
+		flow_test_mtables(gbl_cfg, ovs_mtable_mjump_test_create);
+
 		break;
 	case DAO_FLOW_KEX_DEFAULT:
 		flow_test_create_destroy(gbl_cfg, default_flow_test_create);

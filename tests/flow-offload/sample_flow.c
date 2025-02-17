@@ -420,6 +420,241 @@ error:
 	return NULL;
 }
 
+int
+ovs_mtable_flow_test_create(uint16_t portid, int test_val_idx, struct dao_flow **flow, int *i)
+{
+	struct rte_flow_attr attr;
+	struct rte_flow_error error;
+	struct rte_flow_item pattern[MAX_PATTERN_NUM];
+	struct rte_flow_action action[MAX_ACTION_NUM];
+	struct rte_flow_action_mark mark = {.id = test_vals[test_val_idx].mark};
+	struct rte_flow_action_jump jump;
+	struct rte_flow_item_eth eth_spec;
+	struct rte_flow_item_eth eth_mask;
+	struct rte_flow_item_ipv4 ip_spec;
+	struct rte_flow_item_ipv4 ip_mask;
+	uint8_t eth_addr[6] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+	uint8_t eth_addr_mask[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	int n = *i;
+
+	memset(pattern, 0, sizeof(pattern));
+	memset(action, 0, sizeof(action));
+	memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+	memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+	memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&attr, 0, sizeof(struct rte_flow_attr));
+
+	attr.ingress = 1;
+
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+	memcpy(&eth_spec.hdr.dst_addr, eth_addr, sizeof(struct rte_ether_addr));
+	memcpy(&eth_mask.hdr.dst_addr, eth_addr_mask, sizeof(struct rte_ether_addr));
+	pattern[0].spec = &eth_spec;
+	pattern[0].mask = &eth_mask;
+
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	ip_spec.hdr.src_addr = (test_vals[test_val_idx].ipv4.hdr.src_addr);
+	ip_mask.hdr.src_addr = 0xFFFFFFFF;
+	ip_spec.hdr.dst_addr = (test_vals[test_val_idx].ipv4.hdr.dst_addr);
+	ip_mask.hdr.dst_addr = 0xFFFFFFFF;
+	pattern[1].spec = &ip_spec;
+	pattern[1].mask = &ip_mask;
+
+	pattern[2].type = RTE_FLOW_ITEM_TYPE_END;
+
+	action[0].type = RTE_FLOW_ACTION_TYPE_JUMP;
+	jump.group = 5;
+	action[0].conf = &jump;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n])
+		DAO_ERR_GOTO(errno, error, "Failed to create DAO rule");
+
+	memset(action, 0, sizeof(action));
+	action[0].type = RTE_FLOW_ACTION_TYPE_MARK;
+	action[0].conf = &mark;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	attr.group = jump.group;
+	n++;
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n]) {
+		if (dao_flow_destroy(portid, flow[n - 1], &error))
+			dao_err("error in deleting flow");
+
+		DAO_ERR_GOTO(errno, error, "Failed to create DAO rule");
+	}
+	n++;
+
+	*i = n;
+
+	return 0;
+error:
+	return errno;
+}
+
+int
+ovs_mtable_mjump_test_create(uint16_t portid, int test_val_idx, struct dao_flow **flow, int *i)
+{
+	struct rte_flow_attr attr;
+	struct rte_flow_error error;
+	struct rte_flow_item pattern[MAX_PATTERN_NUM];
+	struct rte_flow_action action[MAX_ACTION_NUM];
+	struct rte_flow_action_mark mark = {.id = test_vals[test_val_idx].mark};
+	struct rte_flow_action_jump jump;
+	struct rte_flow_item_eth eth_spec;
+	struct rte_flow_item_eth eth_mask;
+	struct rte_flow_item_vlan vlan_spec;
+	struct rte_flow_item_vlan vlan_mask;
+	struct rte_flow_item_ipv4 ip_spec;
+	struct rte_flow_item_ipv4 ip_mask;
+	struct rte_flow_item_udp udp_spec;
+	struct rte_flow_item_udp udp_mask;
+	struct rte_flow_item_vxlan vxlan_spec;
+	struct rte_flow_item_vxlan vxlan_mask;
+	struct rte_flow_item_eth inner_eth_spec;
+	struct rte_flow_item_eth inner_eth_mask;
+	struct rte_flow_item_ipv4 inner_ip_spec;
+	struct rte_flow_item_ipv4 inner_ip_mask;
+	uint8_t eth_addr[6] = {0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+	uint8_t eth_addr_mask[6] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
+	int n = *i;
+
+	memset(pattern, 0, sizeof(pattern));
+	memset(action, 0, sizeof(action));
+	memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+	memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+	memset(&vlan_spec, 0, sizeof(struct rte_flow_item_vlan));
+	memset(&vlan_mask, 0, sizeof(struct rte_flow_item_vlan));
+	memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&udp_spec, 0, sizeof(struct rte_flow_item_udp));
+	memset(&udp_mask, 0, sizeof(struct rte_flow_item_udp));
+	memset(&vxlan_spec, 0, sizeof(struct rte_flow_item_vxlan));
+	memset(&vxlan_mask, 0, sizeof(struct rte_flow_item_vxlan));
+	memset(&inner_eth_spec, 0, sizeof(struct rte_flow_item_eth));
+	memset(&inner_eth_mask, 0, sizeof(struct rte_flow_item_eth));
+	memset(&inner_ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&inner_ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+	memset(&attr, 0, sizeof(struct rte_flow_attr));
+	attr.ingress = 1;
+
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+	memcpy(&eth_spec.hdr.dst_addr, eth_addr, sizeof(struct rte_ether_addr));
+	memcpy(&eth_mask.hdr.dst_addr, eth_addr_mask, sizeof(struct rte_ether_addr));
+	pattern[0].spec = &eth_spec;
+	pattern[0].mask = &eth_mask;
+	ip_spec.hdr.src_addr = (test_vals[test_val_idx].ipv4.hdr.src_addr);
+	ip_mask.hdr.src_addr = 0xFFFFFFFF;
+	ip_spec.hdr.dst_addr = (test_vals[test_val_idx].ipv4.hdr.dst_addr);
+	ip_mask.hdr.dst_addr = 0xFFFFFFFF;
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	pattern[1].spec = &ip_spec;
+	pattern[1].mask = &ip_mask;
+	pattern[2].type = RTE_FLOW_ITEM_TYPE_END;
+
+	action[0].type = RTE_FLOW_ACTION_TYPE_JUMP;
+	jump.group = 1;
+	action[0].conf = &jump;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n])
+		DAO_ERR_GOTO(errno, error, "Failed to create DAO rule");
+
+	memset(action, 0, sizeof(action));
+	memset(pattern, 0, sizeof(pattern));
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_VLAN;
+	vlan_spec.hdr.vlan_tci = rte_cpu_to_be_16(VLAN_TCI);
+	vlan_mask.hdr.vlan_tci = 0xFFFF;
+	pattern[0].spec = &vlan_spec;
+	pattern[0].mask = &vlan_mask;
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	pattern[1].spec = &ip_spec;
+	pattern[1].mask = &ip_mask;
+	pattern[2].type = RTE_FLOW_ITEM_TYPE_END;
+	attr.group = jump.group;
+
+	action[0].type = RTE_FLOW_ACTION_TYPE_JUMP;
+	jump.group = 2;
+	action[0].conf = &jump;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	n++;
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n])
+		DAO_ERR_GOTO(errno, error, "Failed to create DAO rule");
+
+	memset(action, 0, sizeof(action));
+	memset(pattern, 0, sizeof(pattern));
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_UDP;
+	udp_spec.hdr.src_port = rte_cpu_to_be_16(UDP_SRC_PORT);
+	udp_mask.hdr.src_port = 0xFFFF;
+	udp_spec.hdr.dst_port = rte_cpu_to_be_16(UDP_DST_PORT);
+	udp_mask.hdr.dst_port = 0xFFFF;
+	pattern[1].spec = &udp_spec;
+	pattern[1].mask = &udp_mask;
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	pattern[0].spec = &ip_spec;
+	pattern[0].mask = &ip_mask;
+	pattern[2].type = RTE_FLOW_ITEM_TYPE_END;
+	attr.group = jump.group;
+
+	action[0].type = RTE_FLOW_ACTION_TYPE_JUMP;
+	jump.group = 3;
+	action[0].conf = &jump;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	n++;
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n])
+		DAO_ERR_GOTO(errno, error, "Failed to create DAO rule");
+
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	pattern[0].spec = &ip_spec;
+	pattern[0].mask = &ip_mask;
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_END;
+	attr.group = jump.group;
+
+	action[0].type = RTE_FLOW_ACTION_TYPE_JUMP;
+	jump.group = 4;
+	action[0].conf = &jump;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	n++;
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n])
+		DAO_ERR_GOTO(errno, error, "Failed to create DAO rule");
+
+	memset(action, 0, sizeof(action));
+	memset(pattern, 0, sizeof(pattern));
+	pattern[0].type = RTE_FLOW_ITEM_TYPE_IPV4;
+	pattern[0].spec = &ip_spec;
+	pattern[0].mask = &ip_mask;
+
+	pattern[1].type = RTE_FLOW_ITEM_TYPE_END;
+	attr.group = jump.group;
+
+	action[0].type = RTE_FLOW_ACTION_TYPE_MARK;
+	action[0].conf = &mark;
+	action[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+	n++;
+	flow[n] = dao_flow_create(portid, &attr, pattern, action, &error);
+	if (!flow[n])
+		DAO_ERR_GOTO(errno, error, "Failed to create DOS rule");
+
+	n++;
+
+	*i = n;
+
+	return 0;
+error:
+	return errno;
+}
+
 static inline void
 copy_buf_to_pkt(void *buf, unsigned int len, struct rte_mbuf *pkt, unsigned int offset)
 {

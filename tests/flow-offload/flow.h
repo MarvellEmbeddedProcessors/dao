@@ -29,12 +29,17 @@
 #define BURST_SIZE 255
 
 typedef struct dao_flow *(*flow_test_create_t)(uint16_t portid, int test_val_idx);
+typedef int (*flow_test_mtables_t)(uint16_t portid, int test_val_idx, struct dao_flow **flow,
+				   int *i);
 
 struct dao_flow *ovs_flow_test_create(uint16_t portid, int test_val_idx);
 struct dao_flow *default_flow_test_create(uint16_t portid, int test_val_idx);
 struct dao_flow *basic_flow_test_create(uint16_t portid, int test_val_idx);
 struct dao_flow *exact_match_flow_test_create(uint16_t portid, int test_val_idx);
 int sample_packet(struct rte_mempool *mbp, struct rte_mbuf **pkts);
+int sample_packet_mtable(struct rte_mempool *mbp, struct rte_mbuf **pkts);
 int validate_flow_match(struct rte_mbuf *pkt, uint16_t mark);
+int ovs_mtable_flow_test_create(uint16_t portid, int test_val_idx, struct dao_flow **flow, int *i);
+int ovs_mtable_mjump_test_create(uint16_t portid, int test_val_idx, struct dao_flow **flow, int *i);
 
 #endif /* __PACKET_H__ */
