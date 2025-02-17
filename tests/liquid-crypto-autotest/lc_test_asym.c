@@ -306,6 +306,18 @@ struct unit_test_suite lc_testsuite_asym = {
 					  ut_teardown, test_rsa_enc_prv_exp, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt (Exponent type)", ut_setup,
 					  ut_teardown, test_rsa_dec_prv_exp, &rsa_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Sign (2048 bits)", ut_setup, ut_teardown,
+					  test_rsa_sign, &rsa_2048_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Verify (2048 bits)", ut_setup, ut_teardown,
+					  test_rsa_verify, &rsa_2048_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Sign (4096 bits)", ut_setup, ut_teardown,
+					  test_rsa_sign, &rsa_4096_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Verify (4096 bits)", ut_setup, ut_teardown,
+					  test_rsa_verify, &rsa_4096_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Sign (8192 bits)", ut_setup, ut_teardown,
+					  test_rsa_sign, &rsa_8192_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Verify (8192 bits)", ut_setup, ut_teardown,
+					  test_rsa_verify, &rsa_8192_params),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

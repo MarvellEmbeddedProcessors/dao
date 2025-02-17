@@ -108,7 +108,7 @@ main(int argc, char **argv)
 
 		qp_conf.nb_desc = 2048;
 		qp_conf.out_of_order_delivery_en = false;
-		qp_conf.max_seg_size = 2048;
+		qp_conf.max_seg_size = TEST_LC_MAX_OUTPUT_LEN;
 
 		for (qp_id = 0; qp_id < info->nb_qp[dev_id]; qp_id++) {
 			ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &qp_conf);
