@@ -19,6 +19,7 @@
 #include "liquid_crypto_sym.h"
 #include "liquid_crypto_trs.h"
 #include "mc/ae.h"
+#include "mc/se.h"
 
 static struct dao_lc_info lc_info;
 
@@ -1216,6 +1217,225 @@ dao_lc_post_process_asym(struct liquid_crypto_inflight_req *req, struct dao_lc_r
 	memcpy((uint8_t *)req->data_out, resp->rptr, resp->res.cn9k.reserved_17_63);
 }
 
+static inline uint16_t
+dao_lc_buf_copy_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint32_t len)
+{
+	struct dao_lc_buf *tmp = dst;
+	uint16_t copied = 0;
+	uint16_t to_copy;
+
+	do {
+		to_copy = RTE_MIN(tmp->seg_len, len - copied);
+
+		memcpy(tmp->data, src + copied, to_copy);
+		copied += to_copy;
+		tmp = tmp->next;
+	} while (tmp && copied < len);
+
+	return copied;
+}
+
+static inline void
+dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+			struct rte_mbuf *mbuf)
+{
+	uint16_t result_offset, result_len;
+	struct __dao_lc_resp_sym *resp;
+
+	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
+	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
+
+	result_offset = req->sess_meta->iv_len;
+
+	/* OFFSET_CTRL_WORD len needs to be adjusted here */
+	result_len = rte_pktmbuf_pkt_len(mbuf) -
+		     (ROC_SE_OFF_CTRL_LEN + sizeof(struct __dao_lc_resp_sym) + result_offset);
+
+	dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out, result_len);
+}
+
+static inline uint16_t
+dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
+{
+	struct dao_lc_buf *tmp = src;
+	uint16_t to_copy, copied = 0;
+
+	do {
+		to_copy = RTE_MIN(tmp->seg_len, len - copied);
+
+		memcpy(dst + copied, tmp->data, to_copy);
+		copied += to_copy;
+		tmp = tmp->next;
+	} while (tmp && copied < len);
+
+	return copied;
+}
+
+uint16_t
+dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_sym_op *ops,
+				    uint16_t nb_ops)
+{
+	struct rte_mbuf *mbufs[LIQUID_CRYPTO_MAX_BURST];
+	uint32_t req_idxs[LIQUID_CRYPTO_MAX_BURST];
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	uint32_t dlen, req_idx;
+	uint16_t i, buf_len;
+	uint16_t tx_cnt = 0;
+	int rc = 0;
+
+	dev = &liquid_crypto_devs[dev_id];
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		rc = -EINVAL;
+		goto exit;
+	}
+#endif
+
+	qp = dev->qp[qp_id];
+
+	nb_ops = RTE_MIN(nb_ops, LIQUID_CRYPTO_MAX_BURST);
+
+	for (i = 0; i < nb_ops; i++) {
+		req_idxs[i] = liquid_crypto_qp_req_idx_get(qp);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (unlikely(req_idxs[i] == UINT32_MAX)) {
+			dao_err("No available request index.");
+			rc = -ENOSPC;
+			goto put_req_idx;
+		}
+#endif
+	}
+
+	rc = rte_pktmbuf_alloc_bulk(qp->tx_mp, mbufs, nb_ops);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(rc != 0)) {
+		dao_err("Could not allocate mbufs.");
+		rc = -ENOMEM;
+		goto put_req_idx;
+	}
+#endif
+
+	for (i = 0; i < nb_ops; i++) {
+		struct dao_lc_sym_sess_meta *sess_meta;
+		uint32_t cipher_offset, auth_offset;
+		const uint32_t iv_offset = 0;
+		struct __dao_lc_req_sym *req;
+		struct dao_lc_sym_op *op;
+		uint64_t *offset_vaddr;
+		union cpt_inst_w4 w4;
+		uint8_t iv_len;
+		uint8_t *dptr;
+
+		op = &ops[i];
+		req_idx = req_idxs[i];
+		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
+		qp->req_queue[req_idx].op_cookie = op->op_cookie;
+		qp->req_queue[req_idx].sess_meta = sess_meta;
+
+		if (op->out_buffer != NULL)
+			qp->req_queue[req_idx].data_out = op->out_buffer;
+		else
+			qp->req_queue[req_idx].data_out = op->in_buffer;
+
+		iv_len = sess_meta->iv_len;
+		dlen = op->in_buffer->total_len;
+		buf_len = sizeof(struct __dao_lc_req_sym) + ROC_SE_OFF_CTRL_LEN + iv_len + dlen;
+		buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (buf_len > rte_pktmbuf_tailroom(mbufs[i])) {
+			dao_err("Input data doesn't fit in single segment!");
+			rc = -ENOMEM;
+			goto transmit;
+		}
+#endif
+		/* Input length starting from memory pointed by DPTR */
+		dlen += ROC_SE_OFF_CTRL_LEN + iv_len;
+
+		/* Append transport header to mbuf */
+		req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbufs[i], buf_len);
+		req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
+		req->hdr.trs_hdr.op_len = buf_len;
+		req->hdr.req_idx = req_idx;
+
+		/* Add instruction */
+		w4.u64 = 0;
+		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
+
+		if (op->encrypt)
+			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_ENCRYPT;
+		else
+			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_DECRYPT;
+
+		w4.s.param1 = op->cipher_len;
+		w4.s.param2 = op->auth_len;
+		w4.s.dlen = dlen;
+		req->w4 = w4.u64;
+		req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
+
+		/* Add data */
+		dptr = req->dptr;
+
+		cipher_offset = iv_offset + iv_len + op->cipher_offset;
+		auth_offset = iv_offset + iv_len + op->auth_offset;
+
+		offset_vaddr = (uint64_t *)dptr;
+
+		/*TODO: For some algorithms, IV length can be specified as part of OFFSET_CTRL_WORD
+		 * Bits 36:32*/
+		*(uint64_t *)offset_vaddr =
+			rte_cpu_to_be_64(((uint64_t)cipher_offset << 16) |
+					 ((uint64_t)iv_offset << 8) | ((uint64_t)auth_offset));
+
+		dptr += ROC_SE_OFF_CTRL_LEN;
+
+		/* Copy IV */
+		memcpy(dptr + iv_offset, op->cipher_iv, iv_len);
+
+		dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + iv_len, dlen);
+	}
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+transmit:
+#endif
+	tx_cnt = rte_eth_tx_burst(qp->port_id, qp->queue_id, mbufs, i);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	/* Free mbufs that are not transmitted. */
+	if (tx_cnt != i) {
+		dao_err("Could not transmit all packets.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+
+	/* Free remaining mbufs if not all instructions are submitted. */
+	if (nb_ops != i)
+		goto mbuf_free;
+#endif
+
+	return tx_cnt;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free_bulk(mbufs + tx_cnt, nb_ops - tx_cnt);
+	for (i = tx_cnt; i < nb_ops; i++)
+		mbufs[i] = NULL;
+
+put_req_idx:
+	for (i = tx_cnt; i < nb_ops; i++)
+		liquid_crypto_qp_req_idx_put(qp, req_idxs[i]);
+
+	return tx_cnt;
+
+exit:
+	dao_err("Could not transmit any packets. rc = %d", rc);
+	return 0;
+#endif
+	RTE_SET_USED(rc);
+}
+
 uint16_t
 dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 				uint16_t nb_res)
@@ -1270,7 +1490,9 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_START:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
+			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
+			dao_lc_post_process_sym(req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			dao_lc_post_process_asym(req, &res[i], mbuf);
@@ -1296,6 +1518,7 @@ int
 dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *ctx,
 				  uint64_t op_cookie)
 {
+	struct dao_lc_sym_sess_meta *sess_meta;
 	struct __dao_lc_req_sess_create *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
@@ -1324,14 +1547,22 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 	if (rc != 0)
 		return rc;
 
+	sess_meta = liquid_crypto_sym_sess_meta_alloc(ctx);
+	if (sess_meta == NULL) {
+		dao_err("Could not allocate session metadata.");
+		return -ENOMEM;
+	}
+
 	req_idx = liquid_crypto_qp_req_idx_get(qp);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 		dao_err("No available request index.");
-		return -ENOSPC;
+		rc = -ENOSPC;
+		goto sess_meta_free;
 	}
 
 	qp->req_queue[req_idx].op_cookie = op_cookie;
+	qp->req_queue[req_idx].sess_meta = sess_meta;
 
 	mb = rte_pktmbuf_alloc(qp->tx_mp);
 	if (unlikely(mb == NULL)) {
@@ -1365,6 +1596,9 @@ mbuf_free:
 	rte_pktmbuf_free(mb);
 idx_put:
 	liquid_crypto_qp_req_idx_put(qp, req_idx);
+sess_meta_free:
+	liquid_crypto_sym_sess_meta_free(sess_meta);
+
 	return rc;
 }
 
@@ -1418,7 +1652,7 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY;
 	req->hdr.trs_hdr.op_len = sizeof(struct __dao_lc_req_resp_sess_destroy);
 	req->hdr.req_idx = req_idx;
-	req->sess_id = sess_id;
+	req->sess_id = DAO_LC_SYM_META_GET_PTR(sess_id)->w7;
 
 	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mb, 1);
 
@@ -1486,15 +1720,17 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
 			sess_create = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sess_create *);
 			events[i].event_type = DAO_LC_CMD_EVENT_SESS_CREATE;
-			events[i].sess_event.sess_id = sess_create->sess_id;
+			events[i].sess_event.sess_id = (uint64_t)req->sess_meta;
 			events[i].sess_event.sess_cookie = req->op_cookie;
+			liquid_crypto_sym_sess_meta_insert(req->sess_meta, sess_create->sess_id);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY:
 			sess_destroy =
 				rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_resp_sess_destroy *);
 			events[i].event_type = DAO_LC_CMD_EVENT_SESS_DESTROY;
-			events[i].sess_event.sess_id = sess_destroy->sess_id;
 			events[i].sess_event.sess_cookie = req->op_cookie;
+			liquid_crypto_sym_sess_meta_remove(sess_destroy->sess_id,
+							   &events[i].sess_event.sess_id);
 			break;
 		default:
 			dao_err("Invalid op_type.");

@@ -56,6 +56,10 @@ struct liquid_crypto_inflight_req {
 	uint64_t op_cookie;
 	/** Output buffer given for a crypto operation. */
 	void *data_out;
+	union {
+		/** Pointer to metadata for the symmetric session creation request */
+		struct dao_lc_sym_sess_meta *sess_meta;
+	};
 };
 
 static inline uint32_t

@@ -5,10 +5,76 @@
 #include <errno.h>
 #include <stddef.h>
 
+#include <rte_malloc.h>
+
 #include <dao_liquid_crypto.h>
 #include <dao_log.h>
 
 #include "liquid_crypto_sym.h"
+
+static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
+	sym_sess_list_head = TAILQ_HEAD_INITIALIZER(sym_sess_list_head);
+
+struct dao_lc_sym_sess_meta *
+liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
+{
+	struct dao_lc_sym_sess_meta *sess_meta;
+	uint16_t iv_len = 0;
+
+	sess_meta =
+		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
+	if (sess_meta == NULL)
+		dao_err("Could not allocate memory for session metadata.");
+
+	if (ctx->opcode == DAO_LC_SYM_OPCODE_FC) {
+		switch (ctx->fc.enc_cipher) {
+		case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+			iv_len = 16;
+			break;
+		default:
+			dao_err("Unsupported encryption cipher.");
+			rte_free(sess_meta);
+			return NULL;
+		}
+		sess_meta->iv_len = iv_len;
+	} else {
+		dao_err("Unsupported opcode.");
+		rte_free(sess_meta);
+		return NULL;
+	}
+
+	return sess_meta;
+}
+
+void
+liquid_crypto_sym_sess_meta_insert(struct dao_lc_sym_sess_meta *sess_meta, uint64_t sess_id)
+{
+	sess_meta->w7 = sess_id;
+	TAILQ_INSERT_TAIL(&sym_sess_list_head, sess_meta, next);
+}
+
+int
+liquid_crypto_sym_sess_meta_remove(uint64_t sess_id, uint64_t *sess_opaque)
+{
+	struct dao_lc_sym_sess_meta *sess_meta;
+
+	TAILQ_FOREACH(sess_meta, &sym_sess_list_head, next) {
+		if (sess_meta->w7 == sess_id) {
+			*sess_opaque = (uint64_t)sess_meta;
+			TAILQ_REMOVE(&sym_sess_list_head, sess_meta, next);
+			rte_free(sess_meta);
+			return 0;
+		}
+	}
+
+	return -ENOENT;
+}
+
+void
+liquid_crypto_sym_sess_meta_free(struct dao_lc_sym_sess_meta *sess_meta)
+{
+	rte_free(sess_meta);
+}
 
 static int
 sym_sess_fc_aes_key_len_verify(const struct dao_lc_sym_fc_ctx *fc_ctx)
