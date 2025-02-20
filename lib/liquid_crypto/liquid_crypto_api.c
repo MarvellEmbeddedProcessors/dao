@@ -609,6 +609,10 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
+
+	rc = cpt_ae_rsa_msg_len_check(mod_len, msg_len);
+	if (rc != 0)
+		return rc;
 #endif
 
 	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
