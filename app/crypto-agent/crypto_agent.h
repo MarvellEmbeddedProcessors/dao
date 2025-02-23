@@ -25,6 +25,7 @@
 #define CA_ETH_RETA_SIZE      64
 #define CA_MAX_QUEUE_PER_CORE 64
 #define CA_MAX_LCORE          24
+#define CA_MAX_PAYLOAD_SIZE   5120
 
 /* Log type */
 #define RTE_LOGTYPE_AGENT        RTE_LOGTYPE_USER1

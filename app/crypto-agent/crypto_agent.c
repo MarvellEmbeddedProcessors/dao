@@ -497,7 +497,7 @@ main(int argc, char **argv)
 	for (i = 0; i < dev_config.eth.nb_devs; i++)
 		dev_config.eth.nb_queue[i] = CA_MAX_ETH_QUEUE;
 
-	dev_config.max_payload_size = 2048;
+	dev_config.max_payload_size = CA_MAX_PAYLOAD_SIZE;
 
 	rc = mempool_init(&dev_config);
 	if (rc) {
