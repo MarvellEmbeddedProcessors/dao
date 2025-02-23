@@ -90,6 +90,48 @@ test_rsa_verify(const void *data)
 }
 
 static int
+test_rsa_invalid_verify(const void *data)
+{
+	uint8_t invalid_sign[TEST_LC_MAX_OUTPUT_LEN];
+	const struct test_rsa_params *params = data;
+	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
+	uint64_t op_cookie = (uint64_t)params;
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(message, 0, sizeof(message));
+
+	memcpy(invalid_sign, params->sign.data, params->sign.len);
+	invalid_sign[params->sign.len / 2] ^= 0x01;
+
+	/* RSA VERIFY */
+	ret = dao_crypto_enqueue_op_pkcs1v15dec(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
+						params->n.len, params->e.len, params->n.data,
+						params->e.data, invalid_sign, message, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA verify operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA verify operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_PKCS_DEC_INCORRECT,
+		    "RSA operation failed");
+	TEST_ASSERT(res.rsa.data_out_len == 0, "Invalid result length");
+
+	return TEST_SUCCESS;
+}
+
+static int
 test_rsa_enc_pub_exp(const void *data)
 {
 	const struct test_rsa_params *params = data;
@@ -185,6 +227,48 @@ test_rsa_dec_prv_crt(const void *data)
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(message, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_dec_invalid_prv_crt(const void *data)
+{
+	uint8_t invalid_cipher[TEST_LC_MAX_OUTPUT_LEN];
+	const struct test_rsa_params *params = data;
+	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
+	uint64_t op_cookie = (uint64_t)params;
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(message, 0, sizeof(message));
+
+	memcpy(invalid_cipher, params->cipher.data, params->cipher.len);
+	invalid_cipher[params->cipher.len / 2] ^= 0x01;
+
+	/* RSA DECRYPT */
+	ret = dao_crypto_enqueue_op_pkcs1v15dec_crt(
+		dev_id, qp_id, params->n.len, params->q.data, params->dQ.data, params->p.data,
+		params->dP.data, params->qInv.data, invalid_cipher, message, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA decrypt operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_PKCS_DEC_INCORRECT,
+		    "RSA operation failed");
+	TEST_ASSERT(res.rsa.data_out_len == 0, "Invalid result length");
 
 	return TEST_SUCCESS;
 }
@@ -298,10 +382,14 @@ struct unit_test_suite lc_testsuite_asym = {
 					  &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Verify", ut_setup, ut_teardown, test_rsa_verify,
 					  &rsa_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Verify Invalid Sign", ut_setup, ut_teardown,
+					  test_rsa_invalid_verify, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Public Encrypt", ut_setup, ut_teardown,
 					  test_rsa_enc_pub_exp, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt (CRT type)", ut_setup, ut_teardown,
 					  test_rsa_dec_prv_crt, &rsa_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt Invalid Cipher", ut_setup,
+					  ut_teardown, test_rsa_dec_invalid_prv_crt, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Private Encrypt (Exponent type)", ut_setup,
 					  ut_teardown, test_rsa_enc_prv_exp, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt (Exponent type)", ut_setup,
