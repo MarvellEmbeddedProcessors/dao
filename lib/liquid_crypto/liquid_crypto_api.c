@@ -606,6 +606,26 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
+	if (mod == NULL) {
+		dao_err("Invalid argument. mod cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (exp == NULL) {
+		dao_err("Invalid argument. exp cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
+		return -EINVAL;
+	}
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
@@ -705,6 +725,26 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
+	if (mod == NULL) {
+		dao_err("Invalid argument. mod cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (exp == NULL) {
+		dao_err("Invalid argument. exp cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
+		return -EINVAL;
+	}
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
@@ -798,6 +838,16 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
 		return -EINVAL;
 	}
 
@@ -897,6 +947,16 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
 		return -EINVAL;
 	}
 #endif
@@ -1007,6 +1067,11 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (res == NULL) {
+		dao_err("Invalid argument. res cannot be NULL.");
 		return -EINVAL;
 	}
 #endif
