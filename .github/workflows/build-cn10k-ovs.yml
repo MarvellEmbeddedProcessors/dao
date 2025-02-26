@@ -80,24 +80,24 @@ jobs:
                 patch -p1 < "$patch"
             done
             ./boot.sh
-            ./configure --prefix="${PWD}/install/usr/local" --localstatedir=${PWD}/install/usr/local/var --sysconfdir=${PWD}/install/usr/local/etc --with-dpdk=static CFLAGS="-DALLOW_EXPERIMENTAL_API  -mcpu=neoverse-n2+crypto+sve2"
-            make -j4 install
-            mkdir -p "${PWD}/install/debian"
-            mkdir -p "${PWD}/install/DEBIAN"
+            sudo ./configure --prefix="${PWD}/install/usr/local" --localstatedir=/usr/local/var --sysconfdir=/usr/local/etc --with-dpdk=static CFLAGS="-DALLOW_EXPERIMENTAL_API  -mcpu=neoverse-n2+crypto+sve2"
+            sudo make -j4 install
+            sudo mkdir -p "${PWD}/install/debian"
+            sudo mkdir -p "${PWD}/install/DEBIAN"
             cd "${PWD}/install"
-            echo 'Source: Open vSwitch' > debian/control
-            echo 'Package: ovs-'$OVS_VERSION'-cn10k'$PKG_POSTFIX >> DEBIAN/control
-            echo 'Version: '$PKG_VERSION_NAME >> DEBIAN/control
-            echo "Depends: `dpkg-shlibdeps -O usr/local/sbin/ovs-vswitchd | awk -F'Depends=' '{print $2}'`, dpdk-"$DPDK_BASE_PKG_VERSION"-cn10k (= "$DPDK_PKG_VERSION")" >> DEBIAN/control
-            echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
-            echo "Architecture: arm64" >> DEBIAN/control
-            echo "Homepage: https://www.openvswitch.org/" >> DEBIAN/control
-            echo "Description: Open vSwitch (OVS) for Marvell Octeon 10" >> DEBIAN/control
-            rm -rf debian
+            echo 'Source: Open vSwitch' | sudo tee debian/control
+            echo 'Package: ovs-'$OVS_VERSION'-cn10k'$PKG_POSTFIX | sudo tee -a DEBIAN/control
+            echo 'Version: '$PKG_VERSION_NAME | sudo tee -a DEBIAN/control
+            echo "Depends: `dpkg-shlibdeps -O usr/local/sbin/ovs-vswitchd | awk -F'Depends=' '{print $2}'`, dpdk-"$DPDK_BASE_PKG_VERSION"-cn10k (= "$DPDK_PKG_VERSION")" | sudo tee -a DEBIAN/control
+            echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" | sudo tee -a DEBIAN/control
+            echo "Architecture: arm64" | sudo tee -a DEBIAN/control
+            echo "Homepage: https://www.openvswitch.org/" | sudo tee -a DEBIAN/control
+            echo "Description: Open vSwitch (OVS) for Marvell Octeon 10" | sudo tee -a DEBIAN/control
+            sudo rm -rf debian
             cd -
-            mv "${PWD}/install" "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
-            dpkg --build "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
-            cp "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
+            sudo mv "${PWD}/install" "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            sudo dpkg --build "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            sudo cp "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
       - name: Export version name
         id: artifacts
         run: |
