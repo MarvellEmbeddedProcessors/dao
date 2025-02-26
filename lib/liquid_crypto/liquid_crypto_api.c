@@ -302,8 +302,6 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto req_queue_free;
 	}
 
-	dev->qp[qp_id] = qp;
-
 	bm_mem_size = rte_bitmap_get_memory_footprint(nb_desc);
 	if (bm_mem_size == 0) {
 		dao_err("Could not get memory footprint for bitmap.");
@@ -322,6 +320,8 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		dao_err("Could not initialize bitmap.");
 		goto bm_mem_free;
 	}
+
+	dev->qp[qp_id] = qp;
 
 	return 0;
 
@@ -369,11 +369,32 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 int
 dao_liquid_crypto_dev_start(uint8_t dev_id)
 {
-	int rc;
+	struct liquid_crypto_dev *dev;
+	int rc, i;
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
 		return -EINVAL;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	if (!dev->is_created) {
+		dao_err("Invalid device. Device(%d) not created.", dev_id);
+		return -EINVAL;
+	}
+
+	if (dev->is_started) {
+		dao_err("Device already started.");
+		return -EEXIST;
+	}
+
+	/* Start device only if all queues are configured. */
+	for (i = 0; i < dev->nb_qp; i++) {
+		if (dev->qp[i] == NULL) {
+			dao_err("Invalid device. Queue pair(%d, %d) not configured.", dev_id, i);
+			return -EINVAL;
+		}
 	}
 
 	rc = dao_eth_trs_dev_start(dev_id);
@@ -382,16 +403,31 @@ dao_liquid_crypto_dev_start(uint8_t dev_id)
 		return rc;
 	}
 
+	dev->is_started = true;
+
 	return 0;
 }
 
 int
 dao_liquid_crypto_dev_stop(uint8_t dev_id)
 {
+	struct liquid_crypto_dev *dev;
 	int rc;
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	if (!dev->is_created) {
+		dao_err("Invalid device. Device(%d) not created.", dev_id);
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
 	}
 
@@ -400,6 +436,8 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 		dao_err("Could not stop ethernet transport device.");
 		return rc;
 	}
+
+	dev->is_started = false;
 
 	return 0;
 }
@@ -426,8 +464,8 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (qp == NULL) {
-		dao_err("Invalid queue pair. Queue pair(%d, %d) not configured.", dev_id, qp_id);
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
 	}
 #endif
@@ -563,6 +601,11 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
@@ -653,6 +696,11 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
@@ -744,6 +792,11 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
@@ -848,6 +901,11 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
 	if (rc != 0)
 		return rc;
@@ -951,6 +1009,13 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+#endif
 
 	nb_res = RTE_MIN(nb_res, LIQUID_CRYPTO_MAX_BURST);
 	nb_rx = rte_eth_rx_burst(qp->port_id, qp->queue_id, mbufs, nb_res);

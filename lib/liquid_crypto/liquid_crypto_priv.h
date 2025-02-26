@@ -23,6 +23,8 @@
 struct liquid_crypto_dev {
 	/** Is created */
 	bool is_created;
+	/** Is started */
+	bool is_started;
 	/** Number of queue pairs */
 	uint16_t nb_qp;
 	/** Queue pair pointers */
