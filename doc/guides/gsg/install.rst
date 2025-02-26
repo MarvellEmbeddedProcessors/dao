@@ -59,7 +59,7 @@ Ubuntu 24.04
 
  # mkdir ubuntu_base
  # cd ubuntu_base
- # wget https://cdimage.ubuntu.com/ubuntu-base/releases/noble/release/ubuntu-base-24.04.1-base-arm64.tar.gz
+ # wget https://cdimage.ubuntu.com/ubuntu-base/releases/noble/release/ubuntu-base-24.04.2-base-arm64.tar.gz
  # sudo tar xvfp ubuntu-base-24.04.1-base-arm64.tar.gz
 
 Setting up the ubuntu environment
