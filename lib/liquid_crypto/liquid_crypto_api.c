@@ -203,6 +203,11 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
 	memset(&trs_queue_conf, 0, sizeof(trs_queue_conf));
 
 	rc = dao_eth_trs_info(&trs_info);
@@ -366,6 +371,11 @@ dao_liquid_crypto_dev_start(uint8_t dev_id)
 {
 	int rc;
 
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
 	rc = dao_eth_trs_dev_start(dev_id);
 	if (rc != 0) {
 		dao_err("Could not start ethernet transport device.");
@@ -379,6 +389,11 @@ int
 dao_liquid_crypto_dev_stop(uint8_t dev_id)
 {
 	int rc;
+
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
 
 	rc = dao_eth_trs_dev_stop(dev_id);
 	if (rc != 0) {
@@ -399,6 +414,13 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	uint32_t req_idx = 0;
 	uint16_t buf_len;
 	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
 
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
@@ -530,6 +552,13 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	uint8_t *dptr;
 	int rc;
 
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
 
@@ -612,6 +641,13 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	uint16_t buf_len;
 	uint8_t *dptr;
 	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
 
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
@@ -696,6 +732,13 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	uint16_t buf_len;
 	uint8_t *dptr;
 	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
 
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
@@ -794,6 +837,13 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	uint8_t *dptr;
 	int rc;
 
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
 
@@ -891,6 +941,13 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 	struct liquid_crypto_qp *qp;
 	struct __dao_lc_hdr *lc_hdr;
 	uint16_t nb_rx, i;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
 
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
