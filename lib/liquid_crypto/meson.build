@@ -10,3 +10,7 @@ headers = files(
 )
 
 deps += ['common', 'eth_transport']
+
+if get_option('buildtype').contains('debug')
+	cflags += [ '-DDAO_LIQUID_CRYPTO_DEBUG=1' ]
+endif
