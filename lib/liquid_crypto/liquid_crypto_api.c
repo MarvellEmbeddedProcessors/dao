@@ -524,6 +524,11 @@ mbuf_free:
 static inline int
 cpt_ae_rsa_mod_len_check(uint16_t mod_len)
 {
+	if (mod_len == 0) {
+		dao_err("Invalid modulus length. mod_len cannot be zero.");
+		return -EINVAL;
+	}
+
 	if (mod_len % 2 != 0) {
 		dao_err("Invalid modulus length. mod_len must be even.");
 		return -EINVAL;
@@ -541,9 +546,30 @@ cpt_ae_rsa_mod_len_check(uint16_t mod_len)
 static inline int
 cpt_ae_rsa_msg_len_check(uint16_t mod_len, uint16_t msg_len)
 {
+	if (msg_len == 0) {
+		dao_err("Invalid message length. msg_len cannot be zero.");
+		return -EINVAL;
+	}
+
 	if (msg_len > mod_len - LIQUID_CRYPTO_RSA_MSG_LEN_PADDING) {
 		dao_err("Invalid message length. msg_len should be at most %u bytes.",
 			mod_len - LIQUID_CRYPTO_RSA_MSG_LEN_PADDING);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline int
+cpt_ae_rsa_exp_len_check(uint16_t mod_len, uint16_t exp_len)
+{
+	if (exp_len == 0) {
+		dao_err("Invalid message length. exp_len cannot be zero.");
+		return -EINVAL;
+	}
+
+	if (exp_len > mod_len) {
+		dao_err("Invalid message length. exp_len should be at most %u bytes.", mod_len);
 		return -EINVAL;
 	}
 
@@ -627,6 +653,10 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	}
 
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_exp_len_check(mod_len, exp_len);
 	if (rc != 0)
 		return rc;
 
@@ -746,6 +776,10 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	}
 
 	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_exp_len_check(mod_len, exp_len);
 	if (rc != 0)
 		return rc;
 #endif
