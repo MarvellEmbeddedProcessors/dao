@@ -470,21 +470,21 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	}
 #endif
 
-	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
-	if (unlikely(mbuf == NULL)) {
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Could not allocate mbuf.");
-#endif
-		return -ENOMEM;
-	}
-
 	req_idx = liquid_crypto_qp_req_idx_get(qp);
 
+	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (req_idx == UINT32_MAX) {
 		dao_err("No available request index.");
-		rc = -ENOSPC;
-		goto mbuf_free;
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
 	}
 #endif
 
@@ -505,17 +505,17 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	if (rc != 1) {
 		dao_err("Failed to transmit packet.");
 		rc = -EIO;
-		goto bm_put;
+		goto mbuf_free;
 	}
 #endif
 
 	return 0;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-bm_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
 #endif
 	return rc;
 }
@@ -665,15 +665,23 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 		return rc;
 #endif
 
-	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
-	if (unlikely(mbuf == NULL)) {
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Could not allocate mbuf.");
+		dao_err("No available request index.");
 #endif
-		return -ENOMEM;
+		return -ENOSPC;
 	}
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
 
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = em;
@@ -717,6 +725,8 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -784,15 +794,23 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 		return rc;
 #endif
 
-	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
-	if (unlikely(mbuf == NULL)) {
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Could not allocate mbuf.");
+		dao_err("No available request index.");
 #endif
-		return -ENOMEM;
+		return -ENOSPC;
 	}
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
 
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = msg;
@@ -836,6 +854,8 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -898,15 +918,23 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 		return rc;
 #endif
 
-	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
-	if (unlikely(mbuf == NULL)) {
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Could not allocate mbuf.");
+		dao_err("No available request index.");
 #endif
-		return -ENOMEM;
+		return -ENOSPC;
 	}
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
 
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = em;
@@ -956,6 +984,8 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -1013,15 +1043,24 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 		return rc;
 #endif
 
-	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
-	if (unlikely(mbuf == NULL)) {
+	req_idx = liquid_crypto_qp_req_idx_get(qp);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Could not allocate mbuf.");
+		dao_err("No available request index.");
 #endif
-		return -ENOMEM;
+		return -ENOSPC;
 	}
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = msg;
 
@@ -1070,6 +1109,8 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
