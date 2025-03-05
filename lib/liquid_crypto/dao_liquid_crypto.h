@@ -18,6 +18,8 @@
 #define DAO_CRYPTO_VERSION_LEN 32
 /** The maximum number of devices supported by the liquid crypto library. */
 #define DAO_CRYPTO_MAX_NB_DEV 1
+/** Use DAO_CMD_QP_IDX_INVALID as cmd_qp_idx value to disable command queue altogether. */
+#define DAO_CMD_QP_IDX_INVALID 0xFFFF
 
 /**
  * CPT hardware completion codes.
@@ -129,6 +131,12 @@ struct dao_lc_dev_conf {
 	uint8_t dev_id;
 	/** The number of queue pairs. */
 	uint16_t nb_qp;
+	/**
+	 * Index of command queue pair.
+	 * The application can disable the command queue by setting the cmd_qp_idx value
+	 * to DAO_CMD_QP_IDX_INVALID.
+	 */
+	uint16_t cmd_qp_idx;
 };
 
 /**

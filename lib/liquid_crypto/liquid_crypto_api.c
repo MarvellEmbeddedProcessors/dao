@@ -111,8 +111,8 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 {
 	struct dao_eth_trs_dev_config trs_conf;
 	struct liquid_crypto_dev *dev;
+	uint16_t nb_qp, cmd_qp_idx;
 	uint8_t dev_id;
-	uint16_t nb_qp;
 	int rc;
 
 	if (conf == NULL) {
@@ -120,6 +120,7 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 		return -EINVAL;
 	}
 
+	cmd_qp_idx = conf->cmd_qp_idx;
 	dev_id = conf->dev_id;
 	nb_qp = conf->nb_qp;
 
@@ -133,6 +134,11 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 		return -EINVAL;
 	}
 
+	if (cmd_qp_idx != DAO_CMD_QP_IDX_INVALID && cmd_qp_idx >= nb_qp) {
+		dao_err("Invalid argument. cmd_qp_idx must be between 0 and %u.", nb_qp - 1);
+		return -EINVAL;
+	}
+
 	dev = &liquid_crypto_devs[dev_id];
 
 	if (dev->is_created) {
@@ -141,6 +147,7 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 	}
 
 	dev->nb_qp = nb_qp;
+	dev->cmd_qp_idx = cmd_qp_idx;
 
 	trs_conf.nb_queues = nb_qp;
 	trs_conf.promiscuous = 1;
@@ -464,6 +471,11 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
@@ -662,6 +674,11 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
@@ -803,6 +820,11 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
@@ -941,6 +963,11 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
@@ -1082,6 +1109,11 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
@@ -1210,6 +1242,11 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;

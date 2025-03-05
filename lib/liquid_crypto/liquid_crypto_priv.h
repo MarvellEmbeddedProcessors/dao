@@ -27,6 +27,8 @@ struct liquid_crypto_dev {
 	bool is_started;
 	/** Number of queue pairs */
 	uint16_t nb_qp;
+	/** Index of command queue pair */
+	uint16_t cmd_qp_idx;
 	/** Queue pair pointers */
 	void *qp[LIQUID_CRYPTO_MAX_NB_QP];
 } __rte_cache_aligned;
