@@ -8,7 +8,7 @@ sphinx = find_program(
 
 if not sphinx.found()
 	sphinx = find_program(
-		'sphinx-build-3',
+		'sphinx-build',
 		required: false
 	)
 endif
