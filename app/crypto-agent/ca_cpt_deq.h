@@ -75,6 +75,19 @@ rlen_set:
 	mb->data_len = pkt_len;
 }
 
+static inline void
+ca_cpt_post_process_sym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
+{
+	struct __dao_lc_resp_sym *resp;
+	struct rte_mbuf *mb;
+
+	mb = infl_req->mbuf;
+	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_sym *);
+
+	/* Host to trim the packet start to get the final result of crypto operation */
+	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+}
+
 static inline uint16_t
 ca_cpt_deq(struct pending_queue *pq)
 {
@@ -120,6 +133,9 @@ ca_cpt_deq(struct pending_queue *pq)
 		switch (req->hdr.op_type) {
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			ca_cpt_post_process_asym(infl_req, &res);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
+			ca_cpt_post_process_sym(infl_req, &res);
 			break;
 		default:
 			break;
