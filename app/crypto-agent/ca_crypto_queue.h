@@ -14,7 +14,7 @@
 
 #include "hw/cpt.h"
 
-#define CA_CPT_MIN_QUEUE_DEPTH 1024
+#define CA_CPT_MIN_QUEUE_DEPTH 2048
 
 struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 {

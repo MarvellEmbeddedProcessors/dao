@@ -78,8 +78,8 @@ ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_me
 	int ret;
 
 	/* TODO - determine proper values */
-	nb_rxd = 1024;
-	nb_txd = 1024;
+	nb_rxd = 8192;
+	nb_txd = 8192;
 
 	buf_sz = dev_config->max_payload_size;
 

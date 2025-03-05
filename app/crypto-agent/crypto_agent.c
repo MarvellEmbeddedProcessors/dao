@@ -491,7 +491,7 @@ main(int argc, char **argv)
 
 	/* Wait for command to enable crypto & eth? */
 
-	dev_config.crypto.nb_desc = 1024;
+	dev_config.crypto.nb_desc = CA_CPT_MIN_QUEUE_DEPTH;
 	dev_config.eth.nb_devs = ca_glb_ctx.nb_valid_ethdevs;
 
 	for (i = 0; i < dev_config.eth.nb_devs; i++)
