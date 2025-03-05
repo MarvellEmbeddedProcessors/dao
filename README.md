@@ -102,17 +102,17 @@ Running NGINX DAO application
 | **AI/ML** | AI/ML Toolkit | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Inferencing application - Resnet50 Image classification | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | Inferencing application - DDoS detection | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+| **IPsec** | Strongswan integrated IPsec offload | ![](https://img.shields.io/static/v1?label=&message=Experimental&color=blue) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/applications/secgw-graph.html#running-as-ipsec-gateway) |
 | **Cloud Solutions** | Cilium CNI | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
 |  | Calico | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
-| **Libraries** | Netlink Helper library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/prog_guide/netlink_lib.html) |
-|  | IPsec | ![](https://img.shields.io/static/v1?label=&message=Experimental&color=blue) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/applications/secgw-graph.html#running-as-ipsec-gateway) |
-|  | SmartNIC App | ![](https://img.shields.io/static/v1?label=&message=Experimental&color=blue) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/applications/smart-nic.html) |
-|  | Connection Tracking Library | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
-|  | Flow library | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/prog_guide/flow.html) |
-|  | Key Extraction Library | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+| **Generic Libraries** | Connection Tracking | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
+|  | Flow | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/prog_guide/flow.html) |
+|  | Key Extraction | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+|  | Netlink Helper Library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/prog_guide/netlink_lib.html) |
 |  | Packet Transformation | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
-|  | TLS offload | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
-|  | Protocol Parser Library | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
-|  | SNORT Integration | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+|  | Protocol Parser | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+| **Other Applications** | Compression | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | NAT | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
-|  | Compression App | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+|  | SmartNIC | ![](https://img.shields.io/static/v1?label=&message=Experimental&color=blue) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/applications/smart-nic.html) |
+|  | SNORT Integration | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
+|  | TLS offload | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
