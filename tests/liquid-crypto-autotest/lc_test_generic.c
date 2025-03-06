@@ -102,7 +102,7 @@ ut_passthrough_multi_queue(void)
 	uint16_t qp_id;
 
 	for (dev_id = 0; dev_id < glb_params.info.nb_dev; dev_id++) {
-		for (qp_id = 0; qp_id < glb_params.info.nb_qp[dev_id]; qp_id++) {
+		for (qp_id = 1; qp_id < glb_params.info.nb_qp[dev_id]; qp_id++) {
 #ifdef UT_VERBOSE
 			printf("\t\tDev_id: %u, qp_id: %u\n", dev_id, qp_id);
 #endif

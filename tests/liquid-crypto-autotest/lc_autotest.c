@@ -84,7 +84,7 @@ main(int argc, char **argv)
 	}
 
 	glb_params.dev_id = i;
-	glb_params.qp_id = 0;
+	glb_params.qp_id = 1;
 
 	TEST_LC_INFO("Liquid crypto version: %s", info->version);
 	TEST_LC_INFO("Number of liquid crypto devices: %u", info->nb_dev);
