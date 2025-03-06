@@ -548,7 +548,8 @@ struct dao_lc_sym_ctx {
  *
  * @return
  * - On success, 0 is returned.
- * - On failure, a negative value is returned indicating the cause
+ * - On failure, a negative value is returned indicating the cause.
+ *   -EINVAL, indicating an invalid argument.
  */
 int dao_liquid_crypto_init(void);
 
@@ -560,6 +561,7 @@ int dao_liquid_crypto_init(void);
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
+ *   -EINVAL, indicating an invalid argument.
  */
 int dao_liquid_crypto_fini(void);
 
@@ -588,6 +590,7 @@ int dao_liquid_crypto_info_get(struct dao_lc_info *info);
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
+ *   -EINVAL, indicating an invalid argument.
  */
 int dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf);
 
@@ -603,6 +606,8 @@ int dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf);
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
+ *   -EINVAL, indicating an invalid argument.
+ *   -EEXIST, indicating that the file exists.
  */
 int dao_liquid_crypto_dev_destroy(uint8_t dev_id);
 
@@ -623,6 +628,7 @@ int dao_liquid_crypto_dev_destroy(uint8_t dev_id);
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
+ *   -EINVAL, indicating an invalid argument.
  */
 int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_conf *conf);
 
@@ -637,6 +643,8 @@ int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
+ *   -EINVAL, indicating an invalid argument.
+ *   -EEXIST, indicating that the file exists.
  */
 int dao_liquid_crypto_dev_start(uint8_t dev_id);
 
@@ -650,6 +658,7 @@ int dao_liquid_crypto_dev_start(uint8_t dev_id);
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
+ *   -EINVAL, indicating an invalid argument.
  */
 int dao_liquid_crypto_dev_stop(uint8_t dev_id);
 
@@ -677,6 +686,13 @@ uint16_t dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params);
  * @param op_cookie
  * The cookie to be associated with the operation. This cookie is returned
  * in the *dao_lc_res* structure when the operation is dequeued.
+ *
+ * @return
+ * 0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -EIO, indicating an I/O error.
+ *
  */
 int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie);
 
@@ -709,6 +725,9 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  *
  * @return
  *  0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -ENOSPC, indicating that there is no space left on the device.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 					 enum dao_liquid_crypto_rsa_key_type key_type,
@@ -744,6 +763,9 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
  *
  * @return
  *  0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -ENOSPC, indicating that there is no space left on the device.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 					 enum dao_liquid_crypto_rsa_key_type key_type,
@@ -788,6 +810,9 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  *
  * @return
  *  0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -ENOSPC, indicating that there is no space left on the device.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
 					     uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
@@ -829,6 +854,9 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uin
  *
  * @return
  *  0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -ENOSPC, indicating that there is no space left on the device.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
 					     uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
@@ -870,6 +898,7 @@ uint16_t dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
  *
  * @return
  * The number of operations dequeued.
+ *   -EINVAL, indicating an invalid argument.
  */
 uint16_t dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 					 uint16_t nb_ops);
