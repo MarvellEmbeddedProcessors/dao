@@ -7,6 +7,7 @@
 #include <dao_liquid_crypto.h>
 
 #include <rte_cycles.h>
+#include <rte_random.h>
 
 #include "lc_autotest.h"
 #include "lc_test_generic.h"
@@ -67,7 +68,7 @@ op_dequeue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res)
 static int
 ut_passthrough(uint8_t dev_id, uint16_t qp_id)
 {
-	uint64_t op_cookie = 0xdeadbeef;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 

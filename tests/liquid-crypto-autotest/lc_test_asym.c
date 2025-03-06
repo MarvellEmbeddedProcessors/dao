@@ -3,6 +3,7 @@
  */
 
 #include <rte_cycles.h>
+#include <rte_random.h>
 
 #include <dao_liquid_crypto.h>
 #include <hw/cpt.h>
@@ -17,9 +18,9 @@ test_rsa_sign(const void *data)
 {
 	const struct test_rsa_params *params = data;
 	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -55,9 +56,9 @@ test_rsa_verify(const void *data)
 {
 	const struct test_rsa_params *params = data;
 	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -95,9 +96,9 @@ test_rsa_invalid_verify(const void *data)
 	uint8_t invalid_sign[TEST_LC_MAX_OUTPUT_LEN];
 	const struct test_rsa_params *params = data;
 	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -137,9 +138,9 @@ test_rsa_enc_pub_exp(const void *data)
 	const struct test_rsa_params *params = data;
 	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
 	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -197,9 +198,9 @@ test_rsa_dec_prv_crt(const void *data)
 {
 	const struct test_rsa_params *params = data;
 	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -237,9 +238,9 @@ test_rsa_dec_invalid_prv_crt(const void *data)
 	uint8_t invalid_cipher[TEST_LC_MAX_OUTPUT_LEN];
 	const struct test_rsa_params *params = data;
 	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -279,9 +280,9 @@ test_rsa_enc_prv_exp(const void *data)
 	const struct test_rsa_params *params = data;
 	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
 	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
@@ -339,9 +340,9 @@ test_rsa_dec_prv_exp(const void *data)
 {
 	const struct test_rsa_params *params = data;
 	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
-	uint64_t op_cookie = (uint64_t)params;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
 	struct dao_lc_res res;
 	int ret;
 
