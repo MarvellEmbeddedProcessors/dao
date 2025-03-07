@@ -97,6 +97,7 @@ main(int argc, char **argv)
 		memset(&dev_conf, 0, sizeof(dev_conf));
 		dev_conf.dev_id = dev_id;
 		dev_conf.nb_qp = info->nb_qp[dev_id];
+		dev_conf.cmd_qp_idx = 0;
 
 		ret = dao_liquid_crypto_dev_create(&dev_conf);
 		if (ret < 0) {
