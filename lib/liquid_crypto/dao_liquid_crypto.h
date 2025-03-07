@@ -638,6 +638,9 @@ int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc
  * This function starts a liquid crypto device. The device must be created
  * before it can be started.
  *
+ * Note: For performance benefits, the actual number of descriptors would
+ * be rounded up to a power of 2.
+ *
  * @param dev_id
  * The device identifier.
  * @return
