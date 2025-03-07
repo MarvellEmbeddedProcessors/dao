@@ -276,8 +276,9 @@ dao_eth_trs_dev_alloc(uint8_t dev_id, struct dao_eth_trs_dev_config *conf)
 	}
 
 	memset(&eth_conf, 0, sizeof(eth_conf));
-	eth_conf.txmode.offloads = dev_info.tx_offload_capa;
-	eth_conf.rxmode.offloads = dev_info.rx_offload_capa;
+	eth_conf.rxmode.mtu = dev_info.max_mtu;
+	eth_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_RSS;
+	eth_conf.txmode.mq_mode = RTE_ETH_MQ_TX_NONE;
 
 	/* Configure the ethernet ports */
 	for (i = 0; i < dev->nb_ports; i++) {
