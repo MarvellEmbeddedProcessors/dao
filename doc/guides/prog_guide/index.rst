@@ -12,6 +12,7 @@ Programmer's Guide
     dma_lib
     eth_transport
     flow
+    liquid_crypto_lib
     netlink_lib
     pem_lib
     port_group
