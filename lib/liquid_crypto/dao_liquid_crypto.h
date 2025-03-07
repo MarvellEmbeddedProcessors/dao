@@ -894,6 +894,8 @@ uint16_t dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
 /**
  * Dequeue burst of crypto operations from the crypto device.
  *
+ * Note: The max number of requests that can be dequeued at once is 128.
+ *
  * @param dev_id
  * The identifier of the device.
  * @param qp_id
