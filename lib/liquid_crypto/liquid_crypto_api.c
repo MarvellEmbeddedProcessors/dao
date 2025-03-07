@@ -522,21 +522,26 @@ idx_put:
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 static inline int
-cpt_ae_rsa_mod_len_check(uint16_t mod_len)
+cpt_ae_rsa_mod_len_check(uint16_t mod_len, bool is_crt)
 {
+	uint16_t min_len = LIQUID_CRYPTO_RSA_MOD_LEN_MIN;
+
+	if (is_crt)
+		min_len = LIQUID_CRYPTO_RSA_MOD_LEN_MIN * 2;
+
 	if (mod_len == 0) {
 		dao_err("Invalid modulus length. mod_len cannot be zero.");
 		return -EINVAL;
 	}
 
-	if (mod_len % 2 != 0) {
+	if (is_crt && mod_len % 2 != 0) {
 		dao_err("Invalid modulus length. mod_len must be even.");
 		return -EINVAL;
 	}
 
-	if (mod_len < LIQUID_CRYPTO_RSA_MOD_LEN_MIN || mod_len > LIQUID_CRYPTO_RSA_MOD_LEN_MAX) {
+	if (mod_len < min_len || mod_len > LIQUID_CRYPTO_RSA_MOD_LEN_MAX) {
 		dao_err("Invalid modulus length. mod_len should be at least %u and at most %u bytes.",
-			LIQUID_CRYPTO_RSA_MOD_LEN_MIN, LIQUID_CRYPTO_RSA_MOD_LEN_MAX);
+			min_len, LIQUID_CRYPTO_RSA_MOD_LEN_MAX);
 		return -EINVAL;
 	}
 
@@ -652,7 +657,7 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	rc = cpt_ae_rsa_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
 
@@ -785,7 +790,7 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	rc = cpt_ae_rsa_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
 
@@ -905,7 +910,7 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	rc = cpt_ae_rsa_mod_len_check(mod_len, true);
 	if (rc != 0)
 		return rc;
 
@@ -1034,7 +1039,7 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_mod_len_check(mod_len);
+	rc = cpt_ae_rsa_mod_len_check(mod_len, true);
 	if (rc != 0)
 		return rc;
 
