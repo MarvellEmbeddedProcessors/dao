@@ -692,17 +692,11 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	qp->req_queue[req_idx].data_out = em;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	rte_pktmbuf_append(mbuf, buf_len);
+	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
-		dao_err("Buffer length is less than the minimum supported.");
-		rc = -EINVAL;
-		goto mbuf_free;
-	}
-#endif
-
-	/* Append transport header to mbuf */
-	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	/* Add payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
@@ -829,17 +823,11 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	qp->req_queue[req_idx].data_out = msg;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	rte_pktmbuf_append(mbuf, buf_len);
+	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
-		dao_err("Buffer length is less than the minimum supported.");
-		rc = -EINVAL;
-		goto mbuf_free;
-	}
-#endif
-
-	/* Append transport header to mbuf */
-	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	/* Append payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
@@ -961,17 +949,11 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp->req_queue[req_idx].data_out = em;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	rte_pktmbuf_append(mbuf, buf_len);
+	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
-		dao_err("Buffer length is less than the minimum supported.");
-		rc = -EINVAL;
-		goto mbuf_free;
-	}
-#endif
-
-	/* Append transport header to mbuf */
-	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	/* Append payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
@@ -1094,17 +1076,11 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp->req_queue[req_idx].data_out = msg;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	rte_pktmbuf_append(mbuf, buf_len);
+	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (buf_len < LIQUID_CRYPTO_BUF_SZ_MIN) {
-		dao_err("Buffer length is less than the minimum supported.");
-		rc = -EINVAL;
-		goto mbuf_free;
-	}
-#endif
-
-	/* Append transport header to mbuf */
-	req = (struct __dao_lc_req_asym *)rte_pktmbuf_append(mbuf, buf_len);
+	/* Append payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
