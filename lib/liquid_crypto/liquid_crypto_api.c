@@ -723,7 +723,15 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	dptr += exp_len;
 	memcpy(dptr, msg, msg_len);
 
-	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
 
 	return 0;
 
@@ -852,7 +860,15 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	dptr += exp_len;
 	memcpy(dptr, em, mod_len);
 
-	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
 
 	return 0;
 
@@ -982,7 +998,15 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	dptr += comp_len;
 	memcpy(dptr, msg, msg_len);
 
-	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
 
 	return 0;
 
@@ -1107,7 +1131,15 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	dptr += comp_len;
 	memcpy(dptr, em, mod_len);
 
-	rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
 
 	return 0;
 
