@@ -9,3 +9,7 @@ sources = files(
 )
 
 deps += ['liquid_crypto']
+
+if get_option('buildtype').contains('debug')
+	cflags += [ '-DTEST_LC_DEBUG_BUILD=1' ]
+endif

@@ -2,6 +2,8 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <errno.h>
+
 #include <rte_cycles.h>
 #include <rte_random.h>
 
@@ -86,6 +88,33 @@ test_rsa_verify(const void *data)
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(message, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_sign_unsupported_mod(const void *data)
+{
+	const struct test_rsa_params *params = data;
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	int ret;
+
+#ifndef TEST_LC_DEBUG_BUILD
+	return TEST_SKIPPED;
+#endif
+
+	memset(output, 0, sizeof(output));
+
+	/* RSA SIGN */
+	ret = dao_crypto_enqueue_op_pkcs1v15enc_crt(
+		dev_id, qp_id, params->n.len, params->plaintext.len, params->q.data,
+		params->dQ.data, params->p.data, params->dP.data, params->qInv.data,
+		params->plaintext.data, output, op_cookie);
+
+	TEST_ASSERT(ret == -EINVAL, "RSA CRT encrypt should fail");
 
 	return TEST_SUCCESS;
 }
@@ -194,6 +223,62 @@ test_rsa_enc_pub_exp(const void *data)
 }
 
 static int
+test_rsa_enc_unsupported_mod(const void *data)
+{
+	const struct test_rsa_params *params = data;
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	int ret;
+
+#ifndef TEST_LC_DEBUG_BUILD
+	return TEST_SKIPPED;
+#endif
+
+	memset(output, 0, sizeof(output));
+
+	/* RSA ENCRYPT */
+	ret = dao_crypto_enqueue_op_pkcs1v15enc(
+		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC, 16, params->e.len, params->plaintext.len,
+		params->n.data, params->e.data, params->plaintext.data, output, op_cookie);
+
+	TEST_ASSERT(ret == -EINVAL, "RSA Public encrypt should fail");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_enc_unsupported_msw(const void *data)
+{
+	const struct test_rsa_params *params = data;
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t mod[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	int ret;
+
+#ifndef TEST_LC_DEBUG_BUILD
+	return TEST_SKIPPED;
+#endif
+
+	memset(output, 0, sizeof(output));
+	memcpy(mod, params->n.data, params->n.len);
+	*(uint64_t *)mod = 0;
+
+	/* RSA ENCRYPT */
+	ret = dao_crypto_enqueue_op_pkcs1v15enc(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
+						params->n.len, params->e.len, params->plaintext.len,
+						mod, params->e.data, params->plaintext.data, output,
+						op_cookie);
+
+	TEST_ASSERT(ret == -EINVAL, "RSA Public encrypt should fail");
+
+	return TEST_SUCCESS;
+}
+
+static int
 test_rsa_dec_prv_crt(const void *data)
 {
 	const struct test_rsa_params *params = data;
@@ -228,6 +313,32 @@ test_rsa_dec_prv_crt(const void *data)
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(message, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_dec_crt_unsupported_mod(const void *data)
+{
+	const struct test_rsa_params *params = data;
+	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	int ret;
+
+#ifndef TEST_LC_DEBUG_BUILD
+	return TEST_SKIPPED;
+#endif
+
+	memset(message, 0, sizeof(message));
+
+	/* RSA DECRYPT */
+	ret = dao_crypto_enqueue_op_pkcs1v15dec_crt(
+		dev_id, qp_id, params->n.len, params->q.data, params->dQ.data, params->p.data,
+		params->dP.data, params->qInv.data, params->cipher.data, message, op_cookie);
+
+	TEST_ASSERT(ret == -EINVAL, "RSA CRT decrypt should fail");
 
 	return TEST_SUCCESS;
 }
@@ -407,6 +518,20 @@ struct unit_test_suite lc_testsuite_asym = {
 					  test_rsa_sign, &rsa_8192_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Verify (8192 bits)", ut_setup, ut_teardown,
 					  test_rsa_verify, &rsa_8192_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Verify (256 bits)", ut_setup, ut_teardown,
+					  test_rsa_verify, &rsa_256_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Private Encrypt (256 bits)", ut_setup, ut_teardown,
+					  test_rsa_enc_prv_exp, &rsa_256_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt (256 bits)", ut_setup, ut_teardown,
+					  test_rsa_dec_prv_exp, &rsa_256_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Sign Unsupported Mod", ut_setup, ut_teardown,
+					  test_rsa_sign_unsupported_mod, &rsa_256_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA CRT Decrypt Unsupported Mod", ut_setup, ut_teardown,
+					  test_rsa_dec_crt_unsupported_mod, &rsa_256_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Public Encrypt Unsupported Mod", ut_setup,
+					  ut_teardown, test_rsa_enc_unsupported_mod, &rsa_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Public Encrypt Unsupported MSW", ut_setup,
+					  ut_teardown, test_rsa_enc_unsupported_msw, &rsa_params),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
