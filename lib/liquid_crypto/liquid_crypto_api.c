@@ -582,6 +582,26 @@ cpt_ae_rsa_exp_len_check(uint16_t mod_len, uint16_t exp_len)
 }
 
 static inline int
+cpt_ae_rsa_msw_check(uint16_t plen, uint8_t *p)
+{
+	uint8_t len = plen % 8;
+	uint64_t msw;
+
+	if (p == NULL || plen == 0)
+		return -EINVAL;
+
+	if (len)
+		memcpy(&msw, p, len);
+	else
+		memcpy(&msw, p, 8);
+
+	if (msw == 0)
+		return -EINVAL;
+
+	return 0;
+}
+
+static inline int
 cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
 			    uint8_t *qInv)
 {
@@ -597,6 +617,16 @@ cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *
 
 	if (p[mod_len / 2 - 1] % 2 == 0) {
 		dao_err("Invalid CRT parameter. p must be odd.");
+		return -EINVAL;
+	}
+
+	if (cpt_ae_rsa_msw_check(mod_len / 2, q) != 0) {
+		dao_err("Invalid CRT parameter. MSW of q must be non-zero.");
+		return -EINVAL;
+	}
+
+	if (cpt_ae_rsa_msw_check(mod_len / 2, p) != 0) {
+		dao_err("Invalid CRT parameter. MSW of p must be non-zero.");
 		return -EINVAL;
 	}
 
@@ -668,6 +698,12 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	rc = cpt_ae_rsa_msg_len_check(mod_len, msg_len);
 	if (rc != 0)
 		return rc;
+
+	rc = cpt_ae_rsa_msw_check(mod_len, mod);
+	if (rc != 0) {
+		dao_err("Invalid argument. MSW of modulus must be non-zero.");
+		return -EINVAL;
+	}
 #endif
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp);
@@ -799,6 +835,12 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	rc = cpt_ae_rsa_exp_len_check(mod_len, exp_len);
 	if (rc != 0)
 		return rc;
+
+	rc = cpt_ae_rsa_msw_check(mod_len, mod);
+	if (rc != 0) {
+		dao_err("Invalid argument. MSW of modulus must be non-zero.");
+		return -EINVAL;
+	}
 #endif
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp);
