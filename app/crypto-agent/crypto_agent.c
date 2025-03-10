@@ -150,47 +150,6 @@ eth_devs_validate(void)
 	return 0;
 }
 
-static int
-mempool_init(struct ca_dev_config *ca_dev_config)
-{
-	uint16_t i, nb_devs, port_id, buf_sz;
-	char name[RTE_MEMZONE_NAMESIZE];
-	struct rte_mempool *mp;
-
-	RTE_SET_USED(ca_dev_config);
-
-	nb_devs = ca_glb_ctx.nb_valid_ethdevs;
-
-	for (i = 0; i < nb_devs; i++) {
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-		snprintf(name, sizeof(name), "ca_ethdev_%u", port_id);
-
-		buf_sz = ca_dev_config->max_payload_size;
-
-		/* TODO - add proper values */
-		mp = rte_pktmbuf_pool_create(name, 8192, 256, 0, buf_sz, SOCKET_ID_ANY);
-		if (mp == NULL) {
-			CA_ERR("Could not create mempool for ethdev: %u", i);
-			return -ENOMEM;
-		}
-
-		ca_glb_ctx.eth_ctx[i].mempool = mp;
-	}
-
-	return 0;
-}
-
-static void
-mempool_fini(void)
-{
-	uint16_t i, nb_devs;
-
-	nb_devs = ca_glb_ctx.nb_valid_ethdevs;
-
-	for (i = 0; i < nb_devs; i++)
-		rte_mempool_free(ca_glb_ctx.eth_ctx[i].mempool);
-}
-
 static void
 ethdev_queue_name_get(uint16_t dev_id, uint16_t qp_id, char *name)
 {
@@ -283,24 +242,57 @@ crypto_devs_fini(void)
 static int
 eth_devs_init(struct ca_dev_config *dev_config)
 {
-	uint8_t i;
+	struct dao_lc_eth_qconf qconf;
+	uint16_t j, nb_queue;
+	uint8_t i, port_id;
 	int ret;
 
 	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		ret = ca_eth_dev_init(ca_glb_ctx.eth_ctx[i].port_id, dev_config,
-				      ca_glb_ctx.eth_ctx[i].mempool);
-		if (ret)
-			goto eth_devs_close;
-
 		ca_glb_ctx.eth_ctx[i].nb_queue = dev_config->eth.nb_queue[i];
+
+		nb_queue = ca_glb_ctx.eth_ctx[i].nb_queue;
+		port_id = ca_glb_ctx.eth_ctx[i].port_id;
+
+		ret = ca_eth_dev_init(port_id, nb_queue);
+		if (ret) {
+			CA_ERR("Could not initialize ethdev: %d", port_id);
+			goto eth_devs_close;
+		}
+
+		memset(&qconf, 0, sizeof(qconf));
+		qconf.nb_desc = 8192;
+		qconf.max_seg_size = dev_config->max_payload_size;
+		qconf.dev_id = port_id;
+
+		for (j = 0; j < nb_queue; j++) {
+			qconf.qp_id = j;
+			ret = ca_eth_dev_q_configure(&qconf);
+			if (ret) {
+				CA_ERR("Could not configure ethdev queue: %d", j);
+				ca_glb_ctx.eth_ctx[i].nb_queue = j;
+				goto eth_devs_close;
+			}
+		}
+
+		ret = ca_eth_dev_start(port_id);
+		if (ret) {
+			CA_ERR("Could not start ethdev: %d", port_id);
+			goto eth_devs_close;
+		}
 	}
 
 	return 0;
 
 eth_devs_close:
 	while (i > 0) {
-		rte_eth_dev_stop(ca_glb_ctx.eth_ctx[--i].port_id);
-		rte_eth_dev_close(ca_glb_ctx.eth_ctx[i].port_id);
+		nb_queue = ca_glb_ctx.eth_ctx[--i].nb_queue;
+		port_id = ca_glb_ctx.eth_ctx[i].port_id;
+
+		ca_eth_dev_stop(port_id);
+		ca_eth_dev_fini(port_id);
+
+		for (j = 0; j < nb_queue; j++)
+			ca_eth_dev_q_destroy(port_id, j);
 	}
 
 	return -ENODEV;
@@ -309,10 +301,18 @@ eth_devs_close:
 static void
 eth_devs_fini(void)
 {
-	uint16_t i;
+	uint8_t port_id;
+	uint16_t i, j;
 
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++)
-		ca_eth_dev_fini(&ca_glb_ctx.eth_ctx[i]);
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
+		port_id = ca_glb_ctx.eth_ctx[i].port_id;
+
+		ca_eth_dev_stop(port_id);
+		ca_eth_dev_fini(port_id);
+
+		for (j = 0; j < ca_glb_ctx.eth_ctx[i].nb_queue; j++)
+			ca_eth_dev_q_destroy(port_id, j);
+	}
 }
 
 static int
@@ -432,32 +432,6 @@ eth_cpt_mapping_clear(void)
 	}
 }
 
-static int
-eth_flow_create_all(void)
-{
-	uint8_t i;
-	int ret;
-
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		ret = ca_eth_flow_create(ca_glb_ctx.eth_ctx[i].port_id);
-		if (ret) {
-			CA_ERR("Could not initialize flow rules for ethdev: %d", i);
-			return ret;
-		}
-	}
-
-	return 0;
-}
-
-static void
-eth_flow_clear_all(void)
-{
-	uint8_t i;
-
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++)
-		ca_eth_flow_clear(ca_glb_ctx.eth_ctx[i].port_id);
-}
-
 int
 main(int argc, char **argv)
 {
@@ -499,16 +473,10 @@ main(int argc, char **argv)
 
 	dev_config.max_payload_size = CA_MAX_PAYLOAD_SIZE;
 
-	rc = mempool_init(&dev_config);
-	if (rc) {
-		CA_ERR("Could not initialize mempools");
-		goto eal_cleanup;
-	}
-
 	rc = crypto_devs_init(&dev_config);
 	if (rc) {
 		CA_ERR("Could not initialize crypto devices");
-		goto mempool_fini;
+		goto eal_cleanup;
 	}
 
 	rc = eth_devs_init(&dev_config);
@@ -529,12 +497,6 @@ main(int argc, char **argv)
 		goto cpt_pq_fini;
 	}
 
-	rc = eth_flow_create_all();
-	if (rc) {
-		CA_ERR("Could not initialize flow rules");
-		goto eth_cpt_mapping_clear;
-	}
-
 	while (!force_quit) {
 		struct lcore_conf *lconf;
 		int i;
@@ -547,9 +509,6 @@ main(int argc, char **argv)
 		}
 	}
 
-	eth_flow_clear_all();
-
-eth_cpt_mapping_clear:
 	eth_cpt_mapping_clear();
 
 cpt_pq_fini:
@@ -560,9 +519,6 @@ eth_devs_fini:
 
 crypto_devs_fini:
 	crypto_devs_fini();
-
-mempool_fini:
-	mempool_fini();
 
 eal_cleanup:
 	rte_eal_cleanup();

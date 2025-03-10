@@ -34,17 +34,16 @@
 #define CA_WARN(fmt, args...)    RTE_LOG(WARNING, AGENT, fmt "\n", ##args)
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
 
-struct ca_ethdev_ctx {
+struct ca_eth_dev_ctx {
 	uint16_t port_id;
 	uint16_t nb_queue;
-	struct rte_mempool *mempool;
 	struct pending_queue cpt_pq[CA_MAX_ETH_QUEUE];
 };
 
 struct ca_global_ctx {
 	uint8_t cryptodev_ids[RTE_CRYPTO_MAX_DEVS];
 	uint8_t nb_valid_ethdevs;
-	struct ca_ethdev_ctx eth_ctx[RTE_MAX_ETHPORTS];
+	struct ca_eth_dev_ctx eth_ctx[RTE_MAX_ETHPORTS];
 	uint16_t nb_cpt_qp;
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr[CA_MAX_LCORE];
 };

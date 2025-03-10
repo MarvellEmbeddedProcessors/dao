@@ -12,10 +12,27 @@
 #define ETH_DEV_PMD_NAME_CN9K  "net_cn9k"
 #define ETH_DEV_PMD_NAME_CN10K "net_cn10k"
 
-int ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_mempool *mp);
-void ca_eth_dev_fini(struct ca_ethdev_ctx *eth_ctx);
+/**
+ * Queue configuration for an ethdev on the liquid crypto card.
+ */
+struct dao_lc_eth_qconf {
+	/** Ethdev id */
+	uint32_t dev_id;
+	/** Queue id */
+	uint32_t qp_id;
+	/** Number of descriptors */
+	uint32_t nb_desc;
+	/** Maximum segment size */
+	uint32_t max_seg_size;
+	/** Enable out of order delivery */
+	bool out_of_order_delivery_en;
+};
 
-int ca_eth_flow_create(uint8_t port_id);
-void ca_eth_flow_clear(uint8_t port_id);
+int ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue);
+void ca_eth_dev_fini(uint16_t port_id);
+int ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf);
+int ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id);
+int ca_eth_dev_start(uint32_t port_id);
+int ca_eth_dev_stop(uint32_t dev_id);
 
 #endif /* __CA_ETHDEV_H__ */

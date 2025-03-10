@@ -12,6 +12,11 @@
 
 #define CA_ETH_RSS_KEY_LEN 48
 
+/* Forward declarations */
+
+static void ca_eth_flow_clear(uint8_t port_id);
+static int ca_eth_flow_create(uint8_t port_id);
+
 static uint32_t
 rotate_bytes(uint32_t value)
 {
@@ -65,23 +70,13 @@ eth_rss_key_update(uint8_t port_id)
 }
 
 int
-ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_mempool *mp)
+ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 {
-	uint16_t nb_queue, queue_id, nb_rxd, nb_txd, buf_sz;
 	struct rte_ether_addr ports_eth_addr;
 	struct rte_eth_rss_conf *rss_conf;
 	struct rte_eth_dev_info dev_info;
 	struct rte_eth_conf port_conf;
-	struct rte_eth_rxconf rx_conf;
-	struct rte_eth_txconf tx_conf;
-	struct rte_eth_link link;
 	int ret;
-
-	/* TODO - determine proper values */
-	nb_rxd = 8192;
-	nb_txd = 8192;
-
-	buf_sz = dev_config->max_payload_size;
 
 	CA_INFO("Initializing ethdev: %d", port_id);
 
@@ -97,23 +92,19 @@ ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_me
 		return ret;
 	}
 
-	if (dev_info.max_rx_queues < dev_config->eth.nb_queue[port_id]) {
-		CA_ERR("Requested queues %d > max rx queues %d", dev_config->eth.nb_queue[port_id],
-		       dev_info.max_rx_queues);
+	if (dev_info.max_rx_queues < nb_queue) {
+		CA_ERR("Requested queues %d > max rx queues %d", nb_queue, dev_info.max_rx_queues);
 		return -EINVAL;
 	}
 
-	if (dev_info.max_tx_queues < dev_config->eth.nb_queue[port_id]) {
-		CA_ERR("Requested queues %d > max tx queues %d", dev_config->eth.nb_queue[port_id],
-		       dev_info.max_tx_queues);
+	if (dev_info.max_tx_queues < nb_queue) {
+		CA_ERR("Requested queues %d > max tx queues %d", nb_queue, dev_info.max_tx_queues);
 		return -EINVAL;
 	}
-
-	nb_queue = dev_config->eth.nb_queue[port_id];
 
 	memset(&port_conf, 0, sizeof(port_conf));
 
-	port_conf.rxmode.mtu = buf_sz;
+	port_conf.rxmode.mtu = 9000;
 	port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_RSS;
 	port_conf.txmode.mq_mode = RTE_ETH_MQ_TX_NONE;
 	port_conf.txmode.offloads = RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
@@ -127,13 +118,7 @@ ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_me
 	ret = eth_rss_key_update(port_id);
 	if (ret) {
 		CA_ERR("Could not update RSS key: %d.", port_id);
-		return ret;
-	}
-
-	ret = rte_eth_dev_adjust_nb_rx_tx_desc(port_id, &nb_rxd, &nb_txd);
-	if (ret) {
-		CA_ERR("Could not adjust nb rx/tx desc: %d.", port_id);
-		return ret;
+		goto dev_close;
 	}
 
 	rte_eth_macaddr_get(port_id, &ports_eth_addr);
@@ -143,25 +128,109 @@ ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_me
 		ports_eth_addr.addr_bytes[2], ports_eth_addr.addr_bytes[3],
 		ports_eth_addr.addr_bytes[4], ports_eth_addr.addr_bytes[5]);
 
-	for (queue_id = 0; queue_id < nb_queue; queue_id++) {
-		memset(&rx_conf, 0, sizeof(rx_conf));
-		memset(&tx_conf, 0, sizeof(tx_conf));
+	return 0;
 
-		rx_conf.offloads = port_conf.rxmode.offloads;
-		tx_conf.offloads = port_conf.txmode.offloads;
+dev_close:
+	rte_eth_dev_close(port_id);
 
-		ret = rte_eth_rx_queue_setup(port_id, queue_id, nb_rxd, 0, &rx_conf, mp);
-		if (ret) {
-			CA_ERR("Could not setup Rx queue: %d.", port_id);
-			return ret;
-		}
+	return -ENODEV;
+}
 
-		ret = rte_eth_tx_queue_setup(port_id, queue_id, nb_txd, 0, &tx_conf);
-		if (ret) {
-			CA_ERR("Could not setup Tx queue: %d.", port_id);
-			return ret;
-		}
+void
+ca_eth_dev_fini(uint16_t port_id)
+{
+	CA_INFO("Closing ethdev: %d", port_id);
+
+	rte_eth_dev_close(port_id);
+}
+
+static int
+ca_eth_dev_q_mb_pool_name_get(uint32_t dev_id, uint32_t qp_id, char *name, size_t len)
+{
+	return snprintf(name, len, "ca_ethdev_%u_q_%u", dev_id, qp_id);
+}
+
+int
+ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
+{
+	char name[RTE_MEMZONE_NAMESIZE];
+	struct rte_eth_rxconf rx_conf;
+	struct rte_eth_txconf tx_conf;
+	struct rte_mempool *mp;
+	int ret;
+
+	ret = rte_eth_dev_adjust_nb_rx_tx_desc(conf->dev_id, (uint16_t *)&conf->nb_desc,
+					       (uint16_t *)&conf->nb_desc);
+	if (ret) {
+		CA_ERR("Could not adjust nb rx/tx desc: %d.", conf->dev_id);
+		return ret;
 	}
+
+	ret = ca_eth_dev_q_mb_pool_name_get(conf->dev_id, conf->qp_id, name, sizeof(name));
+	if (ret < 0) {
+		CA_ERR("Could not get mempool name for ethdev: %u, q: %u", conf->dev_id,
+		       conf->qp_id);
+		return ret;
+	}
+
+	mp = rte_pktmbuf_pool_create(name, conf->nb_desc, 256, 0, conf->max_seg_size,
+				     SOCKET_ID_ANY);
+	if (mp == NULL) {
+		CA_ERR("Could not create mempool for ethdev: %u, q: %u", conf->dev_id, conf->qp_id);
+		return -ENOMEM;
+	}
+
+	memset(&rx_conf, 0, sizeof(rx_conf));
+	memset(&tx_conf, 0, sizeof(tx_conf));
+
+	rx_conf.offloads = 0;
+	tx_conf.offloads = RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
+
+	ret = rte_eth_rx_queue_setup(conf->dev_id, conf->qp_id, conf->nb_desc, 0, &rx_conf, mp);
+	if (ret) {
+		CA_ERR("Could not setup Rx queue: %d.", conf->dev_id);
+		goto mp_free;
+	}
+
+	ret = rte_eth_tx_queue_setup(conf->dev_id, conf->qp_id, conf->nb_desc, 0, &tx_conf);
+	if (ret) {
+		CA_ERR("Could not setup Tx queue: %d.", conf->dev_id);
+		goto mp_free;
+	}
+
+	return 0;
+
+mp_free:
+	rte_mempool_free(mp);
+	return ret;
+}
+
+int
+ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
+{
+	char name[RTE_MEMZONE_NAMESIZE];
+	int ret;
+
+	CA_INFO("Destroying QP: dev_id %u, qp_id %u", dev_id, qp_id);
+
+	ret = ca_eth_dev_q_mb_pool_name_get(dev_id, qp_id, name, sizeof(name));
+	if (ret < 0) {
+		CA_ERR("Could not get mempool name for ethdev: %u, q: %u", dev_id, qp_id);
+		return ret;
+	}
+
+	rte_mempool_free(rte_mempool_lookup(name));
+
+	return 0;
+}
+
+int
+ca_eth_dev_start(uint32_t port_id)
+{
+	struct rte_eth_link link;
+	int ret;
+
+	CA_INFO("Starting device %u", port_id);
 
 	ret = rte_eth_promiscuous_enable(port_id);
 	if (ret) {
@@ -190,6 +259,12 @@ ca_eth_dev_init(uint8_t port_id, struct ca_dev_config *dev_config, struct rte_me
 		goto eth_dev_close;
 	}
 
+	ret = ca_eth_flow_create(port_id);
+	if (ret) {
+		CA_ERR("Could not initialize flow rules for ethdev: %d", port_id);
+		goto eth_dev_close;
+	}
+
 	return 0;
 
 eth_dev_close:
@@ -199,17 +274,16 @@ eth_dev_close:
 	return -ENODEV;
 }
 
-void
-ca_eth_dev_fini(struct ca_ethdev_ctx *eth_ctx)
+int
+ca_eth_dev_stop(uint32_t dev_id)
 {
-	uint16_t port_id;
+	CA_INFO("Stopping device %u", dev_id);
 
-	port_id = eth_ctx->port_id;
+	ca_eth_flow_clear(dev_id);
 
-	CA_INFO("Closing ethdev: %d", port_id);
+	rte_eth_dev_stop(dev_id);
 
-	rte_eth_dev_stop(port_id);
-	rte_eth_dev_close(port_id);
+	return 0;
 }
 
 static int
@@ -308,7 +382,7 @@ eth_ingress_queue_mapping(uint8_t port_id, uint16_t *reta_tbl, uint16_t nb_queue
 	return 0;
 }
 
-int
+static int
 ca_eth_flow_create(uint8_t port_id)
 {
 	struct rte_flow_action actions[2];
@@ -356,7 +430,7 @@ ca_eth_flow_create(uint8_t port_id)
 	return 0;
 }
 
-void
+static void
 ca_eth_flow_clear(uint8_t port_id)
 {
 	int ret;
