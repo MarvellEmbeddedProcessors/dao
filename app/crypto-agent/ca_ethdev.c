@@ -174,9 +174,62 @@ ca_eth_dev_fini(uint16_t port_id)
 }
 
 static int
-ca_eth_dev_q_mb_pool_name_get(uint32_t dev_id, uint32_t qp_id, char *name, size_t len)
+ca_eth_dev_q_name_get(uint32_t dev_id, uint32_t qp_id, char *name, size_t len)
 {
 	return snprintf(name, len, "ca_ethdev_%u_q_%u", dev_id, qp_id);
+}
+
+static int
+cpt_pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
+{
+	const struct rte_memzone *pq_mem;
+	char name[RTE_MEMZONE_NAMESIZE];
+	struct pending_queue *pq;
+	uint16_t port_id;
+	void *req_queue;
+	int len;
+
+	port_id = eth_ctx->port_id;
+	pq = &eth_ctx->cpt_pq[qp_id];
+
+	nb_desc = rte_align32pow2(nb_desc);
+
+	len = nb_desc * sizeof(struct cpt_inflight_req);
+
+	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name));
+
+	pq_mem = rte_memzone_reserve_aligned(name, len, SOCKET_ID_ANY, 0, RTE_CACHE_LINE_SIZE);
+	if (pq_mem == NULL) {
+		CA_ERR("Could not reserve memzone for pending queue: %d, %d", port_id, qp_id);
+		return -ENOMEM;
+	}
+
+	req_queue = pq_mem->addr;
+
+	memset(req_queue, 0, len);
+
+	memset(pq, 0, sizeof(struct pending_queue));
+	pq->req_queue = req_queue;
+	pq->pq_mask = (len / sizeof(struct cpt_inflight_req)) - 1;
+
+	return 0;
+}
+
+static int
+cpt_pq_destroy(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id)
+{
+	char name[RTE_MEMZONE_NAMESIZE];
+	uint16_t port_id;
+
+	port_id = eth_ctx->port_id;
+
+	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name));
+
+	rte_memzone_free(rte_memzone_lookup(name));
+
+	memset(&eth_ctx->cpt_pq[qp_id], 0, sizeof(struct pending_queue));
+
+	return 0;
 }
 
 int
@@ -224,7 +277,7 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		return ret;
 	}
 
-	ret = ca_eth_dev_q_mb_pool_name_get(conf->dev_id, conf->qp_id, name, sizeof(name));
+	ret = ca_eth_dev_q_name_get(conf->dev_id, conf->qp_id, name, sizeof(name));
 	if (ret < 0) {
 		CA_ERR("Could not get mempool name for ethdev: %u, q: %u", conf->dev_id,
 		       conf->qp_id);
@@ -253,6 +306,12 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 	ret = rte_eth_tx_queue_setup(conf->dev_id, conf->qp_id, conf->nb_desc, 0, &tx_conf);
 	if (ret) {
 		CA_ERR("Could not setup Tx queue: %d.", conf->dev_id);
+		goto mp_free;
+	}
+
+	ret = cpt_pq_init(eth_ctx, conf->qp_id, conf->nb_desc);
+	if (ret) {
+		CA_ERR("Could not initialize CPT PQ: %d, %d.", conf->dev_id, conf->qp_id);
 		goto mp_free;
 	}
 
@@ -290,13 +349,15 @@ ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 		return -EINVAL;
 	}
 
-	ret = ca_eth_dev_q_mb_pool_name_get(dev_id, qp_id, name, sizeof(name));
+	ret = ca_eth_dev_q_name_get(dev_id, qp_id, name, sizeof(name));
 	if (ret < 0) {
 		CA_ERR("Could not get mempool name for ethdev: %u, q: %u", dev_id, qp_id);
 		return ret;
 	}
 
 	rte_mempool_free(rte_mempool_lookup(name));
+
+	cpt_pq_destroy(eth_ctx, qp_id);
 
 	eth_ctx->init_q_mask &= ~(1 << qp_id);
 

@@ -163,12 +163,6 @@ eth_devs_validate(void)
 	return 0;
 }
 
-static void
-ethdev_queue_name_get(uint16_t dev_id, uint16_t qp_id, char *name)
-{
-	snprintf(name, RTE_MEMZONE_NAMESIZE, "ca_ethdev_%u_q_%u", dev_id, qp_id);
-}
-
 static int
 crypto_devs_init(struct ca_dev_config *dev_config)
 {
@@ -329,78 +323,6 @@ eth_devs_fini(void)
 }
 
 static int
-cpt_pq_init(struct ca_dev_config *dev_config)
-{
-	const struct rte_memzone *pq_mem;
-	char name[RTE_MEMZONE_NAMESIZE];
-	int i, j, len, ret;
-	uint16_t port_id;
-	void *req_queue;
-
-	/* Should this match queue depth of eth queues? */
-	len = dev_config->crypto.nb_desc * sizeof(struct cpt_inflight_req);
-
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-
-		for (j = 0; j < ca_glb_ctx.eth_ctx[i].nb_queue; j++) {
-			/* Allocate SW queue to hold state */
-
-			ethdev_queue_name_get(port_id, j, name);
-
-			pq_mem = rte_memzone_reserve_aligned(name, len, SOCKET_ID_ANY, 0,
-							     RTE_CACHE_LINE_SIZE);
-			if (pq_mem == NULL) {
-				CA_ERR("Could not reserve memzone for pending queue [ethdev: %d, queue: %d].",
-				       i, j);
-				ret = -ENOMEM;
-				goto pq_mem_free;
-			}
-
-			req_queue = pq_mem->addr;
-
-			memset(req_queue, 0, len);
-			memset(&ca_glb_ctx.eth_ctx[i].cpt_pq[j], 0, sizeof(struct pending_queue));
-
-			ca_glb_ctx.eth_ctx[i].cpt_pq[j].req_queue = req_queue;
-			ca_glb_ctx.eth_ctx[i].cpt_pq[j].pq_mask =
-				(len / sizeof(struct cpt_inflight_req)) - 1;
-		}
-	}
-
-	return 0;
-
-pq_mem_free:
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-
-		for (j = 0; j < ca_glb_ctx.eth_ctx[i].nb_queue; j++) {
-			ethdev_queue_name_get(port_id, i, name);
-			rte_memzone_free(rte_memzone_lookup(name));
-		}
-	}
-
-	return ret;
-}
-
-static void
-cpt_pq_fini(void)
-{
-	char name[RTE_MEMZONE_NAMESIZE];
-	uint16_t port_id;
-	int i, j;
-
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-
-		for (j = 0; j < ca_glb_ctx.eth_ctx[i].nb_queue; j++) {
-			ethdev_queue_name_get(port_id, i, name);
-			rte_memzone_free(rte_memzone_lookup(name));
-		}
-	}
-}
-
-static int
 eth_cpt_mapping_populate(void)
 {
 	int i, j, nb_pq, lcore_id;
@@ -498,16 +420,10 @@ main(int argc, char **argv)
 		goto crypto_devs_fini;
 	}
 
-	rc = cpt_pq_init(&dev_config);
-	if (rc) {
-		CA_ERR("Could not initialize crypto pending queues");
-		goto eth_devs_fini;
-	}
-
 	rc = eth_cpt_mapping_populate();
 	if (rc) {
 		CA_ERR("Could not populate eth-cpt mapping");
-		goto cpt_pq_fini;
+		goto eth_devs_fini;
 	}
 
 	while (!force_quit) {
@@ -523,9 +439,6 @@ main(int argc, char **argv)
 	}
 
 	eth_cpt_mapping_clear();
-
-cpt_pq_fini:
-	cpt_pq_fini();
 
 eth_devs_fini:
 	eth_devs_fini();
