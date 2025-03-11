@@ -34,6 +34,19 @@ signal_handler(int signum)
 	}
 }
 
+struct ca_eth_dev_ctx *
+ca_eth_dev_ctx_get(uint16_t port_id)
+{
+	uint16_t i;
+
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
+		if (ca_glb_ctx.eth_ctx[i].port_id == port_id)
+			return &ca_glb_ctx.eth_ctx[i];
+	}
+
+	return NULL;
+}
+
 static int
 crypto_devs_validate(void)
 {

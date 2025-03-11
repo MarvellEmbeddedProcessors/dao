@@ -29,7 +29,7 @@ struct dao_lc_eth_qconf {
 };
 
 int ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue);
-void ca_eth_dev_fini(uint16_t port_id);
+int ca_eth_dev_fini(uint16_t port_id);
 int ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf);
 int ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id);
 int ca_eth_dev_start(uint32_t port_id);

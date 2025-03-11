@@ -75,10 +75,17 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 	struct rte_ether_addr ports_eth_addr;
 	struct rte_eth_rss_conf *rss_conf;
 	struct rte_eth_dev_info dev_info;
+	struct ca_eth_dev_ctx *eth_ctx;
 	struct rte_eth_conf port_conf;
 	int ret;
 
 	CA_INFO("Initializing ethdev: %d", port_id);
+
+	eth_ctx = ca_eth_dev_ctx_get(port_id);
+	if (eth_ctx == NULL) {
+		CA_ERR("Could not get ethdev context: %d.", port_id);
+		return -ENODEV;
+	}
 
 	rss_conf = &port_conf.rx_adv_conf.rss_conf;
 
@@ -128,6 +135,8 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 		ports_eth_addr.addr_bytes[2], ports_eth_addr.addr_bytes[3],
 		ports_eth_addr.addr_bytes[4], ports_eth_addr.addr_bytes[5]);
 
+	eth_ctx->is_configured = true;
+
 	return 0;
 
 dev_close:
@@ -136,12 +145,32 @@ dev_close:
 	return -ENODEV;
 }
 
-void
+int
 ca_eth_dev_fini(uint16_t port_id)
 {
+	struct ca_eth_dev_ctx *eth_ctx;
+	int rc;
+
 	CA_INFO("Closing ethdev: %d", port_id);
 
-	rte_eth_dev_close(port_id);
+	eth_ctx = ca_eth_dev_ctx_get(port_id);
+	if (eth_ctx == NULL) {
+		CA_ERR("Could not get ethdev context: %d.", port_id);
+		return -ENODEV;
+	}
+
+	if (!eth_ctx->is_configured)
+		return -EINVAL;
+
+	if (eth_ctx->is_started) {
+		rc = ca_eth_dev_stop(port_id);
+		if (rc) {
+			CA_ERR("Could not stop ethdev: %d.", port_id);
+			return rc;
+		}
+	}
+
+	return rte_eth_dev_close(port_id);
 }
 
 static int
@@ -154,10 +183,39 @@ int
 ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 {
 	char name[RTE_MEMZONE_NAMESIZE];
+	struct ca_eth_dev_ctx *eth_ctx;
 	struct rte_eth_rxconf rx_conf;
 	struct rte_eth_txconf tx_conf;
 	struct rte_mempool *mp;
 	int ret;
+
+	CA_INFO("Configuring QP: dev_id %u, qp_id %u", conf->dev_id, conf->qp_id);
+
+	eth_ctx = ca_eth_dev_ctx_get(conf->dev_id);
+	if (eth_ctx == NULL) {
+		CA_ERR("Could not get ethdev context: %d.", conf->dev_id);
+		return -ENODEV;
+	}
+
+	if (!eth_ctx->is_configured) {
+		CA_ERR("Ethdev not configured: %d.", conf->dev_id);
+		return -EINVAL;
+	}
+
+	if (eth_ctx->is_started) {
+		CA_ERR("Ethdev already started: %d.", conf->dev_id);
+		return -EINVAL;
+	}
+
+	if (conf->qp_id >= eth_ctx->nb_queue) {
+		CA_ERR("Invalid queue id: %d, %d.", conf->dev_id, conf->qp_id);
+		return -EINVAL;
+	}
+
+	if (eth_ctx->init_q_mask & (1 << conf->qp_id)) {
+		CA_ERR("Queue already initialized: %d, %d.", conf->dev_id, conf->qp_id);
+		return -EINVAL;
+	}
 
 	ret = rte_eth_dev_adjust_nb_rx_tx_desc(conf->dev_id, (uint16_t *)&conf->nb_desc,
 					       (uint16_t *)&conf->nb_desc);
@@ -198,6 +256,8 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		goto mp_free;
 	}
 
+	eth_ctx->init_q_mask |= (1 << conf->qp_id);
+
 	return 0;
 
 mp_free:
@@ -209,9 +269,26 @@ int
 ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 {
 	char name[RTE_MEMZONE_NAMESIZE];
+	struct ca_eth_dev_ctx *eth_ctx;
 	int ret;
 
 	CA_INFO("Destroying QP: dev_id %u, qp_id %u", dev_id, qp_id);
+
+	eth_ctx = ca_eth_dev_ctx_get(dev_id);
+	if (eth_ctx == NULL) {
+		CA_ERR("Could not get ethdev context: %d.", dev_id);
+		return -ENODEV;
+	}
+
+	if (eth_ctx->is_started) {
+		CA_ERR("Ethdev already started: %d.", dev_id);
+		return -EINVAL;
+	}
+
+	if (!(eth_ctx->init_q_mask & (1 << qp_id))) {
+		CA_ERR("Queue not initialized: %d, %d.", dev_id, qp_id);
+		return -EINVAL;
+	}
 
 	ret = ca_eth_dev_q_mb_pool_name_get(dev_id, qp_id, name, sizeof(name));
 	if (ret < 0) {
@@ -221,16 +298,40 @@ ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 
 	rte_mempool_free(rte_mempool_lookup(name));
 
+	eth_ctx->init_q_mask &= ~(1 << qp_id);
+
 	return 0;
 }
 
 int
 ca_eth_dev_start(uint32_t port_id)
 {
+	struct ca_eth_dev_ctx *eth_ctx;
 	struct rte_eth_link link;
 	int ret;
 
 	CA_INFO("Starting device %u", port_id);
+
+	eth_ctx = ca_eth_dev_ctx_get(port_id);
+	if (eth_ctx == NULL) {
+		CA_ERR("Could not get ethdev context: %d.", port_id);
+		return -ENODEV;
+	}
+
+	if (!eth_ctx->is_configured) {
+		CA_ERR("Ethdev not configured: %d.", port_id);
+		return -EINVAL;
+	}
+
+	if (eth_ctx->is_started) {
+		CA_ERR("Ethdev already started: %d.", port_id);
+		return -EINVAL;
+	}
+
+	if (eth_ctx->nb_queue != rte_popcount64(eth_ctx->init_q_mask)) {
+		CA_ERR("Not all queues initialized: %d.", port_id);
+		return -EINVAL;
+	}
 
 	ret = rte_eth_promiscuous_enable(port_id);
 	if (ret) {
@@ -265,6 +366,8 @@ ca_eth_dev_start(uint32_t port_id)
 		goto eth_dev_close;
 	}
 
+	eth_ctx->is_started = true;
+
 	return 0;
 
 eth_dev_close:
@@ -277,11 +380,26 @@ eth_dev_close:
 int
 ca_eth_dev_stop(uint32_t dev_id)
 {
+	struct ca_eth_dev_ctx *eth_ctx;
+
 	CA_INFO("Stopping device %u", dev_id);
+
+	eth_ctx = ca_eth_dev_ctx_get(dev_id);
+	if (eth_ctx == NULL) {
+		CA_ERR("Could not get ethdev context: %d.", dev_id);
+		return -ENODEV;
+	}
+
+	if (!eth_ctx->is_started) {
+		CA_ERR("Ethdev not started: %d.", dev_id);
+		return -EINVAL;
+	}
 
 	ca_eth_flow_clear(dev_id);
 
 	rte_eth_dev_stop(dev_id);
+
+	eth_ctx->is_started = false;
 
 	return 0;
 }

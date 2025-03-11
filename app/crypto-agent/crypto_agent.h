@@ -27,6 +27,9 @@
 #define CA_MAX_LCORE          24
 #define CA_MAX_PAYLOAD_SIZE   5120
 
+DAO_STATIC_ASSERT(CA_MAX_ETH_DEV <= RTE_MAX_ETHPORTS);
+DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= RTE_MAX_QUEUES_PER_PORT);
+
 /* Log type */
 #define RTE_LOGTYPE_AGENT        RTE_LOGTYPE_USER1
 #define CA_INFO(fmt, args...)    RTE_LOG(INFO, AGENT, fmt "\n", ##args)
@@ -35,10 +38,15 @@
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
 
 struct ca_eth_dev_ctx {
+	bool is_configured;
+	bool is_started;
 	uint16_t port_id;
 	uint16_t nb_queue;
+	uint64_t init_q_mask;
 	struct pending_queue cpt_pq[CA_MAX_ETH_QUEUE];
 };
+
+DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= 64);
 
 struct ca_global_ctx {
 	uint8_t cryptodev_ids[RTE_CRYPTO_MAX_DEVS];
@@ -53,5 +61,7 @@ struct lcore_conf {
 	uint16_t nb_pq;
 	struct pending_queue *pq[CA_MAX_QUEUE_PER_CORE];
 } __rte_cache_aligned;
+
+struct ca_eth_dev_ctx *ca_eth_dev_ctx_get(uint16_t port_id);
 
 #endif /* __CRYPTO_AGENT_H__ */
