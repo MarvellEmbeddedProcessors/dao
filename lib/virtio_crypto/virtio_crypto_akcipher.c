@@ -72,40 +72,80 @@ virtio_crypto_asym_rsa_der_to_xform(uint8_t *der, size_t der_len,
 	if (len < 0)
 		return len;
 
+	if (n[0] == 0) {
+		nlen--;
+		n++;
+	}
+
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &e, &elen);
 	if (len < 0)
 		return len;
+
+	if (e[0] == 0) {
+		elen--;
+		e++;
+	}
 
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &d, &dlen);
 	if (len < 0)
 		return len;
 
+	if (d[0] == 0) {
+		dlen--;
+		d++;
+	}
+
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &p, &plen);
 	if (len < 0)
 		return len;
+
+	if (p[0] == 0) {
+		plen--;
+		p++;
+	}
 
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &q, &qlen);
 	if (len < 0)
 		return len;
 
+	if (q[0] == 0) {
+		qlen--;
+		q++;
+	}
+
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &dp, &dplen);
 	if (len < 0)
 		return len;
+
+	if (dp[0] == 0) {
+		dplen--;
+		dp++;
+	}
 
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &dq, &dqlen);
 	if (len < 0)
 		return len;
 
+	if (dq[0] == 0) {
+		dqlen--;
+		dq++;
+	}
+
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &qinv, &qinvlen);
 	if (len < 0)
 		return len;
+
+	if (qinv[0] == 0) {
+		qinvlen--;
+		qinv++;
+	}
 
 	xform->rsa.n.data = n;
 	xform->rsa.n.length = nlen;
@@ -159,13 +199,23 @@ virtio_crypto_asym_rsa_public_der_to_xform(uint8_t *der, size_t der_len,
 	if (len < 0)
 		return len;
 
+	if (n[0] == 0) {
+		nlen--;
+		n++;
+	}
+
 	tlv = tlv + len;
 	len = tlv_decode(tlv, 0x02, &e, &elen);
 	if (len < 0)
 		return len;
 
-	xform->rsa.n.data = ++n;
-	xform->rsa.n.length = nlen - 1;
+	if (e[0] == 0) {
+		elen--;
+		e++;
+	}
+
+	xform->rsa.n.data = n;
+	xform->rsa.n.length = nlen;
 	xform->rsa.e.data = e;
 	xform->rsa.e.length = elen;
 
