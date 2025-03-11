@@ -32,6 +32,8 @@ struct __rte_packed __dao_lc_resp_sym {
 	uint8_t rptr[];
 };
 
+DAO_STATIC_ASSERT(sizeof(struct __dao_lc_req_sym) == sizeof(struct __dao_lc_resp_sym));
+
 struct __rte_packed __dao_lc_req_asym {
 	struct __dao_lc_hdr hdr;
 	uint32_t rsvd_align;
