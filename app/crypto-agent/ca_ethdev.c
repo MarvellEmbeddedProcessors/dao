@@ -131,6 +131,12 @@ ca_eth_lcore_map_init(void)
 	return 0;
 }
 
+void
+ca_eth_lcore_map_fini(void)
+{
+	memset(eth_map, 0, sizeof(eth_map));
+}
+
 static int
 ca_eth_lcore_map_pq_save(uint8_t port_id, uint16_t queue_id, struct pending_queue *pq)
 {

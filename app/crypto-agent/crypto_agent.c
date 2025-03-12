@@ -447,11 +447,12 @@ card_init(struct dao_card_config *config)
 	ret = crypto_devs_init(config->crypto_nb_desc);
 	if (ret) {
 		CA_ERR("Could not initialize crypto devices");
-		goto eal_cleanup;
+		goto map_fini;
 	}
 
 	return 0;
-
+map_fini:
+	ca_eth_lcore_map_fini();
 eal_cleanup:
 	rte_eal_cleanup();
 
@@ -463,6 +464,7 @@ card_fini(void)
 {
 	CA_INFO("Cleaning up Dao card");
 	crypto_devs_fini();
+	ca_eth_lcore_map_fini();
 	rte_eal_cleanup();
 }
 
