@@ -24,6 +24,12 @@ static struct ca_global_ctx ca_glb_ctx;
 
 static struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
+struct dao_card_config {
+	int argc;
+	char **argv;
+	uint32_t crypto_nb_desc;
+};
+
 static void
 signal_handler(int signum)
 {
@@ -167,12 +173,12 @@ eth_devs_validate(void)
 }
 
 static int
-crypto_devs_init(struct ca_dev_config *dev_config)
+crypto_devs_init(uint32_t nb_desc)
 {
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	struct rte_cryptodev_qp_conf qp_conf;
-	uint16_t i, dev_id, nb_desc, qp_id;
 	struct rte_cryptodev_config conf;
+	uint16_t i, dev_id, qp_id;
 	int ret;
 
 	/* Using only first device. */
@@ -181,7 +187,7 @@ crypto_devs_init(struct ca_dev_config *dev_config)
 	CA_INFO("Initializing cryptodev: %d", dev_id);
 
 	/* Update nb_desc to next power of 2 to aid in pending queue checks */
-	nb_desc = rte_align32pow2(dev_config->crypto.nb_desc);
+	nb_desc = rte_align32pow2(nb_desc);
 
 	if (nb_desc < CA_CPT_MIN_QUEUE_DEPTH) {
 		CA_INFO("Using minimum queue depth: %d", nb_desc);
@@ -409,46 +415,82 @@ worker_thread(__rte_unused void *arg)
 	return 0;
 }
 
+static int
+card_init(struct dao_card_config *config)
+{
+	int ret;
+
+	ret = rte_eal_init(config->argc, config->argv);
+	if (ret < 0) {
+		CA_ERR("Invalid EAL parameters");
+		return ret;
+	}
+
+	ret = crypto_devs_validate();
+	if (ret) {
+		CA_ERR("Could not validate crypto devices");
+		goto eal_cleanup;
+	}
+
+	ret = eth_devs_validate();
+	if (ret) {
+		CA_ERR("Could not validate ethernet devices");
+		goto eal_cleanup;
+	}
+
+	ret = ca_eth_lcore_map_init();
+	if (ret) {
+		CA_ERR("Could not initialize lcore map");
+		goto eal_cleanup;
+	}
+
+	ret = crypto_devs_init(config->crypto_nb_desc);
+	if (ret) {
+		CA_ERR("Could not initialize crypto devices");
+		goto eal_cleanup;
+	}
+
+	return 0;
+
+eal_cleanup:
+	rte_eal_cleanup();
+
+	return ret;
+}
+
+static void
+card_fini(void)
+{
+	CA_INFO("Cleaning up Dao card");
+	crypto_devs_fini();
+	rte_eal_cleanup();
+}
+
 int
 main(int argc, char **argv)
 {
 	struct ca_dev_config dev_config;
 	int rc, i;
 
-	rc = rte_eal_init(argc, argv);
-	if (rc < 0)
-		rte_exit(EXIT_FAILURE, "Invalid EAL parameters\n");
-
-	argc -= rc;
-	argv += rc;
+	struct dao_card_config config = {
+		.argc = argc,
+		.argv = argv,
+		.crypto_nb_desc = CA_CPT_MIN_QUEUE_DEPTH,
+	};
 
 	force_quit = false;
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
 
-	rc = crypto_devs_validate();
+	rc = card_init(&config);
 	if (rc) {
-		CA_ERR("Could not validate crypto devices");
-		goto eal_cleanup;
-	}
-
-	rc = eth_devs_validate();
-	if (rc) {
-		CA_ERR("Could not validate ethernet devices");
-		goto eal_cleanup;
-	}
-
-	rc = ca_eth_lcore_map_init();
-	if (rc) {
-		CA_ERR("Could not initialize lcore map");
-		goto eal_cleanup;
+		CA_ERR("Could not initialize card");
+		return rc;
 	}
 
 	memset(&dev_config, 0, sizeof(dev_config));
 
 	/* Wait for command to enable crypto & eth? */
-
-	dev_config.crypto.nb_desc = CA_CPT_MIN_QUEUE_DEPTH;
 	dev_config.eth.nb_devs = ca_glb_ctx.nb_valid_ethdevs;
 
 	for (i = 0; i < dev_config.eth.nb_devs; i++)
@@ -456,16 +498,10 @@ main(int argc, char **argv)
 
 	dev_config.max_payload_size = CA_MAX_PAYLOAD_SIZE;
 
-	rc = crypto_devs_init(&dev_config);
-	if (rc) {
-		CA_ERR("Could not initialize crypto devices");
-		goto eal_cleanup;
-	}
-
 	rc = eth_devs_init(&dev_config);
 	if (rc) {
 		CA_ERR("Could not initialize ethernet devices");
-		goto crypto_devs_fini;
+		goto card_fini;
 	}
 
 	/* Launch on every worker lcore */
@@ -475,12 +511,7 @@ main(int argc, char **argv)
 	rte_eal_mp_wait_lcore();
 
 	eth_devs_fini();
-
-crypto_devs_fini:
-	crypto_devs_fini();
-
-eal_cleanup:
-	rte_eal_cleanup();
-
-	return 0;
+card_fini:
+	card_fini();
+	return rc;
 }
