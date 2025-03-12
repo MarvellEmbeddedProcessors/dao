@@ -40,6 +40,7 @@ DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= RTE_MAX_QUEUES_PER_PORT);
 struct ca_eth_dev_ctx {
 	bool is_configured;
 	bool is_started;
+	uint16_t mtu;
 	uint16_t port_id;
 	uint16_t nb_queue;
 	uint16_t nb_queue_avail;

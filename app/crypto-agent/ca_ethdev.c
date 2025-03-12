@@ -10,7 +10,9 @@
 #include "ca_ethdev.h"
 #include "crypto_agent.h"
 
-#define CA_ETH_RSS_KEY_LEN 48
+#define CA_ETH_RSS_KEY_LEN   48
+#define CNXK_NIX_L2_OVERHEAD 26
+#define CNXK_NIX_MIN_MTU     64
 
 static struct ca_eth_dev_queue_lcore_map eth_map[CA_MAX_LCORE];
 
@@ -267,7 +269,11 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 
 	memset(&port_conf, 0, sizeof(port_conf));
 
-	port_conf.rxmode.mtu = 9000;
+	/*
+	 * Set a low MTU value during port config. Track the buffer sizes requested and update the
+	 * value. After device is started, set to the expected value.
+	 */
+	port_conf.rxmode.mtu = CNXK_NIX_MIN_MTU;
 	port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_RSS;
 	port_conf.txmode.mq_mode = RTE_ETH_MQ_TX_NONE;
 	port_conf.txmode.offloads = RTE_ETH_TX_OFFLOAD_MBUF_FAST_FREE;
@@ -291,6 +297,7 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 		ports_eth_addr.addr_bytes[2], ports_eth_addr.addr_bytes[3],
 		ports_eth_addr.addr_bytes[4], ports_eth_addr.addr_bytes[5]);
 
+	eth_ctx->mtu = port_conf.rxmode.mtu;
 	eth_ctx->is_configured = true;
 
 	return 0;
@@ -396,6 +403,7 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 	struct rte_eth_rxconf rx_conf;
 	struct rte_eth_txconf tx_conf;
 	struct rte_mempool *mp;
+	uint32_t buf_len;
 	int ret;
 
 	CA_INFO("Configuring QP: dev_id %u, qp_id %u", conf->dev_id, conf->qp_id);
@@ -440,8 +448,9 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		return ret;
 	}
 
-	mp = rte_pktmbuf_pool_create(name, conf->nb_desc, 256, 0, conf->max_seg_size,
-				     SOCKET_ID_ANY);
+	buf_len = conf->max_seg_size + RTE_PKTMBUF_HEADROOM + CNXK_NIX_L2_OVERHEAD;
+
+	mp = rte_pktmbuf_pool_create(name, conf->nb_desc, 256, 0, buf_len, SOCKET_ID_ANY);
 	if (mp == NULL) {
 		CA_ERR("Could not create mempool for ethdev: %u, q: %u", conf->dev_id, conf->qp_id);
 		return -ENOMEM;
@@ -476,6 +485,8 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		CA_ERR("Could not save PQ: %d, %d.", conf->dev_id, conf->qp_id);
 		goto mp_free;
 	}
+
+	eth_ctx->mtu = RTE_MAX(eth_ctx->mtu, conf->max_seg_size);
 
 	eth_ctx->init_q_mask |= (1 << conf->qp_id);
 
@@ -591,6 +602,19 @@ ca_eth_dev_start(uint32_t port_id)
 		goto eth_dev_close;
 	}
 
+	/*
+	 * Update the MTU to allow larger sized packets. CNXK driver internally enables scatter
+	 * offload feature based on MTU and buffer pool of first queue. Since queues can be
+	 * configured indepedently and the host ensures that bigger sized packets are not send,
+	 * update the HW MTU to allow larger sized packets. Doing this after device start to skip
+	 * the additional checks in the driver.
+	 */
+	ret = rte_eth_dev_set_mtu(port_id, eth_ctx->mtu);
+	if (ret) {
+		CA_ERR("Could not set MTU: %d", port_id);
+		goto eth_dev_close;
+	}
+
 	eth_ctx->is_started = true;
 
 	return 0;
@@ -606,6 +630,7 @@ int
 ca_eth_dev_stop(uint32_t dev_id)
 {
 	struct ca_eth_dev_ctx *eth_ctx;
+	int ret;
 
 	CA_INFO("Stopping device %u", dev_id);
 
@@ -623,6 +648,11 @@ ca_eth_dev_stop(uint32_t dev_id)
 	ca_eth_flow_clear(dev_id);
 
 	rte_eth_dev_stop(dev_id);
+
+	/* Restore min value */
+	ret = rte_eth_dev_set_mtu(dev_id, CNXK_NIX_MIN_MTU);
+	if (ret)
+		CA_ERR("Could not set MTU: %d", dev_id);
 
 	eth_ctx->is_started = false;
 
