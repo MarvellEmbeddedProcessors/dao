@@ -19,8 +19,6 @@
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 
-#define CPT_DEBUG_ENABLE
-
 #define CA_ETHDEV_TX_BURST 64
 
 static inline void

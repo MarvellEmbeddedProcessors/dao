@@ -22,3 +22,8 @@ if get_option('default_library') == 'shared' and not get_option('prefer_static')
 	dpdk_libdir = libdpdk_dep.get_pkgconfig_variable('libdir')
 	ldflags += ['-L' + dpdk_libdir, '-lrte_crypto_cnxk']
 endif
+
+if get_option('buildtype').contains('debug')
+	cflags += [ '-DCA_DEBUG_ENABLE' ]
+	cflags += [ '-DCPT_DEBUG_ENABLE' ]
+endif
