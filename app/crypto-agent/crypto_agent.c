@@ -109,7 +109,7 @@ crypto_devs_validate(void)
 static int
 eth_devs_validate(void)
 {
-	uint16_t eth_dev_count, dev_id, nb_valid_devs = 0;
+	uint16_t eth_dev_count, dev_id, nb_queue_avail, nb_valid_devs = 0;
 	int ret;
 
 	eth_dev_count = rte_eth_dev_count_avail();
@@ -135,9 +135,12 @@ eth_devs_validate(void)
 		if ((strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME_CN9K) == 0) ||
 		    (strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME_CN10K) == 0)) {
 			/* Valid device found. */
+
+			nb_queue_avail =
+				RTE_MIN(ethdev_info.max_rx_queues, ethdev_info.max_tx_queues);
+			nb_queue_avail = RTE_MIN(nb_queue_avail, CA_MAX_ETH_QUEUE);
+			ca_glb_ctx.eth_ctx[nb_valid_devs].nb_queue_avail = nb_queue_avail;
 			ca_glb_ctx.eth_ctx[nb_valid_devs].port_id = dev_id;
-			ca_glb_ctx.eth_ctx[nb_valid_devs].nb_queue_avail =
-				RTE_MIN(ethdev_info.max_rx_queues, CA_MAX_ETH_QUEUE);
 			nb_valid_devs++;
 		}
 
@@ -263,9 +266,7 @@ eth_devs_init(struct ca_dev_config *dev_config)
 	int ret;
 
 	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		ca_glb_ctx.eth_ctx[i].nb_queue = dev_config->eth.nb_queue[i];
-
-		nb_queue = ca_glb_ctx.eth_ctx[i].nb_queue;
+		nb_queue = dev_config->eth.nb_queue[i];
 		port_id = ca_glb_ctx.eth_ctx[i].port_id;
 
 		ret = ca_eth_dev_init(port_id, nb_queue);

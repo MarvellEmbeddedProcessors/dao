@@ -232,7 +232,6 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 {
 	struct rte_ether_addr ports_eth_addr;
 	struct rte_eth_rss_conf *rss_conf;
-	struct rte_eth_dev_info dev_info;
 	struct ca_eth_dev_ctx *eth_ctx;
 	struct rte_eth_conf port_conf;
 	int ret;
@@ -250,20 +249,9 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 	rss_conf->rss_key = NULL;
 	rss_conf->rss_key_len = 0;
 
-	memset(&dev_info, 0, sizeof(dev_info));
-	ret = rte_eth_dev_info_get(port_id, &dev_info);
-	if (ret) {
-		CA_ERR("Could not get ethdev info: %d.", port_id);
-		return ret;
-	}
-
-	if (dev_info.max_rx_queues < nb_queue) {
-		CA_ERR("Requested queues %d > max rx queues %d", nb_queue, dev_info.max_rx_queues);
-		return -EINVAL;
-	}
-
-	if (dev_info.max_tx_queues < nb_queue) {
-		CA_ERR("Requested queues %d > max tx queues %d", nb_queue, dev_info.max_tx_queues);
+	if (eth_ctx->nb_queue_avail < nb_queue) {
+		CA_ERR("Requested queues %d > available queues %d", nb_queue,
+		       eth_ctx->nb_queue_avail);
 		return -EINVAL;
 	}
 
@@ -298,6 +286,7 @@ ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue)
 		ports_eth_addr.addr_bytes[4], ports_eth_addr.addr_bytes[5]);
 
 	eth_ctx->mtu = port_conf.rxmode.mtu;
+	eth_ctx->nb_queue = nb_queue;
 	eth_ctx->is_configured = true;
 
 	return 0;
