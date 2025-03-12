@@ -136,9 +136,9 @@ eth_devs_validate(void)
 		    (strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME_CN10K) == 0)) {
 			/* Valid device found. */
 			ca_glb_ctx.eth_ctx[nb_valid_devs].port_id = dev_id;
+			ca_glb_ctx.eth_ctx[nb_valid_devs].nb_queue_avail =
+				RTE_MIN(ethdev_info.max_rx_queues, CA_MAX_ETH_QUEUE);
 			nb_valid_devs++;
-			CA_INFO("Eth dev %u, max rx queues: %d", ca_glb_ctx.eth_ctx[dev_id].port_id,
-				ethdev_info.max_rx_queues);
 		}
 
 		if (ethdev_info.min_rx_bufsize < ETH_DEV_MIN_BUF_LEN ||
@@ -167,8 +167,8 @@ static int
 crypto_devs_init(struct ca_dev_config *dev_config)
 {
 	struct rte_cryptodev_qp_conf qp_conf;
+	uint16_t i, dev_id, nb_desc, qp_id;
 	struct rte_cryptodev_config conf;
-	uint16_t i, dev_id, nb_desc;
 	int ret;
 
 	/* Using only first device. */
@@ -211,13 +211,21 @@ crypto_devs_init(struct ca_dev_config *dev_config)
 		return ret;
 	}
 
-	for (i = 0; i < conf.nb_queue_pairs; i++) {
-		ca_glb_ctx.cpt_qptr[i] = rte_pmd_cnxk_crypto_qptr_get(dev_id, i);
+	qp_id = 0;
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		if (rte_lcore_is_enabled(i) == 0)
+			continue;
+
+		ca_glb_ctx.cpt_qptr[i] = rte_pmd_cnxk_crypto_qptr_get(dev_id, qp_id);
 		if (ca_glb_ctx.cpt_qptr[i] == NULL) {
-			CA_ERR("Could not get CPT QPTR for [cryptodev: %d, qp: %d].", dev_id, i);
+			CA_ERR("Could not get CPT QPTR for [cryptodev: %d, qp: %d].", dev_id,
+			       qp_id);
 			ret = -ENODEV;
 			goto cryptodev_stop;
 		}
+
+		qp_id++;
 	}
 
 	return 0;
@@ -323,48 +331,64 @@ eth_devs_fini(void)
 }
 
 static int
-eth_cpt_mapping_populate(void)
+worker_thread(__rte_unused void *arg)
 {
-	int i, j, nb_pq, lcore_id;
-	struct pending_queue *pq;
+	struct ca_eth_dev_queue_lcore_map *eth_map;
+	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
+	struct lcore_conf *lconf;
+	int i, lcore_id;
 
-	nb_pq = 0;
-	lcore_id = 0;
+	lcore_id = rte_lcore_id();
 
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		for (j = 0; j < ca_glb_ctx.eth_ctx[i].nb_queue; j++) {
-			pq = &ca_glb_ctx.eth_ctx[i].cpt_pq[j];
+	if (rte_lcore_is_enabled(lcore_id) == 0) {
+		CA_ERR("Lcore %d is not enabled", lcore_id);
+		return -ENODEV;
+	}
 
-			pq->eth_port_id = ca_glb_ctx.eth_ctx[i].port_id;
-			pq->eth_queue_id = j;
+	cpt_qptr = ca_glb_ctx.cpt_qptr[lcore_id];
+	if (cpt_qptr == NULL) {
+		CA_ERR("Could not get CPT QPTR for lcore: %d", lcore_id);
+		return -ENODEV;
+	}
 
-			lcore_conf[lcore_id].cpt_qptr = ca_glb_ctx.cpt_qptr[lcore_id];
-			lcore_conf[lcore_id].pq[nb_pq] = pq;
-			lcore_conf[lcore_id].nb_pq++;
-			nb_pq++;
+	eth_map = ca_eth_lcore_map_get(lcore_id);
+	if (eth_map == NULL) {
+		CA_ERR("Could not get eth map for lcore: %d", lcore_id);
+		return -ENODEV;
+	}
 
-			if (nb_pq == CA_MAX_QUEUE_PER_CORE) {
-				lcore_id++;
-				nb_pq = 0;
-			}
+	/* Prepare lcore conf */
 
-			if (lcore_id == CA_MAX_LCORE)
-				break;
+	lconf = &lcore_conf[lcore_id];
+
+	lconf->nb_pq = eth_map->nb_links;
+	for (i = 0; i < lconf->nb_pq; i++) {
+		lconf->pq[i] = eth_map->link[i].pq;
+		if (lconf->pq[i] == NULL) {
+			CA_ERR("Could not get pending queue for lcore: %d, link: %d", lcore_id, i);
+			return -ENODEV;
+		}
+	}
+
+	/* Start worker thread */
+	CA_ERR("[Lcore: %d] Starting worker thread", lcore_id);
+
+	CA_ERR("[Lcore: %d] No of links: %d", lcore_id, lconf->nb_pq);
+	for (i = 0; i < lconf->nb_pq; i++)
+		CA_ERR("[Lcore: %d] \t\tLink %d: Port %u, Queue %u", lcore_id, i,
+		       lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id);
+
+	while (!force_quit) {
+		if (lconf->nb_pq == 0)
+			continue;
+
+		for (i = 0; i < lconf->nb_pq; i++) {
+			ca_eth_rx(lconf->pq[i], cpt_qptr);
+			ca_cpt_deq(lconf->pq[i]);
 		}
 	}
 
 	return 0;
-}
-
-static void
-eth_cpt_mapping_clear(void)
-{
-	int i;
-
-	for (i = 0; i < CA_MAX_LCORE; i++) {
-		lcore_conf[i].cpt_qptr = NULL;
-		lcore_conf[i].nb_pq = 0;
-	}
 }
 
 int
@@ -396,6 +420,12 @@ main(int argc, char **argv)
 		goto eal_cleanup;
 	}
 
+	rc = ca_eth_lcore_map_init();
+	if (rc) {
+		CA_ERR("Could not initialize lcore map");
+		goto eal_cleanup;
+	}
+
 	memset(&dev_config, 0, sizeof(dev_config));
 
 	/* Wait for command to enable crypto & eth? */
@@ -420,27 +450,12 @@ main(int argc, char **argv)
 		goto crypto_devs_fini;
 	}
 
-	rc = eth_cpt_mapping_populate();
-	if (rc) {
-		CA_ERR("Could not populate eth-cpt mapping");
-		goto eth_devs_fini;
-	}
+	/* Launch on every worker lcore */
+	rte_eal_mp_remote_launch(worker_thread, NULL, SKIP_MAIN);
 
-	while (!force_quit) {
-		struct lcore_conf *lconf;
-		int i;
+	/* Wait for all cores to return */
+	rte_eal_mp_wait_lcore();
 
-		lconf = &lcore_conf[0];
-
-		for (i = 0; i < lconf->nb_pq; i++) {
-			ca_eth_rx(lconf->pq[i], lconf->cpt_qptr);
-			ca_cpt_deq(lconf->pq[i]);
-		}
-	}
-
-	eth_cpt_mapping_clear();
-
-eth_devs_fini:
 	eth_devs_fini();
 
 crypto_devs_fini:

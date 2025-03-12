@@ -42,6 +42,7 @@ struct ca_eth_dev_ctx {
 	bool is_started;
 	uint16_t port_id;
 	uint16_t nb_queue;
+	uint16_t nb_queue_avail;
 	uint64_t init_q_mask;
 	struct pending_queue cpt_pq[CA_MAX_ETH_QUEUE];
 };

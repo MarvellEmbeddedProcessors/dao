@@ -28,6 +28,19 @@ struct dao_lc_eth_qconf {
 	bool out_of_order_delivery_en;
 };
 
+struct ca_eth_dev_queue_lcore_link {
+	uint8_t port_id;
+	uint16_t queue_id;
+	struct pending_queue *pq;
+};
+
+struct ca_eth_dev_queue_lcore_map {
+	uint16_t nb_links;
+	struct ca_eth_dev_queue_lcore_link link[CA_MAX_QUEUE_PER_CORE];
+};
+
+int ca_eth_lcore_map_init(void);
+struct ca_eth_dev_queue_lcore_map *ca_eth_lcore_map_get(uint8_t lcore_id);
 int ca_eth_dev_init(uint32_t port_id, uint32_t nb_queue);
 int ca_eth_dev_fini(uint16_t port_id);
 int ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf);

@@ -12,10 +12,166 @@
 
 #define CA_ETH_RSS_KEY_LEN 48
 
+static struct ca_eth_dev_queue_lcore_map eth_map[CA_MAX_LCORE];
+
 /* Forward declarations */
 
 static void ca_eth_flow_clear(uint8_t port_id);
 static int ca_eth_flow_create(uint8_t port_id);
+
+int
+ca_eth_lcore_map_init(void)
+{
+	uint8_t nb_link_per_lcore, nb_eth_dev, extra_links, nb_link, port_id, nb_lcore;
+	uint16_t queue_id, nb_queue_list[RTE_MAX_ETHPORTS];
+	uint8_t port_id_list[RTE_MAX_ETHPORTS];
+	struct ca_eth_dev_ctx *eth_ctx;
+	uint16_t nb_tot_queue, i, j;
+
+	nb_eth_dev = 0;
+	nb_tot_queue = 0;
+
+	nb_lcore = rte_lcore_count();
+	nb_lcore = RTE_MIN(nb_lcore, CA_MAX_LCORE);
+	if (nb_lcore == 0) {
+		CA_ERR("No lcore found.");
+		return -ENODEV;
+	}
+
+	/* Exclude main lcore */
+	nb_lcore -= 1;
+
+	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
+		eth_ctx = ca_eth_dev_ctx_get(i);
+		if (eth_ctx == NULL)
+			continue;
+
+		/* Found valid dev */
+		port_id_list[nb_eth_dev] = eth_ctx->port_id;
+		nb_queue_list[nb_eth_dev] = eth_ctx->nb_queue_avail;
+		nb_eth_dev++;
+		nb_tot_queue += eth_ctx->nb_queue_avail;
+	}
+
+	if (nb_eth_dev == 0) {
+		CA_ERR("No valid ethdev found.");
+		return -ENODEV;
+	}
+
+	if (nb_tot_queue == 0) {
+		CA_ERR("No valid ethdev queue found.");
+		return -ENODEV;
+	}
+
+	nb_link_per_lcore = nb_tot_queue / nb_lcore;
+	extra_links = nb_tot_queue % nb_lcore;
+
+	memset(eth_map, 0, sizeof(eth_map));
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		if (rte_lcore_is_enabled(i) == 0)
+			continue;
+		if (rte_get_main_lcore() == i)
+			continue;
+
+		eth_map[i].nb_links = nb_link_per_lcore;
+
+		/* Give one extra link each to first 'extra_links' lcore. */
+		if (extra_links) {
+			eth_map[i].nb_links++;
+			extra_links--;
+		}
+	}
+
+	port_id = 0;
+	queue_id = 0;
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		if (eth_map[i].nb_links == 0)
+			continue;
+
+		nb_link = 0;
+
+		while (nb_link < eth_map[i].nb_links) {
+			eth_map[i].link[nb_link].port_id = port_id_list[port_id];
+			eth_map[i].link[nb_link].queue_id = queue_id;
+
+			nb_link++;
+			queue_id++;
+
+			if (queue_id == nb_queue_list[port_id]) {
+				queue_id = 0;
+				port_id++;
+			}
+		}
+	}
+
+	/* Print the eth queue map */
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		if (rte_get_main_lcore() == i) {
+			CA_INFO("Lcore %u: Main lcore", i);
+			continue;
+		}
+
+		if (rte_lcore_is_enabled(i) == 0) {
+			CA_INFO("Lcore %u: Not enabled", i);
+			continue;
+		}
+
+		CA_INFO("Lcore %u: %u links", i, eth_map[i].nb_links);
+
+		for (j = 0; j < eth_map[i].nb_links; j++) {
+			CA_INFO("\t\tPort %u, Queue %u", eth_map[i].link[j].port_id,
+				eth_map[i].link[j].queue_id);
+		}
+	}
+
+	return 0;
+}
+
+static int
+ca_eth_lcore_map_pq_save(uint8_t port_id, uint16_t queue_id, struct pending_queue *pq)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		for (j = 0; j < eth_map[i].nb_links; j++) {
+			if (eth_map[i].link[j].port_id == port_id &&
+			    eth_map[i].link[j].queue_id == queue_id) {
+				eth_map[i].link[j].pq = pq;
+				pq->eth_port_id = port_id;
+				pq->eth_queue_id = queue_id;
+				return 0;
+			}
+		}
+	}
+
+	return -ENODEV;
+}
+
+static void
+ca_eth_lcore_map_pq_remove(uint8_t port_id, uint16_t queue_id)
+{
+	uint16_t i, j;
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		for (j = 0; j < eth_map[i].nb_links; j++) {
+			if (eth_map[i].link[j].port_id == port_id &&
+			    eth_map[i].link[j].queue_id == queue_id) {
+				eth_map[i].link[j].pq = NULL;
+			}
+		}
+	}
+}
+
+struct ca_eth_dev_queue_lcore_map *
+ca_eth_lcore_map_get(uint8_t lcore_id)
+{
+	if (lcore_id >= CA_MAX_LCORE)
+		return NULL;
+
+	return &eth_map[lcore_id];
+}
 
 static uint32_t
 rotate_bytes(uint32_t value)
@@ -315,6 +471,12 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		goto mp_free;
 	}
 
+	ret = ca_eth_lcore_map_pq_save(conf->dev_id, conf->qp_id, &eth_ctx->cpt_pq[conf->qp_id]);
+	if (ret) {
+		CA_ERR("Could not save PQ: %d, %d.", conf->dev_id, conf->qp_id);
+		goto mp_free;
+	}
+
 	eth_ctx->init_q_mask |= (1 << conf->qp_id);
 
 	return 0;
@@ -355,11 +517,13 @@ ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 		return ret;
 	}
 
-	rte_mempool_free(rte_mempool_lookup(name));
+	eth_ctx->init_q_mask &= ~(1 << qp_id);
+
+	ca_eth_lcore_map_pq_remove(dev_id, qp_id);
 
 	cpt_pq_destroy(eth_ctx, qp_id);
 
-	eth_ctx->init_q_mask &= ~(1 << qp_id);
+	rte_mempool_free(rte_mempool_lookup(name));
 
 	return 0;
 }
