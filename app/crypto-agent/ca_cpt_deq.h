@@ -75,16 +75,15 @@ rlen_set:
 	mb->data_len = pkt_len;
 }
 
-static inline void
+static inline uint16_t
 ca_cpt_deq(struct pending_queue *pq)
 {
 	struct rte_mbuf *mb[CA_ETHDEV_TX_BURST];
 	struct cpt_inflight_req *infl_req;
+	uint16_t nb_pending, i, nb_tx;
 	struct dao_eth_trs_pkt *req;
 	union dao_cpt_res_s res;
-	uint16_t nb_pending, i;
 	uint64_t head, tail;
-	int nb_tx;
 
 	const uint64_t pq_mask = pq->pq_mask;
 
@@ -93,7 +92,7 @@ ca_cpt_deq(struct pending_queue *pq)
 
 	nb_pending = pending_queue_infl_cnt(head, tail, pq_mask);
 	if (nb_pending == 0)
-		return;
+		return 0;
 
 	nb_pending = RTE_MIN(nb_pending, CA_ETHDEV_TX_BURST);
 
@@ -110,7 +109,7 @@ ca_cpt_deq(struct pending_queue *pq)
 			}
 
 			if (unlikely(i == 0))
-				return;
+				return 0;
 			break;
 		}
 
@@ -139,9 +138,9 @@ ca_cpt_deq(struct pending_queue *pq)
 		CA_ERR("Could not transmit all packets");
 #endif /* CA_DEBUG_ENABLE */
 
-	RTE_SET_USED(nb_tx);
-
 	pq->tail = tail;
+
+	return nb_tx;
 }
 
 #endif /* __CA_CPT_DEQ_H__ */

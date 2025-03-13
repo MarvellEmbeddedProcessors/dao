@@ -33,15 +33,12 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	struct __dao_lc_req_sym *sym;
 	struct dao_eth_trs_pkt *req;
 	union cpt_inst_w4 w4;
-	uint64_t head, tail;
+	uint64_t head;
 	uint16_t i;
 
 	const uint64_t pq_mask = pq->pq_mask;
 
 	head = pq->head;
-	tail = pq->tail;
-
-	RTE_SET_USED(tail);
 
 	nb_cpt_bypass = 0;
 	for (pkt_id = 0; pkt_id < nb_pkts; pkt_id++) {
@@ -170,11 +167,12 @@ periodic_print(void)
 }
 #endif /* CA_DEBUG_ENABLE_PERIODIC_PRINT */
 
-static inline void
-ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
+static inline uint16_t
+ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
+	  uint16_t nb_cpt_avail)
 {
+	uint16_t nb_rx, port_id, queue_id, nb_pq_avail;
 	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
-	uint16_t nb_rx, port_id, queue_id;
 
 #ifdef CA_DEBUG_ENABLE_PERIODIC_PRINT
 	periodic_print();
@@ -183,7 +181,14 @@ ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 	port_id = pq->eth_port_id;
 	queue_id = pq->eth_queue_id;
 
-	nb_rx = rte_eth_rx_burst(port_id, queue_id, mb, CA_ETHDEV_RX_BURST);
+	nb_pq_avail = pending_queue_free_cnt(pq->head, pq->tail, pq->pq_mask);
+
+	nb_rx = RTE_MIN(nb_pq_avail, nb_cpt_avail);
+	nb_rx = RTE_MIN(nb_rx, CA_ETHDEV_RX_BURST);
+	if (unlikely(nb_rx == 0))
+		return 0;
+
+	nb_rx = rte_eth_rx_burst(port_id, queue_id, mb, nb_rx);
 	if (nb_rx) {
 		CA_INFO("Received %u packets on port %u, queue: %u", nb_rx, port_id, queue_id);
 #ifdef CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT
@@ -193,6 +198,8 @@ ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 #endif /* CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT */
 		process_pkts(mb, nb_rx, pq, cpt_qptr);
 	}
+
+	return nb_rx;
 }
 
 #endif /* __CA_ETH_RX_H__ */

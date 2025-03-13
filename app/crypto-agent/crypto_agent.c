@@ -169,6 +169,7 @@ eth_devs_validate(void)
 static int
 crypto_devs_init(struct ca_dev_config *dev_config)
 {
+	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	struct rte_cryptodev_qp_conf qp_conf;
 	uint16_t i, dev_id, nb_desc, qp_id;
 	struct rte_cryptodev_config conf;
@@ -220,13 +221,16 @@ crypto_devs_init(struct ca_dev_config *dev_config)
 		if (rte_lcore_is_enabled(i) == 0)
 			continue;
 
-		ca_glb_ctx.cpt_qptr[i] = rte_pmd_cnxk_crypto_qptr_get(dev_id, qp_id);
-		if (ca_glb_ctx.cpt_qptr[i] == NULL) {
+		cpt_qptr = rte_pmd_cnxk_crypto_qptr_get(dev_id, qp_id);
+		if (cpt_qptr == NULL) {
 			CA_ERR("Could not get CPT QPTR for [cryptodev: %d, qp: %d].", dev_id,
 			       qp_id);
 			ret = -ENODEV;
 			goto cryptodev_stop;
 		}
+
+		ca_glb_ctx.cryptodev_ctx[i].cpt_qptr = cpt_qptr;
+		ca_glb_ctx.cryptodev_ctx[i].nb_allowed = nb_desc;
 
 		qp_id++;
 	}
@@ -336,6 +340,8 @@ worker_thread(__rte_unused void *arg)
 {
 	struct ca_eth_dev_queue_lcore_map *eth_map;
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
+	struct ca_cryptodev_ctx *cdev_ctx;
+	uint16_t nb_allowed, nb_pkts;
 	struct lcore_conf *lconf;
 	int i, lcore_id;
 
@@ -346,10 +352,18 @@ worker_thread(__rte_unused void *arg)
 		return -ENODEV;
 	}
 
-	cpt_qptr = ca_glb_ctx.cpt_qptr[lcore_id];
+	cdev_ctx = &ca_glb_ctx.cryptodev_ctx[lcore_id];
+
+	cpt_qptr = cdev_ctx->cpt_qptr;
 	if (cpt_qptr == NULL) {
 		CA_ERR("Could not get CPT QPTR for lcore: %d", lcore_id);
 		return -ENODEV;
+	}
+
+	nb_allowed = cdev_ctx->nb_allowed;
+	if (nb_allowed == 0) {
+		CA_ERR("Invalid number of allowed descriptors for lcore: %d", lcore_id);
+		return -EINVAL;
 	}
 
 	eth_map = ca_eth_lcore_map_get(lcore_id);
@@ -384,8 +398,11 @@ worker_thread(__rte_unused void *arg)
 			continue;
 
 		for (i = 0; i < lconf->nb_pq; i++) {
-			ca_eth_rx(lconf->pq[i], cpt_qptr);
-			ca_cpt_deq(lconf->pq[i]);
+			nb_pkts = ca_eth_rx(lconf->pq[i], cpt_qptr, nb_allowed);
+			nb_allowed -= nb_pkts;
+
+			nb_pkts = ca_cpt_deq(lconf->pq[i]);
+			nb_allowed += nb_pkts;
 		}
 	}
 

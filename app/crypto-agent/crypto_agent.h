@@ -50,16 +50,20 @@ struct ca_eth_dev_ctx {
 
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= 64);
 
+struct ca_cryptodev_ctx {
+	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
+	uint32_t nb_allowed;
+};
+
 struct ca_global_ctx {
 	uint8_t cryptodev_ids[RTE_CRYPTO_MAX_DEVS];
 	uint8_t nb_valid_ethdevs;
 	struct ca_eth_dev_ctx eth_ctx[RTE_MAX_ETHPORTS];
 	uint16_t nb_cpt_qp;
-	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr[CA_MAX_LCORE];
+	struct ca_cryptodev_ctx cryptodev_ctx[CA_MAX_LCORE];
 };
 
 struct lcore_conf {
-	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	uint16_t nb_pq;
 	struct pending_queue *pq[CA_MAX_QUEUE_PER_CORE];
 } __rte_cache_aligned;
