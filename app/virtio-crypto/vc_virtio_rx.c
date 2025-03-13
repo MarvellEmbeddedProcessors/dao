@@ -13,11 +13,11 @@ vc_virtio_rx_node_process(struct rte_graph *graph, struct rte_node *node, void *
 	vc_virtio_rx_node_ctx_t *ctx = (vc_virtio_rx_node_ctx_t *)node->ctx;
 	uint16_t nb_cops = 0, next_index, count;
 	struct rte_crypto_op **cops;
-	uint16_t queue, virt_q;
 	uint16_t virtio_devid;
 	uint64_t virt_q_map;
 	uint16_t max_cops;
 	uint16_t q_count;
+	uint16_t queue;
 
 	RTE_SET_USED(objs);
 	RTE_SET_USED(cnt);
@@ -49,9 +49,8 @@ vc_virtio_rx_node_process(struct rte_graph *graph, struct rte_node *node, void *
 			continue;
 		}
 
-		virt_q = (queue << 1);
 		count = RTE_MIN(VC_VIRTIO_RX_BURST_PER_Q, max_cops - nb_cops);
-		count = dao_virtio_crypto_host_rx(virtio_devid, virt_q, &cops[nb_cops], count);
+		count = dao_virtio_crypto_host_rx(virtio_devid, queue, &cops[nb_cops], count);
 
 		nb_cops += count;
 		queue = queue >= 63 ? 0 : queue + 1;
