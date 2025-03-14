@@ -5,6 +5,7 @@ tests = [
 	'bar-rw',
 	'dpi_test',
 	'liquid-crypto-autotest',
+	'liquid-crypto-perf-test',
 	'virtio-extbuf',
 	'flow-offload',
 ]
