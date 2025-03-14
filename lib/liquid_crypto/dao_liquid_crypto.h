@@ -20,6 +20,8 @@
 #define DAO_CRYPTO_MAX_NB_DEV 1
 /** Use DAO_CMD_QP_IDX_INVALID as cmd_qp_idx value to disable command queue altogether. */
 #define DAO_CMD_QP_IDX_INVALID 0xFFFF
+/** Session ID returned as response if the session create request fails */
+#define DAO_LC_SESS_ID_INVALID 0
 
 /**
  * CPT hardware completion codes.
