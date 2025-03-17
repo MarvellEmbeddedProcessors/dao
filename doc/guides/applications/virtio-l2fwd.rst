@@ -51,9 +51,9 @@ handle control commands. Below is sample code to bind DMA VF's to vfio-pci.
    DPI_PF=`lspci -d :a080 | awk -e '{print $1}'`
 
    # Enhance DPI engine FIFO size and MRRS
-   echo 0x10101010 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/eng_fifo_buf
-   echo 512 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/mrrs
-   echo 256 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/mps
+   echo 0x10101010 > /sys/module/octeontx2_dpi/parameters/eng_fifo_buf
+   echo 512 > /sys/module/octeontx2_dpi/parameters/mrrs
+   echo 256 > /sys/module/octeontx2_dpi/parameters/mps
 
    echo $DPI_PF > /sys/bus/pci/devices/$DPI_PF/driver/unbind
    echo octeontx2-dpi > /sys/bus/pci/devices/$DPI_PF/driver_override
@@ -115,6 +115,17 @@ Sample code to bind platform devices to vfio-platform.
            echo "Device $dev_name configured."
        fi
    done
+   echo 1 > /sys/module/vfio_iommu_type1/parameters/allow_unsafe_interrupts
+
+Bind required SDP RVU devices to vfio-pci
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+VirtIO library uses ``RVU SDP devices`` when platform devices are not present.
+
+.. code-block:: bash
+
+   dpdk-devbind.py -b vfio-pci 0002:18:00.0
+   dpdk-devbind.py -b vfio-pci 0002:19:00.0
+
 
 Running the EP firmware application
 -----------------------------------
