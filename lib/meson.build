@@ -6,6 +6,7 @@ libraries = [
 	'eth_transport',
 	'grpc_service/client_card',
 	'grpc_service/client_lc',
+	'grpc_service/server',
 	'liquid_crypto',
 	'portgroup',
 	'vfio',
