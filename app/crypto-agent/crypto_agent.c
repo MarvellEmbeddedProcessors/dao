@@ -22,7 +22,7 @@ static volatile bool force_quit;
 
 static struct ca_global_ctx ca_glb_ctx;
 
-static struct lcore_conf lcore_conf[CA_MAX_LCORE];
+struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
 struct dao_card_config {
 	int argc;
@@ -344,7 +344,6 @@ eth_devs_fini(void)
 static int
 worker_thread(__rte_unused void *arg)
 {
-	struct ca_eth_dev_queue_lcore_map *eth_map;
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	struct ca_cryptodev_ctx *cdev_ctx;
 	uint16_t nb_allowed, nb_pkts;
@@ -372,24 +371,7 @@ worker_thread(__rte_unused void *arg)
 		return -EINVAL;
 	}
 
-	eth_map = ca_eth_lcore_map_get(lcore_id);
-	if (eth_map == NULL) {
-		CA_ERR("Could not get eth map for lcore: %d", lcore_id);
-		return -ENODEV;
-	}
-
-	/* Prepare lcore conf */
-
 	lconf = &lcore_conf[lcore_id];
-
-	lconf->nb_pq = eth_map->nb_links;
-	for (i = 0; i < lconf->nb_pq; i++) {
-		lconf->pq[i] = eth_map->link[i].pq;
-		if (lconf->pq[i] == NULL) {
-			CA_ERR("Could not get pending queue for lcore: %d, link: %d", lcore_id, i);
-			return -ENODEV;
-		}
-	}
 
 	/* Start worker thread */
 	CA_ERR("[Lcore: %d] Starting worker thread", lcore_id);

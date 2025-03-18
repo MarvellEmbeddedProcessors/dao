@@ -15,6 +15,7 @@
 #define CNXK_NIX_MIN_MTU     64
 
 static struct ca_eth_dev_queue_lcore_map eth_map[CA_MAX_LCORE];
+extern struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
 /* Forward declarations */
 
@@ -537,8 +538,11 @@ ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 int
 ca_eth_dev_start(uint32_t port_id)
 {
+	struct ca_eth_dev_queue_lcore_map *eth_map;
 	struct ca_eth_dev_ctx *eth_ctx;
+	struct lcore_conf *lconf;
 	struct rte_eth_link link;
+	unsigned int lcore_id, i;
 	int ret;
 
 	CA_INFO("Starting device %u", port_id);
@@ -611,6 +615,31 @@ ca_eth_dev_start(uint32_t port_id)
 	}
 
 	eth_ctx->is_started = true;
+
+	/* Prepare lcore conf */
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0)
+			continue;
+		if (rte_get_main_lcore() == lcore_id)
+			continue;
+
+		eth_map = ca_eth_lcore_map_get(lcore_id);
+		if (eth_map == NULL) {
+			CA_ERR("Could not get eth map for lcore: %d", lcore_id);
+			return -ENODEV;
+		}
+		lconf = &lcore_conf[lcore_id];
+
+		lconf->nb_pq = eth_map->nb_links;
+		for (i = 0; i < lconf->nb_pq; i++) {
+			lconf->pq[i] = eth_map->link[i].pq;
+			if (lconf->pq[i] == NULL) {
+				CA_ERR("Could not get pending queue for lcore: %d, link: %d",
+				       lcore_id, i);
+				return -ENODEV;
+			}
+		}
+	}
 
 	return 0;
 
