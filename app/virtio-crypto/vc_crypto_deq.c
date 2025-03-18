@@ -20,49 +20,56 @@ vc_cryptodev_deq_node_process(struct rte_graph *graph, struct rte_node *node, vo
 			      uint16_t cnt)
 {
 	vc_cryptodev_deq_node_ctx_t *ctx = (vc_cryptodev_deq_node_ctx_t *)node->ctx;
+	uint16_t devid, queue, q_count, nb_cops = 0, max_cops, count;
 	struct dao_virtio_crypto_buffer *buf;
-	uint16_t devid, queue, nb_cops;
 	struct rte_crypto_op **cops;
 	uint64_t crypto_q_map;
 
 	RTE_SET_USED(objs);
 	RTE_SET_USED(cnt);
 
-	devid = ctx->devid;
-	crypto_q_map = ctx->crypto_q_map;
-	queue = ctx->next_q;
-
-	if (crypto_q_map == 0) {
+	if (ctx->crypto_q_map == 0) {
 		rte_pause();
 		return 0;
 	}
 
-	if (!(crypto_q_map & RTE_BIT64(queue))) {
-		ctx->next_q = queue >= 63 ? 0 : queue + 1;
-		return 0;
-	}
+	devid = ctx->devid;
+	queue = ctx->next_q;
+	crypto_q_map = ctx->crypto_q_map;
+	max_cops = VC_VIRTIO_RX_BURST_MAX;
+	q_count = __builtin_popcountl(crypto_q_map);
 
 	/* Get stream for cops */
-	cops = (struct rte_crypto_op **)rte_node_next_stream_get(graph, node, 1,
-								 VC_CRYPTODEV_DEQ_BURST_MAX);
+	cops = (struct rte_crypto_op **)rte_node_next_stream_get(graph, node, 1, max_cops);
 
-	nb_cops = rte_cryptodev_dequeue_burst(devid, queue, cops, VC_CRYPTODEV_DEQ_BURST_MAX);
+	while (q_count && nb_cops < max_cops) {
+		if (!(crypto_q_map & RTE_BIT64(queue))) {
+			queue = queue >= 63 ? 0 : queue + 1;
+			continue;
+		}
+		count = RTE_MIN(VC_VIRTIO_RX_BURST_PER_Q, max_cops - nb_cops);
 
-	ctx->next_q = queue >= 63 ? 0 : queue + 1;
+		count = rte_cryptodev_dequeue_burst(devid, queue, cops, count);
 
-	/* For the rte_node_next_stream_put() to work, nb_cops should be non zero.
-	 * Since packets are posted in virtio tx for DMA,
-	 * we need to check for DMA completion even if no new packets are there.
-	 * So nb_cops is set to 0xFFFF to check for DMA completion of previous packets.
-	 */
-	if (nb_cops == 0) {
-		nb_cops = 0xFFFF;
-	} else {
+		if (count == 0) {
+			queue = queue >= 63 ? 0 : queue + 1;
+			q_count--;
+			continue;
+		}
+
 		/* Set metadata in first packet to save cryptodev ID & queue */
 		buf = RTE_PTR_SUB(cops[0], offsetof(struct dao_virtio_crypto_buffer, cop));
 		buf->metadata.cdev.qp_id = queue;
-		buf->metadata.cnt = nb_cops;
+		buf->metadata.cnt = count;
+
+		nb_cops += count;
+		queue = queue >= 63 ? 0 : queue + 1;
+		q_count--;
 	}
+	ctx->next_q = queue;
+
+	if (!nb_cops)
+		return 0;
 
 	/* Put cops to next node */
 	rte_node_next_stream_put(graph, node, 1, nb_cops);

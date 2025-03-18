@@ -423,4 +423,15 @@ dao_virtio_cdev_qp_id_get(uint16_t virt_dev_id, uint16_t virt_q_id)
 	return cryptodev->cdev_qp_id_map[virt_q_id];
 }
 
+/**
+ * Checks for DMA completion of previous TX packets and notifies
+ * the service core about the DMA completion status.
+ *
+ * @param devid
+ *    The device ID associated with the virtio crypto device.
+ * @param qid
+ *    The virtio queue ID for which the DMA completion is being checked.
+ */
+void dao_virtio_crypto_tx_desc_dma_completion(uint16_t devid, uint16_t qid);
+
 #endif /* __INCLUDE_DAO_VIRTIO_CRYPTO_H__ */

@@ -41,6 +41,7 @@ struct lcore_vdev_vq_map lcore_vdev_vq_map[RTE_MAX_LCORE];
 
 #define MAX_VIRTIO_RX_PER_LCORE         128
 #define MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE 1
+#define MAX_VIRTIO_TX_DMA_PER_LCORE     128
 
 #define QP_DRAIN_TIMEOUT 100
 
@@ -63,16 +64,23 @@ struct lcore_virtio_rx {
 	struct vc_cryptodev_enq_node_ctx *cryptodev_enq;
 };
 
+struct lcore_virtio_tx_dma {
+	uint16_t virtio_devid;
+	char node_name[RTE_NODE_NAMESIZE];
+	struct vc_virtio_tx_dma_node_ctx *virtio_tx_dma;
+};
+
 /* Lcore conf */
 struct lcore_conf {
 	/* Fast path accessed */
 	uint64_t virt_dev_map;
 	uint16_t virtio_queue_cnt[RTE_CRYPTO_MAX_DEVS];
 
-	uint16_t nb_virtio_rx;
+	uint16_t nb_virtio;
 	struct lcore_virtio_rx virtio_rx[MAX_VIRTIO_RX_PER_LCORE];
 	uint16_t nb_crypto_deq;
 	struct lcore_crypto_deq crypto_deq[MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE];
+	struct lcore_virtio_tx_dma virtio_tx_dma[MAX_VIRTIO_TX_DMA_PER_LCORE];
 
 	bool service_lcore;
 	int dev2mem_id;
@@ -101,6 +109,7 @@ static rte_node_t virtio_rx_nodes[DAO_VIRTIO_DEV_MAX];
 static rte_node_t cryptodev_enq_node;
 static rte_node_t cryptodev_deq_node;
 static rte_node_t virtio_tx_node;
+static rte_node_t virtio_tx_dma_nodes[DAO_VIRTIO_DEV_MAX];
 
 #define MEMPOOL_CACHE_SIZE 512
 
@@ -255,7 +264,7 @@ static int
 init_lcore_virtio_rx(void)
 {
 	uint16_t nb_crypto_deq, cdev_id = vc_cdev_ctx.enabled_primary_cdevs[0];
-	uint16_t virtio_devid, nb_virtio_rx;
+	uint16_t virtio_devid, nb_virtio;
 	uint8_t lcore;
 
 	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; ++virtio_devid) {
@@ -271,12 +280,19 @@ init_lcore_virtio_rx(void)
 					continue;
 			}
 
-			nb_virtio_rx = lcore_conf[lcore].nb_virtio_rx;
+			nb_virtio = lcore_conf[lcore].nb_virtio;
 
-			lcore_conf[lcore].virtio_rx[nb_virtio_rx].virtio_devid = virtio_devid;
-			snprintf(lcore_conf[lcore].virtio_rx[nb_virtio_rx].node_name,
+			lcore_conf[lcore].virtio_rx[nb_virtio].virtio_devid = virtio_devid;
+			snprintf(lcore_conf[lcore].virtio_rx[nb_virtio].node_name,
 				 RTE_NODE_NAMESIZE, "vc_virtio_rx-%u", virtio_devid);
-			lcore_conf[lcore].nb_virtio_rx++;
+
+			/* Virtio-Tx-DMA should be enabled if Virtio-Rx is enabled */
+
+			lcore_conf[lcore].virtio_tx_dma[nb_virtio].virtio_devid = virtio_devid;
+			snprintf(lcore_conf[lcore].virtio_tx_dma[nb_virtio].node_name,
+				 RTE_NODE_NAMESIZE, "vc_virtio_tx_dma-%u", virtio_devid);
+
+			lcore_conf[lcore].nb_virtio++;
 
 			/* If virtio-dev is enabled, then create crypto dequeue nodes as well. */
 
@@ -304,7 +320,7 @@ check_virtio_config(void)
 
 	/* Check if we have enough DMA devices one per lcore */
 	for (lcore = 0; lcore < RTE_MAX_LCORE; lcore++)
-		if (lcore_conf[lcore].nb_virtio_rx)
+		if (lcore_conf[lcore].nb_virtio)
 			nb_lcores++;
 
 	/* Service lcore, control dma device */
@@ -483,7 +499,7 @@ setup_dma_devices(void)
 		qconf = &lcore_conf[lcore_id];
 
 		/* Skip Lcore if not needed */
-		if (!qconf->nb_virtio_rx && !qconf->service_lcore)
+		if (!qconf->nb_virtio && !qconf->service_lcore)
 			continue;
 
 		if (dev2mem_idx == dev2mem_cnt || mem2dev_idx == mem2dev_cnt)
@@ -725,7 +741,7 @@ dump_lcore_info(void)
 			continue;
 
 		qconf = &lcore_conf[lcore_id];
-		if (!qconf->nb_crypto_deq && !qconf->nb_virtio_rx && !qconf->service_lcore)
+		if (!qconf->nb_crypto_deq && !qconf->nb_virtio && !qconf->service_lcore)
 			continue;
 
 		if (qconf->service_lcore) {
@@ -737,7 +753,7 @@ dump_lcore_info(void)
 		fflush(stdout);
 
 		map = 0;
-		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+		for (i = 0; i < qconf->nb_virtio; i++) {
 			virtio_rx = qconf->virtio_rx[i].virtio_rx;
 #ifdef UNSELECT
 			map = virtio_rx->virt_q_map;
@@ -775,6 +791,7 @@ dump_lcore_info(void)
 static void
 clear_lcore_queue_mapping(uint16_t virtio_devid)
 {
+	struct vc_virtio_tx_dma_node_ctx *virtio_tx_dma;
 	struct vc_virtio_rx_node_ctx *virtio_rx;
 	struct lcore_conf *qconf;
 	uint32_t lcore_id;
@@ -786,19 +803,21 @@ clear_lcore_queue_mapping(uint16_t virtio_devid)
 		qconf = &lcore_conf[lcore_id];
 
 		/* Skip Lcore if not needed */
-		if (!qconf->nb_virtio_rx && !qconf->service_lcore)
+		if (!qconf->nb_virtio && !qconf->service_lcore)
 			continue;
 
-		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+		for (i = 0; i < qconf->nb_virtio; i++) {
 			/* Check for matching virtio devid */
 			if (qconf->virtio_rx[i].virtio_devid != virtio_devid)
 				continue;
 
 			/* Clear valid virtio queue map */
 			virtio_rx = qconf->virtio_rx[i].virtio_rx;
+			virtio_tx_dma = qconf->virtio_tx_dma[i].virtio_tx_dma;
 
 			virtio_rx->virt_q_map = 0;
 			virtio_rx->virt_q_count = 0;
+			virtio_tx_dma->virt_q_map = virtio_rx->virt_q_map;
 		}
 
 		if (qconf->nb_crypto_deq) {
@@ -967,10 +986,10 @@ setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 				 virtio_devid, virt_q_count, lcore_id);
 		}
 
-		if (!qconf->nb_virtio_rx)
+		if (!qconf->nb_virtio)
 			continue;
 
-		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+		for (i = 0; i < qconf->nb_virtio; i++) {
 			/* Update only matching contexts */
 			if (qconf->virtio_rx[i].virtio_devid != virtio_devid)
 				continue;
@@ -978,6 +997,7 @@ setup_lcore_queue_mapping(uint16_t virtio_devid, uint16_t virt_q_count)
 			qconf->crypto_deq[0].virtio_tx->cdev_vdev_map = cdev_vdev_q_map;
 			vq_map = lcore_vdev_vq_map[lcore_id].virt_q_map[virtio_devid];
 			qconf->virtio_rx[i].virtio_rx->virt_q_map = vq_map;
+			qconf->virtio_tx_dma[i].virtio_tx_dma->virt_q_map = vq_map;
 
 			if (setup_lcore_cryptodev_qp_config(qconf, vq_map, virtio_devid))
 				return -ENOTSUP;
@@ -1102,6 +1122,16 @@ graph_node_init(void)
 			APP_ERR("Could not update edge info for virtio Rx node\n");
 			return -EINVAL;
 		}
+
+		/* Clone virtio Tx per virtio-dev */
+		snprintf(name, sizeof(name), "%u", virtio_devid);
+		node_reg = vc_virtio_tx_dma_completion_node_get();
+		node = rte_node_clone(node_reg->id, name);
+		if (node == RTE_NODE_ID_INVALID) {
+			APP_ERR("Could not clone virtio Tx DMA node\n");
+			return -EINVAL;
+		}
+		virtio_tx_dma_nodes[virtio_devid] = node;
 	}
 
 	/*
@@ -1349,7 +1379,7 @@ main(int argc, char **argv)
 			continue;
 
 		/* Pick one non FP lcore for misc */
-		if (lcore_conf[lcore_id].nb_virtio_rx == 0 &&
+		if (lcore_conf[lcore_id].nb_virtio == 0 &&
 		    lcore_conf[lcore_id].nb_crypto_deq == 0) {
 			lcore_conf[lcore_id].service_lcore = true;
 			service_lcore_flag = true;
@@ -1398,9 +1428,10 @@ main(int argc, char **argv)
 
 	/* Graph Initialization */
 	nb_patterns = RTE_DIM(default_patterns);
-	node_patterns =
-		malloc((MAX_VIRTIO_RX_PER_LCORE + MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE + nb_patterns) *
-		       sizeof(*node_patterns));
+	node_patterns = malloc((MAX_VIRTIO_RX_PER_LCORE + MAX_VIRTIO_CRYPTO_DEQ_PER_LCORE +
+				nb_patterns + MAX_VIRTIO_TX_DMA_PER_LCORE) *
+			       sizeof(*node_patterns));
+
 	if (!node_patterns)
 		return -ENOMEM;
 	memcpy(node_patterns, default_patterns, nb_patterns * sizeof(*node_patterns));
@@ -1418,7 +1449,7 @@ main(int argc, char **argv)
 		qconf = &lcore_conf[lcore_id];
 
 		/* Skip Lcore if not needed */
-		if (!qconf->nb_virtio_rx && !qconf->nb_crypto_deq && !qconf->service_lcore)
+		if (!qconf->nb_virtio && !qconf->nb_crypto_deq && !qconf->service_lcore)
 			continue;
 
 		qconf->qs_v = qs_v;
@@ -1429,12 +1460,18 @@ main(int argc, char **argv)
 		snprintf(qconf->name, sizeof(qconf->name), "worker_%u", lcore_id);
 
 		/* Add virtio rx node pattern of this lcore */
-		for (i = 0; i < qconf->nb_virtio_rx; i++)
+		for (i = 0; i < qconf->nb_virtio; i++)
 			graph_conf.node_patterns[nb_patterns + i] = qconf->virtio_rx[i].node_name;
 		nb_patterns += i;
 
 		for (i = 0; i < qconf->nb_crypto_deq; i++)
 			graph_conf.node_patterns[nb_patterns + i] = qconf->crypto_deq[i].node_name;
+		nb_patterns += i;
+
+		/* Add virtio Tx DMA node pattern of this lcore */
+		for (i = 0; i < qconf->nb_virtio; i++)
+			graph_conf.node_patterns[nb_patterns + i] =
+				qconf->virtio_tx_dma[i].node_name;
 		nb_patterns += i;
 
 		graph_conf.nb_node_patterns = nb_patterns;
@@ -1449,7 +1486,7 @@ main(int argc, char **argv)
 		if (qconf->graph == NULL)
 			rte_exit(EXIT_FAILURE, "Could not lookup graph: %s\n", qconf->name);
 
-		for (i = 0; i < qconf->nb_virtio_rx; i++) {
+		for (i = 0; i < qconf->nb_virtio; i++) {
 			devid = qconf->virtio_rx[i].virtio_devid;
 
 			/* Virtio Rx ctx */
@@ -1466,12 +1503,19 @@ main(int argc, char **argv)
 				(struct vc_cryptodev_enq_node_ctx *)node->ctx;
 			qconf->virtio_rx[i].cryptodev_enq->devid =
 				vc_cdev_ctx.enabled_primary_cdevs[0];
+
+			/* Virtio Tx DMA CTX */
+			node_id = virtio_tx_dma_nodes[i];
+			node = rte_graph_node_get(graph_id, node_id);
+			qconf->virtio_tx_dma[i].virtio_tx_dma =
+				(struct vc_virtio_tx_dma_node_ctx *)node->ctx;
+			qconf->virtio_tx_dma[i].virtio_tx_dma->virtio_devid = devid;
 		}
 
 		for (i = 0; i < qconf->nb_crypto_deq; i++) {
 			devid = qconf->crypto_deq[i].devid;
 
-			/* Cryptodev deq ctx */
+			/* Cryptodev deq CTX */
 			node_id = cryptodev_deq_node;
 			node = rte_graph_node_get(graph_id, node_id);
 			qconf->crypto_deq[i].cryptodev_deq =

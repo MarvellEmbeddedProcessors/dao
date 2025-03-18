@@ -146,6 +146,39 @@ virtio_crypto_host_tx(struct virtio_crypto_queue *q, struct rte_crypto_op **cops
 	return 0;
 }
 
+void
+dao_virtio_crypto_tx_desc_dma_completion(uint16_t devid, uint16_t qid)
+{
+	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_virtio_cryptodev *cryptodev = &dao_virtio_cryptodevs[devid];
+	uint16_t data_q_tail, dma_data_q_tail, nb_cache_buf_tx;
+	struct virtio_crypto_queue *q = cryptodev->qs[qid];
+	struct dao_dma_vchan_state *mem2dev;
+	uint16_t dma_vchan = q->dma_vchan;
+
+	data_q_tail = q->data_q_tail;
+	dma_data_q_tail = q->dma_data_q_tail;
+	nb_cache_buf_tx = q->nb_cache_buf_tx;
+
+	mem2dev = &vchan_info->mem2dev[dma_vchan];
+	dao_dma_check_compl(mem2dev);
+
+	if (data_q_tail != dma_data_q_tail) {
+		if (dao_dma_op_status(mem2dev, q->mem2dev_data_dma_idx)) {
+			/* Indicate to service core that descriptors are processed. Update
+			 * shadow_q_tail. */
+
+			__atomic_store_n(&q->shadow_q_tail, data_q_tail, __ATOMIC_RELEASE);
+			rte_mempool_put_bulk(q->mp, q->buffer_cache_tx, nb_cache_buf_tx);
+			nb_cache_buf_tx = 0;
+
+			/* Update DMA data queue tail to indicate that DMA is done. */
+			q->dma_data_q_tail = data_q_tail;
+			q->nb_cache_buf_tx = nb_cache_buf_tx;
+		}
+	}
+}
+
 #define T(name, flags)                                                                             \
 	uint16_t virtio_crypto_enq_##name(void *q, struct rte_crypto_op **cops, uint16_t nb_cops)  \
 	{                                                                                          \

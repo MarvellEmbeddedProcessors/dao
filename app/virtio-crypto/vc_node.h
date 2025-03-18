@@ -32,10 +32,17 @@ typedef struct vc_virtio_tx_node_ctx {
 	const struct dao_virtio_cryptodev_vdev_q *cdev_vdev_map;
 } vc_virtio_tx_node_ctx_t;
 
+typedef struct vc_virtio_tx_dma_node_ctx {
+	uint16_t virtio_devid;
+	uint16_t next_q;
+	uint64_t virt_q_map;
+} vc_virtio_tx_dma_node_ctx_t;
+
 DAO_STATIC_ASSERT(sizeof(vc_virtio_rx_node_ctx_t) <= RTE_NODE_CTX_SZ);
 DAO_STATIC_ASSERT(sizeof(vc_virtio_tx_node_ctx_t) <= RTE_NODE_CTX_SZ);
 DAO_STATIC_ASSERT(sizeof(vc_cryptodev_enq_node_ctx_t) <= RTE_NODE_CTX_SZ);
 DAO_STATIC_ASSERT(sizeof(vc_cryptodev_deq_node_ctx_t) <= RTE_NODE_CTX_SZ);
+DAO_STATIC_ASSERT(sizeof(vc_virtio_tx_dma_node_ctx_t) <= RTE_NODE_CTX_SZ);
 
 #define VC_CRYPTODEV_MAX           16
 #define VC_CRYPTODEV_DEQ_BURST_MAX 64
@@ -49,5 +56,6 @@ struct rte_node_register *vc_virtio_rx_node_get(void);
 struct rte_node_register *vc_virtio_tx_node_get(void);
 struct rte_node_register *vc_cryptodev_enq_node_get(void);
 struct rte_node_register *vc_cryptodev_deq_node_get(void);
+struct rte_node_register *vc_virtio_tx_dma_completion_node_get(void);
 
 #endif /* __VC_NODE_H__ */
