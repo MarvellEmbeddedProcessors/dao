@@ -1,0 +1,31 @@
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright(C) 2025 Marvell.
+ */
+
+syntax = "proto3";
+
+package dao_card_manager;
+
+service DaoCardService {
+	rpc Init(CardConfig) returns (CardResponse) {}
+	rpc Fini(Emp) returns (Emp){}
+	rpc Info(Emp) returns (CardInfo) {}
+}
+
+message CardConfig {
+	uint32 argc = 1;
+	repeated string argv = 2;
+	uint32 crypto_nb_desc = 3;
+}
+
+message CardInfo {
+	uint32 nb_devs = 1;
+	uint32 max_sessions = 2;
+}
+
+message CardResponse {
+	int32 err = 1;
+}
+
+message Emp {
+}

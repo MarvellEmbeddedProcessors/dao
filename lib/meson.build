@@ -4,6 +4,7 @@
 libraries = [
 	'common',
 	'eth_transport',
+	'grpc_service/client_card',
 	'liquid_crypto',
 	'portgroup',
 	'vfio',
@@ -38,6 +39,11 @@ foreach l:libraries
     lib_cxxflags = []
     lib_deps = []
     subdir(l)
+
+    if l.contains('/')
+        temp_name = l.split('/')
+        name = '_'.join([temp_name[0], temp_name[1]])
+    endif
 
     # Skip library compilation if marked
     if skip_lib
