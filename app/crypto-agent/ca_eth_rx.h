@@ -10,14 +10,14 @@
 #include <rte_graph.h>
 #include <rte_mbuf.h>
 
-#include "../../lib/liquid_crypto/mc/ae.h"
-#include "../../lib/liquid_crypto/mc/se.h"
+#include <dao_eth_trs.h>
+#include <dao_liquid_crypto.h>
+#include <mc/ae.h>
+#include <mc/se.h>
 
 #include "ca_crypto_queue.h"
 #include "cpt_debug.h"
 #include "crypto_agent.h"
-#include "dao_eth_trs.h"
-#include "liquid_crypto_trs.h"
 
 #define CA_ETHDEV_RX_BURST 32
 

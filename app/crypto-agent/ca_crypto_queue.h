@@ -11,8 +11,8 @@
 
 #include <dao_liquid_crypto.h>
 #include <dao_util.h>
-
-#include "hw/cpt.h"
+#include <hw/cpt.h>
+#include <liquid_crypto_trs.h>
 
 #define CA_CPT_MIN_QUEUE_DEPTH 2048
 

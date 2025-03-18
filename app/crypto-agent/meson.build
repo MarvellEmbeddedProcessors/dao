@@ -13,9 +13,12 @@ sources = files(
 
 cflags += [ '-DCA_DEBUG_ENABLE_PERIODIC_PRINT' ]
 
-deps += ['liquid_crypto']
+deps += ['eth_transport']
 
 app_deps += DAO_EXT_DEPS_LIBDPDK
+
+# Include headers from the liquid_crypto library for common structures and definitions
+includes += include_directories('../../lib/liquid_crypto')
 
 # Link crypto_cnxk PMD as PMD APIs are used
 if get_option('default_library') == 'shared' and not get_option('prefer_static')
