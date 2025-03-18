@@ -5,6 +5,7 @@ sources = files(
 	'lc_autotest.c',
 	'lc_test_generic.c',
 	'lc_test_asym.c',
+	'lc_test_sym.c',
 	'test.c'
 )
 
