@@ -65,3 +65,5 @@ The public API headers are grouped by topics
 
 - **grpc service**
   - [card]                  (@ref dao_card_grpc_client.h)
+  - [liquid crypto]         (@ref dao_lc_grpc_client.h)
+

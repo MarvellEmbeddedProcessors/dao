@@ -9,6 +9,7 @@ INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/eth_transport \
                           @TOPDIR@/../../lib/flow \
                           @TOPDIR@/../../lib/grpc_service/client_card \
+                          @TOPDIR@/../../lib/grpc_service/client_lc \
                           @TOPDIR@/../../lib/liquid_crypto \
                           @TOPDIR@/../../lib/pem \
                           @TOPDIR@/../../lib/portgroup \

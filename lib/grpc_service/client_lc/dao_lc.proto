@@ -1,0 +1,46 @@
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright(C) 2025 Marvell.
+ */
+
+syntax = "proto3";
+
+package lc_manager;
+
+service DaoLCService {
+	rpc CreateDev(DeviceId) returns (Response) {}
+	rpc DestroyDev(DeviceId) returns (Response) {}
+	rpc GetDevInfo(DeviceId) returns (DevInfo) {}
+	rpc StartDev(DeviceId) returns (Response) {}
+	rpc StopDev(DeviceId) returns (Response) {}
+	rpc ConfigureQP(QpConf) returns (Response) {}
+	rpc DestroyQP(QueuePairId) returns (Response) {}
+}
+
+message QpConf {
+	uint32 dev_id = 1;
+	uint32 qp_id = 2;
+	bool out_of_order_delivery_en = 3;
+	uint32 nb_desc = 4;
+	uint32 max_seg_size = 5;
+}
+
+message DeviceId {
+	uint32 dev_id = 1;
+	uint32 nb_queues = 2;
+}
+
+message QueuePairId {
+	uint32 dev_id = 1;
+	uint32 qp_id = 2;
+}
+
+message Response {
+	int32 err = 1;
+}
+
+message Empty {
+}
+
+message DevInfo {
+	uint32 nb_queues = 1;
+}
