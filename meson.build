@@ -23,6 +23,8 @@ DAO_EXT_DEPS_LIBDPDK = []
 DAO_EXT_DEPS_LIBNL = []
 # GRPC
 DAO_EXT_DEPS_GRPC = []
+#LIBEDIT
+DAO_EXT_DEPS_LIBEDIT = []
 # DAO static libraries
 DAO_STATIC_LIBS = []
 # Enabled/disabled static dao applicaitons/libraries/tests

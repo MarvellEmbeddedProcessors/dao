@@ -11,6 +11,7 @@ if enable_apps.length() == 0
 endif
 
 apps = [
+        'card-mgr',
         'crypto-agent',
         'ovs-offload',
         'secgw-graph',

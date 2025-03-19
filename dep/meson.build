@@ -2,5 +2,8 @@
 # Copyright (c) 2023 Marvell.
 
 subdir('dpdk')
-subdir('libnl')
 subdir('grpc')
+if host_build
+  subdir('libedit')
+endif
+subdir('libnl')
