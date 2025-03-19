@@ -540,6 +540,7 @@ ca_eth_dev_start(uint32_t port_id)
 {
 	struct ca_eth_dev_queue_lcore_map *eth_map;
 	struct ca_eth_dev_ctx *eth_ctx;
+	struct rte_rcu_qsbr *qsbr;
 	struct lcore_conf *lconf;
 	struct rte_eth_link link;
 	unsigned int lcore_id, i;
@@ -547,6 +548,12 @@ ca_eth_dev_start(uint32_t port_id)
 	int ret;
 
 	CA_INFO("Starting device %u", port_id);
+
+	qsbr = ca_rcu_qsbr_get();
+	if (qsbr == NULL) {
+		CA_ERR("Could not get RCU QSBR.");
+		return -ENODEV;
+	}
 
 	eth_ctx = ca_eth_dev_ctx_get(port_id);
 	if (eth_ctx == NULL) {
@@ -654,6 +661,9 @@ ca_eth_dev_start(uint32_t port_id)
 		lconf->nb_pq = nb_pq;
 	}
 
+	/* Synchronize RCU QSBR */
+	rte_rcu_qsbr_synchronize(qsbr, RTE_QSBR_THRID_INVALID);
+
 	return 0;
 
 eth_dev_close:
@@ -668,12 +678,19 @@ ca_eth_dev_stop(uint32_t dev_id)
 {
 	struct ca_eth_dev_queue_lcore_map *eth_map;
 	struct ca_eth_dev_ctx *eth_ctx;
+	uint16_t nb_pq, nb_pq_prev;
+	struct rte_rcu_qsbr *qsbr;
 	struct lcore_conf *lconf;
 	unsigned int lcore_id, i;
-	uint16_t nb_pq;
 	int ret;
 
 	CA_INFO("Stopping device %u", dev_id);
+
+	qsbr = ca_rcu_qsbr_get();
+	if (qsbr == NULL) {
+		CA_ERR("Could not get RCU QSBR.");
+		return -ENODEV;
+	}
 
 	eth_ctx = ca_eth_dev_ctx_get(dev_id);
 	if (eth_ctx == NULL) {
@@ -700,18 +717,20 @@ ca_eth_dev_stop(uint32_t dev_id)
 
 		lconf = &lcore_conf[lcore_id];
 
-		/* Iterate through the links and clear pq corresponding to this ethdev */
-		for (i = 0; i < lconf->nb_pq; i++) {
-			/* Clear pq for the current ethdev */
-			if (lconf->pq[i]->eth_port_id == dev_id)
-				lconf->pq[i] = NULL;
-		}
+		nb_pq_prev = lconf->nb_pq;
 
-		/* Remove all 'pq' which is NULL. */
-		nb_pq = 0;
-		for (i = 0; i < lconf->nb_pq; i++) {
-			if (lconf->pq[i] == NULL)
+		lconf->nb_pq = 0;
+
+		/* Synchronize RCU QSBR */
+		rte_rcu_qsbr_synchronize(qsbr, RTE_QSBR_THRID_INVALID);
+
+		/* Iterate through the links and clear pq corresponding to this ethdev */
+		for (i = 0, nb_pq = 0; i < nb_pq_prev; i++) {
+			/* Clear pq for the current ethdev */
+			if (lconf->pq[i]->eth_port_id == dev_id) {
+				lconf->pq[i] = NULL;
 				continue;
+			}
 
 			lconf->pq[nb_pq] = lconf->pq[i];
 			nb_pq++;
@@ -719,6 +738,9 @@ ca_eth_dev_stop(uint32_t dev_id)
 
 		lconf->nb_pq = nb_pq;
 	}
+
+	/* Synchronize RCU QSBR */
+	rte_rcu_qsbr_synchronize(qsbr, RTE_QSBR_THRID_INVALID);
 
 	ca_eth_flow_clear(dev_id);
 

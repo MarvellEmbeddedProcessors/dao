@@ -9,6 +9,7 @@
 #include <rte_log.h>
 #include <rte_mempool.h>
 #include <rte_pmd_cnxk_crypto.h>
+#include <rte_rcu_qsbr.h>
 #include <rte_security.h>
 
 #include "ca_admin.h"
@@ -29,6 +30,7 @@
 
 DAO_STATIC_ASSERT(CA_MAX_ETH_DEV <= RTE_MAX_ETHPORTS);
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= RTE_MAX_QUEUES_PER_PORT);
+DAO_STATIC_ASSERT(CA_MAX_LCORE <= RTE_MAX_LCORE);
 
 /* Log type */
 #define RTE_LOGTYPE_AGENT        RTE_LOGTYPE_USER1
@@ -61,6 +63,7 @@ struct ca_global_ctx {
 	struct ca_eth_dev_ctx eth_ctx[RTE_MAX_ETHPORTS];
 	uint16_t nb_cpt_qp;
 	struct ca_cryptodev_ctx cryptodev_ctx[CA_MAX_LCORE];
+	struct rte_rcu_qsbr *qsbr;
 };
 
 struct lcore_conf {
@@ -69,5 +72,6 @@ struct lcore_conf {
 } __rte_cache_aligned;
 
 struct ca_eth_dev_ctx *ca_eth_dev_ctx_get(uint16_t port_id);
+struct rte_rcu_qsbr *ca_rcu_qsbr_get(void);
 
 #endif /* __CRYPTO_AGENT_H__ */

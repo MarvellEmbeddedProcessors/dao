@@ -9,7 +9,9 @@
 #include <rte_cryptodev.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
+#include <rte_malloc.h>
 #include <rte_memzone.h>
+#include <rte_rcu_qsbr.h>
 
 #include "ca_admin.h"
 #include "ca_cpt_deq.h"
@@ -51,6 +53,12 @@ ca_eth_dev_ctx_get(uint16_t port_id)
 	}
 
 	return NULL;
+}
+
+struct rte_rcu_qsbr *
+ca_rcu_qsbr_get(void)
+{
+	return ca_glb_ctx.qsbr;
 }
 
 static int
@@ -268,6 +276,46 @@ crypto_devs_fini(void)
 }
 
 static int
+rcu_qsbr_init(void)
+{
+	struct rte_rcu_qsbr *qsbr;
+	size_t sz;
+	int ret;
+
+	sz = rte_rcu_qsbr_get_memsize(CA_MAX_LCORE);
+	if (sz == 0) {
+		CA_ERR("Could not get RCU QSBR memsize");
+		return -ENOMEM;
+	}
+
+	qsbr = rte_zmalloc(NULL, sz, RTE_CACHE_LINE_SIZE);
+	if (qsbr == NULL) {
+		CA_ERR("Could not allocate memory for RCU QSBR");
+		return -ENOMEM;
+	}
+
+	ret = rte_rcu_qsbr_init(qsbr, CA_MAX_LCORE);
+	if (ret) {
+		CA_ERR("Could not initialize RCU QSBR");
+		goto free_mem;
+	}
+
+	ca_glb_ctx.qsbr = qsbr;
+	return 0;
+
+free_mem:
+	rte_free(qsbr);
+	return ret;
+}
+
+static void
+rcu_qsbr_fini(void)
+{
+	rte_free(ca_glb_ctx.qsbr);
+	ca_glb_ctx.qsbr = NULL;
+}
+
+static int
 eth_devs_init(struct ca_dev_config *dev_config)
 {
 	struct dao_lc_eth_qconf qconf;
@@ -347,6 +395,7 @@ worker_thread(__rte_unused void *arg)
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	struct ca_cryptodev_ctx *cdev_ctx;
 	uint16_t nb_allowed, nb_pkts;
+	struct rte_rcu_qsbr *qsbr;
 	struct lcore_conf *lconf;
 	int i, lcore_id;
 
@@ -354,6 +403,12 @@ worker_thread(__rte_unused void *arg)
 
 	if (rte_lcore_is_enabled(lcore_id) == 0) {
 		CA_ERR("Lcore %d is not enabled", lcore_id);
+		return -ENODEV;
+	}
+
+	qsbr = ca_rcu_qsbr_get();
+	if (qsbr == NULL) {
+		CA_ERR("Could not get RCU QSBR");
 		return -ENODEV;
 	}
 
@@ -373,6 +428,10 @@ worker_thread(__rte_unused void *arg)
 
 	lconf = &lcore_conf[lcore_id];
 
+	/* Register this thread to report quiescent state */
+	rte_rcu_qsbr_thread_register(qsbr, lcore_id);
+	rte_rcu_qsbr_thread_online(qsbr, lcore_id);
+
 	/* Start worker thread */
 	CA_ERR("[Lcore: %d] Starting worker thread", lcore_id);
 
@@ -382,6 +441,9 @@ worker_thread(__rte_unused void *arg)
 		       lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id);
 
 	while (!force_quit) {
+		/* Update quiet state */
+		rte_rcu_qsbr_quiescent(qsbr, lcore_id);
+
 		if (lconf->nb_pq == 0)
 			continue;
 
@@ -394,13 +456,17 @@ worker_thread(__rte_unused void *arg)
 		}
 	}
 
+	/* Unregister this thread from reporting quiescent state */
+	rte_rcu_qsbr_thread_offline(qsbr, lcore_id);
+	rte_rcu_qsbr_thread_unregister(qsbr, lcore_id);
+
 	return 0;
 }
 
 static int
 card_init(struct dao_card_config *config)
 {
-	int ret;
+	int ret, i;
 
 	ret = rte_eal_init(config->argc, config->argv);
 	if (ret < 0) {
@@ -432,7 +498,19 @@ card_init(struct dao_card_config *config)
 		goto map_fini;
 	}
 
+	ret = rcu_qsbr_init();
+	if (ret) {
+		CA_ERR("Could not initialize RCU QSBR");
+		goto cdev_fini;
+	}
+
+	for (i = 0; i < CA_MAX_LCORE; i++)
+		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
+
 	return 0;
+
+cdev_fini:
+	crypto_devs_fini();
 map_fini:
 	ca_eth_lcore_map_fini();
 eal_cleanup:
@@ -444,7 +522,14 @@ eal_cleanup:
 static void
 card_fini(void)
 {
-	CA_INFO("Cleaning up Dao card");
+	int i;
+
+	CA_INFO("Cleaning up DAO card");
+
+	for (i = 0; i < CA_MAX_LCORE; i++)
+		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
+
+	rcu_qsbr_fini();
 	crypto_devs_fini();
 	ca_eth_lcore_map_fini();
 	rte_eal_cleanup();
