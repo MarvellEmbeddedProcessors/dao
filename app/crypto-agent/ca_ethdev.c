@@ -543,6 +543,7 @@ ca_eth_dev_start(uint32_t port_id)
 	struct lcore_conf *lconf;
 	struct rte_eth_link link;
 	unsigned int lcore_id, i;
+	uint16_t nb_pq;
 	int ret;
 
 	CA_INFO("Starting device %u", port_id);
@@ -628,17 +629,29 @@ ca_eth_dev_start(uint32_t port_id)
 			CA_ERR("Could not get eth map for lcore: %d", lcore_id);
 			return -ENODEV;
 		}
+
 		lconf = &lcore_conf[lcore_id];
 
-		lconf->nb_pq = eth_map->nb_links;
-		for (i = 0; i < lconf->nb_pq; i++) {
-			lconf->pq[i] = eth_map->link[i].pq;
+		/* Get the number of valid links already in use */
+		nb_pq = lconf->nb_pq;
+
+		/* Iterate the eth map and check the links using same port_id */
+		for (i = 0; i < eth_map->nb_links; i++) {
+			/* Consider only the current ethdev */
+			if (eth_map->link[i].port_id != port_id)
+				continue;
+
+			/* Save pq to lconf */
+			lconf->pq[nb_pq] = eth_map->link[i].pq;
 			if (lconf->pq[i] == NULL) {
 				CA_ERR("Could not get pending queue for lcore: %d, link: %d",
 				       lcore_id, i);
-				return -ENODEV;
+				goto eth_dev_close;
 			}
+			nb_pq++;
 		}
+
+		lconf->nb_pq = nb_pq;
 	}
 
 	return 0;
@@ -653,7 +666,11 @@ eth_dev_close:
 int
 ca_eth_dev_stop(uint32_t dev_id)
 {
+	struct ca_eth_dev_queue_lcore_map *eth_map;
 	struct ca_eth_dev_ctx *eth_ctx;
+	struct lcore_conf *lconf;
+	unsigned int lcore_id, i;
+	uint16_t nb_pq;
 	int ret;
 
 	CA_INFO("Stopping device %u", dev_id);
@@ -667,6 +684,40 @@ ca_eth_dev_stop(uint32_t dev_id)
 	if (!eth_ctx->is_started) {
 		CA_ERR("Ethdev not started: %d.", dev_id);
 		return -EINVAL;
+	}
+
+	/* Clear from lcore mapping */
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		eth_map = ca_eth_lcore_map_get(lcore_id);
+		if (eth_map == NULL) {
+			CA_ERR("Could not get eth map for lcore: %d", lcore_id);
+			return -ENODEV;
+		}
+
+		/* Skip is there are no links for this core */
+		if (eth_map->nb_links == 0)
+			continue;
+
+		lconf = &lcore_conf[lcore_id];
+
+		/* Iterate through the links and clear pq corresponding to this ethdev */
+		for (i = 0; i < lconf->nb_pq; i++) {
+			/* Clear pq for the current ethdev */
+			if (lconf->pq[i]->eth_port_id == dev_id)
+				lconf->pq[i] = NULL;
+		}
+
+		/* Remove all 'pq' which is NULL. */
+		nb_pq = 0;
+		for (i = 0; i < lconf->nb_pq; i++) {
+			if (lconf->pq[i] == NULL)
+				continue;
+
+			lconf->pq[nb_pq] = lconf->pq[i];
+			nb_pq++;
+		}
+
+		lconf->nb_pq = nb_pq;
 	}
 
 	ca_eth_flow_clear(dev_id);
