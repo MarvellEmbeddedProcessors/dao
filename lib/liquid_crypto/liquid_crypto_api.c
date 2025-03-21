@@ -205,6 +205,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	struct liquid_crypto_qp *qp;
 	struct rte_mempool *mp;
 	uint32_t bm_mem_size;
+	unsigned int pool_sz;
 	int rc, size;
 
 	if (conf == NULL) {
@@ -270,7 +271,13 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	snprintf(name, sizeof(name), "lc_rx_mp_%u_%u", dev_id, qp_id);
 
-	mp = rte_pktmbuf_pool_create(name, nb_desc, 0, 0, max_seg_size, 0);
+	/*
+	 * Create Rx & Tx pools. To allow for some packets inflight and since mempool_alloc is
+	 * optimal in terms of memory when using 2^q - 1, increase the Rx pool size.
+	 */
+	pool_sz = 2 * nb_desc - 1;
+
+	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
 	if (mp == NULL) {
 		dao_err("Could not create Rx mbuf pool.");
 		goto qp_free;
@@ -280,7 +287,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	snprintf(name, sizeof(name), "lc_tx_mp_%u_%u", dev_id, qp_id);
 
-	mp = rte_pktmbuf_pool_create(name, nb_desc, 0, 0, max_seg_size, 0);
+	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
 	if (mp == NULL) {
 		dao_err("Could not create Tx mbuf pool.");
 		goto rx_mp_free;
