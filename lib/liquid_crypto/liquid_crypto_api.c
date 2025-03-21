@@ -372,9 +372,33 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto bm_mem_free;
 	}
 
+	if (qp_id == dev->cmd_qp_idx) {
+		snprintf(name, sizeof(name), "liquid_crypto_cmd_bm_%u_%u", dev_id, qp_id);
+		qp->cmd_req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
+		if (qp->cmd_req_bm_mem == NULL) {
+			dao_err("Could not allocate memory for command queue bitmap.");
+			goto bitmap_free;
+		}
+
+		qp->cmd_req_bm =
+			rte_bitmap_init_with_all_set(nb_desc, qp->cmd_req_bm_mem, bm_mem_size);
+		if (qp->cmd_req_bm == NULL) {
+			dao_err("Could not initialize command queue bitmap.");
+			goto cmd_bm_mem_free;
+		}
+
+		rte_bitmap_reset(qp->req_bm);
+	}
+
 	dev->qp[qp_id] = qp;
 
 	return 0;
+
+cmd_bm_mem_free:
+	rte_free(qp->cmd_req_bm_mem);
+
+bitmap_free:
+	rte_bitmap_free(qp->req_bm);
 
 bm_mem_free:
 	rte_free(qp->req_bm_mem);
@@ -409,6 +433,10 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	 * Call manager API to destroy SDP queues in target
 	 * - Free pools
 	 */
+	if (qp_id == dev->cmd_qp_idx) {
+		rte_bitmap_free(qp->cmd_req_bm);
+		rte_free(qp->cmd_req_bm_mem);
+	}
 
 	rte_bitmap_free(qp->req_bm);
 	rte_free(qp->req_bm_mem);
@@ -538,7 +566,7 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	}
 #endif
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -583,7 +611,7 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 #endif
 	return rc;
 }
@@ -779,7 +807,7 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -842,7 +870,7 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -921,7 +949,7 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -984,7 +1012,7 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -1052,7 +1080,7 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 		return rc;
 #endif
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1121,7 +1149,7 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -1184,7 +1212,7 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 		return rc;
 #endif
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1253,7 +1281,7 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
 #endif
 	RTE_SET_USED(rc);
@@ -1352,15 +1380,15 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 	nb_ops = RTE_MIN(nb_ops, LIQUID_CRYPTO_MAX_BURST);
 
 	for (i = 0; i < nb_ops; i++) {
-		req_idxs[i] = liquid_crypto_qp_req_idx_get(qp);
+		req_idxs[i] = liquid_crypto_qp_req_idx_get(qp, false);
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (unlikely(req_idxs[i] == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
 			dao_err("No available request index.");
-			rte_errno = -ENOSPC;
-			goto put_req_idx;
-		}
 #endif
+			rte_errno = -ENOSPC;
+			goto put_req_idx_partial;
+		}
 	}
 
 	rc = rte_pktmbuf_alloc_bulk(qp->tx_mp, mbufs, nb_ops);
@@ -1479,7 +1507,7 @@ mbuf_free:
 
 put_req_idx:
 	for (i = tx_cnt; i < nb_ops; i++)
-		liquid_crypto_qp_req_idx_put(qp, req_idxs[i]);
+		liquid_crypto_qp_req_idx_put(qp, req_idxs[i], false);
 
 	return tx_cnt;
 
@@ -1487,7 +1515,13 @@ exit:
 	dao_err("Could not transmit any packets. rc = %d", rc);
 	return 0;
 #endif
+put_req_idx_partial:
+	for (; i > 0; i--)
+		liquid_crypto_qp_req_idx_put(qp, req_idxs[i - 1], false);
+
 	RTE_SET_USED(rc);
+
+	return 0;
 }
 
 uint16_t
@@ -1562,7 +1596,7 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 		rte_pktmbuf_free(mbuf);
 
 		/* Free the request index */
-		rte_bitmap_set(qp->req_bm, lc_hdr->req_idx);
+		liquid_crypto_qp_req_idx_put(qp, lc_hdr->req_idx, false);
 	}
 
 	return nb_rx;
@@ -1607,7 +1641,7 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 		return -ENOMEM;
 	}
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, true);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 		dao_err("No available request index.");
@@ -1649,7 +1683,7 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 mbuf_free:
 	rte_pktmbuf_free(mb);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, true);
 sess_meta_free:
 	liquid_crypto_sym_sess_meta_free(sess_meta);
 
@@ -1683,7 +1717,7 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 
 	qp = dev->qp[qp_id];
 
-	req_idx = liquid_crypto_qp_req_idx_get(qp);
+	req_idx = liquid_crypto_qp_req_idx_get(qp, true);
 
 	if (unlikely(req_idx == UINT32_MAX)) {
 		dao_err("No available request index.");
@@ -1721,7 +1755,7 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 mbuf_free:
 	rte_pktmbuf_free(mb);
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx);
+	liquid_crypto_qp_req_idx_put(qp, req_idx, true);
 	return rc;
 }
 
@@ -1794,7 +1828,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 		rte_pktmbuf_free(mbuf);
 
 		/* Free the request index */
-		rte_bitmap_set(qp->req_bm, lc_hdr->req_idx);
+		liquid_crypto_qp_req_idx_put(qp, lc_hdr->req_idx, true);
 	}
 
 	return nb_rx;

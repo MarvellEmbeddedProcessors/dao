@@ -49,6 +49,16 @@ struct liquid_crypto_qp {
 	struct rte_bitmap *req_bm;
 	/** Inflight request bitmap memory */
 	uint8_t *req_bm_mem;
+	/**
+	 * Command queue inflight request bitmap.
+	 * Only applicable for queue pair designated as cmd_qp_idx
+	 */
+	struct rte_bitmap *cmd_req_bm;
+	/**
+	 * Command queue inflight request bitmap memory.
+	 * Only applicable for queue pair designated as cmd_qp_idx
+	 */
+	uint8_t *cmd_req_bm_mem;
 } __rte_cache_aligned;
 
 struct liquid_crypto_inflight_req {
@@ -63,26 +73,35 @@ struct liquid_crypto_inflight_req {
 };
 
 static inline uint32_t
-liquid_crypto_qp_req_idx_get(struct liquid_crypto_qp *qp)
+liquid_crypto_qp_req_idx_get(struct liquid_crypto_qp *qp, const bool is_cmd_qp)
 {
+	struct rte_bitmap *req_bm;
 	uint32_t req_idx = 0;
 	uint64_t slab = 0;
 	int rc;
 
-	rc = rte_bitmap_scan(qp->req_bm, &req_idx, &slab);
+	if (is_cmd_qp)
+		req_bm = qp->cmd_req_bm;
+	else
+		req_bm = qp->req_bm;
+
+	rc = rte_bitmap_scan(req_bm, &req_idx, &slab);
 	if (rc == 0)
 		return UINT32_MAX;
 
 	req_idx += rte_ctz64(slab);
-	rte_bitmap_clear(qp->req_bm, req_idx);
+	rte_bitmap_clear(req_bm, req_idx);
 
 	return req_idx;
 }
 
 static inline void
-liquid_crypto_qp_req_idx_put(struct liquid_crypto_qp *qp, uint32_t req_idx)
+liquid_crypto_qp_req_idx_put(struct liquid_crypto_qp *qp, uint32_t req_idx, const bool is_cmd_qp)
 {
-	rte_bitmap_set(qp->req_bm, req_idx);
+	if (is_cmd_qp)
+		rte_bitmap_set(qp->cmd_req_bm, req_idx);
+	else
+		rte_bitmap_set(qp->req_bm, req_idx);
 }
 
 #endif /* __LIQUID_CRYPTO_PRIV_H__ */
