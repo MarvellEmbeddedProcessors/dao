@@ -1295,7 +1295,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
-		rc = -EINVAL;
+		rte_errno = -EINVAL;
 		goto exit;
 	}
 #endif
@@ -1310,7 +1310,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (unlikely(req_idxs[i] == UINT32_MAX)) {
 			dao_err("No available request index.");
-			rc = -ENOSPC;
+			rte_errno = -ENOSPC;
 			goto put_req_idx;
 		}
 #endif
@@ -1320,7 +1320,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (unlikely(rc != 0)) {
 		dao_err("Could not allocate mbufs.");
-		rc = -ENOMEM;
+		rte_errno = -ENOMEM;
 		goto put_req_idx;
 	}
 #endif
@@ -1355,7 +1355,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (buf_len > rte_pktmbuf_tailroom(mbufs[i])) {
 			dao_err("Input data doesn't fit in single segment!");
-			rc = -ENOMEM;
+			rte_errno = -ENOMEM;
 			goto transmit;
 		}
 #endif
@@ -1413,7 +1413,7 @@ transmit:
 	/* Free mbufs that are not transmitted. */
 	if (tx_cnt != i) {
 		dao_err("Could not transmit all packets.");
-		rc = -EIO;
+		rte_errno = -EIO;
 		goto mbuf_free;
 	}
 
