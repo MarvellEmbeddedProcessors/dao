@@ -33,6 +33,7 @@ jobs:
       - name: Build and Package Snort
         id: version
         run: |
+            set -x
             mkdir -p "${PWD}/artifacts"
             git tag --points-at HEAD > /tmp/tags
             [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
@@ -58,48 +59,61 @@ jobs:
             ccache -p
             pkg-config --list-all
             BASE_DIR=${PWD}
-            mkdir ${BASE_DIR}/snort_src
+            mkdir -p ${BASE_DIR}/snort_src
             cd ${BASE_DIR}/snort_src
             wget "https://github.com/rurban/safeclib/releases/download/v3.8.1/safeclib-3.8.1.tar.gz"
             tar -xzvf safeclib-3.8.1.tar.gz > /dev/null 2>&1
             cd safeclib-3.8.1.0-gdfea26
-            ./configure
+            ./configure --prefix=/usr/local
             sudo make -j$(nproc)
             sudo make install
+            sudo ldconfig
             cd ${BASE_DIR}/snort_src
             wget "https://github.com/gperftools/gperftools/releases/download/gperftools-2.15/gperftools-2.15.tar.gz"
             tar xzvf gperftools-2.15.tar.gz > /dev/null 2>&1
             cd gperftools-2.15
-            ./configure
+            ./configure --prefix=/usr/local
             sudo make -j$(nproc)
             sudo make install
+            sudo ldconfig
             cd ${BASE_DIR}/snort_src
             wget "https://sourceforge.net/projects/pcre/files/pcre/8.45/pcre-8.45.tar.gz"
             tar -xzvf pcre-8.45.tar.gz > /dev/null 2>&1
             cd pcre-8.45
-            ./configure
+            ./configure --prefix=/usr/local
             sudo make -j$(nproc)
             sudo make install
+            sudo ldconfig
             cd ${BASE_DIR}/snort_src
             wget "https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.gz"
             tar -xzvf boost_1_85_0.tar.gz > /dev/null 2>&1
             cd ${BASE_DIR}/snort_src
             git clone "https://github.com/VectorCamp/vectorscan"
-            cd vectorscan
-            cd ..
             mkdir hyperscan-build
             cd hyperscan-build
-            cmake -DCMAKE_INSTALL_PREFIX=/usr/local -DBOOST_ROOT=${BASE_DIR}/snort_src/boost_1_85_0/ ${BASE_DIR}/snort_src/vectorscan/
+            cmake -DCMAKE_INSTALL_PREFIX=/usr/local \
+                  -DBOOST_ROOT=${BASE_DIR}/snort_src/boost_1_85_0/ \
+                  -DBUILD_COLLIDER=OFF \
+                  -DBUILD_BENCHMARKS=OFF \
+                  -DBUILD_TESTS=OFF \
+                  -DBUILD_UNIT_TESTS=OFF \
+                  -DBUILD_EXAMPLES=OFF \
+                  -DBUILD_TOOLS=OFF \
+                  -DBUILD_STATIC_AND_SHARED=OFF \
+                  -DBUILD_SHARED_LIBS=ON \
+                  ${BASE_DIR}/snort_src/vectorscan
             sudo make -j$(nproc)
             sudo make install
+            sudo ldconfig
             cd ${BASE_DIR}/snort_src
             wget "https://github.com/google/flatbuffers/archive/refs/tags/v22.12.6.tar.gz" -O flatbuffers-v22.12.6.tar.gz
             tar -xzvf flatbuffers-v22.12.6.tar.gz > /dev/null 2>&1
             mkdir flatbuffers-build
             cd flatbuffers-build
-            cmake ../flatbuffers-22.12.6
+            cmake -DCMAKE_INSTALL_PREFIX=/usr/local ../flatbuffers-22.12.6
             sudo make -j$(nproc)
             sudo make install
+            sudo ldconfig
             cd ${BASE_DIR}/snort_src
             wget "https://github.com/snort3/libdaq/archive/refs/tags/v3.0.15.tar.gz" -O libdaq-3.0.15.tar.gz
             tar -xzvf libdaq-3.0.15.tar.gz > /dev/null 2>&1
@@ -109,7 +123,12 @@ jobs:
             sudo make -j$(nproc)
             sudo make install
             sudo ldconfig
-            mkdir ${BASE_DIR}/snort_src/install
+            mkdir -p ${BASE_DIR}/snort_src/install/usr/local/lib/
+            sudo cp -a /usr/local/lib/libdaq.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
+            sudo cp -a /usr/local/lib/libpcre.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
+            sudo cp -a /usr/local/lib/libhs.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
+            sudo cp -a /usr/local/lib/libtcmalloc.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
+            sudo cp -a /usr/local/lib/libsafec.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
             cd ${BASE_DIR}/snort_src
             wget "https://github.com/snort3/snort3/archive/refs/tags/3.2.2.0.tar.gz" -O snort3-3.2.2.0.tar.gz
             tar -xzvf snort3-3.2.2.0.tar.gz > /dev/null 2>&1
@@ -118,11 +137,13 @@ jobs:
             cd build
             sudo make -j$(nproc)
             sudo make install
-            mkdir -p ${BASE_DIR}/snort_src/install/usr/local/lib/
-            sudo cp -r /usr/local/* ${BASE_DIR}/snort_src/install/usr/local/
+            sudo find ${BASE_DIR}/snort_src/install/usr/local/ -name "*.la" -delete
+            sudo find ${BASE_DIR}/snort_src/install/usr/local/ -name "*.a" -delete
+            sudo rm -rf ${BASE_DIR}/snort_src/install/usr/local/include || true
+            sudo rm -rf ${BASE_DIR}/snort_src/install/usr/local/share   || true
             cd ${BASE_DIR}/snort_src
-            mkdir -p "${BASE_DIR}/snort_src/install/DEBIAN"
-            cd "${BASE_DIR}/snort_src/install"
+            mkdir -p install/DEBIAN
+            cd install
             echo 'Package: snort-3-cn10k'${PKG_POSTFIX} >> DEBIAN/control
             echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
             echo "Depends: libdumbnet1, libhwloc15, libluajit-5.1-2, libmnl0, libunwind8, liblzma5, libnuma1, libuuid1, libstdc++6" >> DEBIAN/control
@@ -130,7 +151,7 @@ jobs:
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: Snort 3 with Vectorscan for Marvell Octeon 10" >> DEBIAN/control
             cd ..
-            mv "${BASE_DIR}/snort_src/install" "${BASE_DIR}/snort_src/snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            mv install "snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             cp -r "snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
       - name: Export version name
