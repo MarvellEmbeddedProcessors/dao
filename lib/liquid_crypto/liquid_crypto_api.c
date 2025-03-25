@@ -1403,6 +1403,11 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 		rte_errno = -EINVAL;
 		goto exit;
 	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
 #endif
 
 	qp = dev->qp[qp_id];
