@@ -555,6 +555,11 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
@@ -758,6 +763,11 @@ dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
@@ -904,6 +914,11 @@ dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
@@ -1047,6 +1062,11 @@ dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
@@ -1193,6 +1213,11 @@ dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t m
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
@@ -1368,6 +1393,11 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 
 	dev = &liquid_crypto_devs[dev_id];
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		rte_errno = -EINVAL;
@@ -1551,6 +1581,11 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
