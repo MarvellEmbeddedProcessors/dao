@@ -232,6 +232,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	struct rte_mempool *mp;
 	uint32_t bm_mem_size;
 	unsigned int pool_sz;
+	uint16_t min_seg_sz;
 	int rc, size;
 
 	if (conf == NULL) {
@@ -267,10 +268,15 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
-	if (conf->max_seg_size < trs_info.min_buf_len ||
-	    conf->max_seg_size > trs_info.max_pkt_len) {
-		dao_err("Invalid argument. max_seg_sz must be between %u and %u.",
-			trs_info.min_buf_len, trs_info.max_pkt_len);
+	/*
+	 * Increase the min seg size to include headroom. Eth dev library validates buffer size
+	 * including headroom.
+	 */
+	min_seg_sz = trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM;
+
+	if (conf->max_seg_size < min_seg_sz || conf->max_seg_size > trs_info.max_pkt_len) {
+		dao_err("Invalid argument. max_seg_size must be between %u and %u.", min_seg_sz,
+			trs_info.max_pkt_len);
 		return -EINVAL;
 	}
 
