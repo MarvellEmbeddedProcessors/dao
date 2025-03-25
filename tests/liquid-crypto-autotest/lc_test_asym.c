@@ -30,7 +30,7 @@ test_rsa_sign(const void *data)
 	memset(output, 0, sizeof(output));
 
 	/* RSA SIGN */
-	ret = dao_crypto_enqueue_op_pkcs1v15enc_crt(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15enc_crt(
 		dev_id, qp_id, params->n.len, params->plaintext.len, params->q.data,
 		params->dQ.data, params->p.data, params->dP.data, params->qInv.data,
 		params->plaintext.data, output, op_cookie);
@@ -68,7 +68,7 @@ test_rsa_verify(const void *data)
 	memset(message, 0, sizeof(message));
 
 	/* RSA VERIFY */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec(
 		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC, params->n.len, params->e.len,
 		params->n.data, params->e.data, params->sign.data, message, op_cookie);
 	if (ret < 0) {
@@ -109,7 +109,7 @@ test_rsa_sign_unsupported_mod(const void *data)
 	memset(output, 0, sizeof(output));
 
 	/* RSA SIGN */
-	ret = dao_crypto_enqueue_op_pkcs1v15enc_crt(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15enc_crt(
 		dev_id, qp_id, params->n.len, params->plaintext.len, params->q.data,
 		params->dQ.data, params->p.data, params->dP.data, params->qInv.data,
 		params->plaintext.data, output, op_cookie);
@@ -138,9 +138,9 @@ test_rsa_invalid_verify(const void *data)
 	invalid_sign[params->sign.len / 2] ^= 0x01;
 
 	/* RSA VERIFY */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
-						params->n.len, params->e.len, params->n.data,
-						params->e.data, invalid_sign, message, op_cookie);
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec(
+		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC, params->n.len, params->e.len,
+		params->n.data, params->e.data, invalid_sign, message, op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA verify operation");
 		return TEST_FAILED;
@@ -178,10 +178,10 @@ test_rsa_enc_pub_exp(const void *data)
 	memset(decrypt, 0, sizeof(decrypt));
 
 	/* RSA ENCRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15enc(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
-						params->n.len, params->e.len, params->plaintext.len,
-						params->n.data, params->e.data,
-						params->plaintext.data, output, op_cookie);
+	ret = dao_liquid_crypto_enq_op_pkcs1v15enc(
+		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC, params->n.len, params->e.len,
+		params->plaintext.len, params->n.data, params->e.data, params->plaintext.data,
+		output, op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA encrypt operation");
 		return TEST_FAILED;
@@ -198,7 +198,7 @@ test_rsa_enc_pub_exp(const void *data)
 	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
 
 	/* Validate encryption */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec_crt(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec_crt(
 		dev_id, qp_id, params->n.len, params->q.data, params->dQ.data, params->p.data,
 		params->dP.data, params->qInv.data, output, decrypt, op_cookie);
 	if (ret < 0) {
@@ -239,7 +239,7 @@ test_rsa_enc_unsupported_mod(const void *data)
 	memset(output, 0, sizeof(output));
 
 	/* RSA ENCRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15enc(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15enc(
 		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC, 16, params->e.len, params->plaintext.len,
 		params->n.data, params->e.data, params->plaintext.data, output, op_cookie);
 
@@ -268,10 +268,10 @@ test_rsa_enc_unsupported_msw(const void *data)
 	*(uint64_t *)mod = 0;
 
 	/* RSA ENCRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15enc(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
-						params->n.len, params->e.len, params->plaintext.len,
-						mod, params->e.data, params->plaintext.data, output,
-						op_cookie);
+	ret = dao_liquid_crypto_enq_op_pkcs1v15enc(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
+						   params->n.len, params->e.len,
+						   params->plaintext.len, mod, params->e.data,
+						   params->plaintext.data, output, op_cookie);
 
 	TEST_ASSERT(ret == -EINVAL, "RSA Public encrypt should fail");
 
@@ -293,7 +293,7 @@ test_rsa_dec_prv_crt(const void *data)
 	memset(message, 0, sizeof(message));
 
 	/* RSA DECRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec_crt(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec_crt(
 		dev_id, qp_id, params->n.len, params->q.data, params->dQ.data, params->p.data,
 		params->dP.data, params->qInv.data, params->cipher.data, message, op_cookie);
 	if (ret < 0) {
@@ -334,7 +334,7 @@ test_rsa_dec_crt_unsupported_mod(const void *data)
 	memset(message, 0, sizeof(message));
 
 	/* RSA DECRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec_crt(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec_crt(
 		dev_id, qp_id, params->n.len, params->q.data, params->dQ.data, params->p.data,
 		params->dP.data, params->qInv.data, params->cipher.data, message, op_cookie);
 
@@ -362,7 +362,7 @@ test_rsa_dec_invalid_prv_crt(const void *data)
 	invalid_cipher[params->cipher.len / 2] ^= 0x01;
 
 	/* RSA DECRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec_crt(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec_crt(
 		dev_id, qp_id, params->n.len, params->q.data, params->dQ.data, params->p.data,
 		params->dP.data, params->qInv.data, invalid_cipher, message, op_cookie);
 	if (ret < 0) {
@@ -402,10 +402,10 @@ test_rsa_enc_prv_exp(const void *data)
 	memset(decrypt, 0, sizeof(decrypt));
 
 	/* RSA ENCRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15enc(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PRIVATE,
-						params->n.len, params->d.len, params->plaintext.len,
-						params->n.data, params->d.data,
-						params->plaintext.data, output, op_cookie);
+	ret = dao_liquid_crypto_enq_op_pkcs1v15enc(
+		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PRIVATE, params->n.len, params->d.len,
+		params->plaintext.len, params->n.data, params->d.data, params->plaintext.data,
+		output, op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA encrypt operation");
 		return TEST_FAILED;
@@ -422,9 +422,9 @@ test_rsa_enc_prv_exp(const void *data)
 	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
 
 	/* Validate encryption */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
-						params->n.len, params->e.len, params->n.data,
-						params->e.data, output, decrypt, op_cookie);
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
+						   params->n.len, params->e.len, params->n.data,
+						   params->e.data, output, decrypt, op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
 		return TEST_FAILED;
@@ -461,7 +461,7 @@ test_rsa_dec_prv_exp(const void *data)
 	memset(message, 0, sizeof(message));
 
 	/* RSA DECRYPT */
-	ret = dao_crypto_enqueue_op_pkcs1v15dec(
+	ret = dao_liquid_crypto_enq_op_pkcs1v15dec(
 		dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PRIVATE, params->n.len, params->d.len,
 		params->n.data, params->d.data, params->cipher.data, message, op_cookie);
 	if (ret < 0) {

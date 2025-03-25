@@ -736,10 +736,10 @@ cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *
 #endif
 
 int
-dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
-				  enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
-				  uint16_t exp_len, uint16_t msg_len, uint8_t *mod, uint8_t *exp,
-				  uint8_t *msg, uint8_t *em, uint64_t op_cookie)
+dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
+				     enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
+				     uint16_t exp_len, uint16_t msg_len, uint8_t *mod, uint8_t *exp,
+				     uint8_t *msg, uint8_t *em, uint64_t op_cookie)
 {
 	uint32_t dlen = mod_len + exp_len + msg_len;
 	struct __dao_lc_req_asym *req;
@@ -887,10 +887,10 @@ idx_put:
 }
 
 int
-dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
-				  enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
-				  uint16_t exp_len, uint8_t *mod, uint8_t *exp, uint8_t *em,
-				  uint8_t *msg, uint64_t op_cookie)
+dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
+				     enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
+				     uint16_t exp_len, uint8_t *mod, uint8_t *exp, uint8_t *em,
+				     uint8_t *msg, uint64_t op_cookie)
 {
 	uint32_t dlen = mod_len * 2 + exp_len;
 	struct __dao_lc_req_asym *req;
@@ -1034,10 +1034,10 @@ idx_put:
 }
 
 int
-dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-				      uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
-				      uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
-				      uint64_t op_cookie)
+dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+					 uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
+					 uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
+					 uint64_t op_cookie)
 {
 	uint32_t dlen = (mod_len / 2) * 5 + msg_len;
 	uint16_t comp_len = mod_len / 2;
@@ -1176,9 +1176,10 @@ idx_put:
 }
 
 int
-dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len, uint8_t *q,
-				      uint8_t *dQ, uint8_t *p, uint8_t *dP, uint8_t *qInv,
-				      uint8_t *em, uint8_t *msg, uint64_t op_cookie)
+dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+					 uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
+					 uint8_t *qInv, uint8_t *em, uint8_t *msg,
+					 uint64_t op_cookie)
 {
 	uint32_t dlen = (mod_len / 2) * 5 + mod_len;
 	uint16_t comp_len = mod_len / 2;

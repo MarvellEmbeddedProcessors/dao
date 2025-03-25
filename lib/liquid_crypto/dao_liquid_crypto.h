@@ -625,11 +625,11 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  * @return
  *  0 on success, negative value on failure.
  */
-int dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
-				      enum dao_liquid_crypto_rsa_key_type key_type,
-				      uint16_t mod_len, uint16_t exp_len, uint16_t msg_len,
-				      uint8_t *mod, uint8_t *exp, uint8_t *msg, uint8_t *em,
-				      uint64_t op_cookie);
+int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
+					 enum dao_liquid_crypto_rsa_key_type key_type,
+					 uint16_t mod_len, uint16_t exp_len, uint16_t msg_len,
+					 uint8_t *mod, uint8_t *exp, uint8_t *msg, uint8_t *em,
+					 uint64_t op_cookie);
 
 /**
  * Enqueue request to perform RSA decrypt operation on the crypto device.
@@ -660,10 +660,11 @@ int dao_crypto_enqueue_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
  * @return
  *  0 on success, negative value on failure.
  */
-int dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
-				      enum dao_liquid_crypto_rsa_key_type key_type,
-				      uint16_t mod_len, uint16_t exp_len, uint8_t *mod,
-				      uint8_t *exp, uint8_t *em, uint8_t *msg, uint64_t op_cookie);
+int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
+					 enum dao_liquid_crypto_rsa_key_type key_type,
+					 uint16_t mod_len, uint16_t exp_len, uint8_t *mod,
+					 uint8_t *exp, uint8_t *em, uint8_t *msg,
+					 uint64_t op_cookie);
 
 /**
  * Enqueue request to perform RSA CRT encrypt operation on the crypto device.
@@ -703,10 +704,10 @@ int dao_crypto_enqueue_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  * @return
  *  0 on success, negative value on failure.
  */
-int dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-					  uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
-					  uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
-					  uint64_t op_cookie);
+int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+					     uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
+					     uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
+					     uint64_t op_cookie);
 
 /**
  * Enqueue request to perform RSA CRT decrypt operation on the crypto device.
@@ -744,10 +745,10 @@ int dao_crypto_enqueue_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16
  * @return
  *  0 on success, negative value on failure.
  */
-int dao_crypto_enqueue_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-					  uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
-					  uint8_t *qInv, uint8_t *em, uint8_t *msg,
-					  uint64_t op_cookie);
+int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+					     uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
+					     uint8_t *qInv, uint8_t *em, uint8_t *msg,
+					     uint64_t op_cookie);
 
 /**
  * Enqueue a burst of requests to perform symmetric crypto operations on the
