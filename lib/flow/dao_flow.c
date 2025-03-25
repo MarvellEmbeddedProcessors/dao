@@ -326,7 +326,9 @@ dao_flow_lookup(uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs)
 	int rc, i;
 
 	memset(result, 0, nb_objs * sizeof(uint32_t));
-	rc = gbl_cfg->flow_ops->lookup(gbl_cfg->sw_flow_cfg, port_id, objs, nb_objs, result);
+	/* Here 'depth' arg is the start value for depth. It gets incremented in the
+	 * recursion inside this call upto MAX_JUMP_DEPTH. */
+	rc = gbl_cfg->flow_ops->lookup(gbl_cfg->sw_flow_cfg, port_id, objs, nb_objs, result, 1);
 	if (rc)
 		return rc;
 

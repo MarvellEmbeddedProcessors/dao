@@ -9,6 +9,8 @@
 
 #include "dao_util.h"
 
+#define MAX_JUMP_DEPTH 5
+
 static int
 get_rule_size(void)
 {
@@ -36,9 +38,13 @@ fail:
 }
 
 static int
-acl_flow_action_execute(struct acl_table *acl_tbl, uint32_t index, struct rte_mbuf *obj)
+acl_flow_action_execute(struct acl_table *acl_tbl, uint16_t port_id, uint32_t index,
+			struct rte_mbuf *obj, uint8_t depth)
 {
+	struct acl_table *acl_tbl_n = NULL;
 	struct acl_actions *acl_act = NULL;
+	uint32_t result;
+	int rc;
 
 	if (!acl_tbl)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table");
@@ -57,6 +63,24 @@ acl_flow_action_execute(struct acl_table *acl_tbl, uint32_t index, struct rte_mb
 
 	if ((acl_act->counter_enable) && (acl_act->act_map & ACL_ACTION_COUNT))
 		acl_act->rule_data->rule_hits++;
+
+	/* Jump action should be the last action to execute */
+	if (acl_act->act_map & ACL_ACTION_JUMP) {
+		acl_tbl_n = &acl_tbl[acl_act->n_tblid];
+		if (!acl_tbl_n->ctx)
+			return ACL_RULE_CTX_INVALID;
+		if (!acl_tbl_n->num_rules)
+			return ACL_RULE_EMPTY;
+
+		dao_dbg("Jump action table id %d", acl_act->n_tblid);
+		if (!acl_tbl_n)
+			DAO_ERR_GOTO(-EINVAL, fail, "Failed to get table for tbl_id %d, port id %d",
+				     acl_act->n_tblid, acl_tbl->port_id);
+
+		rc = acl_flow_lookup(acl_tbl_n, port_id, &obj, 1, &result, ++depth);
+		if (rc)
+			DAO_ERR_GOTO(rc, fail, "Failed to lookup for a flow");
+	}
 
 	return 0;
 fail:
@@ -94,7 +118,7 @@ acl_lookup_process(struct acl_table *acl_tbl, struct rte_mbuf **objs, uint16_t n
 
 int
 acl_flow_lookup(void *acl_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
-		uint32_t *result)
+		uint32_t *result, uint8_t depth)
 {
 	struct acl_global_config *acl_gbl = (struct acl_global_config *)acl_cfg;
 	struct acl_config_per_port *acl_cfg_prt;
@@ -119,13 +143,15 @@ acl_flow_lookup(void *acl_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_
 		return ACL_RULE_EMPTY;
 	if (!objs)
 		return ACL_RULE_OBJ_INVALID;
+	if (depth > MAX_JUMP_DEPTH)
+		return -1;
 
 	acl_lookup_process(acl_tbl, objs, nb_objs, result);
 	for (i = 0; i < nb_objs; i++) {
 		if (objs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
 			continue;
 		if (result[i] && acl_tbl->num_rules)
-			acl_flow_action_execute(acl_tbl, result[i], objs[i]);
+			acl_flow_action_execute(acl_tbl, port_id, result[i], objs[i], depth);
 	}
 
 	return 0;
@@ -137,6 +163,7 @@ static int
 acl_populate_action(const struct rte_flow_action actions[], struct acl_actions *acl_act)
 {
 	const struct rte_flow_action_mark *act_mark;
+	const struct rte_flow_action_jump *act_jmp;
 	uint16_t mark = 0;
 
 	for (; actions->type != RTE_FLOW_ACTION_TYPE_END; actions++) {
@@ -154,6 +181,12 @@ acl_populate_action(const struct rte_flow_action actions[], struct acl_actions *
 			acl_act->counter_enable = true;
 			acl_act->act_map |= ACL_ACTION_COUNT;
 			break;
+		case RTE_FLOW_ACTION_TYPE_JUMP:
+			act_jmp = (const struct rte_flow_action_jump *)actions->conf;
+			acl_act->in_use = true;
+			acl_act->n_tblid = act_jmp->group;
+			acl_act->act_map |= ACL_ACTION_JUMP;
+
 		case RTE_FLOW_ACTION_TYPE_END:
 			break;
 		default:
@@ -248,7 +281,7 @@ acl_create_rule(void *acl_cfg, const struct rte_flow_attr *attr,
 	struct rte_acl_param param;
 	struct acl_table *acl_tbl;
 	struct parsed_flow *flow;
-	uint16_t tbl_id = 0;
+	uint16_t tbl_id = attr->group;
 	int rc, action;
 
 	RTE_SET_USED(error);
@@ -265,6 +298,7 @@ acl_create_rule(void *acl_cfg, const struct rte_flow_attr *attr,
 			     port_id);
 
 	acl_tbl->port_id = port_id;
+	acl_tbl->tbl_id = tbl_id;
 
 	if (!acl_tbl)
 		DAO_ERR_GOTO(-EINVAL, fail, "Invalid acl table handle");

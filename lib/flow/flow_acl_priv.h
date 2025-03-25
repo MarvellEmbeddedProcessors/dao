@@ -167,8 +167,10 @@ struct acl_actions {
 	bool counter_enable;
 #define ACL_ACTION_MARK  RTE_BIT64(0)
 #define ACL_ACTION_COUNT RTE_BIT64(1)
+#define ACL_ACTION_JUMP  RTE_BIT64(2)
 	uint64_t act_map;
 	uint32_t index;
+	uint32_t n_tblid;
 	union {
 		uint64_t rx_action;
 		uint64_t tx_action;
@@ -213,12 +215,11 @@ void *acl_create_rule(void *acl_cfg, const struct rte_flow_attr *attr,
 
 int acl_delete_rule(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *arule);
 int acl_flow_lookup(void *acl_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
-		    uint32_t *result);
+		    uint32_t *result, uint8_t depth);
 int acl_rule_info(void *rule_data, FILE *file, bool is_hw_offloaded);
 int acl_rule_flush(void *acl_cfg, uint16_t port_id);
-int acl_rule_dump(void *acl_cfg, uint16_t port_id, uint32_t tbl_id,
-		  void *rule_data, FILE *file);
-int acl_rule_query(void *acl_cfg, uint16_t port_id, uint32_t tbl_id,
-		   void *rule_data, struct dao_flow_query_count *query);
+int acl_rule_dump(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data, FILE *file);
+int acl_rule_query(void *acl_cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data,
+		   struct dao_flow_query_count *query);
 int acl_port_rule_count(void *acl_gbl, uint16_t port_id);
 #endif /* __FLOW_ACL_PRIV_H__ */

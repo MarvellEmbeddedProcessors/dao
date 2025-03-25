@@ -7,8 +7,8 @@
 
 #include <stddef.h>
 
-#include <rte_hash.h>
 #include <rte_ether.h>
+#include <rte_hash.h>
 
 #include <dao_flow.h>
 
@@ -25,7 +25,7 @@ enum em_rule_error {
 	EM_RULE_HASH_INVALID = -3001,
 	EM_RULE_OBJ_INVALID = -3002,
 	EM_RULE_TBL_INVALID = -3003,
-	EM_RULE_EMPTY	     = -3004,
+	EM_RULE_EMPTY = -3004,
 };
 
 struct flow_global_cfg;
@@ -84,18 +84,15 @@ int em_global_config_init(uint16_t port_id, void **gbl_cfg);
 int em_global_config_fini(uint16_t port_id, void *gbl_cfg);
 
 void *em_create_rule(void *em_cfg, const struct rte_flow_attr *attr,
-		     const struct rte_flow_item pattern[],
-		     const struct rte_flow_action actions[],
-		     uint16_t port_id, uint32_t *rule_idx,
-		     struct rte_flow_error *error);
+		     const struct rte_flow_item pattern[], const struct rte_flow_action actions[],
+		     uint16_t port_id, uint32_t *rule_idx, struct rte_flow_error *error);
 
 int em_delete_rule(void *em_cfg, uint16_t port_id, uint32_t tbl_id, void *rule);
 int em_flow_lookup(void *em_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
-		   uint32_t *result);
+		   uint32_t *result, uint8_t depth);
 int em_rule_info(void *em_cfg, FILE *file, bool is_hw_offloaded);
 int em_rule_flush(void *em_cfg, uint16_t port_id);
-int em_rule_dump(void *em_cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data,
-		 FILE *file);
+int em_rule_dump(void *em_cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data, FILE *file);
 int em_rule_query(void *em_cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data,
 		  struct dao_flow_query_count *query);
 int em_port_rule_count(void *em_gbl, uint16_t port_id);

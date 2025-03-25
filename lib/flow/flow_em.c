@@ -349,11 +349,13 @@ em_lookup_process(struct em_per_port *em, struct rte_mbuf **objs, uint16_t nb_ob
 
 int
 em_flow_lookup(void *em_cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
-	       uint32_t *result)
+	       uint32_t *result, uint8_t depth)
 {
 	struct em_global_config *em_gbl = (struct em_global_config *)em_cfg;
 	struct em_per_port *em;
 	int i, rc = 0;
+
+	RTE_SET_USED(depth);
 
 	em = &em_gbl->em_cfg_prt[port_id];
 

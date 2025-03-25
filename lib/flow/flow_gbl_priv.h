@@ -63,11 +63,11 @@ struct flow_fops_t {
 	int (*fini)(uint16_t port_id, void *gcfg);
 	void *(*create)(void *cfg, const struct rte_flow_attr *attr,
 			const struct rte_flow_item pattern[],
-			const struct rte_flow_action actions[],
-			uint16_t port_id, uint32_t *rule_idx, struct rte_flow_error *error);
+			const struct rte_flow_action actions[], uint16_t port_id,
+			uint32_t *rule_idx, struct rte_flow_error *error);
 	int (*destroy)(void *cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data);
 	int (*lookup)(void *cfg, uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs,
-		      uint32_t *result);
+		      uint32_t *result, uint8_t depth);
 	int (*query)(void *cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data,
 		     struct dao_flow_query_count *query);
 	int (*dump)(void *cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data, FILE *file);
