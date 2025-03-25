@@ -42,7 +42,7 @@ sess_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *ev)
 }
 
 static int
-test_block_cipher_only(const void *data)
+test_block_cipher_only(const void *data, bool is_encrypt)
 {
 	uint8_t in_buf_data[MAX_PLAINTEXT_LEN] = {0};
 	const struct test_sym_params *params = data;
@@ -72,22 +72,29 @@ test_block_cipher_only(const void *data)
 	TEST_ASSERT(ev.sess_event.sess_id != DAO_LC_SESS_ID_INVALID, "Invalid session ID");
 	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
 
-	/* Perform encrypt operation */
+	/* Perform crypto operation */
 	op[0].op_cookie = sess_cookie;
 	op[0].sess_id = ev.sess_event.sess_id;
 
-	memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
-	in_buf[0].data = in_buf_data;
-	in_buf[0].seg_len = params->plaintext.len;
-	in_buf[0].total_len = params->plaintext.len;
+	if (is_encrypt) {
+		memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
+		in_buf[0].seg_len = params->plaintext.len;
+		in_buf[0].total_len = params->plaintext.len;
+		op[0].encrypt = 1;
+	} else {
+		memcpy(in_buf_data, params->ciphertext.data, params->ciphertext.len);
+		in_buf[0].seg_len = params->ciphertext.len;
+		in_buf[0].total_len = params->ciphertext.len;
+		op[0].encrypt = 0;
+	}
 
+	in_buf[0].data = in_buf_data;
 	op[0].in_buffer = in_buf;
 	op[0].cipher_offset = 0;
 	op[0].cipher_len = params->ciphertext.len;
 
 	memcpy(cipher_iv, params->iv.data, params->iv.len);
 	op[0].cipher_iv = cipher_iv;
-	op[0].encrypt = 1;
 
 	ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
 	if (ret < 0) {
@@ -101,10 +108,20 @@ test_block_cipher_only(const void *data)
 		return -1;
 	}
 
-	ret = memcmp(in_buf_data, params->ciphertext.data, params->ciphertext.len);
-	if (ret != 0) {
-		rte_hexdump(stdout, "RESULT: ", in_buf_data, params->ciphertext.len);
-		rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data, params->ciphertext.len);
+	if (is_encrypt) {
+		ret = memcmp(in_buf_data, params->ciphertext.data, params->ciphertext.len);
+		if (ret != 0) {
+			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->ciphertext.len);
+			rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
+				    params->ciphertext.len);
+		}
+	} else {
+		ret = memcmp(in_buf_data, params->plaintext.data, params->plaintext.len);
+		if (ret != 0) {
+			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->plaintext.len);
+			rte_hexdump(stdout, "EXPECTED: ", params->plaintext.data,
+				    params->plaintext.len);
+		}
 	}
 	TEST_ASSERT(ret == 0, "Invalid result");
 
@@ -127,14 +144,26 @@ test_block_cipher_only(const void *data)
 	return 0;
 }
 
+static int
+test_block_cipher_only_encrypt(const void *data)
+{
+	return test_block_cipher_only(data, true);
+}
+
+static int
+test_block_cipher_only_decrypt(const void *data)
+{
+	return test_block_cipher_only(data, false);
+}
+
 struct unit_test_suite lc_testsuite_sym = {
 	.suite_name = "Liquid Crypto Symmetric Test Suite",
 	.setup = testsuite_setup,
 	.teardown = testsuite_teardown,
 	.unit_test_cases = {
-		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Encrypt",
-					  ut_setup, ut_teardown, test_block_cipher_only,
-					  &aes_test_data_1),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_test_data_1),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_test_data_1),
 		TEST_CASES_END() /**< NULL terminate unit test array */
-	}
-};
+	}};
