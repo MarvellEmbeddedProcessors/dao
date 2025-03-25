@@ -546,6 +546,51 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 	return 0;
 }
 
+uint16_t
+dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
+{
+	uint16_t sym_seg_sz = 0, max_seg_size = 0;
+	struct dao_eth_trs_info trs_info;
+	int rc;
+
+	if (params == NULL) {
+		dao_err("Invalid argument.");
+		return 0;
+	}
+
+	if (params->sym.cipher_auth_payload_len) {
+		/* DAO LC sym header */
+		sym_seg_sz = sizeof(struct __dao_lc_req_sym);
+		/* Offset control word */
+		sym_seg_sz += 8;
+		/* IV */
+		sym_seg_sz += params->sym.iv_len;
+		/* AAD */
+		sym_seg_sz += params->sym.aad_len;
+		/* Payload */
+		sym_seg_sz += params->sym.cipher_auth_payload_len;
+		/* Digest */
+		sym_seg_sz += params->sym.digest_len;
+	}
+
+	/* TODO: add handling for asym */
+
+	/* Make sure segment size is larger than min supported. */
+
+	memset(&trs_info, 0, sizeof(trs_info));
+	rc = dao_eth_trs_info(&trs_info);
+	if (rc != 0) {
+		dao_err("Could not get ethernet transport information.");
+		return 0;
+	}
+
+	max_seg_size = trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM;
+
+	max_seg_size = RTE_MAX(max_seg_size, sym_seg_sz);
+
+	return max_seg_size;
+}
+
 int
 dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie)
 {

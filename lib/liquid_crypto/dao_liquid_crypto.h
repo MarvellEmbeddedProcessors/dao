@@ -457,6 +457,56 @@ struct dao_lc_sym_fc_ctx {
 };
 
 /**
+ * Liquid Crypto Feature Parameters.
+ *
+ * This structure is used to store the feature parameters of the liquid crypto device.
+ * The feature parameters are used to calculate the size of the maximum segment size.
+ */
+struct dao_lc_feature_params {
+	/**
+	 * Symmetric parameters. The parameters are used to calculate the size of the maximum
+	 * segment size for symmetric operations.
+	 *
+	 * For using following opcodes the corresponding parameters must be set:
+	 * - `DAO_LC_SYM_OPCODE_FC`: Flexi Crypto @see DAO_LC_SYM_FC_CTX
+	 */
+	struct {
+		/**
+		 * Cipher and auth payload length.
+		 * - Cipher only: length of cipher text.
+		 * - Auth only: length of data to be authenticated.
+		 * - Cipher and auth: length of data with possible overlap.
+		 * - AEAD: length of data for authenticated encryption.
+		 */
+		uint16_t cipher_auth_payload_len;
+		/** IV length */
+		uint16_t iv_len;
+		/** AAD length */
+		uint16_t aad_len;
+		/** Digest length */
+		uint16_t digest_len;
+	} sym;
+	/**
+	 * RSA asymmetric parameters. The parameters are used to calculate the size of the maximum
+	 * segment size for asymmetric operations.
+	 *
+	 * For using following APIs the corresponding parameters must be set:
+	 * - `dao_liquid_crypto_enq_op_pkcs1v15enc()`
+	 * - `dao_liquid_crypto_enq_op_pkcs1v15dec()`
+	 * - `dao_liquid_crypto_enq_op_pkcs1v15enc_crt()`
+	 * - `dao_liquid_crypto_enq_op_pkcs1v15dec_crt()`
+	 */
+	struct {
+		/** Modulus length */
+		uint16_t mod_len;
+		/** Exponent length */
+		uint16_t exp_len;
+		/** Message length */
+		uint16_t msg_len;
+	} rsa;
+};
+
+/**
  * The liquid crypto symmetric context.
  */
 struct dao_lc_sym_ctx {
@@ -581,6 +631,20 @@ int dao_liquid_crypto_dev_start(uint8_t dev_id);
  * - On failure, a negative value is returned indicating the cause
  */
 int dao_liquid_crypto_dev_stop(uint8_t dev_id);
+
+/**
+ * Calculate the size of the maximum segment size.
+ *
+ * This function calculates the size of the maximum segment size for the liquid crypto device to
+ * support the given feature parameters.
+ *
+ * @param params
+ * A pointer to the liquid crypto feature parameters structure.
+ * @return
+ * - On success, the size of the maximum segment size is returned.
+ * - On failure, 0 is returned.
+ */
+uint16_t dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params);
 
 /**
  * Enqueue passthrough operation to the liquid crypto device.
