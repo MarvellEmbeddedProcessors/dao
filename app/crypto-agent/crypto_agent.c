@@ -101,17 +101,11 @@ crypto_devs_validate(void)
 		return -ENODEV;
 	}
 
-	CA_INFO("Valid crypto devices found: %u\n", nb_valid_devs);
-	for (i = 0; i < nb_valid_devs; i++)
-		CA_INFO("Crypto dev %u", nb_valid_devs);
-
 	if (nb_valid_devs > 1)
 		CA_INFO("Only one crypto device supported. Using first device.");
 
 	memset(&cryptodev_info, 0, sizeof(cryptodev_info));
 	rte_cryptodev_info_get(ca_glb_ctx.cryptodev_ids[0], &cryptodev_info);
-
-	CA_INFO("Lcore count: %d", rte_lcore_count());
 
 	if (cryptodev_info.max_nb_queue_pairs < rte_lcore_count()) {
 		CA_INFO("Crypto dev %u does not support %d queue pairs",
@@ -171,7 +165,7 @@ eth_devs_validate(void)
 		}
 	}
 
-	CA_INFO("Valid eth devices found: %u\n", nb_valid_devs);
+	CA_INFO("Eth devices found: %u", nb_valid_devs);
 	if (nb_valid_devs == 0) {
 		CA_ERR("No valid ethernet devices found. Please enable at least one ethdev.");
 		return -ENODEV;
@@ -435,12 +429,12 @@ worker_thread(__rte_unused void *arg)
 	rte_rcu_qsbr_thread_online(qsbr, lcore_id);
 
 	/* Start worker thread */
-	CA_ERR("[Lcore: %d] Starting worker thread", lcore_id);
+	CA_INFO("[Lcore: %d] Starting worker thread", lcore_id);
 
-	CA_ERR("[Lcore: %d] No of links: %d", lcore_id, lconf->nb_pq);
+	CA_INFO("[Lcore: %d] No of links: %d", lcore_id, lconf->nb_pq);
 	for (i = 0; i < lconf->nb_pq; i++)
-		CA_ERR("[Lcore: %d] \t\tLink %d: Port %u, Queue %u", lcore_id, i,
-		       lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id);
+		CA_INFO("[Lcore: %d] \t\tLink %d: Port %u, Queue %u", lcore_id, i,
+			lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id);
 
 	while (!force_quit) {
 		/* Update quiet state */
