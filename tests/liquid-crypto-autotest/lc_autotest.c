@@ -91,7 +91,8 @@ main(int argc, char **argv)
 	TEST_LC_INFO("Liquid crypto version: %s", info->version);
 	TEST_LC_INFO("Number of liquid crypto devices: %u", info->nb_dev);
 	for (dev_id = 0; dev_id < info->nb_dev; dev_id++) {
-		TEST_LC_INFO("Number of queue pairs for device %u: %u", dev_id, info->nb_qp[i]);
+		TEST_LC_INFO("Number of queue pairs for device %u: %u", dev_id,
+			     info->nb_qp[dev_id]);
 
 		if (info->nb_qp[dev_id] == 0)
 			continue;
