@@ -25,6 +25,8 @@ struct liquid_crypto_dev {
 	bool is_created;
 	/** Is started */
 	bool is_started;
+	/** Is destroyed */
+	bool is_destroyed;
 	/** Number of queue pairs */
 	uint16_t nb_qp;
 	/** Index of command queue pair */

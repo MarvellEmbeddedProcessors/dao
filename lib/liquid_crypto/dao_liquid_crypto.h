@@ -524,7 +524,7 @@ int dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf);
  * Destroy a liquid crypto device.
  *
  * This function destroys a liquid crypto device. The device must be stopped
- * before it can be destroyed.
+ * before it can be destroyed. Once destroyed, the device cannot be used.
  *
  * @param dev_id
  * The device identifier.

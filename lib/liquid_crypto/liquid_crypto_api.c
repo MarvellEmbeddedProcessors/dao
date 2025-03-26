@@ -161,6 +161,11 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 
 	dev = &liquid_crypto_devs[dev_id];
 
+	if (dev->is_destroyed) {
+		dao_err("Device already destroyed. Cannot be created again.");
+		return -EINVAL;
+	}
+
 	if (dev->is_created) {
 		dao_err("Device already created.");
 		return -EEXIST;
@@ -216,6 +221,8 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 	}
 
 	memset(dev, 0, sizeof(*dev));
+
+	dev->is_destroyed = true;
 
 	return 0;
 }
