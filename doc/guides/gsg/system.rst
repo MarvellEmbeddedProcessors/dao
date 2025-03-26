@@ -39,7 +39,7 @@ installed from Python’s “pip” repository:
 
  # pip3 install meson ninja
 
-* DPDK 23.11 or later
+* DPDK 24.11 or later
 
 DPDK is a mandatory dependency for compiling DAO, as most of the applications
 are based on DPDK.
