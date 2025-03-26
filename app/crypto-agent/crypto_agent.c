@@ -13,6 +13,8 @@
 #include <rte_memzone.h>
 #include <rte_rcu_qsbr.h>
 
+#include <dao_version.h>
+
 #include "ca_admin.h"
 #include "ca_cpt_deq.h"
 #include "ca_crypto_queue.h"
@@ -622,6 +624,8 @@ main(int argc, char **argv)
 		.argv = argv,
 		.crypto_nb_desc = CA_CPT_MIN_QUEUE_DEPTH,
 	};
+
+	CA_INFO("Crypto Agent Version: %s", dao_version());
 
 	force_quit = false;
 	signal(SIGINT, signal_handler);
