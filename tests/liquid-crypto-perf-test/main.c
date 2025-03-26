@@ -27,6 +27,19 @@ const char *lcperf_test_type_strs[] = {
 
 const char *lcperf_op_type_strs[] = {
 	[LCPERF_OP_PASSTHROUGH] = "passthrough",
+	[LCPERF_OP_ASYM_RSA] = "rsa",
+};
+
+const char *lcperf_crypto_asym_op_type_strs[] = {
+	[LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT] = "pub-encrypt",
+	[LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT] = "pub-decrypt",
+	[LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT] = "prv-encrypt",
+	[LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT] = "prv-decrypt",
+};
+
+const char *lcperf_rsa_priv_keytype_strs[] = {
+	[LCPERF_RSA_KEY_TYPE_EXP] = "exp",
+	[LCPERF_RSA_KEY_TYPE_QT] = "crt",
 };
 
 const struct lcperf_test lcperf_testmap[] = {
@@ -177,6 +190,11 @@ main(int argc, char **argv)
 		RTE_LOG(ERR, USER1, "Parsing one or more user options failed\n");
 		goto err;
 	}
+	ret = lcperf_options_check(&opts);
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Checking one or more user options failed\n");
+		goto err;
+	}
 
 	nb_lcdevs = lcperf_initialize_liquid_crypto(&opts, enabled_cdevs);
 
@@ -187,6 +205,8 @@ main(int argc, char **argv)
 		nb_lcdevs = 0;
 		goto err;
 	}
+
+	lcperf_options_dump(&opts);
 
 	ret = lcperf_get_op_functions(&opts, &op_fns);
 	if (ret) {

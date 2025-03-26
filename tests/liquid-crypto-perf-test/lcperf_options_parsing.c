@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "lcperf_options.h"
+#include "lcperf_test_vectors.h"
 
 struct name_id_map {
 	const char *name;
@@ -21,7 +22,11 @@ usage(char *progname)
 	       " set test type\n"
 	       " --total-ops N: set the number of total operations performed\n"
 	       " --desc-nb N: set number of descriptors for each liquid crypto device\n"
-	       " --optype passthrough : set operation type\n"
+	       " --optype passthrough / rsa : set operation type\n"
+	       " --asym-op encrypt / decrypt / sign / verify : set asym operation type\n"
+	       " --rsa-priv-keytype exp / qt : set rsa private key type\n"
+	       " --rsa-keysize N : set RSA modulus length, supported length are 256, 1024, "
+	       " 2048, 4096 and 8192. default is 1024\n"
 	       " -h: prints this help\n",
 	       progname);
 }
@@ -49,7 +54,7 @@ parse_lcperf_test_type(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping((struct name_id_map *)lcperftest_namemap,
 					RTE_DIM(lcperftest_namemap), arg);
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "failed to parse test type");
+		RTE_LOG(ERR, USER1, "Failed to parse test type");
 		return -1;
 	}
 
@@ -81,10 +86,10 @@ parse_total_ops(struct lcperf_options *opts, const char *arg)
 	int ret = parse_uint32_t(&opts->total_ops, arg);
 
 	if (ret)
-		RTE_LOG(ERR, USER1, "failed to parse total operations count\n");
+		RTE_LOG(ERR, USER1, "Failed to parse total operations count\n");
 
 	if (opts->total_ops == 0) {
-		RTE_LOG(ERR, USER1, "invalid total operations count number specified\n");
+		RTE_LOG(ERR, USER1, "Invalid total operations count number specified\n");
 		return -1;
 	}
 
@@ -97,12 +102,12 @@ parse_desc_nb(struct lcperf_options *opts, const char *arg)
 	int ret = parse_uint32_t(&opts->nb_descriptors, arg);
 
 	if (ret) {
-		RTE_LOG(ERR, USER1, "failed to parse descriptors number\n");
+		RTE_LOG(ERR, USER1, "Failed to parse descriptors number\n");
 		return -1;
 	}
 
 	if (opts->nb_descriptors == 0) {
-		RTE_LOG(ERR, USER1, "invalid descriptors number specified\n");
+		RTE_LOG(ERR, USER1, "Invalid descriptors number specified\n");
 		return -1;
 	}
 
@@ -117,16 +122,79 @@ parse_op_type(struct lcperf_options *opts, const char *arg)
 			lcperf_op_type_strs[LCPERF_OP_PASSTHROUGH],
 			LCPERF_OP_PASSTHROUGH,
 		},
+		{
+			lcperf_op_type_strs[LCPERF_OP_ASYM_RSA],
+			LCPERF_OP_ASYM_RSA,
+		},
+
 	};
 
 	int id = get_str_key_id_mapping(optype_namemap, RTE_DIM(optype_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "invalid opt type specified\n");
+		RTE_LOG(ERR, USER1, "Invalid opt type specified\n");
 		return -1;
 	}
 
 	opts->op_type = (enum lcperf_op_type)id;
+
+	return 0;
+}
+
+static int
+parse_asym_op(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map asym_op_namemap[] = {
+		{lcperf_crypto_asym_op_type_strs[LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT],
+		 LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT},
+		{lcperf_crypto_asym_op_type_strs[LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT],
+		 LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT},
+		{lcperf_crypto_asym_op_type_strs[LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT],
+		 LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT},
+		{lcperf_crypto_asym_op_type_strs[LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT],
+		 LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT},
+	};
+
+	int id = get_str_key_id_mapping(asym_op_namemap, RTE_DIM(asym_op_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid ASYM operation specified\n");
+		return -1;
+	}
+
+	opts->asym_op_type = (enum lcperf_crypto_asym_op_type)id;
+
+	return 0;
+}
+
+static int
+parse_rsa_priv_keytype(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map rsa_keytype_namemap[] = {
+		{lcperf_rsa_priv_keytype_strs[LCPERF_RSA_KEY_TYPE_EXP], LCPERF_RSA_KEY_TYPE_EXP},
+		{lcperf_rsa_priv_keytype_strs[LCPERF_RSA_KEY_TYPE_QT], LCPERF_RSA_KEY_TYPE_QT},
+	};
+
+	int id = get_str_key_id_mapping(rsa_keytype_namemap, RTE_DIM(rsa_keytype_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid RSA private key type\n");
+		return -1;
+	}
+
+	opts->rsa_priv_keytype = (enum lcperf_rsa_priv_keytype)id;
+	return 0;
+}
+
+static int
+parse_rsa_modlen(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->rsa_modlen, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse keysize\n");
+		return -1;
+	}
 
 	return 0;
 }
@@ -147,6 +215,10 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->nb_qps = 1;
 
 	opts->op_type = LCPERF_OP_PASSTHROUGH;
+
+	opts->asym_op_type = LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT;
+	opts->rsa_priv_keytype = LCPERF_RSA_KEY_TYPE_MAX;
+	opts->rsa_modlen = 1024;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -160,6 +232,9 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_TOTAL_OPS, required_argument, 0, 0},
 				 {LCPERF_DESC_NB, required_argument, 0, 0},
 				 {LCPERF_OPTYPE, required_argument, 0, 0},
+				 {LCPERF_ASYM_OP, required_argument, 0, 0},
+				 {LCPERF_RSA_PRIV_KEYTYPE, required_argument, 0, 0},
+				 {LCPERF_RSA_MODLEN, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -170,6 +245,9 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_TOTAL_OPS, parse_total_ops},
 		{LCPERF_DESC_NB, parse_desc_nb},
 		{LCPERF_OPTYPE, parse_op_type},
+		{LCPERF_ASYM_OP, parse_asym_op},
+		{LCPERF_RSA_PRIV_KEYTYPE, parse_rsa_priv_keytype},
+		{LCPERF_RSA_MODLEN, parse_rsa_modlen},
 	};
 	unsigned int i;
 
@@ -220,6 +298,7 @@ lcperf_options_dump(struct lcperf_options *opts)
 	printf("# lcperf test: %s\n", lcperf_test_type_strs[opts->test]);
 	printf("#\n");
 	printf("# total number of ops: %u\n", opts->total_ops);
+	printf("#\n");
 
 	printf("# buffer sizes: ");
 	for (size_idx = 0; size_idx < opts->buffer_size_count; size_idx++)
@@ -230,12 +309,78 @@ lcperf_options_dump(struct lcperf_options *opts)
 		printf("%u ", opts->burst_size_list[size_idx]);
 	printf("\n");
 	printf("# number of queue pairs per device: %u\n", opts->nb_qps);
-	printf("# liquid crypto operation: %s\n", lcperf_op_type_strs[opts->op_type]);
-
 	printf("#\n");
 
-	if (opts->op_type == LCPERF_OP_PASSTHROUGH) {
-		printf("# passthrough operation\n");
-		printf("#\n");
+	printf("# lcperf operation type: %s\n", lcperf_op_type_strs[opts->op_type]);
+	printf("#\n");
+	if (opts->op_type == LCPERF_OP_ASYM_RSA) {
+		printf("# RSA operation type: %s\n",
+		       lcperf_crypto_asym_op_type_strs[opts->asym_op_type]);
+		if ((opts->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT) ||
+		    opts->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT)
+			printf("# RSA private key type: %s\n",
+			       lcperf_rsa_priv_keytype_strs[opts->rsa_priv_keytype]);
+		printf("# RSA modulus length: %u\n", opts->rsa_modlen);
 	}
+	printf("#\n");
+}
+
+int
+lcperf_options_check(struct lcperf_options *options)
+{
+	if (options->rsa_modlen || options->rsa_priv_keytype) {
+		if (options->op_type != LCPERF_OP_ASYM_RSA) {
+			RTE_LOG(ERR, USER1,
+				"RSA key length and private key type "
+				"options are only valid for RSA operation\n");
+			return -EINVAL;
+		}
+	}
+
+	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT) ||
+	    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT)) {
+		RTE_LOG(ERR, USER1, "Unsupported asymmetric operation type specified\n");
+		return -EINVAL;
+	}
+
+	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT) ||
+	    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT)) {
+		if ((options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_EXP) &&
+		    (options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_QT)) {
+			RTE_LOG(ERR, USER1, "Invalid RSA private key type specified\n");
+			return -EINVAL;
+		}
+	}
+
+	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT ||
+	     options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT) &&
+	    (options->rsa_priv_keytype == LCPERF_RSA_KEY_TYPE_EXP ||
+	     options->rsa_priv_keytype == LCPERF_RSA_KEY_TYPE_QT)) {
+		RTE_LOG(ERR, USER1,
+			"Private key type cannot be configured for public encrypt or decrypt operations\n");
+		return -EINVAL;
+	}
+
+	switch (options->rsa_modlen) {
+	case 1024:
+		options->rsa_data = &rsa_1024_params;
+		break;
+	case 2048:
+		options->rsa_data = &rsa_2048_params;
+		break;
+	case 4096:
+		options->rsa_data = &rsa_4096_params;
+		break;
+	case 8192:
+		options->rsa_data = &rsa_8192_params;
+		break;
+	case 256:
+		options->rsa_data = &rsa_256_params;
+		break;
+	default:
+		RTE_LOG(ERR, USER1, "Invalid RSA modulus length specified\n");
+		return -EINVAL;
+	}
+
+	return 0;
 }

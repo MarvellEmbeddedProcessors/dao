@@ -61,7 +61,7 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 	uint64_t tsc_start = 0;
 	int ret = 0;
 
-	ret = ctx->enqueue_ops(ctx->dev_id, ctx->qp_id, tdata);
+	ret = ctx->enqueue_ops(ctx->dev_id, ctx->qp_id, tdata, ctx->options);
 	if (ret < 0) {
 		RTE_LOG(ERR, USER1, "Could not enqueue operation\n");
 		return -1;
@@ -131,7 +131,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 		ops_enqd_failed = 0;
 
 		for (j = 0; j < burst_size; j++) {
-			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata);
+			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata, ctx->options);
 			if (ret == 0)
 				ops_enqd++;
 			else
