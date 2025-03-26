@@ -610,7 +610,6 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
-	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -628,6 +627,7 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 		return -EINVAL;
 	}
 #endif
+	qp = dev->qp[qp_id];
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -818,7 +818,6 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
-	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -874,6 +873,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 #endif
+	qp = dev->qp[qp_id];
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -969,7 +969,6 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
-	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1021,6 +1020,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 #endif
+	qp = dev->qp[qp_id];
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -1117,7 +1117,6 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
-	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1157,6 +1156,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	if (rc != 0)
 		return rc;
 #endif
+	qp = dev->qp[qp_id];
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -1269,7 +1269,6 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
-	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1295,6 +1294,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	if (rc != 0)
 		return rc;
 #endif
+	qp = dev->qp[qp_id];
 
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -1450,7 +1450,15 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 	uint16_t tx_cnt = 0;
 	int rc = 0;
 
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
 	dev = &liquid_crypto_devs[dev_id];
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
@@ -1642,7 +1650,6 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
-	qp = dev->qp[qp_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1660,6 +1667,7 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 		return -EINVAL;
 	}
 #endif
+	qp = dev->qp[qp_id];
 
 	nb_res = RTE_MIN(nb_res, LIQUID_CRYPTO_MAX_BURST);
 	nb_rx = rte_eth_rx_burst(qp->port_id, qp->queue_id, mbufs, nb_res);
