@@ -596,7 +596,7 @@ ood_flow_create(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow_i
 	ood_node_action_config_t *act_cfg = NULL;
 	representor_mapping_t *rep_map;
 	struct flows *iflow;
-	int act_cfg_idx = 0;
+	int act_cfg_idx = 0, rc = 0;
 
 	act_cfg = calloc(1, sizeof(ood_node_action_config_t));
 	if (!act_cfg)
@@ -616,7 +616,11 @@ ood_flow_create(uint16_t repr_qid, struct rte_flow_attr *attr, struct rte_flow_i
 		mac_flow = mark_action_hw_offload_flow_add(rep_map->mac_port);
 		if (!mac_flow)
 			DAO_ERR_GOTO(errno, fail, "Failed to add mark action hw offload flow");
-		dao_flow_hw_uninstall(rep_map->mac_port, mac_flow, err);
+		rc = dao_flow_hw_uninstall(rep_map->mac_port, mac_flow, err);
+
+		if (rc)
+			dao_warn("Failed to remove mac flow, rc %d", rc);
+
 		mac_flow = NULL;
 		rep_map->mark_offload_enable = true;
 	}
