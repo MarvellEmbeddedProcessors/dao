@@ -104,3 +104,90 @@ To avoid this user may follow two approaches:
     Setting up dao-cn10k (24.09.0) ...
 
     Current status: 35 (+2) upgradable.
+
+How do I run DAO applications that rely on DPDK shared libraries?
+-----------------------------------------------------------------
+
+Some DAO applications rely on DPDK libraries compiled as shared objects.
+
+To ensure these applications run correctly, you can either preload all required DPDK libraries or specify them on the command line:
+
+**Option 1: Using LD_PRELOAD**
+
+.. code-block:: bash
+
+   export LD_PRELOAD="/lib/aarch64-linux-gnu/librte_acl.so \
+   /lib/aarch64-linux-gnu/librte_argparse.so \
+   /lib/aarch64-linux-gnu/librte_bbdev.so \
+   /lib/aarch64-linux-gnu/librte_bitratestats.so \
+   /lib/aarch64-linux-gnu/librte_bpf.so \
+   /lib/aarch64-linux-gnu/librte_bus_pci.so \
+   /lib/aarch64-linux-gnu/librte_bus_vdev.so \
+   /lib/aarch64-linux-gnu/librte_cfgfile.so \
+   /lib/aarch64-linux-gnu/librte_cmdline.so \
+   /lib/aarch64-linux-gnu/librte_common_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_compressdev.so \
+   /lib/aarch64-linux-gnu/librte_crypto_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_cryptodev.so \
+   /lib/aarch64-linux-gnu/librte_dispatcher.so \
+   /lib/aarch64-linux-gnu/librte_distributor.so \
+   /lib/aarch64-linux-gnu/librte_dma_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_dmadev.so \
+   /lib/aarch64-linux-gnu/librte_eal.so \
+   /lib/aarch64-linux-gnu/librte_efd.so \
+   /lib/aarch64-linux-gnu/librte_ethdev.so \
+   /lib/aarch64-linux-gnu/librte_event_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_eventdev.so \
+   /lib/aarch64-linux-gnu/librte_fib.so \
+   /lib/aarch64-linux-gnu/librte_gpudev.so \
+   /lib/aarch64-linux-gnu/librte_graph.so \
+   /lib/aarch64-linux-gnu/librte_gro.so \
+   /lib/aarch64-linux-gnu/librte_gso.so \
+   /lib/aarch64-linux-gnu/librte_hash.so \
+   /lib/aarch64-linux-gnu/librte_ip_frag.so \
+   /lib/aarch64-linux-gnu/librte_ipsec.so \
+   /lib/aarch64-linux-gnu/librte_jobstats.so \
+   /lib/aarch64-linux-gnu/librte_kvargs.so \
+   /lib/aarch64-linux-gnu/librte_latencystats.so \
+   /lib/aarch64-linux-gnu/librte_log.so \
+   /lib/aarch64-linux-gnu/librte_lpm.so \
+   /lib/aarch64-linux-gnu/librte_mbuf.so \
+   /lib/aarch64-linux-gnu/librte_member.so \
+   /lib/aarch64-linux-gnu/librte_mempool.so \
+   /lib/aarch64-linux-gnu/librte_mempool_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_mempool_ring.so \
+   /lib/aarch64-linux-gnu/librte_meter.so \
+   /lib/aarch64-linux-gnu/librte_metrics.so \
+   /lib/aarch64-linux-gnu/librte_ml_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_mldev.so \
+   /lib/aarch64-linux-gnu/librte_net.so \
+   /lib/aarch64-linux-gnu/librte_net_cnxk.so \
+   /lib/aarch64-linux-gnu/librte_net_ring.so \
+   /lib/aarch64-linux-gnu/librte_net_tap.so \
+   /lib/aarch64-linux-gnu/librte_node.so \
+   /lib/aarch64-linux-gnu/librte_pcapng.so \
+   /lib/aarch64-linux-gnu/librte_pci.so \
+   /lib/aarch64-linux-gnu/librte_pdcp.so \
+   /lib/aarch64-linux-gnu/librte_pdump.so \
+   /lib/aarch64-linux-gnu/librte_pipeline.so \
+   /lib/aarch64-linux-gnu/librte_port.so \
+   /lib/aarch64-linux-gnu/librte_power.so \
+   /lib/aarch64-linux-gnu/librte_rawdev.so \
+   /lib/aarch64-linux-gnu/librte_rcu.so \
+   /lib/aarch64-linux-gnu/librte_regexdev.so \
+   /lib/aarch64-linux-gnu/librte_reorder.so \
+   /lib/aarch64-linux-gnu/librte_rib.so \
+   /lib/aarch64-linux-gnu/librte_ring.so \
+   /lib/aarch64-linux-gnu/librte_sched.so \
+   /lib/aarch64-linux-gnu/librte_security.so \
+   /lib/aarch64-linux-gnu/librte_stack.so \
+   /lib/aarch64-linux-gnu/librte_table.so \
+   /lib/aarch64-linux-gnu/librte_telemetry.so \
+   /lib/aarch64-linux-gnu/librte_timer.so \
+   /lib/aarch64-linux-gnu/librte_vhost.so"
+
+Make sure the libraries are installed at ``/lib/aarch64-linux-gnu/``, or update the paths accordingly.
+
+**Option 2: Using the -d Flag**
+
+Alternatively, if you do not wish to preload every library, you can specify the needed DPDK libraries individually using the ``-d`` parameter.

@@ -1,5 +1,5 @@
 ..  SPDX-License-Identifier: Marvell-MIT
-    Copyright (c) 2024 Marvell.
+    Copyright (c) 2025 Marvell.
 
 Release Notes
 =============
