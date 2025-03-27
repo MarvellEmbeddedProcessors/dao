@@ -124,6 +124,7 @@ dao_flow_hw_install(uint16_t port_id, const struct rte_flow_attr *attr,
 		dao_err("HW offload flow reserve failed");
 
 	flow->hflow = hflow;
+	flow->port_id = port_id;
 
 	fdata = rte_zmalloc("flow_data", sizeof(struct flow_data), RTE_CACHE_LINE_SIZE);
 	if (!fdata)
