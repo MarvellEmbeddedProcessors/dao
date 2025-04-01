@@ -21,8 +21,12 @@ struct lcperf_throughput_ctx {
 	uint8_t lcore_id;
 
 	lcperf_enqueue_ops_t enqueue_ops;
+	lcperf_populate_ops_t populate_ops;
+	uint64_t sess_id;
 
 	const struct lcperf_options *options;
+	const struct lcperf_op_fns *op_fns;
+	struct lcperf_test_data *tdata;
 };
 
 static void
@@ -30,6 +34,11 @@ lcperf_throughput_test_free(struct lcperf_throughput_ctx *ctx)
 {
 	if (ctx == NULL)
 		return;
+
+	if (ctx->sess_id != 0) {
+		if (ctx->op_fns != NULL && ctx->op_fns->sess_destroy != NULL)
+			ctx->op_fns->sess_destroy(ctx->dev_id, ctx->sess_id);
+	}
 
 	rte_free(ctx);
 }
@@ -40,18 +49,43 @@ lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 				   const struct lcperf_op_fns *op_fns)
 {
 	struct lcperf_throughput_ctx *ctx = NULL;
+	struct lcperf_test_data *tdata = NULL;
 
 	ctx = rte_zmalloc(NULL, sizeof(struct lcperf_throughput_ctx), 0);
 	if (ctx == NULL)
 		return NULL;
 
+	tdata = lcperf_test_vector_get_dummy(options);
+	if (tdata == NULL) {
+		RTE_LOG(ERR, USER1, "Failed to get test data\n");
+		goto test_free;
+	}
+
 	ctx->dev_id = dev_id;
 	ctx->qp_id = qp_id;
 
 	ctx->enqueue_ops = op_fns->enqueue_ops;
+	ctx->populate_ops = op_fns->populate_ops;
 	ctx->options = options;
+	ctx->op_fns = op_fns;
+	ctx->tdata = tdata;
+
+	if (op_fns->sess_create != NULL) {
+		ctx->sess_id = op_fns->sess_create(dev_id, &tdata->sym_params);
+		if (ctx->sess_id == DAO_LC_SESS_ID_INVALID) {
+			RTE_LOG(ERR, USER1, "Could not create session\n");
+			goto test_vector_free;
+		}
+	}
 
 	return ctx;
+
+test_vector_free:
+	lcperf_test_vector_free(ctx->tdata);
+
+test_free:
+	lcperf_throughput_test_free(ctx);
+	return NULL;
 }
 
 static int
@@ -60,6 +94,12 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 	struct dao_lc_res res;
 	uint64_t tsc_start = 0;
 	int ret = 0;
+
+	ret = ctx->populate_ops(ctx->sess_id, ctx->options, tdata);
+	if (ret < 0) {
+		RTE_LOG(ERR, USER1, "Could not populate operation\n");
+		return -1;
+	}
 
 	ret = ctx->enqueue_ops(ctx->dev_id, ctx->qp_id, tdata, ctx->options);
 	if (ret < 0) {
@@ -97,7 +137,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint32_t burst_size, curr_burst_sz;
 	uint32_t lcore = rte_lcore_id();
 	uint64_t op_cookie = rte_rand();
-	struct lcperf_test_data tdata;
+	struct lcperf_test_data *tdata;
 	uint64_t time_limit_tsc;
 	uint64_t remaining_ops;
 	uint64_t total_ops, j;
@@ -107,9 +147,17 @@ lcperf_throughput_test_runner(void *test_ctx)
 	int ret;
 
 	ctx->lcore_id = lcore;
-	tdata.op_cookie = op_cookie;
 
-	if (lcperf_check_single_op(ctx, &tdata) < 0) {
+	tdata = ctx->tdata;
+	if (tdata == NULL) {
+		RTE_LOG(ERR, USER1, "Test data is NULL\n");
+		return -1;
+	}
+
+	tdata->op_cookie = op_cookie;
+	tdata->nb_ops = 1;
+
+	if (lcperf_check_single_op(ctx, tdata) < 0) {
 		RTE_LOG(ERR, USER1, "Single operation check failed\n");
 		return -1;
 	}
@@ -130,12 +178,15 @@ lcperf_throughput_test_runner(void *test_ctx)
 		ops_deqd = 0;
 		ops_enqd_failed = 0;
 
-		for (j = 0; j < curr_burst_sz; j++) {
-			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata, ctx->options);
-			if (ret == 0)
-				ops_enqd++;
-			else
-				ops_enqd_failed++;
+		tdata->nb_ops = curr_burst_sz;
+
+		ret = ctx->populate_ops(ctx->sess_id, ctx->options, tdata);
+		if (ret == 0) {
+			ret = ctx->enqueue_ops(dev_id, qp_id, tdata, ctx->options);
+			ops_enqd += ret;
+			ops_enqd_failed += curr_burst_sz - ret;
+		} else {
+			ops_enqd_failed += curr_burst_sz;
 		}
 
 		ops_enqd_total += ops_enqd;
@@ -208,5 +259,6 @@ lcperf_throughput_test_destructor(void *arg)
 	if (ctx == NULL)
 		return;
 
+	lcperf_test_vector_free(ctx->tdata);
 	lcperf_throughput_test_free(ctx);
 }

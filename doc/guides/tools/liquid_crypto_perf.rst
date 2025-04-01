@@ -66,6 +66,9 @@ The following are the application-specific command-line options:
 	   rsa
 	      Perform RSA cryptographic operations, including encryption and decryption.
 
+	   symmetric
+	      Perform symmetric cryptographic operations, such as AES encryption and decryption.
+
 * ``--desc-nb <n>``
 
 	Specify the number of descriptors to allocate for each LiquidCrypto device.
@@ -111,6 +114,39 @@ The following are the application-specific command-line options:
 	how many operations are submitted to or retrieved from the device in a single batch.
 	Adjusting this value can impact performance and resource utilization. Replace ``<n>``
 	with the desired burst size (e.g., 32, 64, 128).
+
+* ``--sym-op <cipher_only>``
+
+	Specify the symmetric operation type to use for symmetric cryptographic operations.
+	The only supported operation is ``cipher_only``, which performs encryption or decryption
+	using a symmetric cipher algorithm.
+
+	The default symmetric operation is ``cipher_only``.
+
+* ``--cipher-alg <aes-cbc>``
+
+	Specify the symmetric cipher algorithm to use for symmetric cryptographic operations.
+	The only supported algorithm is ``aes-cbc`` (AES in CBC mode).
+
+	The default symmetric cipher algorithm is ``aes-cbc``.
+
+* ``--cipher-key-sz <n>``
+
+	Specify the symmetric cipher key size in bytes for symmetric cryptographic operations.
+	Replace ``<n>`` with the desired key size (e.g., 16, 24, 32). The supported key sizes
+	for AES are 16 bytes (128 bits), 24 bytes (192 bits), and 32 bytes (256 bits).
+
+	The default symmetric cipher key size is 16 bytes (128 bits).
+
+* ``--cipher_op <encrypt|decrypt>``
+
+	Specify the symmetric cipher operation type to use for symmetric cryptographic operations.
+	Available options are:
+
+	- ``encrypt``: Perform encryption using the specified symmetric cipher algorithm.
+	- ``decrypt``: Perform decryption using the specified symmetric cipher algorithm.
+
+	The default operation is ``encrypt``.
 
 Examples
 --------

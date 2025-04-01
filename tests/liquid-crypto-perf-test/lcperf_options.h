@@ -10,14 +10,20 @@
 #include <rte_common.h>
 #include <rte_memory.h>
 
-#define LCPERF_PTEST_TYPE       ("ptest")
-#define LCPERF_TOTAL_OPS        ("total-ops")
-#define LCPERF_DESC_NB          ("desc-nb")
-#define LCPERF_OPTYPE           ("optype")
-#define LCPERF_ASYM_OP          ("asym-op")
-#define LCPERF_RSA_PRIV_KEYTYPE ("rsa-priv-keytype")
-#define LCPERF_RSA_MODLEN       ("rsa-modlen")
-#define LCPERF_BURST_SIZE       ("burst-size")
+#include <dao_liquid_crypto.h>
+
+#define LCPERF_PTEST_TYPE        ("ptest")
+#define LCPERF_TOTAL_OPS         ("total-ops")
+#define LCPERF_DESC_NB           ("desc-nb")
+#define LCPERF_OPTYPE            ("optype")
+#define LCPERF_ASYM_OP           ("asym-op")
+#define LCPERF_RSA_PRIV_KEYTYPE  ("rsa-priv-keytype")
+#define LCPERF_RSA_MODLEN        ("rsa-modlen")
+#define LCPERF_BURST_SIZE        ("burst-size")
+#define LCPERF_SYM_OP            ("sym-op")
+#define LCPERF_SYM_CIPHER_OP     ("cipher-op")
+#define LCPERF_SYM_CIPHER_ALG    ("cipher-algo")
+#define LCPERF_SYM_CIPHER_KEY_SZ ("cipher-key-sz")
 
 #define MAX_LIST 1
 
@@ -44,9 +50,21 @@ enum lcperf_rsa_priv_keytype {
 	LCPERF_RSA_KEY_TYPE_MAX,
 };
 
+enum lcperf_crypto_sym_op_type {
+	LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY,
+};
+
+enum lcperf_crypto_sym_cipher_op_type {
+	LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT,
+	LCPERF_CRYPTO_SYM_CIPHER_OP_DECRYPT,
+};
+
 extern const char *lcperf_op_type_strs[];
 extern const char *lcperf_rsa_priv_keytype_strs[];
 extern const char *lcperf_crypto_asym_op_type_strs[];
+extern const char *lcperf_crypto_sym_op_type_strs[];
+extern const char *lcperf_crypto_sym_cipher_op_type_strs[];
+extern const char *lcperf_crypto_sym_cipher_algo_strs[];
 
 struct lcperf_options {
 	enum lcperf_perf_test_type test;
@@ -66,6 +84,11 @@ struct lcperf_options {
 
 	uint32_t rsa_modlen;
 	struct lcperf_rsa_test_data *rsa_data;
+
+	enum dao_lc_fc_enc_cipher cipher_algo;
+	enum lcperf_crypto_sym_op_type sym_op;
+	enum lcperf_crypto_sym_cipher_op_type cipher_op;
+	uint32_t cipher_key_sz;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

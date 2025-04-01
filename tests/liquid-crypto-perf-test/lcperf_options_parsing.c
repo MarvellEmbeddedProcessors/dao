@@ -22,13 +22,17 @@ usage(char *progname)
 	       " set test type\n"
 	       " --total-ops N: set the number of total operations performed\n"
 	       " --desc-nb N: set number of descriptors for each liquid crypto device\n"
-	       " --optype passthrough / rsa : set operation type\n"
+	       " --optype passthrough / rsa / symmetric : set operation type\n"
 	       " --asym-op pub-encrypt / pub-decrypt / prv-encrypt / prv-decrypt :"
 	       " set asym operation type\n"
 	       " --rsa-priv-keytype exp / qt : set rsa private key type\n"
 	       " --rsa-keysize N : set RSA modulus length, supported length are 256, 1024, "
 	       " 2048, 4096 and 8192. default is 1024\n"
 	       " --burst-size N : set burst size for enqueue/dequeue operations\n"
+	       " --sym-op cipher-only : set symmetric operation type\n"
+	       " --cipher-alg aes-cbc : set cipher algorithm\n"
+	       " --cipher-key-sz N : set symmetric cipher key size in bytes\n"
+	       " --cipher-op encrypt / decrypt : set symmetric cipher operation type\n"
 	       " -h: prints this help\n",
 	       progname);
 }
@@ -128,7 +132,10 @@ parse_op_type(struct lcperf_options *opts, const char *arg)
 			lcperf_op_type_strs[LCPERF_OP_ASYM_RSA],
 			LCPERF_OP_ASYM_RSA,
 		},
-
+		{
+			lcperf_op_type_strs[LCPERF_OP_SYM],
+			LCPERF_OP_SYM,
+		},
 	};
 
 	int id = get_str_key_id_mapping(optype_namemap, RTE_DIM(optype_namemap), arg);
@@ -202,6 +209,81 @@ parse_rsa_modlen(struct lcperf_options *opts, const char *arg)
 }
 
 static int
+parse_sym_op(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map sym_op_namemap[] = {
+		{lcperf_crypto_sym_op_type_strs[LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY],
+		 LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY},
+	};
+
+	int id = get_str_key_id_mapping(sym_op_namemap, RTE_DIM(sym_op_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid SYM operation specified\n");
+		return -1;
+	}
+
+	opts->sym_op = (enum lcperf_crypto_sym_op_type)id;
+
+	return 0;
+}
+
+static int
+parse_sym_cipher_op(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map sym_cipher_op_namemap[] = {
+		{lcperf_crypto_sym_cipher_op_type_strs[LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT],
+		 LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT},
+		{lcperf_crypto_sym_cipher_op_type_strs[LCPERF_CRYPTO_SYM_CIPHER_OP_DECRYPT],
+		 LCPERF_CRYPTO_SYM_CIPHER_OP_DECRYPT},
+	};
+
+	int id = get_str_key_id_mapping(sym_cipher_op_namemap, RTE_DIM(sym_cipher_op_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid SYM cipher-only operation specified\n");
+		return -1;
+	}
+
+	opts->cipher_op = (enum lcperf_crypto_sym_cipher_op_type)id;
+
+	return 0;
+}
+
+static int
+parse_sym_cipher_algo(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map cipher_algo_namemap[] = {
+		{lcperf_crypto_sym_cipher_algo_strs[DAO_LC_FC_ENC_CIPHER_AES_CBC],
+		 DAO_LC_FC_ENC_CIPHER_AES_CBC},
+	};
+
+	int id = get_str_key_id_mapping(cipher_algo_namemap, RTE_DIM(cipher_algo_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid cipher algorithm specified\n");
+		return -1;
+	}
+
+	opts->cipher_algo = (enum dao_lc_fc_enc_cipher)id;
+
+	return 0;
+}
+
+static int
+parse_sym_cipher_key_sz(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->cipher_key_sz, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse cipher key size\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int
 parse_burst_size(struct lcperf_options *opts, const char *arg)
 {
 	int ret = parse_uint32_t(&opts->burst_size, arg);
@@ -236,6 +318,10 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->asym_op_type = LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT;
 	opts->rsa_priv_keytype = LCPERF_RSA_KEY_TYPE_MAX;
 	opts->rsa_modlen = 1024;
+	opts->sym_op = LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY;
+	opts->cipher_op = LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT;
+	opts->cipher_algo = DAO_LC_FC_ENC_CIPHER_AES_CBC;
+	opts->cipher_key_sz = 16;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -253,6 +339,10 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_RSA_PRIV_KEYTYPE, required_argument, 0, 0},
 				 {LCPERF_RSA_MODLEN, required_argument, 0, 0},
 				 {LCPERF_BURST_SIZE, required_argument, 0, 0},
+				 {LCPERF_SYM_OP, required_argument, 0, 0},
+				 {LCPERF_SYM_CIPHER_OP, required_argument, 0, 0},
+				 {LCPERF_SYM_CIPHER_ALG, required_argument, 0, 0},
+				 {LCPERF_SYM_CIPHER_KEY_SZ, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -267,6 +357,10 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_RSA_PRIV_KEYTYPE, parse_rsa_priv_keytype},
 		{LCPERF_RSA_MODLEN, parse_rsa_modlen},
 		{LCPERF_BURST_SIZE, parse_burst_size},
+		{LCPERF_SYM_OP, parse_sym_op},
+		{LCPERF_SYM_CIPHER_OP, parse_sym_cipher_op},
+		{LCPERF_SYM_CIPHER_ALG, parse_sym_cipher_algo},
+		{LCPERF_SYM_CIPHER_KEY_SZ, parse_sym_cipher_key_sz},
 	};
 	unsigned int i;
 
@@ -337,6 +431,20 @@ lcperf_options_dump(struct lcperf_options *opts)
 			       lcperf_rsa_priv_keytype_strs[opts->rsa_priv_keytype]);
 		printf("# RSA modulus length: %u\n", opts->rsa_modlen);
 	}
+
+	if (opts->op_type == LCPERF_OP_SYM) {
+		printf("# Symmetric operation type: %s\n",
+		       lcperf_crypto_sym_op_type_strs[opts->sym_op]);
+
+		if (opts->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
+			printf("# Symmetric cipher operation type: %s\n",
+			       lcperf_crypto_sym_cipher_op_type_strs[opts->cipher_op]);
+			printf("# Symmetric cipher algorithm: %s\n",
+			       lcperf_crypto_sym_cipher_algo_strs[opts->cipher_algo]);
+			printf("# Symmetric cipher key size: %u bytes\n", opts->cipher_key_sz);
+		}
+	}
+
 	printf("#\n");
 }
 
@@ -380,6 +488,27 @@ lcperf_options_check(struct lcperf_options *options)
 	default:
 		RTE_LOG(ERR, USER1, "Invalid RSA modulus length specified\n");
 		return -EINVAL;
+	}
+
+	if (options->op_type == LCPERF_OP_SYM) {
+		if (options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
+			switch (options->cipher_algo) {
+			case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+				if (options->cipher_key_sz != 16 && options->cipher_key_sz != 24 &&
+				    options->cipher_key_sz != 32) {
+					RTE_LOG(ERR, USER1,
+						"Invalid AES CBC cipher key size specified\n");
+					return -EINVAL;
+				}
+				break;
+			default:
+				RTE_LOG(ERR, USER1,
+					"Invalid symmetric cipher algorithm specified\n");
+			}
+		} else {
+			RTE_LOG(ERR, USER1, "Invalid symmetric operation type specified\n");
+			return -EINVAL;
+		}
 	}
 
 	return 0;

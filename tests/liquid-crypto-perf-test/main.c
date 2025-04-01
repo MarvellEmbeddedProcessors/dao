@@ -28,6 +28,7 @@ const char *lcperf_test_type_strs[] = {
 const char *lcperf_op_type_strs[] = {
 	[LCPERF_OP_PASSTHROUGH] = "passthrough",
 	[LCPERF_OP_ASYM_RSA] = "rsa",
+	[LCPERF_OP_SYM] = "symmetric",
 };
 
 const char *lcperf_crypto_asym_op_type_strs[] = {
@@ -40,6 +41,19 @@ const char *lcperf_crypto_asym_op_type_strs[] = {
 const char *lcperf_rsa_priv_keytype_strs[] = {
 	[LCPERF_RSA_KEY_TYPE_EXP] = "exp",
 	[LCPERF_RSA_KEY_TYPE_QT] = "crt",
+};
+
+const char *lcperf_crypto_sym_op_type_strs[] = {
+	[LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY] = "cipher-only",
+};
+
+const char *lcperf_crypto_sym_cipher_op_type_strs[] = {
+	[LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT] = "encrypt",
+	[LCPERF_CRYPTO_SYM_CIPHER_OP_DECRYPT] = "decrypt",
+};
+
+const char *lcperf_crypto_sym_cipher_algo_strs[] = {
+	[DAO_LC_FC_ENC_CIPHER_AES_CBC] = "aes-cbc",
 };
 
 const struct lcperf_test lcperf_testmap[] = {
