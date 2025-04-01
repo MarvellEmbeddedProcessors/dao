@@ -1057,7 +1057,11 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
 	w4.s.opcode_minor = ROC_AE_MINOR_OP_PKCS_DEC;
 	w4.s.param1 = mod_len;
-	w4.s.param2 = ((uint16_t)(exp_len) << 1) | (key_type == DAO_LC_RSA_KEY_TYPE_PRIVATE);
+	if (key_type == DAO_LC_RSA_KEY_TYPE_PRIVATE)
+		w4.s.param2 = 1;
+	else
+		w4.s.param2 = 0;
+
 	w4.s.dlen = dlen;
 	req->w4 = w4.u64;
 
