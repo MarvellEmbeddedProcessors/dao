@@ -89,6 +89,9 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 	opts->nb_qps = (nb_lcores % enabled_cdev_count) ? (nb_lcores / enabled_cdev_count) + 1 :
 							  nb_lcores / enabled_cdev_count;
 
+	/* Add one more queue pair for the command queue */
+	opts->nb_qps += 1;
+
 	for (i = 0; i < enabled_cdev_count && i < LCPERF_MAX_DEVS; i++) {
 		cdev_id = enabled_cdevs[i];
 
@@ -104,6 +107,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 		memset(&dev_conf, 0, sizeof(dev_conf));
 		dev_conf.dev_id = cdev_id;
 		dev_conf.nb_qp = opts->nb_qps;
+		dev_conf.cmd_qp_idx = opts->nb_qps - 1;
 
 		ret = dao_liquid_crypto_dev_create(&dev_conf);
 		if (ret < 0) {
