@@ -1453,7 +1453,8 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 #endif
 
@@ -1462,7 +1463,8 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 
 	if (qp_id == dev->cmd_qp_idx) {
@@ -1473,7 +1475,8 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 #endif
 
@@ -1614,7 +1617,7 @@ put_req_idx:
 	return tx_cnt;
 
 exit:
-	dao_err("Could not transmit any packets. rc = %d", rc);
+	dao_err("Could not transmit any packets. rte_errno = %d", rte_errno);
 	return 0;
 #endif
 put_req_idx_partial:
@@ -1640,12 +1643,14 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 
 	if (res == NULL) {
 		dao_err("Invalid argument. res cannot be NULL.");
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 #endif
 
@@ -1654,17 +1659,20 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
-		return -EINVAL;
+		rte_errno = -EINVAL;
+		goto exit;
 	}
 #endif
 	qp = dev->qp[qp_id];
@@ -1707,6 +1715,12 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 	}
 
 	return nb_rx;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+exit:
+	dao_err("Could not receive any packets. rte_errno = %d", rte_errno);
+	return 0;
+#endif
 }
 
 int
