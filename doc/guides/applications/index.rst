@@ -15,3 +15,4 @@ Application User Guide
     vpp
     tls-proxy-nginx
     machine-learning
+    snort
