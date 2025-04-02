@@ -378,7 +378,7 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 	intr_idx = 0;
 	for (i = 0; i < max_vqs; i++) {
 		queue = netdev->qs[i];
-		if (!queue || i % 2)
+		if (!queue)
 			continue;
 
 		queue->cb_intr_addr = dev->cb_intr_addr[intr_idx];
