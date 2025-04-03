@@ -32,7 +32,7 @@ ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s 
 	mb = infl_req->mbuf;
 	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_asym *);
 
-	if (unlikely(infl_req->res.cn9k.uc_compcode != DAO_UC_RSA_SUCCESS)) {
+	if (unlikely(infl_req->res.cn9k.uc_compcode != DAO_UC_SUCCESS)) {
 		rlen = 0;
 		goto rlen_set;
 	}

@@ -103,11 +103,11 @@ enum dao_cpt_comp_code {
 };
 
 /**
- * CPT microcode completion codes.
+ * Completion codes returned by CPT microcode.
  */
-enum dao_uc_rsa_comp_code {
-	/** Request completed. */
-	DAO_UC_RSA_SUCCESS = 0x00,
+enum dao_uc_comp_code {
+	/** Request completed with no error. */
+	DAO_UC_SUCCESS = 0x00,
 	/** Scatter/Gather not supported. */
 	DAO_UC_RSA_SG_NOT_SUPPORTED = 0x04,
 	/** Invalid mod length. */
@@ -115,7 +115,28 @@ enum dao_uc_rsa_comp_code {
 	/** Mod length not even. */
 	DAO_UC_RSA_MOD_LEN_NOT_EVEN = 0x09,
 	/** PKCS decrypt incorrect. */
-	DAO_UC_RSA_PKCS_DEC_INCORRECT = 0x0A
+	DAO_UC_RSA_PKCS_DEC_INCORRECT = 0x0A,
+
+	/** SE GC */
+	/** Invalid data length. */
+	DAO_UC_ERR_GC_DATA_LEN_INVALID = 0x43,
+	/** Invalid context length. */
+	DAO_UC_ERR_GC_CTX_LEN_INVALID = 0x45,
+	/** Unsupported cipher select or, if CRC32 is enabled, cipher_type must be NULL. */
+	DAO_UC_ERR_GC_CIPHER_UNSUPPORTED = 0x46,
+	/**
+	 * Unsupported auth type or, if CRC32 is enabled, auth_type must be NULL, or when
+	 * auth_type is Poly1305, cipher select is other than ChaCha or Null.
+	 */
+	DAO_UC_ERR_GC_AUTH_UNSUPPORTED = 0x47,
+	/** Invalid offset. */
+	DAO_UC_ERR_GC_OFFSET_INVALID = 0x48,
+	/** Authentication data (MAC) or CRC32 mismatch. */
+	DAO_UC_ERR_GC_ICV_MISCOMPARE = 0x4c,
+	/** Encrypt length unaligned when MAC_Select is valid. */
+	DAO_UC_ERR_GC_DATA_UNALIGNED = 0x4d,
+	/** Invalid HMAC key length; only for HMAC_only. */
+	DAO_UC_ERR_GC_KEY_LEN_INVALID = 0x4e
 };
 
 /**
@@ -133,7 +154,7 @@ union dao_cpt_res_s {
 		uint64_t doneint : 1;
 		/**
 		 * Microcode Completion code.
-		 * @see enum dao_uc_rsa_comp_code
+		 * @see enum dao_uc_comp_code.
 		 */
 		uint64_t uc_compcode : 8;
 		/** Rlen */
@@ -154,7 +175,7 @@ union dao_cpt_res_s {
 		uint64_t compcode : 8;
 		/**
 		 * Microcode Completion code.
-		 * @see enum dao_uc_rsa_comp_code
+		 * @see enum dao_uc_comp_code
 		 */
 		uint64_t uc_compcode : 8;
 		/** HW Done Interrupt */

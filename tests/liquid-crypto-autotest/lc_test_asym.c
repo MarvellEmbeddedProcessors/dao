@@ -47,7 +47,7 @@ test_rsa_sign(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(memcmp(output, params->sign.data, params->n.len) == 0, "Invalid result");
 
 	return TEST_SUCCESS;
@@ -84,7 +84,7 @@ test_rsa_verify(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(message, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
@@ -195,7 +195,7 @@ test_rsa_enc_pub_exp(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 
 	/* Validate encryption */
 	ret = dao_liquid_crypto_enq_op_pkcs1v15dec_crt(
@@ -214,7 +214,7 @@ test_rsa_enc_pub_exp(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
@@ -309,7 +309,7 @@ test_rsa_dec_prv_crt(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(message, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
@@ -419,7 +419,7 @@ test_rsa_enc_prv_exp(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 
 	/* Validate encryption */
 	ret = dao_liquid_crypto_enq_op_pkcs1v15dec(dev_id, qp_id, DAO_LC_RSA_KEY_TYPE_PUBLIC,
@@ -438,7 +438,7 @@ test_rsa_enc_prv_exp(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
@@ -477,7 +477,7 @@ test_rsa_dec_prv_exp(const void *data)
 
 	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_RSA_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
 	TEST_ASSERT(memcmp(message, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
