@@ -73,14 +73,17 @@ jobs:
             meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false
             ninja install -C build
             mkdir -p "${PWD}/install/DEBIAN"
+            mkdir -p "${PWD}/install/debian"
             cd "${PWD}/install"
+            echo 'Source: DAO' > debian/control
             echo 'Package: dao-cn10k'$PKG_POSTFIX >> DEBIAN/control
             echo 'Version: '$PKG_VERSION_NAME >> DEBIAN/control
-            echo 'Depends: dpdk-'$DPDK_BASE_PKG_VERSION'-cn10k (= '$DPDK_PKG_VERSION')' >> DEBIAN/control
+            echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O bin/dao-crypto-agent bin/dao-ovs-offload bin/dao-secgw-graph bin/dao-smart-nic bin/dao-virtio-l2fwd | awk -F'Depends=' '{print $2}'` , dpdk-${DPDK_BASE_PKG_VERSION}-cn10k (= ${DPDK_PKG_VERSION})" >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Homepage: https://www.dpdk.org/" >> DEBIAN/control
             echo "Description: Data Accelerator offload for Marvell Octeon 10" >> DEBIAN/control
+            rm -rf debian
             cd -
             mv "${PWD}/install" "${PWD}/dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
@@ -109,7 +112,7 @@ jobs:
         run: |
           gh release delete dao-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }} --cleanup-tag -y
         continue-on-error: true
-      - name: Release DPDK cn10k package
+      - name: Release DAO cn10k package
         uses: softprops/action-gh-release@v2.0.4
         if: ${{ github.event_name == 'push' }}
         with:
