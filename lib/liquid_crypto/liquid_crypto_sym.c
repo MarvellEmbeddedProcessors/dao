@@ -70,6 +70,20 @@ liquid_crypto_sym_sess_meta_remove(uint64_t sess_id, uint64_t *sess_opaque)
 	return -ENOENT;
 }
 
+int
+liquid_crypto_sym_sess_meta_lookup(uint64_t sess_opaque)
+{
+	struct dao_lc_sym_sess_meta *sess_meta = DAO_LC_SYM_META_GET_PTR(sess_opaque);
+	struct dao_lc_sym_sess_meta *sess_meta_found;
+
+	TAILQ_FOREACH(sess_meta_found, &sym_sess_list_head, next) {
+		if (sess_meta_found == sess_meta)
+			return 0;
+	}
+
+	return -ENOENT;
+}
+
 void
 liquid_crypto_sym_sess_meta_free(struct dao_lc_sym_sess_meta *sess_meta)
 {

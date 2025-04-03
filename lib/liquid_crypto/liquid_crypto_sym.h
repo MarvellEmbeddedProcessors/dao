@@ -33,6 +33,8 @@ void liquid_crypto_sym_sess_meta_insert(struct dao_lc_sym_sess_meta *sess_meta, 
 
 int liquid_crypto_sym_sess_meta_remove(uint64_t sess_id, uint64_t *sess_opaque);
 
+int liquid_crypto_sym_sess_meta_lookup(uint64_t sess_opaque);
+
 void liquid_crypto_sym_sess_meta_free(struct dao_lc_sym_sess_meta *sess_meta);
 
 #endif /* __LIQUID_CRYPTO_SYM_H__ */

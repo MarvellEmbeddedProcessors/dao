@@ -1528,6 +1528,14 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 
 		op = &ops[i];
 		req_idx = req_idxs[i];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
+			dao_err("Invalid session id. sess_id = %u", op->sess_id);
+			rte_errno = -EINVAL;
+			goto transmit;
+		}
+#endif
 		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
 		qp->req_queue[req_idx].op_cookie = op->op_cookie;
 		qp->req_queue[req_idx].sess_meta = sess_meta;
@@ -1849,6 +1857,11 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 
 	if (sess_id == DAO_LC_SESS_ID_INVALID) {
 		dao_err("Invalid argument. Need a valid sess_id.");
+		return -EINVAL;
+	}
+
+	if (liquid_crypto_sym_sess_meta_lookup(sess_id) != 0) {
+		dao_err("Invalid argument. sess_id not found.");
 		return -EINVAL;
 	}
 
