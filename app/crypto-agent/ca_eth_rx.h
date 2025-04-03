@@ -206,7 +206,6 @@ ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
 
 	nb_rx = rte_eth_rx_burst(port_id, queue_id, mb, nb_rx);
 	if (nb_rx) {
-		CA_INFO("Received %u packets on port %u, queue: %u", nb_rx, port_id, queue_id);
 #ifdef CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT
 		process_pkts_reflect(mb, &nb_rx, port_id, 0);
 		if (nb_rx == 0)

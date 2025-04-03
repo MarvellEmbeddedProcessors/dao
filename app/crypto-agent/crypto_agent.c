@@ -2,9 +2,11 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
 
+#include <rte_alarm.h>
 #include <rte_common.h>
 #include <rte_cryptodev.h>
 #include <rte_eal.h>
@@ -27,6 +29,8 @@ static volatile bool force_quit;
 static struct ca_global_ctx ca_glb_ctx;
 
 struct lcore_conf lcore_conf[CA_MAX_LCORE];
+
+static pthread_t stats_thread;
 
 struct dao_card_config {
 	int argc;
@@ -385,6 +389,43 @@ eth_devs_fini(void)
 	}
 }
 
+static void
+print_stats(__rte_unused void *param)
+{
+	uint64_t total_rx = 0, total_tx = 0;
+	unsigned int i = 0;
+
+	/* Clear the screen and move the cursor to the top-left corner */
+	const char clr[] = {27, '[', '2', 'J', '\0'};
+	const char topLeft[] = {27, '[', '1', ';', '1', 'H', '\0'};
+
+	CA_INFO("%s%s", clr, topLeft);
+
+	CA_INFO("Core statistics:");
+	CA_INFO("--------------------------------------------------");
+	CA_INFO("| Core |      RX Packets      |      TX Packets      |");
+	CA_INFO("--------------------------------------------------");
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		/* Skip disabled cores */
+		if (!rte_lcore_is_enabled(i))
+			continue;
+
+		CA_INFO("| %4u | %20" PRIu64 " | %20" PRIu64 " |", i, lcore_conf[i].rx_packets,
+			lcore_conf[i].tx_packets);
+		total_rx += lcore_conf[i].rx_packets;
+		total_tx += lcore_conf[i].tx_packets;
+	}
+
+	CA_INFO("--------------------------------------------------");
+	CA_INFO("| Total| %20" PRIu64 " | %20" PRIu64 " |", total_rx, total_tx);
+	CA_INFO("--------------------------------------------------");
+
+	/* Print stats for every 5 seconds */
+	if (rte_eal_alarm_set(5000000, print_stats, NULL) < 0)
+		CA_ERR("Could not set alarm for stats");
+}
+
 static int
 worker_thread(__rte_unused void *arg)
 {
@@ -445,9 +486,11 @@ worker_thread(__rte_unused void *arg)
 
 		for (i = 0; i < lconf->nb_pq; i++) {
 			nb_pkts = ca_eth_rx(lconf->pq[i], cpt_qptr, nb_allowed);
+			lconf->rx_packets += nb_pkts;
 			nb_allowed -= nb_pkts;
 
 			nb_pkts = ca_cpt_deq(lconf->pq[i]);
+			lconf->tx_packets += nb_pkts;
 			nb_allowed += nb_pkts;
 		}
 	}
@@ -457,6 +500,20 @@ worker_thread(__rte_unused void *arg)
 	rte_rcu_qsbr_thread_unregister(qsbr, lcore_id);
 
 	return 0;
+}
+
+static void *
+stats_thread_cb(void *arg)
+{
+	if (force_quit) {
+		if (rte_eal_alarm_cancel(print_stats, NULL) < 0)
+			CA_ERR("Could not cancel alarm for stats");
+		return NULL;
+	}
+
+	print_stats(arg);
+
+	return NULL;
 }
 
 static int
@@ -503,6 +560,12 @@ card_init(struct dao_card_config *config)
 	for (i = 0; i < CA_MAX_LCORE; i++)
 		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
 
+	/* Create a separate thread for printing stats */
+	if (pthread_create(&stats_thread, NULL, stats_thread_cb, NULL) != 0) {
+		CA_ERR("Could not create stats thread");
+		goto cdev_fini;
+	}
+
 	return 0;
 
 cdev_fini:
@@ -524,6 +587,10 @@ card_fini(void)
 
 	for (i = 0; i < CA_MAX_LCORE; i++)
 		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
+
+	/* Wait for the stats thread to finish */
+	force_quit = 1;
+	pthread_join(stats_thread, NULL);
 
 	rcu_qsbr_fini();
 	crypto_devs_fini();

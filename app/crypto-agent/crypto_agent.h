@@ -78,6 +78,8 @@ struct ca_global_ctx {
 struct lcore_conf {
 	uint16_t nb_pq;
 	struct pending_queue *pq[CA_MAX_QUEUE_PER_CORE];
+	uint64_t rx_packets;
+	uint64_t tx_packets;
 } __rte_cache_aligned;
 
 struct ca_eth_dev_ctx *ca_eth_dev_ctx_get(uint16_t port_id);
