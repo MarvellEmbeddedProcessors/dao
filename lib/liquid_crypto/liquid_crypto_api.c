@@ -1482,6 +1482,12 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 		rte_errno = -EINVAL;
 		goto exit;
 	}
+
+	if (ops == NULL) {
+		dao_err("Invalid argument. ops cannot be NULL.");
+		rte_errno = -EINVAL;
+		goto exit;
+	}
 #endif
 
 	qp = dev->qp[qp_id];
@@ -1740,6 +1746,16 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 	uint16_t buf_len;
 	int rc;
 
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (ctx == NULL) {
+		dao_err("Invalid argument. ctx cannot be NULL.");
+		return -EINVAL;
+	}
+
 	dev = &liquid_crypto_devs[dev_id];
 
 	const uint16_t qp_id = dev->cmd_qp_idx;
@@ -1826,6 +1842,16 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 	uint16_t buf_len;
 	int rc;
 
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (sess_id == DAO_LC_SESS_ID_INVALID) {
+		dao_err("Invalid argument. Need a valid sess_id.");
+		return -EINVAL;
+	}
+
 	dev = &liquid_crypto_devs[dev_id];
 
 	const uint16_t qp_id = dev->cmd_qp_idx;
@@ -1899,6 +1925,11 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (events == NULL) {
+		dao_err("Invalid argument. events cannot be NULL.");
 		return -EINVAL;
 	}
 
