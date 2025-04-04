@@ -95,9 +95,9 @@ sym_sess_fc_aes_key_len_verify(const struct dao_lc_sym_fc_ctx *fc_ctx)
 {
 	switch (fc_ctx->aes_key_len) {
 	case DAO_LC_FC_AES_KEY_LEN_128:
+		break;
 	case DAO_LC_FC_AES_KEY_LEN_192:
 	case DAO_LC_FC_AES_KEY_LEN_256:
-		break;
 	default:
 		dao_err("Invalid AES key length.");
 		return -EINVAL;
