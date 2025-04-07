@@ -108,6 +108,10 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 		return -1;
 	}
 
+	TEST_ASSERT(res[0].op_cookie == sess_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Symmetric operation failed");
+
 	if (is_encrypt) {
 		ret = memcmp(in_buf_data, params->ciphertext.data, params->ciphertext.len);
 		if (ret != 0) {
