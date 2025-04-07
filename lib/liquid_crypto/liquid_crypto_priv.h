@@ -11,6 +11,7 @@
 #include <rte_mempool.h>
 
 #define LIQUID_CRYPTO_BUF_SZ_MIN 64ull
+#define LIQUID_CRYPTO_BUF_SZ_MAX 5120ull
 
 #define LIQUID_CRYPTO_MAX_BURST 32
 #define LIQUID_CRYPTO_MAX_NB_QP 64

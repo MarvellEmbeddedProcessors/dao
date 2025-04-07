@@ -292,6 +292,12 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
+	if (conf->max_seg_size > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Maximum segment size (%u) exceeds the supported value %llu.",
+			conf->max_seg_size, LIQUID_CRYPTO_BUF_SZ_MAX);
+		return -EINVAL;
+	}
+
 	dev = &liquid_crypto_devs[dev_id];
 
 	if (!dev->is_created) {
@@ -587,6 +593,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	max_seg_size = trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM;
 
 	max_seg_size = RTE_MAX(max_seg_size, sym_seg_sz);
+
+	max_seg_size = RTE_MIN(max_seg_size, LIQUID_CRYPTO_BUF_SZ_MAX);
 
 	return max_seg_size;
 }
@@ -1553,6 +1561,12 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (buf_len > rte_pktmbuf_tailroom(mbufs[i])) {
 			dao_err("Input data doesn't fit in single segment!");
+			rte_errno = -ENOMEM;
+			goto transmit;
+		}
+
+		if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+			dao_err("Input data too large. buf_len = %u", buf_len);
 			rte_errno = -ENOMEM;
 			goto transmit;
 		}
