@@ -28,5 +28,11 @@
 #define TEST_LC_MAX_AAD_LEN 0
 /* Maximum length of digest */
 #define TEST_LC_MAX_DIGEST_LEN 0
+/* Minimum length of RSA sign modulus */
+#define TEST_LC_MIN_RSA_SIGN_MOD_LEN 34
+/* Minimum length of RSA encrypt modulus */
+#define TEST_LC_MIN_RSA_ENC_MOD_LEN 17
+/* Maximum length of RSA modulus */
+#define TEST_LC_MAX_RSA_MOD_LEN 1024
 
 #endif /* __LC_AUTOTEST_H__ */

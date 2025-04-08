@@ -485,6 +485,94 @@ test_rsa_dec_prv_exp(const void *data)
 	return TEST_SUCCESS;
 }
 
+static int
+test_rsa_seg_size(void)
+{
+	struct dao_lc_feature_params params;
+	int ret;
+
+	memset(&params, 0, sizeof(params));
+
+	/* Test exponent type */
+	params.rsa.mod_len = TEST_LC_MIN_RSA_ENC_MOD_LEN;
+	params.rsa.exp_len = 4;
+	params.rsa.msg_len = 1;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	if (ret == 0) {
+		TEST_LC_ERR("Segment size calculation failed");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(ret == 192, "Incorrect segment size");
+
+	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
+	params.rsa.exp_len = 4;
+	params.rsa.msg_len = 1;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	if (ret == 0) {
+		TEST_LC_ERR("Segment size calculation failed");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(ret == 1049, "Incorrect segment size");
+
+	/* Test CRT type */
+	params.rsa.mod_len = TEST_LC_MIN_RSA_SIGN_MOD_LEN;
+	params.rsa.exp_len = 0;
+	params.rsa.msg_len = 1;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	if (ret == 0) {
+		TEST_LC_ERR("Segment size calculation failed");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(ret == 192, "Incorrect segment size");
+
+	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
+	params.rsa.exp_len = 0;
+	params.rsa.msg_len = 4;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	if (ret == 0) {
+		TEST_LC_ERR("Segment size calculation failed");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(ret == 2584, "Incorrect segment size");
+
+	/* Test unsupported parameters */
+	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN + 1;
+	params.rsa.exp_len = 0;
+	params.rsa.msg_len = 256;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
+
+	params.rsa.mod_len = 8;
+	params.rsa.exp_len = 0;
+	params.rsa.msg_len = 256;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
+
+	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN + 1;
+	params.rsa.exp_len = 1;
+	params.rsa.msg_len = 256;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
+
+	params.rsa.mod_len = 8;
+	params.rsa.exp_len = 1;
+	params.rsa.msg_len = 256;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
+
+	params.rsa.mod_len = 128;
+	params.rsa.exp_len = 1;
+	params.rsa.msg_len = 128;
+	ret = dao_liquid_crypto_seg_size_calc(&params);
+	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
+
+	return TEST_SUCCESS;
+}
+
 struct unit_test_suite lc_testsuite_asym = {
 	.suite_name = "Liquid Crypto Asymmetric Test Suite",
 	.setup = testsuite_setup,
@@ -532,6 +620,8 @@ struct unit_test_suite lc_testsuite_asym = {
 					  ut_teardown, test_rsa_enc_unsupported_mod, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Public Encrypt Unsupported MSW", ut_setup,
 					  ut_teardown, test_rsa_enc_unsupported_msw, &rsa_params),
+		TEST_CASE_NAMED_ST("RSA segment size calculation", ut_setup, ut_teardown,
+				   test_rsa_seg_size),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
