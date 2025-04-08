@@ -555,7 +555,7 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
-	uint16_t sym_seg_sz = 0, max_seg_size = 0;
+	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, max_seg_size = 0;
 	struct dao_eth_trs_info trs_info;
 	int rc;
 
@@ -579,10 +579,12 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		sym_seg_sz += params->sym.digest_len;
 	}
 
-	/* TODO: add handling for asym */
+	if (params->rsa.msg_len)
+		asym_seg_sz = LIQUID_CRYPTO_BUF_SZ_MAX;
+
+	max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 
 	/* Make sure segment size is larger than min supported. */
-
 	memset(&trs_info, 0, sizeof(trs_info));
 	rc = dao_eth_trs_info(&trs_info);
 	if (rc != 0) {
@@ -590,9 +592,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		return 0;
 	}
 
-	max_seg_size = trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM;
-
-	max_seg_size = RTE_MAX(max_seg_size, sym_seg_sz);
+	max_seg_size = RTE_MAX(max_seg_size, trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM);
 
 	max_seg_size = RTE_MIN(max_seg_size, LIQUID_CRYPTO_BUF_SZ_MAX);
 
