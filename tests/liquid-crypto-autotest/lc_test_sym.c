@@ -44,9 +44,9 @@ sess_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *ev)
 static int
 test_block_cipher_only(const void *data, bool is_encrypt)
 {
-	uint8_t in_buf_data[MAX_PLAINTEXT_LEN] = {0};
+	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN] = {0};
 	const struct test_sym_params *params = data;
-	uint8_t cipher_iv[MAX_IV_LEN] = {0};
+	uint8_t cipher_iv[TEST_LC_MAX_IV_LEN] = {0};
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
 	uint64_t sess_cookie = rte_rand();

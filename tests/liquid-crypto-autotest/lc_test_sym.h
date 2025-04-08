@@ -11,14 +11,10 @@
 
 extern struct unit_test_suite lc_testsuite_sym;
 
-#define MAX_IV_LEN 32
-#define MAX_PLAINTEXT_LEN 1024
-#define MAX_CIPHERTEXT_LEN 1024
-
 struct test_sym_params {
 	struct dao_lc_sym_ctx ctx;
 	struct {
-		uint8_t data[MAX_IV_LEN];
+		uint8_t data[TEST_LC_MAX_IV_LEN];
 		uint8_t len;
 	} iv;
 	struct {

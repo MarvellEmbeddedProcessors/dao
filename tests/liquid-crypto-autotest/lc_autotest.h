@@ -18,5 +18,15 @@
 
 /* Maximum length of output buffer */
 #define TEST_LC_MAX_OUTPUT_LEN 5120
+/* Maximum length of plaintext */
+#define TEST_LC_MAX_PLAINTEXT_LEN 1024
+/* Maximum length of ciphertext */
+#define TEST_LC_MAX_CIPHERTEXT_LEN 1024
+/* Maximum length of IV */
+#define TEST_LC_MAX_IV_LEN 16
+/* Maximum length of AAD */
+#define TEST_LC_MAX_AAD_LEN 0
+/* Maximum length of digest */
+#define TEST_LC_MAX_DIGEST_LEN 0
 
 #endif /* __LC_AUTOTEST_H__ */

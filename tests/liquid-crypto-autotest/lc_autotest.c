@@ -34,8 +34,10 @@ static struct unit_test_suite ts = {
 int
 main(int argc, char **argv)
 {
+	struct dao_lc_feature_params feature_params;
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_qp_conf qp_conf;
+	uint32_t max_seg_size = 0;
 	struct dao_lc_info *info;
 	uint16_t qp_id;
 	uint8_t dev_id;
@@ -108,11 +110,25 @@ main(int argc, char **argv)
 			goto fini;
 		}
 
+		memset(&feature_params, 0, sizeof(feature_params));
+		feature_params.sym.cipher_auth_payload_len = TEST_LC_MAX_CIPHERTEXT_LEN;
+		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
+		feature_params.sym.aad_len = TEST_LC_MAX_AAD_LEN;
+		feature_params.sym.digest_len = TEST_LC_MAX_DIGEST_LEN;
+		feature_params.rsa.msg_len = TEST_LC_MAX_OUTPUT_LEN;
+
+		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
+		if (max_seg_size == 0) {
+			TEST_LC_ERR("Could not calculate maximum segment size");
+			info->nb_qp[dev_id] = dev_id;
+			goto dev_destroy;
+		}
+
 		memset(&qp_conf, 0, sizeof(qp_conf));
 
 		qp_conf.nb_desc = 2048;
 		qp_conf.out_of_order_delivery_en = false;
-		qp_conf.max_seg_size = TEST_LC_MAX_OUTPUT_LEN;
+		qp_conf.max_seg_size = max_seg_size;
 
 		for (qp_id = 0; qp_id < info->nb_qp[dev_id]; qp_id++) {
 			ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &qp_conf);
