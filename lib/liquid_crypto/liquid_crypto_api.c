@@ -1531,7 +1531,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
-			dao_err("Invalid session id. sess_id = %u", op->sess_id);
+			dao_err("Invalid session id. sess_id = %lu", op->sess_id);
 			rte_errno = -EINVAL;
 			goto transmit;
 		}
