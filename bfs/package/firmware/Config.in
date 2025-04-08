@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2025 Marvell.
+
+config BR2_PACKAGE_FIRMWARE
+	bool "Marvell Firmware"
+	default y if BR2_PACKAGE_DAO
+	help
+		This is the Marvell firmware package.
