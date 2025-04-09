@@ -45,7 +45,6 @@ struct dao_vfio_device {
 	enum dao_vfio_dev_type type;      /**< Device type */
 	uint8_t prime;                    /**< Primary device */
 	uint8_t mbar;                     /**< Bar index of memory */
-	uint8_t rbar;                     /**< Bar index of device registers */
 };
 
 /* End of structure dao_vfio_device. */

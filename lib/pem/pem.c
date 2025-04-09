@@ -255,6 +255,10 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 	if (!pem->max_vfs)
 		goto err;
 
+	/* Assuming max_vfs is power of 2 */
+	if (pem->max_vfs != 1)
+		pem->max_vfs >>= 1;
+
 	dao_info("Setting up %u VFs for PEM%u", pem->max_vfs, pem->pem_id);
 
 	pem->host_page_sz = conf->host_page_sz;
@@ -409,13 +413,11 @@ uint8_t
 dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 {
 	struct pem *pem = &pem_devices[pem_devid];
-	uint64_t base;
 	int idx, ring_idx;
 	uint64_t reg_val;
 	uint8_t rpvf;
 
-	base = pem->sdp_pdev.rbar ? 0 : 0x80000000;
-	reg_val = sdp_reg_read(&pem->sdp_pdev, base + SDP_VF_MBOX_DATA(0));
+	reg_val = sdp_reg_read(&pem->sdp_pdev, SDP_VF_MBOX_DATA(0));
 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
 
 	if (!rpvf) {
@@ -426,12 +428,11 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 	for (idx = 0; idx < rpvf; idx++) {
 		ring_idx = idx + (vfid - 1) * rpvf;
 
-		sdp_reg_write(&pem->sdp_pdev, base + SDP_RX_OUT_ENABLE(ring_idx), 0x1);
-		sdp_reg_write(&pem->sdp_pdev, base + SDP_RX_OUT_CNTS(ring_idx), 0x1);
-		sdp_reg_write(&pem->sdp_pdev, base + SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
+		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
+		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
+		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
 
-		__atomic_store_n(intr_addr,
-				 sdp_reg_addr(&pem->sdp_pdev, base + SDP_RX_OUT_CNTS(ring_idx)),
+		__atomic_store_n(intr_addr, sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
 				 __ATOMIC_RELAXED);
 		intr_addr++;
 	}
