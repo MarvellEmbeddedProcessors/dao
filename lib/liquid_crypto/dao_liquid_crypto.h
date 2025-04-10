@@ -64,7 +64,12 @@ struct dao_lc_sym_op {
 	uint32_t cipher_offset;
 	/** Auth offset from beginning of buffer */
 	uint32_t auth_offset;
-	/** Cipher length */
+	/**
+	 * Cipher length.
+	 * For block ciphers, the cipher length must be aligned with the block size of the
+	 * cipher type. It is the application's responsibility to ensure the cipher length
+	 * meets this alignment requirement.
+	 */
 	uint32_t cipher_len;
 	/** Auth length */
 	uint32_t auth_len;

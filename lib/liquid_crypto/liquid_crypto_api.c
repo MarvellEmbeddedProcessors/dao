@@ -1578,6 +1578,14 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 			rte_errno = -ENOMEM;
 			goto transmit;
 		}
+
+		if (op->cipher_len & 0xf) {
+			if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
+				dao_err("Invalid cipher length. cipher_len = %u", op->cipher_len);
+				rte_errno = -EINVAL;
+				goto transmit;
+			}
+		}
 #endif
 		/* Input length starting from memory pointed by DPTR */
 		dlen += ROC_SE_OFF_CTRL_LEN + iv_len;

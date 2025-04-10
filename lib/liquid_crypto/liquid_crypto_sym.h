@@ -23,6 +23,9 @@ struct dao_lc_sym_sess_meta {
 
 	/** IV length */
 	uint16_t iv_len;
+
+	/** Cipher type */
+	enum dao_lc_fc_enc_cipher cipher_type;
 };
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);

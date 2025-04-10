@@ -18,6 +18,7 @@ static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 struct dao_lc_sym_sess_meta *
 liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
+	enum dao_lc_fc_enc_cipher cipher_type = DAO_LC_FC_ENC_CIPHER_NULL;
 	struct dao_lc_sym_sess_meta *sess_meta;
 	uint16_t iv_len = 0;
 
@@ -29,6 +30,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_FC) {
 		switch (ctx->fc.enc_cipher) {
 		case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+			cipher_type = DAO_LC_FC_ENC_CIPHER_AES_CBC;
 			iv_len = 16;
 			break;
 		default:
@@ -36,6 +38,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			rte_free(sess_meta);
 			return NULL;
 		}
+		sess_meta->cipher_type = cipher_type;
 		sess_meta->iv_len = iv_len;
 	} else {
 		dao_err("Unsupported opcode.");
