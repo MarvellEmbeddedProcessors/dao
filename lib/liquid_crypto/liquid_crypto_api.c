@@ -1514,10 +1514,13 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			dao_err("No available request index.");
 #endif
-			rte_errno = -ENOSPC;
-			goto put_req_idx_partial;
+			nb_ops = i;
+			break;
 		}
 	}
+
+	if (unlikely(nb_ops == 0))
+		goto exit;
 
 	rc = rte_pktmbuf_alloc_bulk(qp->tx_mp, mbufs, nb_ops);
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1653,16 +1656,9 @@ put_req_idx:
 
 	return tx_cnt;
 
-exit:
-	dao_err("Could not transmit any packets. rte_errno = %d", rte_errno);
-	return 0;
 #endif
-put_req_idx_partial:
-	for (; i > 0; i--)
-		liquid_crypto_qp_req_idx_put(qp, req_idxs[i - 1], false);
-
+exit:
 	RTE_SET_USED(rc);
-
 	return 0;
 }
 
