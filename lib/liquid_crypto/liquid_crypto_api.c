@@ -247,7 +247,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
-	if (!conf->out_of_order_delivery_en) {
+	if (conf->out_of_order_delivery_en) {
 		dao_err("Out of order delivery is not supported.");
 		return -EINVAL;
 	}
