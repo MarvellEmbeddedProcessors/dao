@@ -97,14 +97,14 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	op[0].cipher_iv = cipher_iv;
 
 	ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not enqueue encrypt operation");
+	if (ret != 1) {
+		TEST_LC_ERR("Could not enqueue symmetric crypto operation");
 		return -1;
 	}
 
 	ret = op_dequeue(dev_id, qp_id, res);
 	if (ret < 0) {
-		TEST_LC_ERR("Could not dequeue encrypt operation");
+		TEST_LC_ERR("Could not dequeue symmetric crypto operation");
 		return -1;
 	}
 
