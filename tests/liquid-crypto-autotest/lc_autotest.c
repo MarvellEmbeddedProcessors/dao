@@ -35,9 +35,9 @@ int
 main(int argc, char **argv)
 {
 	struct dao_lc_feature_params feature_params;
+	uint32_t max_seg_size = 0, cmd_seg_sz = 0;
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_qp_conf qp_conf;
-	uint32_t max_seg_size = 0;
 	struct dao_lc_info *info;
 	uint16_t qp_id;
 	uint8_t dev_id;
@@ -111,6 +111,29 @@ main(int argc, char **argv)
 		}
 
 		memset(&feature_params, 0, sizeof(feature_params));
+		feature_params.cmd_qp = true;
+
+		cmd_seg_sz = dao_liquid_crypto_seg_size_calc(&feature_params);
+		if (cmd_seg_sz == 0) {
+			TEST_LC_ERR("Could not calculate command queue pair segment size");
+			info->nb_qp[dev_id] = dev_id;
+			goto dev_destroy;
+		}
+
+		/* Configure command queue pair */
+		qp_conf.nb_desc = 2048;
+		qp_conf.out_of_order_delivery_en = false;
+		qp_conf.max_seg_size = cmd_seg_sz;
+
+		ret = dao_liquid_crypto_qp_configure(dev_id, dev_conf.cmd_qp_idx, &qp_conf);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not configure command queue pair");
+			info->nb_qp[dev_id] = dev_id;
+			goto dev_destroy;
+		}
+
+		/* Configure data queue pairs */
+		memset(&feature_params, 0, sizeof(feature_params));
 		feature_params.sym.cipher_auth_payload_len = TEST_LC_MAX_CIPHERTEXT_LEN;
 		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
 		feature_params.sym.aad_len = TEST_LC_MAX_AAD_LEN;
@@ -133,6 +156,8 @@ main(int argc, char **argv)
 		qp_conf.max_seg_size = max_seg_size;
 
 		for (qp_id = 0; qp_id < info->nb_qp[dev_id]; qp_id++) {
+			if (qp_id == dev_conf.cmd_qp_idx)
+				continue;
 			ret = dao_liquid_crypto_qp_configure(dev_id, qp_id, &qp_conf);
 			if (ret < 0) {
 				TEST_LC_ERR("Could not configure liquid crypto queue pair");
