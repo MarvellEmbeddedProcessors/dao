@@ -714,19 +714,22 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  * @param key_type
  *  The type of RSA key to be used.
  * @param mod_len
- *  The length of the modulus.
+ *  The length of the modulus. Value should be at least 17 bytes
+ *  and at most 1024 bytes.
  * @param exp_len
  *  The length of the exponent.
  * @param msg_len
- *  The length of the message.
+ *  The length of the message. Value must be at most *mod_len* - 11.
  * @param mod
  *  The address of the buffer containing the modulus.
+ *  Length of this buffer must be at most *mod_len* bytes.
  * @param exp
  *  The address of the buffer containing the exponent.
  * @param msg
  *  The address of the buffer containing the message.
  * @param em
  *  The address of the buffer where the encrypted message is to be stored.
+ *  Length of this buffer must be at least *mod_len* bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_crypto_res* structure when the operation is dequeued.
@@ -753,18 +756,21 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
  * @param key_type
  *  The type of RSA key to be used.
  * @param mod_len
- *  The length of the modulus.
+ *  The length of the modulus. Value should be at least 17 bytes
+ *  and at most 1024 bytes.
  * @param exp_len
  *  The length of the exponent.
  * @param mod
  *  The address of the buffer containing the modulus.
+ *  Length of this buffer must be *mod_len* bytes.
  * @param exp
  *  The address of the buffer containing the exponent.
  * @param em
  *  The address of the buffer containing the encrypted message. Length of this
- *  buffer must be at least *mod_len* bytes.
+ *  buffer must be *mod_len* bytes.
  * @param msg
  *  The address of the buffer where the decrypted message is to be stored.
+ *  Length of this buffer must be at least *mod_len* - 11 bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_crypto_res* structure when the operation is dequeued.
@@ -789,8 +795,8 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  * @param qp_id
  *  The index of the queue pair on which the operation is to be enqueued.
  * @param mod_len
- *  The length of the modulus. Value must be even and should be at least 34 bytes
- *  and at most 1024 bytes.
+ *  The length of the modulus. Value must be even and should be at least 34
+ *  bytes and at most 1024 bytes.
  * @param msg_len
  *  The length of the message in bytes. Value must be at most mod_len - 11.
  * @param q
@@ -812,6 +818,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  *  The address of the buffer containing the message.
  * @param em
  *  The address of the buffer where the encrypted message is to be stored.
+ *  Length of this buffer must be *mod_len* bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_crypto_res* structure when the operation is dequeued.
@@ -835,8 +842,8 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uin
  * @param qp_id
  *  The index of the queue pair on which the operation is to be enqueued.
  * @param mod_len
- *  The length of the modulus in bytes. Value must be even and should be at least
- *  34 bytes and at most 1024 bytes.
+ *  The length of the modulus in bytes. Value must be even and should be at
+ *  least 34 bytes and at most 1024 bytes.
  * @param q
  *  The address of the buffer containing the first factor. Length of this buffer
  *  must be mod_len/2 bytes and the value must be odd.
@@ -854,8 +861,10 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uin
  *  buffer must be mod_len/2 bytes.
  * @param em
  *  The address of the buffer containing the encrypted message.
+ *  Length of this buffer must be *mod_len* bytes.
  * @param msg
  *  The address of the buffer where the decrypted message is to be stored.
+ *  Length of this buffer must be at least *mod_len* - 11 bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_crypto_res* structure when the operation is dequeued.
