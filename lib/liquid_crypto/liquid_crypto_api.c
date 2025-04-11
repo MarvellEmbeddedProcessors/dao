@@ -565,6 +565,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, max_seg_size = 0;
 	struct dao_eth_trs_info trs_info;
+	uint16_t req_resp_hdr_sz = 0;
 	int rc;
 
 	if (params == NULL) {
@@ -572,55 +573,63 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		return 0;
 	}
 
-	if (params->sym.cipher_auth_payload_len) {
-		/* DAO LC sym header */
-		sym_seg_sz = sizeof(struct __dao_lc_req_sym);
-		/* Offset control word */
-		sym_seg_sz += 8;
-		/* IV */
-		sym_seg_sz += params->sym.iv_len;
-		/* AAD */
-		sym_seg_sz += params->sym.aad_len;
-		/* Payload */
-		sym_seg_sz += params->sym.cipher_auth_payload_len;
-		/* Digest */
-		sym_seg_sz += params->sym.digest_len;
-	}
-
-	if (params->rsa.mod_len) {
-		bool is_crt;
-
-		if (params->rsa.exp_len == 0)
-			is_crt = true;
-		else
-			is_crt = false;
-
-		rc = cpt_ae_rsa_mod_len_check(params->rsa.mod_len, is_crt);
-		if (rc != 0)
-			return 0;
-
-		if (!is_crt) {
-			rc = cpt_ae_rsa_exp_len_check(params->rsa.mod_len, params->rsa.exp_len);
-			if (rc != 0)
-				return 0;
+	if (params->cmd_qp) {
+		req_resp_hdr_sz = RTE_MAX(sizeof(struct __dao_lc_req_sess_create),
+					  sizeof(struct __dao_lc_resp_sess_create));
+		max_seg_size = req_resp_hdr_sz + sizeof(struct dao_lc_sym_ctx);
+		max_seg_size = RTE_MAX(max_seg_size, LIQUID_CRYPTO_SEG_SZ_MIN);
+	} else {
+		if (params->sym.cipher_auth_payload_len) {
+			/* DAO LC sym header */
+			sym_seg_sz = sizeof(struct __dao_lc_req_sym);
+			/* Offset control word */
+			sym_seg_sz += 8;
+			/* IV */
+			sym_seg_sz += params->sym.iv_len;
+			/* AAD */
+			sym_seg_sz += params->sym.aad_len;
+			/* Payload */
+			sym_seg_sz += RTE_ALIGN(params->sym.cipher_auth_payload_len, 16);
+			/* Digest */
+			sym_seg_sz += params->sym.digest_len;
 		}
 
-		rc = cpt_ae_rsa_msg_len_check(params->rsa.mod_len, params->rsa.msg_len);
-		if (rc != 0)
-			return 0;
+		if (params->rsa.mod_len) {
+			bool is_crt;
 
-		/* DAO LC ASYM header */
-		asym_seg_sz = sizeof(struct __dao_lc_req_asym);
+			if (params->rsa.exp_len == 0)
+				is_crt = true;
+			else
+				is_crt = false;
 
-		if (is_crt)
-			asym_seg_sz += (params->rsa.mod_len / 2) * 5;
-		else
-			asym_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
+			rc = cpt_ae_rsa_mod_len_check(params->rsa.mod_len, is_crt);
+			if (rc != 0)
+				return 0;
 
-		asym_seg_sz += params->rsa.msg_len;
+			if (!is_crt) {
+				rc = cpt_ae_rsa_exp_len_check(params->rsa.mod_len,
+							      params->rsa.exp_len);
+				if (rc != 0)
+					return 0;
+			}
+
+			rc = cpt_ae_rsa_msg_len_check(params->rsa.mod_len, params->rsa.msg_len);
+			if (rc != 0)
+				return 0;
+
+			/* DAO LC ASYM header */
+			asym_seg_sz = sizeof(struct __dao_lc_req_asym);
+
+			if (is_crt)
+				asym_seg_sz += (params->rsa.mod_len / 2) * 5;
+			else
+				asym_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
+
+			asym_seg_sz += params->rsa.msg_len;
+		}
+
+		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 	}
-
-	max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 
 	/* Make sure segment size is larger than min supported. */
 	memset(&trs_info, 0, sizeof(trs_info));

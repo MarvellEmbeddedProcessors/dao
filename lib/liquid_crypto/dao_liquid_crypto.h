@@ -530,6 +530,14 @@ struct dao_lc_feature_params {
 		/** Message length */
 		uint16_t msg_len;
 	} rsa;
+	/**
+	 * Specifies whether the size calculation is for the command queue pair.
+	 * If true, the size is calculated specifically for the command queue pair, ignoring
+	 * the symmetric and RSA asymmetric parameters.
+	 * If false, the size is calculated for the data queue pair using the symmetric and RSA
+	 * asymmetric parameters provided above.
+	 */
+	bool cmd_qp;
 };
 
 /**
