@@ -25,11 +25,33 @@
 #define EGRESS   FLOW_ATTR_MASK(1)
 #define TRANSFER FLOW_ATTR_MASK(2)
 
-struct dao_flow *generate_flow(uint16_t port_id, uint16_t group, uint64_t *flow_attrs,
-			       uint64_t *flow_items, uint64_t *flow_actions, uint16_t next_table,
-			       uint32_t outer_ip_src, uint16_t hairpinq, uint64_t encap_data,
-			       uint64_t decap_data, uint16_t dst_port, uint8_t core_idx,
-			       uint8_t rx_queues_count, bool unique_data, uint8_t max_priority,
+struct test_ipaddr_port {
+	struct rte_flow_item_ipv4 ipv4;
+	struct rte_flow_item_ipv6 ipv6;
+	uint16_t src_port;
+	uint16_t dst_port;
+	uint8_t core_idx;
+};
+
+struct flow_gen_params {
+	uint16_t port_id;
+	uint16_t group;
+	uint64_t *flow_attrs;
+	uint64_t *flow_items;
+	uint64_t *flow_actions;
+	uint16_t next_table;
+	uint32_t outer_ip_src;
+	uint16_t hairpinq;
+	uint64_t encap_data;
+	uint64_t decap_data;
+	uint16_t dst_port;
+	uint8_t core_idx;
+	uint8_t rx_queues_count;
+	bool unique_data;
+	uint8_t max_priority;
+};
+
+struct dao_flow *generate_flow(struct flow_gen_params *params, struct test_ipaddr_port *test_vals,
 			       struct rte_flow_error *error);
 
 #endif /* FLOW_PERF_FLOW_GEN */

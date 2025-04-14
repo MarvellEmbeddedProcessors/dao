@@ -78,6 +78,7 @@ static volatile bool force_quit;
 static bool dump_iterations;
 static bool delete_flag;
 static bool lookup_flag;
+static uint32_t lookup_batch;
 static bool hw_offload_enable;
 static uint64_t flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
 static uint64_t flow_alg;
@@ -97,6 +98,7 @@ static uint32_t mbuf_cache_size;
 static uint32_t total_mbuf_num;
 
 static struct rte_mempool *mbuf_mp;
+static struct rte_mbuf **tmbuf;
 static uint32_t nb_lcores;
 static uint32_t rules_count;
 static uint32_t rules_batch;
@@ -356,6 +358,8 @@ usage(char *progname)
 	       " calculations\n");
 	printf("  --flow-lookup: Enable deletion rate"
 	       " calculations\n");
+	printf("  --lookup-batch=N: Measure lookup after adding batch of N rules"
+	       " iterativley\n");
 	printf("  --flow-lookup: Enable flow lookup rate"
 	       " calculations\n");
 	printf("  --flow-kex-profile=default,ovs,exact_match:"
@@ -470,6 +474,8 @@ usage(char *progname)
 	printf("  --vxlan-decap: add vxlan_decap action to flow actions\n");
 }
 
+static struct test_ipaddr_port *test_vals;
+
 static void
 read_meter_policy(char *prog, char *arg)
 {
@@ -530,6 +536,7 @@ args_parse(int argc, char **argv)
 		{"dump-iterations", 0, 0, 0},
 		{"deletion-rate", 0, 0, 0},
 		{"flow-lookup", 0, 0, 0},
+		{"lookup-batch", 1, 0, 0},
 		{"hw-offload", 0, 0, 0},
 		{"flow-kex-profile", 1, 0, 0},
 		{"flow-alg", 1, 0, 0},
@@ -741,6 +748,14 @@ args_parse(int argc, char **argv)
 				delete_flag = true;
 			if (strcmp(lgopts[opt_idx].name, "flow-lookup") == 0)
 				lookup_flag = true;
+			if (strcmp(lgopts[opt_idx].name, "lookup-batch") == 0) {
+				n = atoi(optarg);
+				if (n > 0)
+					lookup_batch = n;
+				else
+					rte_exit(EXIT_FAILURE, "flow lookup-batch should be > 0\n");
+			}
+
 			if (strcmp(lgopts[opt_idx].name, "hw-offload") == 0)
 				hw_offload_enable = true;
 			if (strcmp(lgopts[opt_idx].name, "flow-kex-profile") == 0) {
@@ -862,6 +877,14 @@ args_parse(int argc, char **argv)
 		rte_exit(EXIT_FAILURE, "rules_count / rules_batch should be <= %d\n",
 			 MAX_BATCHES_COUNT);
 	}
+	if (!lookup_flag && lookup_batch > 0)
+		rte_exit(EXIT_FAILURE, "lookup-batch cannot be specified without lookup-flag\n");
+	if (lookup_batch && (rules_count % lookup_batch != 0))
+		rte_exit(EXIT_FAILURE, "rules_count %% lookup_batch should be 0\n");
+
+	/* If lookup_batch is not provided, make it one-tenth of rules_count */
+	if (lookup_flag && (lookup_batch == 0))
+		lookup_batch = rules_count / 10;
 
 	printf("end_flow\n");
 }
@@ -1166,27 +1189,26 @@ create_meter_profile(void)
 
 static struct rte_mempool *pkt_pool;
 
-static inline void
-lookup_flows(int port_id, uint8_t core_id)
+static void
+fill_test_vals(struct test_ipaddr_port *test_val_array, uint32_t count)
 {
-	clock_t start_batch, end_batch;
-	double cpu_time_used = 0;
-	double lookup_rate;
-	double cpu_time_per_batch[MAX_BATCHES_COUNT] = {0};
-	double delta;
-	uint32_t i, j;
-	int rules_batch_idx;
-	int rules_count_per_core;
-	struct rte_mbuf **tmbuf;
+	uint32_t i, start_val = 0x10000000;
+
+	for (i = 0; i < count; i++) {
+		test_val_array[i].ipv4.hdr.src_addr = RTE_BE32(start_val + i);
+		test_val_array[i].ipv4.hdr.dst_addr = RTE_BE32(start_val + i + 1);
+		test_val_array[i].src_port = i & 0xFFFF;
+		test_val_array[i].dst_port = i & 0xFFFF;
+	}
+}
+
+static void
+flow_lookup_init(void)
+{
+	struct rte_ether_hdr *eth_hdr;
 	struct rte_ipv4_hdr *ip_hdr;
 	struct rte_udp_hdr *udp_hdr;
-	struct rte_ether_hdr *eth_hdr;
-	int ret;
-
-	rules_count_per_core = rules_count / mc_pool.cores_count;
-	/* If group > 0 , should add 1 flow which created in group 0 */
-	if (flow_group > 0 && core_id == 0)
-		rules_count_per_core++;
+	uint32_t i;
 
 	pkt_pool = rte_pktmbuf_pool_create("mbuf_pkt_pool", total_mbuf_num, mbuf_cache_size, 0,
 					   mbuf_size, rte_socket_id());
@@ -1200,45 +1222,83 @@ lookup_flows(int port_id, uint8_t core_id)
 	if (rte_pktmbuf_alloc_bulk(pkt_pool, tmbuf, rules_batch) != 0)
 		rte_exit(EXIT_FAILURE, "Error: alloc tmbuf failed\n");
 
+	test_vals = rte_zmalloc("test_vals", sizeof(struct test_ipaddr_port) * rules_count, 0);
+	if (test_vals == NULL)
+		rte_exit(EXIT_FAILURE, "No Memory available!\n");
+
+	fill_test_vals(test_vals, rules_count);
+
 	for (i = 0; i < rules_batch; i++) {
 		memset(rte_pktmbuf_mtod(tmbuf[i], void *), 0, mbuf_size);
 		eth_hdr = (struct rte_ether_hdr *)(rte_pktmbuf_mtod(tmbuf[i], uint8_t *));
 		memset(eth_hdr->dst_addr.addr_bytes, rte_rand(), RTE_ETHER_ADDR_LEN);
 		memset(eth_hdr->src_addr.addr_bytes, rte_rand(), RTE_ETHER_ADDR_LEN);
 		eth_hdr->ether_type = RTE_BE16(RTE_ETHER_TYPE_IPV4);
+
 		ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-		ip_hdr->src_addr = RTE_BE32(i);
-		ip_hdr->dst_addr = RTE_BE32(i);
+		ip_hdr->src_addr = test_vals[i].ipv4.hdr.src_addr;
+		ip_hdr->dst_addr = test_vals[i].ipv4.hdr.dst_addr;
 		ip_hdr->next_proto_id = 0x11;
+
 		udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
-		udp_hdr->src_port = RTE_BE16(0x1000);
-		udp_hdr->dst_port = RTE_BE16(0x2000);
+		udp_hdr->src_port = test_vals[i].src_port;
+		udp_hdr->dst_port = test_vals[i].dst_port;
 	}
+}
+
+static inline void
+lookup_flows(int port_id, uint8_t core_id, uint32_t rules_created_cnt,
+	     struct test_ipaddr_port *test_vals)
+{
+	double cpu_time_per_batch[MAX_BATCHES_COUNT] = {0};
+	clock_t start_batch, end_batch;
+	int rules_count_per_core;
+	double cpu_time_used = 0;
+	int rules_batch_idx;
+	double lookup_rate;
+	double delta;
+	uint32_t i, j;
+	int ret;
+
+	struct rte_ipv4_hdr *ip_hdr;
+	struct rte_udp_hdr *udp_hdr;
+
+	RTE_SET_USED(test_vals);
+
+	rules_count_per_core = rules_created_cnt / mc_pool.cores_count;
+	/* If group > 0 , should add 1 flow which created in group 0 */
+	if (flow_group > 0 && core_id == 0)
+		rules_count_per_core++;
 
 	start_batch = rte_get_timer_cycles();
-	//	printf("rules_count_per_core: %u\n", rules_count_per_core);
 	for (i = 0; i < (uint32_t)rules_count_per_core; i = (i + rules_batch)) {
 		start_batch = rte_get_timer_cycles();
 
 		ret = dao_flow_lookup(port_id, tmbuf, rules_batch);
 		if (ret)
-			rte_exit(EXIT_FAILURE, "Error in deleting flow\n");
+			rte_exit(EXIT_FAILURE, "Error in flow lookup\n");
 
 		end_batch = rte_get_timer_cycles();
 		delta = (double)(end_batch - start_batch);
-		rules_batch_idx = ((i + 1) / rules_batch) - 1;
+		rules_batch_idx = i / rules_batch;
 		cpu_time_per_batch[rules_batch_idx] = delta / rte_get_timer_hz();
 		cpu_time_used += cpu_time_per_batch[rules_batch_idx];
 
+		/* Pick the next batch of test_vals for lookup */
 		for (j = 0; j < rules_batch; j++) {
 			ip_hdr =
 				(struct rte_ipv4_hdr *)(rte_pktmbuf_mtod(tmbuf[j], uint8_t *) + 14);
-			ip_hdr->src_addr = RTE_BE32(i + j);
-			ip_hdr->dst_addr = RTE_BE32(i + j);
+
+			ip_hdr->src_addr = test_vals[i + j].ipv4.hdr.src_addr;
+			ip_hdr->dst_addr = test_vals[i + j].ipv4.hdr.dst_addr;
+			ip_hdr->next_proto_id = 0x11;
+
+			udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
+			udp_hdr->src_port = test_vals[i + j].src_port;
+			udp_hdr->dst_port = test_vals[i + j].dst_port;
 		}
 	}
 
-	//	printf("iiiiii: %u\n", i);
 	/* Print lookup rates for all batches */
 	if (dump_iterations)
 		print_rules_batches(cpu_time_per_batch);
@@ -1247,8 +1307,8 @@ lookup_flows(int port_id, uint8_t core_id)
 	lookup_rate = ((double)(rules_count_per_core / cpu_time_used) / 1000);
 	printf(":: Port %d :: Core %d :: Rules lookup rate -> %f K Rule/Sec\n", port_id, core_id,
 	       lookup_rate);
-	printf(":: Port %d :: Core %d :: The time for lookup %d rules is %f seconds\n", port_id,
-	       core_id, rules_count_per_core, cpu_time_used);
+	printf(":: Port %d :: Core %d :: The time for rule lookup of %d packets is %f seconds\n",
+	       port_id, core_id, rules_count_per_core, cpu_time_used);
 
 	mc_pool.flows_record.deletion[port_id][core_id] = cpu_time_used;
 }
@@ -1315,20 +1375,17 @@ destroy_flows(int port_id, uint8_t core_id, struct dao_flow **flows_list)
 static struct dao_flow **
 insert_flows(int port_id, uint8_t core_id, uint16_t dst_port_id)
 {
+	double first_flow_latency, cpu_time_used, insertion_rate, delta;
+	double cpu_time_per_batch[MAX_BATCHES_COUNT] = {0};
+	uint32_t counter, start_counter = 0, end_counter;
+	uint64_t global_actions[MAX_ACTIONS_NUM] = {0};
+	uint64_t global_items[MAX_ITEMS_NUM] = {0};
+	int rules_batch_idx, rules_count_per_core;
+	clock_t start_batch, end_batch;
+	struct flow_gen_params params;
 	struct dao_flow **flows_list;
 	struct rte_flow_error error;
-	clock_t start_batch, end_batch;
-	double first_flow_latency;
-	double cpu_time_used;
-	double insertion_rate;
-	double cpu_time_per_batch[MAX_BATCHES_COUNT] = {0};
-	double delta;
 	uint32_t flow_index;
-	uint32_t counter, start_counter = 0, end_counter;
-	uint64_t global_items[MAX_ITEMS_NUM] = {0};
-	uint64_t global_actions[MAX_ACTIONS_NUM] = {0};
-	int rules_batch_idx;
-	int rules_count_per_core;
 
 	rules_count_per_core = rules_count / mc_pool.cores_count;
 
@@ -1345,6 +1402,7 @@ insert_flows(int port_id, uint8_t core_id, uint16_t dst_port_id)
 	if (flows_list == NULL)
 		rte_exit(EXIT_FAILURE, "No Memory available!\n");
 
+	memset(&params, 0, sizeof(params));
 	cpu_time_used = 0;
 	flow_index = 0;
 	if (flow_group > 0 && core_id == 0) {
@@ -1357,10 +1415,23 @@ insert_flows(int port_id, uint8_t core_id, uint16_t dst_port_id)
 		 * Global rule:
 		 * group 0 eth / end actions jump group <flow_group>
 		 */
-		flow = generate_flow(port_id, 0, flow_attrs, global_items, global_actions,
-				     flow_group, 0, 0, 0, 0, dst_port_id, core_id, rx_queues_count,
-				     unique_data, max_priority, &error);
+		params.port_id = port_id;
+		params.group = 0;
+		params.flow_attrs = flow_attrs;
+		params.flow_items = global_items;
+		params.flow_actions = global_actions;
+		params.next_table = flow_group;
+		params.outer_ip_src = 0;
+		params.hairpinq = 0;
+		params.encap_data = 0;
+		params.decap_data = 0;
+		params.dst_port = dst_port_id;
+		params.core_idx = core_id;
+		params.rx_queues_count = rx_queues_count;
+		params.unique_data = unique_data;
+		params.max_priority = max_priority;
 
+		flow = generate_flow(&params, &test_vals[0], &error);
 		if (flow == NULL) {
 			print_flow_error(error);
 			rte_exit(EXIT_FAILURE, "Error in creating flow\n");
@@ -1370,10 +1441,23 @@ insert_flows(int port_id, uint8_t core_id, uint16_t dst_port_id)
 
 	start_batch = rte_get_timer_cycles();
 	for (counter = start_counter; counter < end_counter; counter++) {
-		flow = generate_flow(port_id, flow_group, flow_attrs, flow_items, flow_actions,
-				     JUMP_ACTION_TABLE, counter, hairpin_queues_num, encap_data,
-				     decap_data, dst_port_id, core_id, rx_queues_count, unique_data,
-				     max_priority, &error);
+		params.port_id = port_id;
+		params.group = flow_group;
+		params.flow_attrs = flow_attrs;
+		params.flow_items = flow_items;
+		params.flow_actions = flow_actions;
+		params.next_table = JUMP_ACTION_TABLE;
+		params.outer_ip_src = 0;
+		params.hairpinq = hairpin_queues_num;
+		params.encap_data = encap_data;
+		params.decap_data = decap_data;
+		params.dst_port = test_vals[counter].dst_port;
+		params.core_idx = core_id;
+		params.rx_queues_count = rx_queues_count;
+		params.unique_data = unique_data;
+		params.max_priority = max_priority;
+
+		flow = generate_flow(&params, &test_vals[counter], &error);
 
 		if (!counter) {
 			first_flow_latency = (double)(rte_get_timer_cycles() - start_batch);
@@ -1408,6 +1492,10 @@ insert_flows(int port_id, uint8_t core_id, uint16_t dst_port_id)
 			cpu_time_per_batch[rules_batch_idx] = delta / rte_get_timer_hz();
 			cpu_time_used += cpu_time_per_batch[rules_batch_idx];
 			start_batch = rte_get_timer_cycles();
+		}
+		if (!((counter + 1) % lookup_batch)) {
+			printf(":: Port %d :: Number of rules added :%d\n", port_id, counter + 1);
+			lookup_flows(port_id, core_id, counter + 1, test_vals);
 		}
 	}
 
@@ -1464,9 +1552,6 @@ flows_handler(uint8_t core_id)
 			if (has_meter())
 				meters_handler(port_id, core_id, METER_DELETE);
 		}
-
-		if (lookup_flag)
-			lookup_flows(port_id, core_id);
 	}
 }
 
@@ -1603,6 +1688,8 @@ run_rte_flow_handler_cores(void *data __rte_unused)
 		return 0;
 
 	mc_pool.rules_count = rules_count;
+
+	flow_lookup_init();
 
 	flows_handler(lcore_id);
 

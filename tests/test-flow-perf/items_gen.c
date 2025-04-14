@@ -12,15 +12,9 @@
 #include "config.h"
 #include "items_gen.h"
 
-/* Storage for additional parameters for items */
-struct additional_para {
-	rte_be32_t src_ip;
-	uint8_t core_idx;
-};
-
 static void
 add_ether(struct rte_flow_item *items, uint8_t items_counter,
-	  __rte_unused struct additional_para para)
+	  __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_eth eth_spec;
 	static struct rte_flow_item_eth eth_mask;
@@ -32,7 +26,7 @@ add_ether(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_vlan(struct rte_flow_item *items, uint8_t items_counter,
-	 __rte_unused struct additional_para para)
+	 __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_vlan vlan_spec = {
 		.hdr.vlan_tci = RTE_BE16(VLAN_VALUE),
@@ -47,17 +41,17 @@ add_vlan(struct rte_flow_item *items, uint8_t items_counter,
 }
 
 static void
-add_ipv4(struct rte_flow_item *items, uint8_t items_counter, struct additional_para para)
+add_ipv4(struct rte_flow_item *items, uint8_t items_counter, struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_ipv4 ipv4_specs[RTE_MAX_LCORE] __rte_cache_aligned;
 	static struct rte_flow_item_ipv4 ipv4_masks[RTE_MAX_LCORE] __rte_cache_aligned;
-	uint8_t ti = para.core_idx;
+	uint8_t ti = test_arg.core_idx;
 
-	ipv4_specs[ti].hdr.src_addr = RTE_BE32(para.src_ip);
-	ipv4_masks[ti].hdr.src_addr = RTE_BE32(0xffffffff);
+	ipv4_specs[ti].hdr.src_addr = test_arg.ipv4.hdr.src_addr;
+	ipv4_masks[ti].hdr.src_addr = 0xffffffff;
 
-	ipv4_specs[ti].hdr.dst_addr = RTE_BE32(para.src_ip);
-	ipv4_masks[ti].hdr.dst_addr = RTE_BE32(0xffffffff);
+	ipv4_specs[ti].hdr.dst_addr = test_arg.ipv4.hdr.dst_addr;
+	ipv4_masks[ti].hdr.dst_addr = 0xffffffff;
 
 	items[items_counter].type = RTE_FLOW_ITEM_TYPE_IPV4;
 	items[items_counter].spec = &ipv4_specs[ti];
@@ -65,20 +59,15 @@ add_ipv4(struct rte_flow_item *items, uint8_t items_counter, struct additional_p
 }
 
 static void
-add_ipv6(struct rte_flow_item *items, uint8_t items_counter, struct additional_para para)
+add_ipv6(struct rte_flow_item *items, uint8_t items_counter, struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_ipv6 ipv6_specs[RTE_MAX_LCORE] __rte_cache_aligned;
 	static struct rte_flow_item_ipv6 ipv6_masks[RTE_MAX_LCORE] __rte_cache_aligned;
-	uint8_t ti = para.core_idx;
-	uint8_t i;
+	uint8_t ti = test_arg.core_idx;
 
 	/** Set ipv6 src **/
-	for (i = 0; i < 16; i++) {
-		/* Currently src_ip is limited to 32 bit */
-		if (i < 4)
-			ipv6_specs[ti].hdr.src_addr.a[15 - i] = para.src_ip >> (i * 8);
-		ipv6_masks[ti].hdr.src_addr.a[15 - i] = 0xff;
-	}
+	memcpy(ipv6_specs[ti].hdr.src_addr.a, test_arg.ipv6.hdr.src_addr.a, 16);
+	memset(ipv6_masks[ti].hdr.src_addr.a, 0xff, 16);
 
 	items[items_counter].type = RTE_FLOW_ITEM_TYPE_IPV6;
 	items[items_counter].spec = &ipv6_specs[ti];
@@ -87,7 +76,7 @@ add_ipv6(struct rte_flow_item *items, uint8_t items_counter, struct additional_p
 
 static void
 add_tcp(struct rte_flow_item *items, uint8_t items_counter,
-	__rte_unused struct additional_para para)
+	__rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_tcp tcp_spec;
 	static struct rte_flow_item_tcp tcp_mask;
@@ -98,17 +87,17 @@ add_tcp(struct rte_flow_item *items, uint8_t items_counter,
 }
 
 static void
-add_udp(struct rte_flow_item *items, uint8_t items_counter, struct additional_para para)
+add_udp(struct rte_flow_item *items, uint8_t items_counter, struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_udp udp_spec[RTE_MAX_LCORE];
 	static struct rte_flow_item_udp udp_mask[RTE_MAX_LCORE];
-	uint8_t ti = para.core_idx;
+	uint8_t ti = test_arg.core_idx;
 
-	udp_spec[ti].hdr.src_port = RTE_BE16(0x1000);
-	udp_mask[ti].hdr.src_port = RTE_BE16(0xffff);
+	udp_spec[ti].hdr.src_port = test_arg.src_port;
+	udp_mask[ti].hdr.src_port = 0xffff;
 
-	udp_spec[ti].hdr.dst_port = RTE_BE16(0x2000);
-	udp_mask[ti].hdr.dst_port = RTE_BE16(0xffff);
+	udp_spec[ti].hdr.dst_port = test_arg.dst_port;
+	udp_mask[ti].hdr.dst_port = 0xffff;
 
 	items[items_counter].type = RTE_FLOW_ITEM_TYPE_UDP;
 	items[items_counter].spec = &udp_spec;
@@ -116,11 +105,11 @@ add_udp(struct rte_flow_item *items, uint8_t items_counter, struct additional_pa
 }
 
 static void
-add_vxlan(struct rte_flow_item *items, uint8_t items_counter, struct additional_para para)
+add_vxlan(struct rte_flow_item *items, uint8_t items_counter, struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_vxlan vxlan_specs[RTE_MAX_LCORE] __rte_cache_aligned;
 	static struct rte_flow_item_vxlan vxlan_masks[RTE_MAX_LCORE] __rte_cache_aligned;
-	uint8_t ti = para.core_idx;
+	uint8_t ti = test_arg.core_idx;
 	uint32_t vni_value;
 	uint8_t i;
 
@@ -142,11 +131,11 @@ add_vxlan(struct rte_flow_item *items, uint8_t items_counter, struct additional_
 
 static void
 add_vxlan_gpe(struct rte_flow_item *items, uint8_t items_counter,
-	      __rte_unused struct additional_para para)
+	      __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_vxlan_gpe vxlan_gpe_specs[RTE_MAX_LCORE] __rte_cache_aligned;
 	static struct rte_flow_item_vxlan_gpe vxlan_gpe_masks[RTE_MAX_LCORE] __rte_cache_aligned;
-	uint8_t ti = para.core_idx;
+	uint8_t ti = test_arg.core_idx;
 	uint32_t vni_value;
 	uint8_t i;
 
@@ -168,7 +157,7 @@ add_vxlan_gpe(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_gre(struct rte_flow_item *items, uint8_t items_counter,
-	__rte_unused struct additional_para para)
+	__rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_gre gre_spec = {
 		.protocol = RTE_BE16(RTE_ETHER_TYPE_TEB),
@@ -184,11 +173,11 @@ add_gre(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_geneve(struct rte_flow_item *items, uint8_t items_counter,
-	   __rte_unused struct additional_para para)
+	   __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_geneve geneve_specs[RTE_MAX_LCORE] __rte_cache_aligned;
 	static struct rte_flow_item_geneve geneve_masks[RTE_MAX_LCORE] __rte_cache_aligned;
-	uint8_t ti = para.core_idx;
+	uint8_t ti = test_arg.core_idx;
 	uint32_t vni_value;
 	uint8_t i;
 
@@ -206,7 +195,7 @@ add_geneve(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_gtp(struct rte_flow_item *items, uint8_t items_counter,
-	__rte_unused struct additional_para para)
+	__rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_gtp gtp_spec = {
 		.hdr.teid = RTE_BE32(TEID_VALUE),
@@ -222,7 +211,7 @@ add_gtp(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_meta_data(struct rte_flow_item *items, uint8_t items_counter,
-	      __rte_unused struct additional_para para)
+	      __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_meta meta_spec = {
 		.data = RTE_BE32(META_DATA),
@@ -238,7 +227,7 @@ add_meta_data(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_meta_tag(struct rte_flow_item *items, uint8_t items_counter,
-	     __rte_unused struct additional_para para)
+	     __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_tag tag_spec = {
 		.data = RTE_BE32(META_DATA),
@@ -256,7 +245,7 @@ add_meta_tag(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_icmpv4(struct rte_flow_item *items, uint8_t items_counter,
-	   __rte_unused struct additional_para para)
+	   __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_icmp icmpv4_spec;
 	static struct rte_flow_item_icmp icmpv4_mask;
@@ -268,7 +257,7 @@ add_icmpv4(struct rte_flow_item *items, uint8_t items_counter,
 
 static void
 add_icmpv6(struct rte_flow_item *items, uint8_t items_counter,
-	   __rte_unused struct additional_para para)
+	   __rte_unused struct test_ipaddr_port test_arg)
 {
 	static struct rte_flow_item_icmp6 icmpv6_spec;
 	static struct rte_flow_item_icmp6 icmpv6_mask;
@@ -279,21 +268,19 @@ add_icmpv6(struct rte_flow_item *items, uint8_t items_counter,
 }
 
 void
-fill_items(struct rte_flow_item *items, uint64_t *flow_items, uint32_t outer_ip_src,
-	   uint8_t core_idx)
+fill_items(struct rte_flow_item *items, uint64_t *flow_items, uint8_t core_idx,
+	   struct test_ipaddr_port *test_arg)
 {
 	uint8_t items_counter = 0;
 	uint8_t i, j;
-	struct additional_para additional_para_data = {
-		.src_ip = outer_ip_src,
-		.core_idx = core_idx,
-	};
+
+	test_arg->core_idx = core_idx;
 
 	/* Support outer items up to tunnel layer only. */
 	static const struct items_dict {
 		uint64_t mask;
 		void (*funct)(struct rte_flow_item *items, uint8_t items_counter,
-			      struct additional_para para);
+			      struct test_ipaddr_port test_arg);
 	} items_list[] = {
 		{
 			.mask = RTE_FLOW_ITEM_TYPE_META,
@@ -363,7 +350,7 @@ fill_items(struct rte_flow_item *items, uint64_t *flow_items, uint32_t outer_ip_
 		for (i = 0; i < RTE_DIM(items_list); i++) {
 			if ((flow_items[j] & FLOW_ITEM_MASK(items_list[i].mask)) == 0)
 				continue;
-			items_list[i].funct(items, items_counter++, additional_para_data);
+			items_list[i].funct(items, items_counter++, *test_arg);
 			break;
 		}
 	}
