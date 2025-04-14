@@ -5,7 +5,7 @@
 Snort with VectorScan
 *********************
 
-What is SNORT?
+What is Snort?
 ==============
 Snort is a open-source Intrusion Prevention System (IPS). It utilizes a series of rules
 to define malicious network activity, identifying packets that match these rules and
@@ -25,10 +25,19 @@ Accelerations
   like Snort 3 for deep packet inspection (DPI), leveraging ARM's vector processing
   to enhance performance.
 
-Installing and Running Snort with VectorScan
-============================================
-Detailed steps is available at the following link.
-`<https://learn.arm.com/learning-paths/servers-and-cloud-computing/vectorscan/snort/>`
+Installing Snort
+================
+Ubuntu Debian package
+---------------------
+Before downloading the Snort package, make sure ubuntu repository is setup properly
+`Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
+
+Install the Snort package and verify
+------------------------------------
+.. code-block:: console
+
+    ~# apt-get install snort-3-cn10k-devel
+    ~# /usr/local/bin/snort -V
 
 VectorScan Benchmarking
 =======================
