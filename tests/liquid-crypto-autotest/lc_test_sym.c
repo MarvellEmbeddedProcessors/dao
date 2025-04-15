@@ -166,8 +166,16 @@ struct unit_test_suite lc_testsuite_sym = {
 	.teardown = testsuite_teardown,
 	.unit_test_cases = {
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Encrypt", ut_setup, ut_teardown,
-					  test_block_cipher_only_encrypt, &aes_test_data_1),
+					  test_block_cipher_only_encrypt, &aes_cbc_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Decrypt", ut_setup, ut_teardown,
-					  test_block_cipher_only_decrypt, &aes_test_data_1),
+					  test_block_cipher_only_decrypt, &aes_cbc_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-CBC Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_cbc_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-CBC Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_cbc_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_cbc_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_cbc_256_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}};
