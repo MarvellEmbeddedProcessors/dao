@@ -21,6 +21,21 @@ libraries = [
 	'flow'
 ]
 
+always_enable = [
+	'common'
+]
+
+disable_libs = run_command(list_dir_globs, get_option('disable_libs'), check: true).stdout().split()
+enable_libs = run_command(list_dir_globs, get_option('enable_libs'), check: true).stdout().split()
+
+require_libs = true
+if enable_libs.length() == 0
+    require_libs = false
+    enable_libs = libraries
+else
+    enable_libs += always_enable
+endif
+
 enabled = []
 disabled = []
 default_cflags = machine_args
@@ -45,6 +60,18 @@ foreach l:libraries
     if l.contains('/')
         temp_name = l.split('/')
         name = '_'.join([temp_name[0], temp_name[1]])
+    endif
+
+    if not enable_libs.contains(l)
+        skip_lib = true
+        reason = 'not in enabled libraries build config'
+    elif disable_libs.contains(l)
+        if always_enable.contains(l)
+            warning('Cannot disable mandatory library "@0@"'.format(l))
+        else
+            skip_lib = true
+            reason = 'explicitly disabled via build config'
+        endif
     endif
 
     # Skip library compilation if marked

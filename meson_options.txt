@@ -3,6 +3,8 @@
 
 option('kernel_dir', type: 'string', value: '', description:
        'Path to the kernel for building kernel modules. Headers must be in $kernel_dir.')
+option('disable_libs', type: 'string', value: '', description:
+       'Comma-separated list of optional libraries to explicitly disable. [NOTE: mandatory libs cannot be disabled]')
 option('dma_stats', type: 'boolean', value: false, description:
        'Enable DMA statistics of DAO.')
 option('virtio_debug', type: 'boolean', value: false, description:
@@ -13,3 +15,5 @@ option('enable_kmods', type: 'boolean', value: true, description:
        'build kernel modules')
 option('enable_host_build', type: 'boolean', value: false, description:
        'Build DAO packages required for host only.')
+option('enable_libs', type: 'string', value: '', description:
+       'Comma-separated list of optional libraries to explicitly enable. [NOTE: mandatory libs are always enabled]')
