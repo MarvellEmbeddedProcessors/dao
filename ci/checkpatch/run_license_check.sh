@@ -25,6 +25,9 @@ IGNORE_FILES=(
 	"DPDK_VERSION"
 	"VERSION"
 	"README.md"
+	"bfs/README.md"
+	"bfs/external.desc"
+	"tests/ct-func/ct_test.pcap"
 )
 
 IGNORE_DIRECTORIES=(
