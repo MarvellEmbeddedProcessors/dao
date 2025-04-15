@@ -2,29 +2,29 @@
  * Copyright (c) 2024 Marvell.
  */
 
+#include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
-#include <errno.h>
 #include <unistd.h>
 
 #include <rte_common.h>
-#include <rte_memory.h>
-#include <rte_eal.h>
 #include <rte_debug.h>
-#include <rte_malloc.h>
+#include <rte_eal.h>
 #include <rte_ether.h>
 #include <rte_icmp.h>
 #include <rte_ip.h>
-#include <pcap.h>
+#include <rte_malloc.h>
+#include <rte_memory.h>
 
 #include <dao_conntrack.h>
+#include <pcap.h>
 
 static uint16_t num_pkt = 0;
 static struct rte_mempool *pkt_pool;
 
 void run_test(struct rte_mbuf **pkts);
-void pkt_handler(unsigned char *arg, const struct pcap_pkthdr *pkthdr, const unsigned char* packet);
+void pkt_handler(unsigned char *arg, const struct pcap_pkthdr *pkthdr, const unsigned char *packet);
 
 void
 run_test(struct rte_mbuf **pkts)
@@ -46,7 +46,7 @@ run_test(struct rte_mbuf **pkts)
 }
 
 void
-pkt_handler(unsigned char *arg, const struct pcap_pkthdr *pkthdr, const unsigned char* packet)
+pkt_handler(unsigned char *arg, const struct pcap_pkthdr *pkthdr, const unsigned char *packet)
 {
 	struct rte_mbuf **pkts = (struct rte_mbuf **)arg;
 	struct rte_ether_hdr *eth;
@@ -76,12 +76,8 @@ alloc_pkt_buffers(struct rte_mbuf ***pkts, uint16_t nr_buf)
 {
 	uint16_t buf_size = 2048;
 
-	pkt_pool = rte_pktmbuf_pool_create("conntrack pkt pool",
-			nr_buf,
-			0,
-			0,
-			buf_size + RTE_PKTMBUF_HEADROOM,
-			0);
+	pkt_pool = rte_pktmbuf_pool_create("conntrack pkt pool", nr_buf, 0, 0,
+					   buf_size + RTE_PKTMBUF_HEADROOM, 0);
 	if (pkt_pool == NULL) {
 		printf("Error with source mempool creation.\n");
 		return -1;
@@ -104,7 +100,7 @@ alloc_pkt_buffers(struct rte_mbuf ***pkts, uint16_t nr_buf)
 int
 main(int argc, char **argv)
 {
-	unsigned int packet_counter=0;
+	unsigned int packet_counter = 0;
 	struct rte_mbuf **pkts = NULL;
 	char errbuf[PCAP_ERRBUF_SIZE];
 	struct pcap_pkthdr header;
@@ -118,7 +114,7 @@ main(int argc, char **argv)
 	if (ret < 0)
 		rte_panic("Cannot init EAL\n");
 
-	if(dao_conntrack_init((void **)&ptr) != 0) {
+	if (dao_conntrack_init((void **)&ptr) != 0) {
 		printf("Error: Unable to initialize contrack\n");
 		return 0;
 	}
@@ -136,7 +132,7 @@ main(int argc, char **argv)
 	alloc_pkt_buffers(&pkts, packet_counter);
 	fseek(pcap_file(handle), pos, SEEK_SET);
 
-	if (pcap_loop(handle, packet_counter, pkt_handler, (unsigned char *)pkts) < 0){
+	if (pcap_loop(handle, packet_counter, pkt_handler, (unsigned char *)pkts) < 0) {
 		printf("Iterating over pcap file failed\n");
 		return -1;
 	}

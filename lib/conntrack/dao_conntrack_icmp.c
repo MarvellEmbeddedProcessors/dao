@@ -5,8 +5,8 @@
 #include "dao_conntrack.h"
 #include "dao_conntrack_private.h"
 
-#include <rte_malloc.h>
 #include <rte_icmp.h>
+#include <rte_malloc.h>
 
 enum icmp_state {
 	ICMP_FIRST,
@@ -30,8 +30,8 @@ conn_icmp_cast(struct dao_conn *conn)
 }
 
 static enum conn_update_res
-icmp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn_, struct rte_mbuf *pkt,
-		 bool reply, uint64_t now)
+icmp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn_, struct rte_mbuf *pkt, bool reply,
+		 uint64_t now)
 {
 	struct conn_icmp *conn = conn_icmp_cast(conn_);
 	enum conn_update_res ret = CONN_UPDATE_VALID;
@@ -57,8 +57,7 @@ icmp_valid_new(struct conn_lookup_ctx *ctx, struct rte_mbuf *pkt)
 		(struct rte_icmp_hdr *)(rte_pktmbuf_mtod(pkt, char *) + ctx->l4_offset);
 
 	return icmp->icmp_type == DAO_ICMP_ECHO_REQUEST ||
-		icmp->icmp_type == DAO_ICMP_INFOREQUEST ||
-		icmp->icmp_type == DAO_ICMP_TIMESTAMP;
+	       icmp->icmp_type == DAO_ICMP_INFOREQUEST || icmp->icmp_type == DAO_ICMP_TIMESTAMP;
 }
 
 static struct dao_conn *

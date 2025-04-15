@@ -14,7 +14,7 @@
 /* Max number of connection entries per conntrack object. */
 #define MAX_CONN_ENTRIES (1 << 19)
 /* BUCKET_SIZE should be same as RTE_HASH_BUCKET_ENTRIES in rte_hash library */
-#define BUCKET_SIZE 8
+#define BUCKET_SIZE      8
 #define NUM_CONN_BUCKETS (MAX_CONN_ENTRIES / BUCKET_SIZE)
 
 #define DAO_CONN_STATE_FLAG(x) (1 << (x))

@@ -8,13 +8,13 @@
 #include <rte_cycles.h>
 #include <rte_ether.h>
 #include <rte_hash_crc.h>
+#include <rte_icmp.h>
 #include <rte_ip.h>
 #include <rte_ip_frag.h>
-#include <rte_icmp.h>
-#include <rte_malloc.h>
-#include <rte_tcp.h>
 #include <rte_lcore.h>
+#include <rte_malloc.h>
 #include <rte_random.h>
+#include <rte_tcp.h>
 
 extern struct ct_l4_proto dao_ct_proto_icmp4;
 extern struct ct_l4_proto dao_ct_proto_tcp;
@@ -30,11 +30,9 @@ static bool extract_l4(struct conn_key *key, const void *l4_data, bool *related)
 	     (var) = (tvar))
 #endif
 
-#define DAO_NIPQUAD(addr) \
-	((unsigned char *)&addr)[0], \
-	((unsigned char *)&addr)[1], \
-	((unsigned char *)&addr)[2], \
-	((unsigned char *)&addr)[3]
+#define DAO_NIPQUAD(addr)                                                                          \
+	((unsigned char *)&addr)[0], ((unsigned char *)&addr)[1], ((unsigned char *)&addr)[2],     \
+		((unsigned char *)&addr)[3]
 
 static uint8_t l2_len_map[16] = {
 	[RTE_PTYPE_UNKNOWN] = 0,
@@ -55,21 +53,20 @@ static uint8_t
 reverse_icmp_type(uint8_t type)
 {
 	switch (type) {
-		case DAO_ICMP_ECHO_REQUEST:
-			return RTE_ICMP_TYPE_ECHO_REPLY;
-		case DAO_ICMP_ECHO_REPLY:
-			return RTE_ICMP_TYPE_ECHO_REQUEST;
-		case DAO_ICMP_TIMESTAMP:
-			return DAO_ICMP_TIMESTAMPREPLY;
-		case DAO_ICMP_TIMESTAMPREPLY:
-			return DAO_ICMP_TIMESTAMP;
-		case DAO_ICMP_INFOREQUEST:
-			return DAO_ICMP_INFOREPLY;
-		case DAO_ICMP_INFOREPLY:
-			return DAO_ICMP_INFOREQUEST;
-
-		default:
-			return (uint8_t)~0;
+	case DAO_ICMP_ECHO_REQUEST:
+		return RTE_ICMP_TYPE_ECHO_REPLY;
+	case DAO_ICMP_ECHO_REPLY:
+		return RTE_ICMP_TYPE_ECHO_REQUEST;
+	case DAO_ICMP_TIMESTAMP:
+		return DAO_ICMP_TIMESTAMPREPLY;
+	case DAO_ICMP_TIMESTAMPREPLY:
+		return DAO_ICMP_TIMESTAMP;
+	case DAO_ICMP_INFOREQUEST:
+		return DAO_ICMP_INFOREPLY;
+	case DAO_ICMP_INFOREPLY:
+		return DAO_ICMP_INFOREQUEST;
+	default:
+		return (uint8_t)~0;
 	}
 }
 
@@ -143,56 +140,55 @@ extract_l4_icmp(struct conn_key *key, const void *l4_data, bool *related)
 	const struct rte_icmp_hdr *icmp = (const struct rte_icmp_hdr *)l4_data;
 
 	switch (icmp->icmp_type) {
-		case DAO_ICMP_ECHO_REQUEST:
-		case DAO_ICMP_ECHO_REPLY:
-		case DAO_ICMP_TIMESTAMP:
-		case DAO_ICMP_TIMESTAMPREPLY:
-		case DAO_ICMP_INFOREQUEST:
-		case DAO_ICMP_INFOREPLY:
-			if (icmp->icmp_code != 0)
-				return false;
-			key->src.icmp_id = key->dst.icmp_id = icmp->icmp_ident;
-			key->src.icmp_type = icmp->icmp_type;
-			key->dst.icmp_type = reverse_icmp_type(icmp->icmp_type);
-			break;
-		case DAO_ICMP_DST_UNREACH:
-		case DAO_ICMP_TIME_EXCEEDED:
-		case DAO_ICMP_PARAM_PROB:
-		case DAO_ICMP_SOURCEQUENCH:
-		case DAO_ICMP_REDIRECT: {
-			/* ICMP packet part of another connection. We should
-			 * extract the key from embedded packet header */
-			struct conn_key inner_key;
-			const char *l3 = (const char *) (icmp + 1);
-			const char *l4 = l3 + sizeof(struct rte_ipv4_hdr);
-
-			if (!related) {
-			        return false;
-			}
-
-			memset(&inner_key, 0, sizeof inner_key);
-			inner_key.kdata.dl_type = htons(RTE_ETHER_TYPE_IPV4);
-			bool ok = extract_l3_ipv4(&inner_key, l3);
-			if (!ok) {
-			        return false;
-			}
-
-			if (inner_key.src.addr.ipv4_addr != key->dst.addr.ipv4_addr)
-			        return false;
-
-			key->src = inner_key.src;
-			key->dst = inner_key.dst;
-			key->kdata.nw_proto = inner_key.kdata.nw_proto;
-
-			ok = extract_l4(key, l4, NULL);
-			if (ok) {
-			        conn_key_reverse(key);
-			        *related = true;
-			}
-			break;
-		}
-		default:
+	case DAO_ICMP_ECHO_REQUEST:
+	case DAO_ICMP_ECHO_REPLY:
+	case DAO_ICMP_TIMESTAMP:
+	case DAO_ICMP_TIMESTAMPREPLY:
+	case DAO_ICMP_INFOREQUEST:
+	case DAO_ICMP_INFOREPLY:
+		if (icmp->icmp_code != 0)
 			return false;
+		key->src.icmp_id = key->dst.icmp_id = icmp->icmp_ident;
+		key->src.icmp_type = icmp->icmp_type;
+		key->dst.icmp_type = reverse_icmp_type(icmp->icmp_type);
+		break;
+	case DAO_ICMP_DST_UNREACH:
+	case DAO_ICMP_TIME_EXCEEDED:
+	case DAO_ICMP_PARAM_PROB:
+	case DAO_ICMP_SOURCEQUENCH:
+	case DAO_ICMP_REDIRECT: {
+		/* ICMP packet part of another connection. We should
+		 * extract the key from embedded packet header */
+		struct conn_key inner_key;
+		const char *l3 = (const char *)(icmp + 1);
+		const char *l4 = l3 + sizeof(struct rte_ipv4_hdr);
+		if (!related) {
+			return false;
+		}
+
+		memset(&inner_key, 0, sizeof inner_key);
+		inner_key.kdata.dl_type = htons(RTE_ETHER_TYPE_IPV4);
+		bool ok = extract_l3_ipv4(&inner_key, l3);
+		if (!ok) {
+			return false;
+		}
+
+		if (inner_key.src.addr.ipv4_addr != key->dst.addr.ipv4_addr)
+			return false;
+
+		key->src = inner_key.src;
+		key->dst = inner_key.dst;
+		key->kdata.nw_proto = inner_key.kdata.nw_proto;
+
+		ok = extract_l4(key, l4, NULL);
+		if (ok) {
+			conn_key_reverse(key);
+			*related = true;
+		}
+		break;
+	}
+	default:
+		return false;
 	}
 
 	return true;
@@ -292,7 +288,7 @@ delete_conn_node(void)
 	uint32_t i;
 	void *tmp;
 
-	for (i = 0 ; i < num_bucket; i++) {
+	for (i = 0; i < num_bucket; i++) {
 		struct dao_bucket_head *bucket = &ct->blist[i];
 		rte_spinlock_lock(&bucket->block);
 		STAILQ_FOREACH_SAFE(node, &bucket->node_list, next, tmp)
@@ -478,28 +474,28 @@ conn_update_state(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx, struct dao_
 		res = conn_update(conn, pkt, ctx, now);
 
 		switch (res) {
-			case CONN_UPDATE_VALID:
-				mdata->ct_state |= DAO_CONN_STATE_FLAG(DAO_CONN_STATE_ESTABLISHED);
-				mdata->ct_state &= ~DAO_CONN_STATE_FLAG(DAO_CONN_STATE_NEW);
-				if (ctx->reply)
-					mdata->ct_state |=
-						DAO_CONN_STATE_FLAG(DAO_CONN_STATE_REPLY_DIR);
-				break;
-			case CONN_UPDATE_INVALID:
-				mdata->ct_state = DAO_CONN_STATE_FLAG(DAO_CONN_STATE_INVALID);
-				break;
-			case CONN_UPDATE_NEW:
-				int bid;
-				if (conn_hash_lookup(&conn->conn_key[CONN_DIR_FWD], &bid))
-					conn_force_expire(conn, now);
-				create_new_conn = true;
-				break;
-			case CONN_UPDATE_VALID_NEW:
-				mdata->ct_state |= DAO_CONN_STATE_FLAG(DAO_CONN_STATE_NEW);
-				break;
-			default:
-				rte_panic("Invalid response from the protocol processing."
-					  "res: %d\n", res);
+		case CONN_UPDATE_VALID:
+			mdata->ct_state |= DAO_CONN_STATE_FLAG(DAO_CONN_STATE_ESTABLISHED);
+			mdata->ct_state &= ~DAO_CONN_STATE_FLAG(DAO_CONN_STATE_NEW);
+			if (ctx->reply)
+				mdata->ct_state |= DAO_CONN_STATE_FLAG(DAO_CONN_STATE_REPLY_DIR);
+			break;
+		case CONN_UPDATE_INVALID:
+			mdata->ct_state = DAO_CONN_STATE_FLAG(DAO_CONN_STATE_INVALID);
+			break;
+		case CONN_UPDATE_NEW:
+			int bid;
+			if (conn_hash_lookup(&conn->conn_key[CONN_DIR_FWD], &bid))
+				conn_force_expire(conn, now);
+			create_new_conn = true;
+			break;
+		case CONN_UPDATE_VALID_NEW:
+			mdata->ct_state |= DAO_CONN_STATE_FLAG(DAO_CONN_STATE_NEW);
+			break;
+		default:
+			rte_panic("Invalid response from the protocol processing."
+				  "res: %d\n",
+				  res);
 		}
 	}
 	return create_new_conn;
@@ -607,7 +603,7 @@ conn_remove(struct dao_conn *conn, struct dao_bucket_head *bucket, struct dao_co
 	bid = rte_hash_del_key(ct->hash, &conn->conn_key[CONN_DIR_FWD].kdata);
 	if (bid < 0)
 		rte_panic("Hash del key failed. kdata: %x ret: %d \n",
-				conn->conn_key[CONN_DIR_FWD].kdata.ep_hash, bid);
+			  conn->conn_key[CONN_DIR_FWD].kdata.ep_hash, bid);
 
 	STAILQ_REMOVE(&bucket->node_list, node, dao_conn_node, next);
 	ret = rte_rcu_qsbr_dq_enqueue(ct->dq, node);
@@ -722,8 +718,9 @@ conn_bucket_list_init(void)
 	struct dao_bucket_head *blist;
 	int i;
 
-	blist = (struct dao_bucket_head *)rte_zmalloc("conn_bucket",
-			  (sizeof(struct dao_bucket_head) * NUM_CONN_BUCKETS), RTE_CACHE_LINE_SIZE);
+	blist = (struct dao_bucket_head *)rte_zmalloc(
+		"conn_bucket", (sizeof(struct dao_bucket_head) * NUM_CONN_BUCKETS),
+		RTE_CACHE_LINE_SIZE);
 	if (blist == NULL) {
 		dao_err("Bucket head create failed.");
 		return NULL;

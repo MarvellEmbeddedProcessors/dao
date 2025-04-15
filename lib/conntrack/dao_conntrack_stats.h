@@ -41,40 +41,40 @@ struct dao_ct_stats {
 
 extern struct dao_ct_stats ct_stats[RTE_MAX_LCORE];
 
-#define DAO_CT_STATS_INC(x) 						\
-do {									\
-	unsigned int lcore = rte_lcore_id();				\
-	uint32_t stat_id = (uint32_t)x;					\
-	ct_stats[lcore].stats[stat_id]++;				\
-}while (0);								\
+#define DAO_CT_STATS_INC(x)                                                                        \
+	do {                                                                                       \
+		unsigned int lcore = rte_lcore_id();                                               \
+		uint32_t stat_id = (uint32_t)x;                                                    \
+		ct_stats[lcore].stats[stat_id]++;                                                  \
+	} while (0);
 
-#define DAO_CT_STATS_DEC(x) 						\
-do {									\
-	unsigned int lcore = rte_lcore_id();				\
-	uint32_t stat_id = (uint32_t)x;					\
-	ct_stats[lcore].stats[stat_id]--;				\
-}while (0);								\
+#define DAO_CT_STATS_DEC(x)                                                                        \
+	do {                                                                                       \
+		unsigned int lcore = rte_lcore_id();                                               \
+		uint32_t stat_id = (uint32_t)x;                                                    \
+		ct_stats[lcore].stats[stat_id]--;                                                  \
+	} while (0);
 
-#define DAO_CT_STATS_ADD(x, v) 						\
-do {									\
-	unsigned int lcore = rte_lcore_id();				\
-	uint32_t stat_id = (uint32_t)x;					\
-	uint64_t val = (uint64_t)v;					\
-	ct_stats[lcore].stats[stat_id] += val;				\
-}while (0);								\
+#define DAO_CT_STATS_ADD(x, v)                                                                     \
+	do {                                                                                       \
+		unsigned int lcore = rte_lcore_id();                                               \
+		uint32_t stat_id = (uint32_t)x;                                                    \
+		uint64_t val = (uint64_t)v;                                                        \
+		ct_stats[lcore].stats[stat_id] += val;                                             \
+	} while (0);
 
 /* XXX: Debug stats for future. */
-#define DAO_CT_DBG_STATS_INC(x) 					\
-do {									\
-}while (0);								\
+#define DAO_CT_DBG_STATS_INC(x)                                                                    \
+	do {                                                                                       \
+	} while (0);
 
-#define DAO_CT_DBG_STATS_DEC(x) 					\
-do {									\
-}while (0);								\
+#define DAO_CT_DBG_STATS_DEC(x)                                                                    \
+	do {                                                                                       \
+	} while (0);
 
-#define DAO_CT_DBG_STATS_ADD(x, v) 					\
-do {									\
-}while (0);								\
+#define DAO_CT_DBG_STATS_ADD(x, v)                                                                 \
+	do {                                                                                       \
+	} while (0);
 
 /* Get error string using id. */
 const char *ct_stats_id2str_get(uint32_t id);

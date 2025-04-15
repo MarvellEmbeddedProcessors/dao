@@ -6,7 +6,7 @@
 
 #include <rte_malloc.h>
 
-#define DAO_DIV_ROUND_UP(n, d) (((n) + ((d) - 1)) / (d))
+#define DAO_DIV_ROUND_UP(n, d) (((n) + ((d)-1)) / (d))
 
 enum tcp_state {
 	SYN_SENT,
@@ -18,16 +18,13 @@ enum tcp_state {
 };
 
 static const enum conn_timeout tcp_timeouts[] = {
-	[SYN_SENT] = CONN_TO_TCP_SYN_SENT,
-	[SYN_RECV] = CONN_TO_TCP_SYN_RECV,
-	[ESTABLISHED] = CONN_TO_TCP_ESTABLISHED,
-	[FIN_WAIT] = CONN_TO_TCP_FIN_WAIT,
-	[TIME_WAIT] = CONN_TO_TCP_TIME_WAIT,
-	[CLOSE] = CONN_TO_TCP_CLOSE,
+	[SYN_SENT] = CONN_TO_TCP_SYN_SENT,       [SYN_RECV] = CONN_TO_TCP_SYN_RECV,
+	[ESTABLISHED] = CONN_TO_TCP_ESTABLISHED, [FIN_WAIT] = CONN_TO_TCP_FIN_WAIT,
+	[TIME_WAIT] = CONN_TO_TCP_TIME_WAIT,     [CLOSE] = CONN_TO_TCP_CLOSE,
 };
 
-static struct dao_conn_tcp*
-conn_tcp_cast(struct dao_conn* conn)
+static struct dao_conn_tcp *
+conn_tcp_cast(struct dao_conn *conn)
 {
 	return container_of(conn, struct dao_conn_tcp, up);
 }
@@ -120,8 +117,8 @@ dao_tcp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn, struct rte_
 		return CONN_UPDATE_INVALID;
 
 	if ((tcp_flags & (RTE_TCP_SYN_FLAG | RTE_TCP_ACK_FLAG)) == RTE_TCP_SYN_FLAG) {
-		if (dst->state >= DAO_CONN_TCP_FIN_WAIT_2
-				&& src->state >= DAO_CONN_TCP_FIN_WAIT_2) {
+		if (dst->state >= DAO_CONN_TCP_FIN_WAIT_2 &&
+		    src->state >= DAO_CONN_TCP_FIN_WAIT_2) {
 			src->state = dst->state = DAO_CONN_TCP_CLOSED;
 			return CONN_UPDATE_NEW;
 		} else if (src->state <= DAO_CONN_TCP_SYN_SENT) {
@@ -171,7 +168,7 @@ dao_tcp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn, struct rte_
 				if (src->wscale & DAO_CONN_TCPOPT_FLAG(WSCALE_FLAG)) {
 					/* Remove scale factor from initial window */
 					sws = src->wscale;
-					win = DAO_DIV_ROUND_UP((uint32_t) win, 1 << sws);
+					win = DAO_DIV_ROUND_UP((uint32_t)win, 1 << sws);
 					dws = dst->wscale;
 				} else {
 					/* RFC 1323:
@@ -191,8 +188,7 @@ dao_tcp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn, struct rte_
 		src->seqcur = seq;
 		src->state = DAO_CONN_TCP_SYN_SENT;
 
-		if (src->seqnxt == 1 ||
-		    ((end + RTE_MAX(1, dst->maxwin << dws)) >= src->seqnxt)) {
+		if (src->seqnxt == 1 || ((end + RTE_MAX(1, dst->maxwin << dws)) >= src->seqnxt)) {
 			src->seqnxt = end + RTE_MAX(1, dst->maxwin << dws);
 			/* We are either picking up a new connection or a connection which
 			 * was already in place.  We are more permissive in terms of
@@ -216,22 +212,22 @@ dao_tcp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn, struct rte_
 	if ((tcp_flags & RTE_TCP_ACK_FLAG) == 0)
 		ack = dst->seqcur;
 	else if ((ack == 0 && (tcp_flags & (RTE_TCP_ACK_FLAG | RTE_TCP_RST_FLAG)) ==
-		 (RTE_TCP_ACK_FLAG | RTE_TCP_RST_FLAG)))
+				      (RTE_TCP_ACK_FLAG | RTE_TCP_RST_FLAG)))
 		ack = dst->seqcur;
 
 	int ackskew = check_ackskew ? dst->seqcur - ack : 0;
-#define MAXACKWINDOW (0xffff + 1500)    /* 1500 is an arbitrary fudge factor */
+#define MAXACKWINDOW (0xffff + 1500) /* 1500 is an arbitrary fudge factor */
 
 	if ((DAO_SEQ_GEQ(src->seqnxt, end)
-		/* Last octet inside other's window space */
-		&& DAO_SEQ_GEQ(seq, src->seqcur - (dst->maxwin << dws))
-		/* Retrans: not more than one window back */
-		&& (ackskew >= -MAXACKWINDOW)
-		/* Acking not more than one reassembled fragment backwards */
-		&& (ackskew <= (MAXACKWINDOW << sws))
-		/* Acking not more than one window forward */
-		&& ((tcp_flags & RTE_TCP_RST_FLAG) == 0 || orig_seq == src->seqcur
-			|| (orig_seq == src->seqcur + 1) || (orig_seq + 1 == src->seqcur)))){
+	     /* Last octet inside other's window space */
+	     && DAO_SEQ_GEQ(seq, src->seqcur - (dst->maxwin << dws))
+	     /* Retrans: not more than one window back */
+	     && (ackskew >= -MAXACKWINDOW)
+	     /* Acking not more than one reassembled fragment backwards */
+	     && (ackskew <= (MAXACKWINDOW << sws))
+	     /* Acking not more than one window forward */
+	     && ((tcp_flags & RTE_TCP_RST_FLAG) == 0 || orig_seq == src->seqcur ||
+		 (orig_seq == src->seqcur + 1) || (orig_seq + 1 == src->seqcur)))) {
 		/* Require an exact/+1 sequence match on resets when possible */
 
 		/* update max window */
@@ -276,10 +272,10 @@ dao_tcp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn, struct rte_
 			conn_ex_timer_update(&conn_tcp->up, tcp_timeouts[ESTABLISHED], now);
 	} else if ((dst->state < DAO_CONN_TCP_SYN_SENT || dst->state >= DAO_CONN_TCP_FIN_WAIT_2 ||
 		    src->state >= DAO_CONN_TCP_FIN_WAIT_2) &&
-		    DAO_SEQ_GEQ(src->seqnxt + MAXACKWINDOW, end) &&
-		    /* Within a window forward of the originating packet */
-		    DAO_SEQ_GEQ(seq, src->seqcur - MAXACKWINDOW)) {
-		    /* Within a window backward of the originating packet */
+		   DAO_SEQ_GEQ(src->seqnxt + MAXACKWINDOW, end) &&
+		   /* Within a window forward of the originating packet */
+		   DAO_SEQ_GEQ(seq, src->seqcur - MAXACKWINDOW)) {
+		/* Within a window backward of the originating packet */
 
 		/*
 		 * This currently handles three situations:
@@ -324,8 +320,7 @@ dao_tcp_conn_update(struct dao_conntrack *ct, struct dao_conn *conn, struct rte_
 
 		if (tcp_flags & RTE_TCP_RST_FLAG)
 			src->state = dst->state = DAO_CONN_TCP_TIME_WAIT;
-	}
-	else
+	} else
 		return CONN_UPDATE_INVALID;
 
 	return CONN_UPDATE_VALID;
@@ -361,8 +356,8 @@ dao_tcp_new_conn(struct dao_conntrack *ct, struct conn_lookup_ctx *ctx, struct r
 	RTE_SET_USED(ct);
 	RTE_SET_USED(now);
 
-	newconn = (struct dao_conn_tcp *)rte_zmalloc(
-		"tcp_ct_conn", sizeof(struct dao_conn_tcp), RTE_CACHE_LINE_SIZE);
+	newconn = (struct dao_conn_tcp *)rte_zmalloc("tcp_ct_conn", sizeof(struct dao_conn_tcp),
+						     RTE_CACHE_LINE_SIZE);
 	if (!newconn)
 		return NULL;
 

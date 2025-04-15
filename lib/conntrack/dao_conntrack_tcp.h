@@ -9,10 +9,10 @@
 
 #define DAO_CONN_TCP_MAX_WSCALE 14
 
-#define DAO_SEQ_LT(a,b)   ((int) ((a)-(b)) < 0)
-#define DAO_SEQ_LEQ(a,b)  ((int) ((a)-(b)) <= 0)
-#define DAO_SEQ_GT(a,b)   ((int) ((a)-(b)) > 0)
-#define DAO_SEQ_GEQ(a,b)  ((int) ((a)-(b)) >= 0)
+#define DAO_SEQ_LT(a, b)  ((int)((a) - (b)) < 0)
+#define DAO_SEQ_LEQ(a, b) ((int)((a) - (b)) <= 0)
+#define DAO_SEQ_GT(a, b)  ((int)((a) - (b)) > 0)
+#define DAO_SEQ_GEQ(a, b) ((int)((a) - (b)) >= 0)
 
 #define DAO_SEQ_MIN(a, b) ((DAO_SEQ_LT(a, b)) ? (a) : (b))
 #define DAO_SEQ_MAX(a, b) ((DAO_SEQ_GT(a, b)) ? (a) : (b))
