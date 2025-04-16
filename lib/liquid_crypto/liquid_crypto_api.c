@@ -27,6 +27,9 @@ static struct liquid_crypto_dev liquid_crypto_devs[DAO_CRYPTO_MAX_NB_DEV];
 
 /** Forward declarations */
 static int liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id);
+static inline int cpt_ae_rsa_mod_len_check(uint16_t mod_len, bool is_crt);
+static inline int cpt_ae_rsa_exp_len_check(uint16_t mod_len, uint16_t exp_len);
+static inline int cpt_ae_rsa_msg_len_check(uint16_t mod_len, uint16_t msg_len);
 
 int
 dao_liquid_crypto_init(void)
@@ -584,8 +587,38 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		sym_seg_sz += params->sym.digest_len;
 	}
 
-	if (params->rsa.msg_len)
-		asym_seg_sz = LIQUID_CRYPTO_BUF_SZ_MAX;
+	if (params->rsa.mod_len) {
+		bool is_crt;
+
+		if (params->rsa.exp_len == 0)
+			is_crt = true;
+		else
+			is_crt = false;
+
+		rc = cpt_ae_rsa_mod_len_check(params->rsa.mod_len, is_crt);
+		if (rc != 0)
+			return 0;
+
+		if (!is_crt) {
+			rc = cpt_ae_rsa_exp_len_check(params->rsa.mod_len, params->rsa.exp_len);
+			if (rc != 0)
+				return 0;
+		}
+
+		rc = cpt_ae_rsa_msg_len_check(params->rsa.mod_len, params->rsa.msg_len);
+		if (rc != 0)
+			return 0;
+
+		/* DAO LC ASYM header */
+		asym_seg_sz = sizeof(struct __dao_lc_req_asym);
+
+		if (is_crt)
+			asym_seg_sz += (params->rsa.mod_len / 2) * 5;
+		else
+			asym_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
+
+		asym_seg_sz += params->rsa.msg_len;
+	}
 
 	max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 
@@ -692,7 +725,6 @@ idx_put:
 	return rc;
 }
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
 static inline int
 cpt_ae_rsa_mod_len_check(uint16_t mod_len, bool is_crt)
 {
@@ -804,7 +836,6 @@ cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *
 
 	return 0;
 }
-#endif
 
 int
 dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
