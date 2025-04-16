@@ -8,5 +8,6 @@ DAO Community Lab
     :maxdepth: 1
     :numbered:
 
+    vpp_l3fwd_lab
     vpp_lab
     tls_lab
