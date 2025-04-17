@@ -10,23 +10,17 @@ a. Linux booted on x86 Host and Octeon DPU
 
 b. Login to x-86 host and Octeon DPU
 
-.. code-block:: console
-
-   source dao-env.sh
-
-
 DAO Environment Setup
 ---------------------
-Following step is required to run only once after the first login to docker
-
-.. code-block:: console
-
-   ~# source /dao-env.sh
+DAO should be preinstalled as given in below link.
+`Downloading and installing DAO packages <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html>`_
 
 
 Steps to run on OCTEON DPU
 --------------------------
 1. Prepare vpp startup configuration file as below.
+   This is the minimal startup.conf required to start vpp octeon plugin with 2 devices (see plugin and devices section).
+   NOTE: Default vpp configuration file is placed at /etc/vpp/startup.conf path.
 
 .. code-block:: console
 
@@ -98,7 +92,31 @@ Steps to run on OCTEON DPU
 
 .. code-block:: console
 
-   root@localhost:~#./dpdk-devbind.py -b vfio-pci 0002:02:00.0 0002:03:00.0
+   ## Identify devices using below command
+   root@localhost:~# lspci | grep "Octeon Tx2 RVU Physical Function"
+   0002:02:00.0 Ethernet controller: Cavium, Inc. Octeon Tx2 RVU Physical Function (rev 54)
+   0002:03:00.0 Ethernet controller: Cavium, Inc. Octeon Tx2 RVU Physical Function (rev 54)
+   0002:04:00.0 Ethernet controller: Cavium, Inc. Octeon Tx2 RVU Physical Function (rev 54)
+   0002:05:00.0 Ethernet controller: Cavium, Inc. Octeon Tx2 RVU Physical Function (rev 54)
+   root@localhost:~#
+
+   ## Identify interface nake corresponding to each device (see if=<interface name>)
+   root@localhost:~# dpdk-devbind.py -s | grep 0002:02:00.0
+   0002:02:00.0 'Octeon Tx2 RVU Physical Function a063' numa_node=0 if=enP2p2s0 drv=rvu_nicpf unused=vfio-pci
+   root@localhost:~#
+
+   ## Identify link speed and link status
+   root@localhost:~# ethtool enP2p2s0 | grep -iE "Speed|Link detected"
+           Speed: 25000Mb/s
+           Link detected: yes
+   root@localhost:~#
+
+   ## From above detail this link is 25GBPS and status is "yes", so I can use this.
+   ## Perform similar check for other devices.
+   ## Identified 2 devices (0002:02:00.0 0002:03:00.0)
+   ## Bind these 2 devices to vfio-pci driver.
+   ## Update these device PCI addresses in startup.conf.
+   root@localhost:~# dpdk-devbind.py -b vfio-pci 0002:02:00.0 0002:03:00.0
 
 3. Run vpp
 
@@ -129,6 +147,50 @@ Steps to run on OCTEON DPU
    vpp#ip neighbor eth0 10.10.10.2 0c:42:a1:67:d5:e7
    vpp#ip neighbor eth1 20.20.20.2 0c:42:a1:67:d5:e6
 
+   ## MAC addresses 0c:42:a1:67:d5:e7 and 0c:42:a1:67:d5:e7 are taken from x-86 interfaces.(Refer section 1.4.1)
+
+   ## To see the MAC addresses of VPP interfaces run below command in vppctl and check Ethernet address(MAC).
+
+   vpp#DBGvpp# show hardware-interfaces eth0
+                 Name                Idx   Link  Hardware
+   eth0                               1    down  eth0
+     Link speed: unknown
+     Ethernet address a2:6e:ed:21:b4:9e
+     Device:
+       Driver is 'octeon', bus is 'pci', description is 'Marvell Octeon Resource Virtualization Unit PF'
+       PCIe address is 0002:02:00.0, port is P0, speed is unknown speed x0 (max unknown speed x0)
+       Assigned process node is 'pci/0002:02:00.0-process'
+       Device Specific Arguments:
+         Name     Value   Default Description
+         n_desc <not set>   16384 number of cpt descriptors, applicable to cpt devices only
+     Port 0:
+       Hardware Address is a2:6e:ed:21:b4:9e, 1 RX queues (max 64), 2 TX queues (max 64)
+       Max RX frame size is 16380 (max supported 16380)
+       Caps: rss
+       RX Offloads: ip4-cksum
+       TX Offloads: ip4-cksum
+       Device Specific Port Status:
+
+       Device Specific Port Arguments:
+         Name              Value   Default Description
+         allmulti        <not set>       0 Set allmulti mode, applicable to network devices only
+         eth_pause_frame <not set>       0 Enable ethernet pause frame support, applicable to network devices only
+         switch_header   <not set>      '' Enable switch header and set specific switch header type, applicable to network devices only
+       Interface assigned, interface name is 'eth0', RX node is 'eth0-rx'
+       RX queue 0:
+         Size is 1024, buffer pool index is 0
+         Polling thread is 1, enabled, not-started, polling mode
+
+       TX queue 0:
+         Size is 1024
+         Used by thread 0
+
+       TX queue 1:
+         Size is 1024
+         Used by thread 1
+
+   vpp#
+
 
 Steps to run on x-86 Host
 -------------------------
@@ -136,7 +198,42 @@ Steps to run on x-86 Host
 
 .. code-block:: console
 
-   root@localhost:~#ifconfig
+   ## Identify devices
+   root@transport-2:~# lspci | grep Mellanox
+   5e:00.0 Ethernet controller: Mellanox Technologies MT28800 Family [ConnectX-5 Ex]
+   5e:00.1 Ethernet controller: Mellanox Technologies MT28800 Family [ConnectX-5 Ex]
+   b1:00.0 Ethernet controller: Mellanox Technologies MT27700 Family [ConnectX-4]
+   b1:00.1 Ethernet controller: Mellanox Technologies MT27700 Family [ConnectX-4]
+   d9:00.0 Ethernet controller: Mellanox Technologies MT28800 Family [ConnectX-5 Ex]
+   d9:00.1 Ethernet controller: Mellanox Technologies MT28800 Family [ConnectX-5 Ex]
+   root@transport-2:~#
+
+   ## Identify interface name (see if=<Interface name>)
+   root@transport-2:~# dpdk-devbind.py -s | grep d9:00.1
+   0000:d9:00.1 'MT28800 Family [ConnectX-5 Ex] 1019' numa_node=1 if=enp217s0f1np1 drv=mlx5_core unused=vfio-pci *Active*
+   root@transport-2:~#
+
+   ## Identify link speed and link status
+   root@transport-2:~# ethtool enp217s0f1np1 | grep -iE "Speed|Link detected"
+        Speed: 25000Mb/s
+        Link detected: yes
+   root@transport-2:~#
+
+   ## Identify MAC address
+   root@transport-2:~# ifconfig enp217s0f1np1 | grep ether
+        ether 0c:42:a1:67:d5:e7  txqueuelen 1000  (Ethernet)
+   root@transport-2:~#
+
+   ## Identified interfaces are enp217s0f1np1 and enp217s0f0np0
+
+   NOTE: To confirm links on both x-86 and Octeon side, verify using ping.
+   For example:
+      Interface on Octeon : enP2p2s0
+      Interface on x-86   : enp217s0f0np0
+   Assign IP address to both interfaces in same subnet.
+   #ifconfig enP2p2s0 20.20.20.1/24 up
+   #ifconfig enp217s0f0np0 20.20.20.2/24 up
+   Ping each other and verify link connectivity.
 
 2. Assign IP addresses to interfaces
 
@@ -188,6 +285,7 @@ Steps to run on x-86 Host
    <PacketList: TCP:0 UDP:10 ICMP:0 Other:0>
    >>>
 
+   ## Destination MACs are taken from vpp eth0 and eth1 interfaces. (f2:b8:4c:4b:55:d9 and ee:bf:45:74:e9:12). (Refer section 1.3.4)
 
 Verify Traffic On Octeon DPU
 ----------------------------
