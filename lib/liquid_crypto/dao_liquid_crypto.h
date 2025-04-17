@@ -884,6 +884,8 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uin
  * Enqueue a burst of requests to perform symmetric crypto operations on the
  * crypto device.
  *
+ * Note: The max number of requests that can be enqueued at once is 128.
+ *
  * @param dev_id
  *  The identifier of the device.
  * @param qp_id
@@ -966,6 +968,8 @@ int dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_
 
 /**
  * Dequeue burst of command events from the command queue.
+ *
+ * Note: The max number of requests that can be dequeued at once is 128.
  *
  * @param dev_id
  * The identifier of the device.
