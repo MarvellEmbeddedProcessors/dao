@@ -80,6 +80,12 @@ VPP is used in various high-performance networking applications, including route
   - **P4 Runtime:** VPP can interact with P4-programmable devices, providing a flexible data plane programming model.
   - **Linux Control Plane Integration:** VPP can be integrated with the Linux control plane to manage networking and leverage existing Linux networking tools and configurations.
 
+Compiling VPP from sources
+==========================
+
+.. note::
+ Follow the steps to :doc:`compile VPP from sources. <../howtoguides/vpp>`
+
 Enhancing VPP IPsec offload with Strongswan Integration
 =======================================================
 The purpose of introducing Linux XFRM netlink support in the linux_nl_plugin is to mirror Linux XFRM configurations to the VPP IPsec subsystem. These configurations can be manually set using ip commands or via keying daemons like StrongSwan. In both cases, the netlink notifications generated from Linux are read by this XFRM module and translated into VPP's IPsec configuration.

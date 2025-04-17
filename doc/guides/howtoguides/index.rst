@@ -1,5 +1,5 @@
 ..  SPDX-License-Identifier: Marvell-MIT
-    Copyright (c) 2024 Marvell.
+    Copyright (c) 2025 Marvell.
 
 HowTo Guides
 ============
@@ -10,6 +10,7 @@ HowTo Guides
 
     ovs
     virtio_host
+    vpp
     pcie_config
     sdp_host
     octep_agent
