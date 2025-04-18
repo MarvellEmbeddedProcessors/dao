@@ -3,3 +3,7 @@ BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_MRVL_PATH)/board/octeon_cn9k/lc/rootfs_overla
 
 # Post Build Script
 BR2_ROOTFS_POST_BUILD_SCRIPT="$(BR2_EXTERNAL_MRVL_PATH)/board/octeon_cn9k/lc/build_scripts/post-build.sh"
+
+# Enable root login and set a password for root
+BR2_TARGET_ENABLE_ROOT_LOGIN=y
+BR2_TARGET_GENERIC_ROOT_PASSWD="a"

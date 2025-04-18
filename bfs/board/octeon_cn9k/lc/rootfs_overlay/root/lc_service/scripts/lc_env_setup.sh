@@ -75,9 +75,14 @@ function run_cp() {
 
 function config_static_ip() {
 	export $(grep -v '^#' config.env | xargs)
-	: ${LC_IP_ADDRESS:=192.168.1.100}
+	LC_IP_ADDRESS=${LC_IP_ADDRESS:-192.168.1.1/24}
 	ip addr add $LC_IP_ADDRESS dev sdp15-0
 	ip link set sdp15-0 up
+}
+
+function enable_ssh() {
+	sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+	/etc/init.d/S50sshd restart
 }
 
 # Environment variables
@@ -90,3 +95,4 @@ copy_mc
 setup_devices
 run_cp
 config_static_ip
+enable_ssh
