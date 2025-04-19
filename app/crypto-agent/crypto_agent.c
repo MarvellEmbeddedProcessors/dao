@@ -43,7 +43,7 @@ signal_handler(int signum)
 	CA_INFO("\n");
 	if (signum == SIGINT || signum == SIGTERM) {
 		CA_INFO("Signal %d received, preparing to exit...\n", signum);
-		force_quit = true;
+		dao_card_grpc_server_stop();
 	}
 }
 
@@ -58,6 +58,18 @@ ca_eth_dev_ctx_get(uint16_t port_id)
 	}
 
 	return NULL;
+}
+
+static int
+ca_eth_dev_fini(void)
+{
+	uint16_t i;
+
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
+		if (ca_glb_ctx.eth_ctx[i].is_configured)
+			rte_eth_dev_close(ca_glb_ctx.eth_ctx[i].port_id);
+	}
+	return 0;
 }
 
 struct rte_rcu_qsbr *
@@ -446,6 +458,8 @@ card_init(struct dao_card_config *config)
 {
 	int ret, i;
 
+	force_quit = false;
+
 	ret = rte_eal_init(config->argc, config->argv);
 	if (ret < 0) {
 		CA_ERR("Invalid EAL parameters");
@@ -521,21 +535,22 @@ card_fini(void)
 {
 	int i;
 
+	force_quit = true;
 	CA_INFO("Cleaning up DAO card");
 
-	for (i = 0; i < CA_MAX_LCORE; i++)
-		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
-
 	/* Wait for the stats thread to finish */
-	force_quit = 1;
 	pthread_join(stats_thread, NULL);
 
 	/* Wait for all cores to return */
 	rte_eal_mp_wait_lcore();
 
+	for (i = 0; i < CA_MAX_LCORE; i++)
+		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
+
 	rcu_qsbr_fini();
 	host_dev_fini();
 	crypto_devs_fini();
+	ca_eth_dev_fini();
 	ca_eth_lcore_map_fini();
 	rte_eal_cleanup();
 }
@@ -636,7 +651,7 @@ static struct dao_card_server_cbs card_cbs = {
 	.card_info_cb = card_info,
 
 	.dev_create_cb = ca_eth_dev_init,
-	.dev_destroy_cb = ca_eth_dev_fini,
+	.dev_destroy_cb = ca_eth_dev_close,
 	.dev_start_cb = ca_eth_dev_start,
 	.dev_stop_cb = ca_eth_dev_stop,
 	.q_configure_cb = ca_eth_dev_q_configure,
@@ -649,35 +664,25 @@ main(int argc, char **argv)
 {
 	int rc;
 
-	struct dao_card_config config = {
-		.argc = argc,
-		.argv = argv,
-		.crypto_nb_desc = CA_CPT_MIN_QUEUE_DEPTH,
-	};
+	(void)argc;
+	(void)argv;
 
 	CA_INFO("Crypto Agent Version: %s", dao_version());
 
-	force_quit = false;
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
-
-	rc = card_init(&config);
-	if (rc) {
-		CA_ERR("Could not initialize card");
-		return rc;
-	}
 
 	rc = dao_card_register_server_cbs(&card_cbs);
 	if (rc) {
 		CA_ERR("Could not register grpc server callbacks");
-		goto card_fini;
+		return rc;
 	}
 
 	/* This is blocking call. We need another thread to stop the server. */
 	/* TODO Need to identify way to get IP and port */
 	dao_card_grpc_server_run(50051);
 
-card_fini:
 	card_fini();
+
 	return rc;
 }

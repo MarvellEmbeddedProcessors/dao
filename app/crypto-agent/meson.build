@@ -14,9 +14,10 @@ sources = files(
 
 cflags += [ '-DCA_DEBUG_ENABLE_PERIODIC_PRINT' ]
 
+app_deps += DAO_EXT_DEPS_LIBDPDK
+
 deps += ['eth_transport', 'grpc_service_server']
 
-app_deps += DAO_EXT_DEPS_LIBDPDK
 
 # Include headers from the liquid_crypto library for common structures and definitions
 includes += include_directories('../../lib/liquid_crypto')

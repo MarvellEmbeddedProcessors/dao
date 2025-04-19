@@ -305,7 +305,7 @@ dev_close:
 }
 
 int
-ca_eth_dev_fini(uint32_t port_id)
+ca_eth_dev_close(uint32_t port_id)
 {
 	struct ca_eth_dev_ctx *eth_ctx;
 	int rc;
@@ -329,7 +329,7 @@ ca_eth_dev_fini(uint32_t port_id)
 		}
 	}
 
-	return rte_eth_dev_close(port_id);
+	return rte_eth_dev_reset(port_id);
 }
 
 static int
