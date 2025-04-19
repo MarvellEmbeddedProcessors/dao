@@ -143,7 +143,9 @@ fetch_host_data(struct virtio_crypto_queue *q, struct dao_dma_vchan_state *dev2m
 		dma_length = 0;
 		/* Read the descriptor */
 		do {
-			vio_desc = (struct vring_packed_desc *)DESC_PTR_OFF(desc_base, off + i, 0);
+			vio_desc =
+				(struct vring_packed_desc *)DESC_PTR_OFF(desc_base, data_q_head, 0);
+
 			dao_dbg("VIO DESC addr: %lx", vio_desc->addr);
 			dao_dbg("VIO DESC len: %x, id: %x, flags: %x", vio_desc->len, vio_desc->id,
 				vio_desc->flags);
@@ -151,6 +153,7 @@ fetch_host_data(struct virtio_crypto_queue *q, struct dao_dma_vchan_state *dev2m
 				dao_dma_enq_src_x1(dev2mem, vio_desc->addr, vio_desc->len);
 				dma_length += vio_desc->len;
 			}
+			data_q_head = desc_off_add(data_q_head, 1, q_sz);
 			i++;
 		} while (vio_desc->flags & VRING_DESC_F_NEXT);
 
@@ -175,8 +178,6 @@ fetch_host_data(struct virtio_crypto_queue *q, struct dao_dma_vchan_state *dev2m
 
 	if (nb_buf < nb_buf_alloc)
 		rte_mempool_put_bulk(q->mp, (void **)&buf[nb_buf], (nb_buf_alloc - nb_buf));
-
-	data_q_head = desc_off_add(data_q_head, i, q_sz);
 
 state_update:
 	q->data_q_head = data_q_head;
