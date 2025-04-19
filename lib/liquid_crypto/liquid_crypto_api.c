@@ -21,6 +21,9 @@
 #include "mc/ae.h"
 #include "mc/se.h"
 
+#include "dao_card_grpc_client.h"
+#include "dao_lc_grpc_client.h"
+
 static struct dao_lc_info lc_info;
 
 static struct liquid_crypto_dev liquid_crypto_devs[DAO_CRYPTO_MAX_NB_DEV];
@@ -31,6 +34,8 @@ static inline int cpt_ae_rsa_mod_len_check(uint16_t mod_len, bool is_crt);
 static inline int cpt_ae_rsa_exp_len_check(uint16_t mod_len, uint16_t exp_len);
 static inline int cpt_ae_rsa_msg_len_check(uint16_t mod_len, uint16_t msg_len);
 
+static struct dao_lc_grpc_ctx *lc_ctx;
+
 int
 dao_liquid_crypto_init(void)
 {
@@ -40,16 +45,16 @@ dao_liquid_crypto_init(void)
 	memset(&lc_info, 0, sizeof(lc_info));
 	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 
-	/*
-	 * Call manager API
-	 * - Check if manager is alive (dao_manager_alive())
-	 * - Inform that lc has started
-	 */
+	lc_ctx = dao_lc_grpc_client_init("192.168.1.1", 50051);
+	if (lc_ctx == NULL) {
+		dao_err("Could not initialize card grpc client.");
+		return -EINVAL;
+	}
 
 	rc = dao_eth_trs_init();
 	if (rc != 0) {
 		dao_err("Could not initialize ethernet transport.");
-		return rc;
+		goto lc_fini;
 	}
 
 	rc = dao_eth_trs_info(&trs_info);
@@ -57,13 +62,6 @@ dao_liquid_crypto_init(void)
 		dao_err("Could not get ethernet transport information.");
 		goto trs_fini;
 	}
-
-	/*
-	 * Call manager API
-	 * - Check if additional info is required from card
-	 * - May need to call dao_manager_get_info() and get the number of SDP queues in the card
-	 *    - May need to get the max number of sessions that can be supported
-	 */
 
 	if (trs_info.nb_devs > DAO_CRYPTO_MAX_NB_DEV) {
 		dao_err("[Internal error] Number of devices exceeds the maximum supported.");
@@ -86,6 +84,9 @@ dao_liquid_crypto_init(void)
 
 trs_fini:
 	dao_eth_trs_fini();
+lc_fini:
+	dao_lc_grpc_client_fini(lc_ctx);
+	lc_ctx = NULL;
 	return rc;
 }
 
@@ -105,10 +106,8 @@ dao_liquid_crypto_fini(void)
 		return rc;
 	}
 
-	/*
-	 * Call manager API
-	 * - Inform that liquid crypto is done
-	 */
+	dao_lc_grpc_client_fini(lc_ctx);
+	lc_ctx = NULL;
 
 	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 	memset(&lc_info, 0, sizeof(lc_info));
@@ -186,13 +185,18 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 		return rc;
 	}
 
+	rc = dao_lc_ethdev_create(lc_ctx, dev_id, nb_qp);
+	if (rc != 0) {
+		dao_err("Could not create card device.");
+		goto eth_dev_free;
+	}
 	dev->is_created = true;
 
-	/*
-	 * Call manager API to inform about dev creation
-	 */
-
 	return 0;
+
+eth_dev_free:
+	dao_eth_trs_dev_free(dev_id);
+	return rc;
 }
 
 int
@@ -201,13 +205,15 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 	struct liquid_crypto_dev *dev;
 	int rc, i;
 
-	/*
-	 * Call manager API to inform about dev destruction
-	 */
-
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
 		return -EINVAL;
+	}
+
+	rc = dao_lc_ethdev_destroy(lc_ctx, dev_id);
+	if (rc != 0) {
+		dao_err("Could not destroy card device.");
+		return rc;
 	}
 
 	rc = dao_eth_trs_dev_free(dev_id);
@@ -234,6 +240,7 @@ int
 dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_conf *conf)
 {
 	struct dao_eth_trs_queue_config trs_queue_conf;
+	struct dao_lc_eth_qconf card_qp_conf;
 	struct dao_eth_trs_info trs_info;
 	char name[RTE_MEMZONE_NAMESIZE];
 	uint16_t nb_desc, max_seg_size;
@@ -267,15 +274,6 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		dao_err("Could not get ethernet transport information.");
 		return rc;
 	}
-
-	/*
-	 * Call manager API to create SDP queues in target
-	 * - queue depth
-	 * - max packet size
-	 *
-	 * Target will create pools based on this. SDP queues also will need to be created upon
-	 * handling this.
-	 */
 
 	if (conf->nb_desc < trs_info.min_queue_size || conf->nb_desc > trs_info.max_queue_size) {
 		dao_err("Invalid argument. nb_desc must be between %u and %u.",
@@ -417,12 +415,26 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		rte_bitmap_reset(qp->req_bm);
 	}
 
+	memset(&card_qp_conf, 0, sizeof(card_qp_conf));
+	card_qp_conf.dev_id = dev_id;
+	card_qp_conf.qp_id = qp_id;
+	card_qp_conf.nb_desc = conf->nb_desc;
+	card_qp_conf.max_seg_size = conf->max_seg_size;
+	card_qp_conf.out_of_order_delivery_en = conf->out_of_order_delivery_en;
+
+	rc = dao_lc_ethdev_queue_configure(lc_ctx, &card_qp_conf);
+	if (rc != 0) {
+		dao_err("Could not configure card queue.");
+		goto cmd_bm_mem_free;
+	}
+
 	dev->qp[qp_id] = qp;
 
 	return 0;
 
 cmd_bm_mem_free:
-	rte_free(qp->cmd_req_bm_mem);
+	if (qp_id == dev->cmd_qp_idx)
+		rte_free(qp->cmd_req_bm_mem);
 
 bitmap_free:
 	rte_bitmap_free(qp->req_bm);
@@ -456,10 +468,8 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	if (qp == NULL)
 		return 0;
 
-	/*
-	 * Call manager API to destroy SDP queues in target
-	 * - Free pools
-	 */
+	dao_lc_ethdev_queue_destroy(lc_ctx, dev_id, qp_id);
+
 	if (qp_id == dev->cmd_qp_idx) {
 		rte_bitmap_free(qp->cmd_req_bm);
 		rte_free(qp->cmd_req_bm_mem);
@@ -487,9 +497,6 @@ dao_liquid_crypto_dev_start(uint8_t dev_id)
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
 		return -EINVAL;
 	}
-	/*
-	 * Call manager API to inform that liquid crypto is started
-	 */
 
 	dev = &liquid_crypto_devs[dev_id];
 
@@ -514,6 +521,13 @@ dao_liquid_crypto_dev_start(uint8_t dev_id)
 	rc = dao_eth_trs_dev_start(dev_id);
 	if (rc != 0) {
 		dao_err("Could not start ethernet transport device.");
+		return rc;
+	}
+
+	rc = dao_lc_ethdev_start(lc_ctx, dev_id);
+	if (rc != 0) {
+		dao_err("Could not start card device.");
+		dao_eth_trs_dev_stop(dev_id);
 		return rc;
 	}
 
@@ -551,11 +565,13 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 		return rc;
 	}
 
-	dev->is_started = false;
+	rc = dao_lc_ethdev_stop(lc_ctx, dev_id);
+	if (rc != 0) {
+		dao_err("Could not stop card device.");
+		return rc;
+	}
 
-	/*
-	 * Call manager API to inform that liquid crypto is stopped
-	 */
+	dev->is_started = false;
 
 	return 0;
 }
