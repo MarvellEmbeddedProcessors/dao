@@ -52,7 +52,7 @@ HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v24.11"
 GIT_USER=${2}
-ALL_DEPS="dpdk libnl grpc"
+ALL_DEPS="dpdk libnl libpcap grpc"
 DEPS_TO_BUILD=${4:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
@@ -61,6 +61,11 @@ LIBNL_BUILD_DIR=$BUILD_DEPS_ROOT/libnl
 LIBNL_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
 LIBNL_INSTALL_DIR=$LIBNL_PREFIX_DIR
 LIBNL_TARBALL=libnl-3.7.0
+
+# libpcap variables
+LIBPCAP_BUILD_DIR=$BUILD_DEPS_ROOT/libpcap
+LIBPCAP_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
+LIBPCAP_INSTALL_DIR=$LIBPCAP_PREFIX_DIR
 
 #grpc variables
 GRPC_SRC_TAG=v1.66.0
@@ -291,6 +296,32 @@ function build_grpc() {
 	fi
 }
 
+function build_libpcap() {
+	local libpcap_is_enabled=1
+	if [[ "$DEPS_TO_BUILD" != *"libpcap"* ]]; then
+		return
+		mkdir -p $LIBPCAP_BUILD_DIR
+	fi
+
+	if [ $libpcap_is_enabled == 1 ]; then
+		mkdir -p $LIBPCAP_BUILD_DIR
+		cd $LIBPCAP_BUILD_DIR
+		git clone https://github.com/the-tcpdump-group/libpcap.git
+		cd libpcap
+		git checkout master
+		./autogen.sh
+		./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBPCAP_PREFIX_DIR --without-libnl
+		make;
+		make install;
+		set +x
+			if ($PKGCONFIG --modversion libpcap); then
+				echo "libpcap installed."
+				return 0
+			fi
+		return 1
+	fi
+}
+
 # Building DPDK
 build_dpdk $PLAT
 build_libnl $@
@@ -298,3 +329,6 @@ build_grpc
 
 # Building DPDK for host
 build_dpdk_host
+
+# Building LIBPCAP
+build_libpcap
