@@ -12,6 +12,7 @@ HowTo Guides
     virtio_host
     vpp
     pcie_config
+    tls-proxy-nginx
     sdp_host
     octep_agent
     github_pr

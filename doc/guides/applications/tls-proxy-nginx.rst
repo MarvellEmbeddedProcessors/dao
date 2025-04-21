@@ -62,14 +62,13 @@ crypto operations to CPT. This allows the NGINX application to amortize the cryp
 CPT over a burst of packets. It also allows for multiple submissions when the user data is broken into
 multiple TLS records.
 
-Steps to Build
-==============
+Steps to Install
+================
 
-Getting Sources
----------------
+There are two methods of installation: Installing the Ubuntu Debian package or Compiling from Sources. The following sections describe both methods.
 
 Ubuntu Debian package
-^^^^^^^^^^^^^^^^^^^^^
+---------------------
 
 Before downloading the NGINX package, make sure ubuntu repository is setup properly
 `Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
@@ -79,7 +78,14 @@ Installing the NGINX package
 
 .. code-block:: console
 
-    ~# apt-get install nginx-1.22.0-cnxk-devel
+    ~# apt-get install openssl-engine-1.0.0-cn10k
+    ~# apt-get install nginx-1.22.0-cn10k
+
+Compiling from Sources
+----------------------
+
+.. note::
+ Follow the steps to :doc:`compile from sources. <../howtoguides/tls-proxy-nginx>`
 
 Environment Setup
 =================
