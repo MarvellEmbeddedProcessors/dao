@@ -1,0 +1,34 @@
+<! SPDX-License-Identifier: Apache-2.0>
+<! Copyright (c) 2025 Marvell.>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="../_static/css/player.css" />
+    <style>
+        #install{
+            margin-left: 0;
+            width: 80ch;
+            height: 32em;
+        }
+    </style>
+</head>
+<body>
+    <div id="install"></div>
+    <script src="https://github.com/asciinema/asciinema-player/releases/download/v3.7.1/asciinema-player.min.js"></script>
+    <script>
+        AsciinemaPlayer.create('../_static/demo/cni_offload.cast', document.getElementById('install'), {
+                   fit: "height",
+		   autoplay: true,
+		   loop: true,
+		   speed: 1.5,
+		   idleTimeLimit: 1,
+		   markers: [
+			[35, 'Set up DPU'],
+			[264, 'Set Up Host'],
+			[443, 'Test Star Wars Demo'],
+                   ]
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<! SPDX-License-Identifier: Apache-2.0>
+<! Copyright (c) 2025 Marvell.>
+
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="stylesheet" type="text/css" href="../_static/css/player.css" />
+    <style>
+        #run{
+            margin-left: 0;
+            width: 80ch;
+            height: 32em;
+        }
+    </style>
+</head>
+<body>
+    <div id="run"></div>
+    <script src="https://github.com/asciinema/asciinema-player/releases/download/v3.7.1/asciinema-player.min.js"></script>
+    <script>
+        AsciinemaPlayer.create('../_static/demo/cni_offload_ipsec.cast', document.getElementById('run'), {
+                   fit: "height",
+		   autoplay: true,
+		   loop: true,
+		   speed: 1.5,
+		   idleTimeLimit: 1,
+		   markers: [
+			[5, 'Enable IPSec Offload'],
+			[70, 'Deploy Cilium with IPSec'],
+			[105, 'Test Traffic'],
+			[220, 'End'],
+                   ]
+        });
+    </script>
+</body>
+</html>

@@ -17,3 +17,4 @@ Application User Guide
     tls-proxy-nginx
     machine-learning
     snort
+    k8s-cni-offload
