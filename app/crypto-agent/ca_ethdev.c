@@ -305,7 +305,7 @@ dev_close:
 }
 
 int
-ca_eth_dev_fini(uint16_t port_id)
+ca_eth_dev_fini(uint32_t port_id)
 {
 	struct ca_eth_dev_ctx *eth_ctx;
 	int rc;
@@ -625,7 +625,7 @@ ca_eth_dev_start(uint32_t port_id)
 	eth_ctx->is_started = true;
 
 	/* Prepare lcore conf */
-	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+	for (lcore_id = 0; lcore_id < CA_MAX_LCORE; lcore_id++) {
 		if (rte_lcore_is_enabled(lcore_id) == 0)
 			continue;
 		if (rte_get_main_lcore() == lcore_id)
@@ -704,7 +704,7 @@ ca_eth_dev_stop(uint32_t dev_id)
 	}
 
 	/* Clear from lcore mapping */
-	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+	for (lcore_id = 0; lcore_id < CA_MAX_LCORE; lcore_id++) {
 		eth_map = ca_eth_lcore_map_get(lcore_id);
 		if (eth_map == NULL) {
 			CA_ERR("Could not get eth map for lcore: %d", lcore_id);
@@ -908,4 +908,20 @@ ca_eth_flow_clear(uint8_t port_id)
 	ret = rte_flow_flush(port_id, NULL);
 	if (ret)
 		CA_ERR("Could not flush flow on port %u", port_id);
+}
+
+int
+ca_eth_dev_info_get(uint32_t dev_id, struct dao_lc_eth_info *info)
+{
+	struct rte_eth_dev_info dev_info;
+	int ret;
+
+	ret = rte_eth_dev_info_get(dev_id, &dev_info);
+	if (ret) {
+		CA_ERR("Could not get ethdev info: %d.", dev_id);
+		return ret;
+	}
+	info->nb_queues = dev_info.max_rx_queues;
+
+	return 0;
 }

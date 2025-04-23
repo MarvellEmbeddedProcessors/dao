@@ -14,7 +14,7 @@ sources = files(
 
 cflags += [ '-DCA_DEBUG_ENABLE_PERIODIC_PRINT' ]
 
-deps += ['eth_transport']
+deps += ['eth_transport', 'grpc_service_server']
 
 app_deps += DAO_EXT_DEPS_LIBDPDK
 

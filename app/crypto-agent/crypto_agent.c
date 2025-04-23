@@ -24,6 +24,8 @@
 #include "ca_ethdev.h"
 #include "crypto_agent.h"
 
+#include <dao_card_grpc_server.h>
+
 static volatile bool force_quit;
 
 static struct ca_global_ctx ca_glb_ctx;
@@ -32,11 +34,8 @@ struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
 static pthread_t stats_thread;
 
-struct dao_card_config {
-	int argc;
-	char **argv;
-	uint32_t crypto_nb_desc;
-};
+static int host_dev_init(void);
+static int host_dev_fini(void);
 
 static void
 signal_handler(int signum)
@@ -315,80 +314,6 @@ rcu_qsbr_fini(void)
 	ca_glb_ctx.qsbr = NULL;
 }
 
-static int
-eth_devs_init(struct ca_dev_config *dev_config)
-{
-	struct dao_lc_eth_qconf qconf;
-	uint16_t j, nb_queue;
-	uint8_t i, port_id;
-	int ret;
-
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		nb_queue = dev_config->eth.nb_queue[i];
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-
-		ret = ca_eth_dev_init(port_id, nb_queue);
-		if (ret) {
-			CA_ERR("Could not initialize ethdev: %d", port_id);
-			goto eth_devs_close;
-		}
-
-		memset(&qconf, 0, sizeof(qconf));
-		qconf.nb_desc = 8192;
-		qconf.max_seg_size = dev_config->max_payload_size;
-		qconf.dev_id = port_id;
-
-		for (j = 0; j < nb_queue; j++) {
-			qconf.qp_id = j;
-			ret = ca_eth_dev_q_configure(&qconf);
-			if (ret) {
-				CA_ERR("Could not configure ethdev queue: %d", j);
-				ca_glb_ctx.eth_ctx[i].nb_queue = j;
-				goto eth_devs_close;
-			}
-		}
-
-		ret = ca_eth_dev_start(port_id);
-		if (ret) {
-			CA_ERR("Could not start ethdev: %d", port_id);
-			goto eth_devs_close;
-		}
-	}
-
-	return 0;
-
-eth_devs_close:
-	while (i > 0) {
-		nb_queue = ca_glb_ctx.eth_ctx[--i].nb_queue;
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-
-		ca_eth_dev_stop(port_id);
-		ca_eth_dev_fini(port_id);
-
-		for (j = 0; j < nb_queue; j++)
-			ca_eth_dev_q_destroy(port_id, j);
-	}
-
-	return -ENODEV;
-}
-
-static void
-eth_devs_fini(void)
-{
-	uint8_t port_id;
-	uint16_t i, j;
-
-	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
-		port_id = ca_glb_ctx.eth_ctx[i].port_id;
-
-		ca_eth_dev_stop(port_id);
-		ca_eth_dev_fini(port_id);
-
-		for (j = 0; j < ca_glb_ctx.eth_ctx[i].nb_queue; j++)
-			ca_eth_dev_q_destroy(port_id, j);
-	}
-}
-
 static void
 print_stats(__rte_unused void *param)
 {
@@ -551,23 +476,36 @@ card_init(struct dao_card_config *config)
 		goto map_fini;
 	}
 
+	ret = host_dev_init();
+	if (ret) {
+		CA_ERR("Could not initialize host devices");
+		goto cdev_fini;
+	}
+
 	ret = rcu_qsbr_init();
 	if (ret) {
 		CA_ERR("Could not initialize RCU QSBR");
-		goto cdev_fini;
+		goto host_dev_fini;
 	}
 
 	for (i = 0; i < CA_MAX_LCORE; i++)
 		memset(&lcore_conf[i], 0, sizeof(struct lcore_conf));
 
+	/* Launch on every worker lcore */
+	rte_eal_mp_remote_launch(worker_thread, NULL, SKIP_MAIN);
+
 	/* Create a separate thread for printing stats */
 	if (pthread_create(&stats_thread, NULL, stats_thread_cb, NULL) != 0) {
 		CA_ERR("Could not create stats thread");
-		goto cdev_fini;
+		goto qsbr_fini;
 	}
 
 	return 0;
 
+qsbr_fini:
+	rcu_qsbr_fini();
+host_dev_fini:
+	host_dev_fini();
 cdev_fini:
 	crypto_devs_fini();
 map_fini:
@@ -592,10 +530,28 @@ card_fini(void)
 	force_quit = 1;
 	pthread_join(stats_thread, NULL);
 
+	/* Wait for all cores to return */
+	rte_eal_mp_wait_lcore();
+
 	rcu_qsbr_fini();
+	host_dev_fini();
 	crypto_devs_fini();
 	ca_eth_lcore_map_fini();
 	rte_eal_cleanup();
+}
+
+static int
+card_info(struct dao_card_info *info)
+{
+	struct rte_cryptodev_info dev_info;
+
+	rte_cryptodev_info_get(ca_glb_ctx.cryptodev_ids[0], &dev_info);
+	info->nb_devs = rte_eth_dev_count_avail();
+	info->max_sessions = dev_info.sym.max_nb_sessions;
+
+	CA_INFO("nb_devs: %u, max_sessions: %u", info->nb_devs, info->max_sessions);
+
+	return 0;
 }
 
 struct rte_mempool *
@@ -674,11 +630,24 @@ host_dev_fini(void)
 	return 0;
 }
 
+static struct dao_card_server_cbs card_cbs = {
+	.init_cb = card_init,
+	.fini_cb = card_fini,
+	.card_info_cb = card_info,
+
+	.dev_create_cb = ca_eth_dev_init,
+	.dev_destroy_cb = ca_eth_dev_fini,
+	.dev_start_cb = ca_eth_dev_start,
+	.dev_stop_cb = ca_eth_dev_stop,
+	.q_configure_cb = ca_eth_dev_q_configure,
+	.q_destroy_cb = ca_eth_dev_q_destroy,
+	.dev_info_cb = ca_eth_dev_info_get,
+};
+
 int
 main(int argc, char **argv)
 {
-	struct ca_dev_config dev_config;
-	int rc, i;
+	int rc;
 
 	struct dao_card_config config = {
 		.argc = argc,
@@ -698,38 +667,16 @@ main(int argc, char **argv)
 		return rc;
 	}
 
-	memset(&dev_config, 0, sizeof(dev_config));
-
-	/* Wait for command to enable crypto & eth? */
-	dev_config.eth.nb_devs = ca_glb_ctx.nb_valid_ethdevs;
-
-	for (i = 0; i < dev_config.eth.nb_devs; i++)
-		dev_config.eth.nb_queue[i] = CA_MAX_ETH_QUEUE;
-
-	dev_config.max_payload_size = CA_MAX_PAYLOAD_SIZE;
-
-	rc = eth_devs_init(&dev_config);
+	rc = dao_card_register_server_cbs(&card_cbs);
 	if (rc) {
-		CA_ERR("Could not initialize ethernet devices");
+		CA_ERR("Could not register grpc server callbacks");
 		goto card_fini;
 	}
 
-	rc = host_dev_init();
-	if (rc) {
-		CA_ERR("Could not initialize host devices");
-		goto eth_devs_fini;
-	}
+	/* This is blocking call. We need another thread to stop the server. */
+	/* TODO Need to identify way to get IP and port */
+	dao_card_grpc_server_run(50051);
 
-	/* Launch on every worker lcore */
-	rte_eal_mp_remote_launch(worker_thread, NULL, SKIP_MAIN);
-
-	/* Wait for all cores to return */
-	rte_eal_mp_wait_lcore();
-
-	host_dev_fini();
-
-eth_devs_fini:
-	eth_devs_fini();
 card_fini:
 	card_fini();
 	return rc;
