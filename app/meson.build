@@ -1,6 +1,15 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2023 Marvell.
 
+disable_apps = ',' + get_option('disable_apps')
+disable_apps = run_command(list_dir_globs, disable_apps, check: true).stdout().split()
+
+enable_apps = ',' + get_option('enable_apps')
+enable_apps = run_command(list_dir_globs, enable_apps, check: true).stdout().split()
+if enable_apps.length() == 0
+    enable_apps = run_command(list_dir_globs, '*', check: true).stdout().split()
+endif
+
 apps = [
         'crypto-agent',
         'ovs-offload',
@@ -35,10 +44,21 @@ foreach app: apps
     app_cflags = []
     app_cxxflags = []
 
-    subdir(app)
+    if not enable_apps.contains(app)
+        skip_app = true
+        reason = 'not in enabled apps build config'
+    elif disable_apps.contains(app)
+        skip_app = true
+        reason = 'explicitly disabled via build config'
+    endif
+
+    if not skip_app
+        subdir(app)
+    endif
 
     # Skip app compilation if marked
     if skip_app
+        message('Skipping app "' + name + '"')
         disabled += [name]
         continue
     endif
