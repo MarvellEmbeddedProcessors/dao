@@ -7,7 +7,6 @@
 
 #include <rte_common.h>
 #include <rte_ethdev.h>
-#include <rte_graph.h>
 #include <rte_mbuf.h>
 
 #include <dao_eth_trs.h>
