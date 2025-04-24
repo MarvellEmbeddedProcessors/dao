@@ -318,7 +318,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
-	snprintf(name, sizeof(name), "lc_qp_%u_%u", dev_id, qp_id);
+	snprintf(name, sizeof(name), "lc_qp_%hhu_%hu", dev_id, qp_id);
 
 	qp = rte_zmalloc(name, sizeof(*qp), 0);
 	if (qp == NULL) {
@@ -331,7 +331,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	max_seg_size = conf->max_seg_size;
 
-	snprintf(name, sizeof(name), "lc_rx_mp_%u_%u", dev_id, qp_id);
+	snprintf(name, sizeof(name), "lc_rx_mp_%hhu_%hu", dev_id, qp_id);
 
 	/*
 	 * Create Rx & Tx pools. To allow for some packets inflight and since mempool_alloc is
@@ -347,7 +347,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	qp->rx_mp = mp;
 
-	snprintf(name, sizeof(name), "lc_tx_mp_%u_%u", dev_id, qp_id);
+	snprintf(name, sizeof(name), "lc_tx_mp_%hhu_%hu", dev_id, qp_id);
 
 	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
 	if (mp == NULL) {
@@ -357,7 +357,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	qp->tx_mp = mp;
 
-	snprintf(name, sizeof(name), "lc_req_q_%u_%u", dev_id, qp_id);
+	snprintf(name, sizeof(name), "lc_req_q_%hhu_%hu", dev_id, qp_id);
 	size = nb_desc * sizeof(struct liquid_crypto_inflight_req);
 
 	qp->req_queue = rte_zmalloc(name, size, 0);
@@ -386,7 +386,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto req_queue_free;
 	}
 
-	snprintf(name, sizeof(name), "liquid_crypto_bm_%u_%u", dev_id, qp_id);
+	snprintf(name, sizeof(name), "liquid_crypto_bm_%hhu_%hu", dev_id, qp_id);
 	qp->req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
 	if (qp->req_bm_mem == NULL) {
 		dao_err("Could not allocate memory for bitmap.");
@@ -400,7 +400,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	}
 
 	if (qp_id == dev->cmd_qp_idx) {
-		snprintf(name, sizeof(name), "liquid_crypto_cmd_bm_%u_%u", dev_id, qp_id);
+		snprintf(name, sizeof(name), "liquid_crypto_cmd_bm_%hhu_%hu", dev_id, qp_id);
 		qp->cmd_req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
 		if (qp->cmd_req_bm_mem == NULL) {
 			dao_err("Could not allocate memory for command queue bitmap.");
