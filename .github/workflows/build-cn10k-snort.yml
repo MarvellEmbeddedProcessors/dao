@@ -146,7 +146,7 @@ jobs:
             cd install
             echo 'Package: snort-3-cn10k'${PKG_POSTFIX} >> DEBIAN/control
             echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
-            echo "Depends: libdumbnet1, libhwloc15, libluajit-5.1-2, libmnl0, libunwind8, liblzma5, libnuma1, libuuid1, libstdc++6" >> DEBIAN/control
+            echo "Depends: libdumbnet1, libhwloc15, libluajit-5.1-2, libmnl0, libunwind8, liblzma5, libnuma1, libuuid1, libstdc++6, libpcap0.8-dev" >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: Snort 3 with Vectorscan for Marvell Octeon 10" >> DEBIAN/control
