@@ -10,6 +10,7 @@ Programmer's Guide
 
     common
     dma_lib
+    eth_transport
     flow
     netlink_lib
     pem_lib

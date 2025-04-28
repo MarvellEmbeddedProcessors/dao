@@ -66,19 +66,24 @@ enum dao_eth_trs_op_type {
 };
 
 /** DAO ethernet transport header */
+/* Structure dao_eth_trs_hdr 8< */
 struct __rte_packed dao_eth_trs_hdr {
-	uint16_t op_type; /**< Packet op type. @see dao_eth_trs_op_type */
+	/** Packet op type. @see dao_eth_trs_op_type */
+	uint16_t op_type;
 	/** Packet length */
 	uint16_t op_len;
 };
+/* >8 End of structure dao_eth_trs_hdr. */
 
 /** DAO ethernet transport packet */
+/* Structure dao_eth_trs_pkt 8< */
 struct __rte_packed dao_eth_trs_pkt {
 	/** Packet header */
 	struct dao_eth_trs_hdr hdr;
 	/** Packet data */
 	uint8_t data[];
 };
+/* >8 End of structure dao_eth_trs_pkt. */
 
 /** Ethernet transport device configuration */
 struct dao_eth_trs_dev_config {
