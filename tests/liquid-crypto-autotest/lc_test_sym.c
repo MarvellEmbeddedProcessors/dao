@@ -11,6 +11,7 @@
 #include "lc_autotest.h"
 #include "lc_test_generic.h"
 #include "lc_test_sym_aes.h"
+#include "lc_test_sym_hash.h"
 #include "test.h"
 
 static int
@@ -37,6 +38,96 @@ sess_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *ev)
 		TEST_LC_ERR("Could not dequeue operation");
 		return -1;
 	}
+
+	return 0;
+}
+
+static int
+test_hash_only(const void *data)
+{
+	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN] = {0};
+	const struct test_sym_params *params = data;
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t sess_cookie = rte_rand();
+	struct dao_lc_buf in_buf[1] = {0};
+	struct dao_lc_sym_op op[1] = {0};
+	struct dao_lc_cmd_event ev;
+	struct dao_lc_res res[1];
+	uint64_t op_cookie;
+	int ret;
+
+	ret = dao_liquid_crypto_sym_sess_create(dev_id, &params->ctx, sess_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not create session");
+		return -1;
+	}
+
+	ret = sess_event_dequeue(dev_id, &ev);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue session event");
+		return -1;
+	}
+
+	TEST_ASSERT(ev.event_type == DAO_LC_CMD_EVENT_SESS_CREATE, "Invalid event type");
+	TEST_ASSERT(ev.sess_event.sess_id != DAO_LC_SESS_ID_INVALID, "Invalid session ID");
+	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
+
+	/* Perform crypto operation */
+	op_cookie = rte_rand();
+	op[0].op_cookie = op_cookie;
+	op[0].sess_id = ev.sess_event.sess_id;
+	op[0].digest = &(in_buf_data[params->plaintext.len]);
+	op[0].encrypt = 1;
+
+	memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
+	in_buf[0].seg_len = params->plaintext.len + params->digest.len;
+	in_buf[0].total_len = params->plaintext.len + params->digest.len;
+
+	in_buf[0].data = in_buf_data;
+	op[0].in_buffer = in_buf;
+	op[0].auth_offset = params->auth_offset;
+	op[0].auth_len = params->plaintext.len;
+
+	ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
+	if (ret != 1) {
+		TEST_LC_ERR("Could not enqueue symmetric crypto operation");
+		return -1;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue symmetric crypto operation");
+		return -1;
+	}
+
+	TEST_ASSERT(res[0].op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Symmetric operation failed");
+
+	ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
+	if (ret != 0) {
+		rte_hexdump(stdout, "RESULT digest: ", op[0].digest, params->digest.len);
+		rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data, params->digest.len);
+	}
+	TEST_ASSERT(ret == 0, "Invalid digest");
+
+	sess_cookie = rte_rand();
+	ret = dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id,
+						 sess_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not destroy session");
+		return -1;
+	}
+
+	ret = sess_event_dequeue(dev_id, &ev);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue session event");
+		return -1;
+	}
+
+	TEST_ASSERT(ev.event_type == DAO_LC_CMD_EVENT_SESS_DESTROY, "Invalid event type");
+	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
 
 	return 0;
 }
@@ -216,5 +307,8 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_gcm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_only, &sha1_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
-	}};
+	}
+};
