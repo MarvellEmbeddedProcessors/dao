@@ -3,7 +3,6 @@
 
 protoc = find_program('protoc', required:false)
 grpc_cpp_plugin = find_program('grpc_cpp_plugin', required:false)
-re2_dep = dependency('re2', method : 'pkg-config', version: '>=11.0.0', required:false)
 grpcplus_dep = dependency('grpc++', method : 'pkg-config', version: '>=1.65.0', required:false)
 protobuf_dep = dependency('protobuf', method : 'pkg-config', version:'>=27.2.0', required:false)
 
@@ -17,9 +16,13 @@ if not grpc_cpp_plugin.found()
 	subdir_done()
 endif
 
-if not re2_dep.found()
-	message('re2 not found')
-	subdir_done()
+# For host build, linking to gRPC dep will resolve the internal dependencies such as re2.
+if not host_build
+	re2_dep = dependency('re2', method : 'pkg-config', version: '>=11.0.0', required:false)
+	if not re2_dep.found()
+		message('re2 not found')
+		subdir_done()
+	endif
 endif
 
 if not protobuf_dep.found()
