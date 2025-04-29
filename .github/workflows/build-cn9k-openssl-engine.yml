@@ -144,7 +144,7 @@ jobs:
             echo "Release not found"
           fi
       - name: Release Engine cn9k package
-        uses: softprops/action-gh-release@v2.0.4
+        uses: softprops/action-gh-release@v2.2.2
         if: ${{ github.event_name == 'push' }}
         with:
           tag_name: ossl_eng-${{ steps.artifacts.outputs.ENGINE_VERSION }}-cn9k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}

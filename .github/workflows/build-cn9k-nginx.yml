@@ -169,14 +169,14 @@ jobs:
           gh release delete openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-cn9k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }} --cleanup-tag -y
         continue-on-error: true
       - name: Release NGINX cn9k package
-        uses: softprops/action-gh-release@v2.0.4
+        uses: softprops/action-gh-release@v2.2.2
         if: ${{ github.event_name == 'push' }}
         with:
           tag_name: nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-cn9k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
           files: |
             ${{ github.workspace }}/artifacts/nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-cn9k${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
       - name: Release OpenSSL cn9k package
-        uses: softprops/action-gh-release@v2.0.4
+        uses: softprops/action-gh-release@v2.2.2
         if: ${{ github.event_name == 'push' }}
         with:
           tag_name: openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-cn9k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}

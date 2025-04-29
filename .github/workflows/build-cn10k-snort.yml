@@ -178,7 +178,7 @@ jobs:
             echo "Release not found"
           fi
       - name: Release Snort cn10k package
-        uses: softprops/action-gh-release@v2.0.4
+        uses: softprops/action-gh-release@v2.2.2
         if: ${{ github.event_name == 'push' }}
         with:
           draft: false
