@@ -90,7 +90,7 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 
 	in_buf[0].data = in_buf_data;
 	op[0].in_buffer = in_buf;
-	op[0].cipher_offset = 0;
+	op[0].cipher_offset = params->cipher_offset;
 	op[0].cipher_len = params->ciphertext.len;
 
 	memcpy(cipher_iv, params->iv.data, params->iv.len);
