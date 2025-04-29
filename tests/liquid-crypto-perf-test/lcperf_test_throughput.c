@@ -90,7 +90,7 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 int
 lcperf_throughput_test_runner(void *test_ctx)
 {
-	uint64_t ops_enqd = 0, ops_enqd_total = 0, ops_enqd_failed = 0;
+	uint64_t ops_enqd = 0, ops_enqd_total = 0, ops_enqd_failed = 0, total_ops_enqd_failed = 0;
 	uint64_t ops_deqd = 0, ops_deqd_total = 0, ops_deqd_failed = 0;
 	struct lcperf_throughput_ctx *ctx = test_ctx;
 	uint64_t tsc_start, tsc_end, tsc_duration;
@@ -98,8 +98,11 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint64_t op_cookie = rte_rand();
 	struct lcperf_test_data tdata;
 	uint16_t burst_size, qp_id;
-	uint64_t total_ops, i, j;
+	uint32_t retry_count = 0;
+	uint64_t remaining_ops;
+	uint64_t total_ops, j;
 	struct dao_lc_res res;
+	uint32_t max_retries;
 	uint32_t nb_desc;
 	uint8_t dev_id;
 	int ret;
@@ -113,17 +116,20 @@ lcperf_throughput_test_runner(void *test_ctx)
 	}
 
 	nb_desc = ctx->options->nb_descriptors;
+	max_retries = ctx->options->total_ops;
 	total_ops = ctx->options->total_ops;
 	dev_id = ctx->dev_id;
 	qp_id = ctx->qp_id;
 
 	tsc_start = rte_rdtsc_precise();
 
-	for (i = 0; i < total_ops; i += burst_size) {
-		if ((ops_enqd_total + nb_desc) > total_ops)
-			burst_size = total_ops - ops_enqd_total;
-		else
-			burst_size = nb_desc;
+	while (ops_enqd_total < total_ops) {
+		remaining_ops = total_ops - ops_enqd_total;
+		burst_size = (remaining_ops < nb_desc) ? remaining_ops : nb_desc;
+
+		ops_enqd = 0;
+		ops_deqd = 0;
+		ops_enqd_failed = 0;
 
 		for (j = 0; j < burst_size; j++) {
 			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata);
@@ -131,17 +137,41 @@ lcperf_throughput_test_runner(void *test_ctx)
 				ops_enqd++;
 			else
 				ops_enqd_failed++;
-			ops_enqd_total++;
+		}
+
+		ops_enqd_total += ops_enqd;
+		total_ops_enqd_failed += ops_enqd_failed;
+
+		if (ops_enqd_failed > 0) {
+			if (retry_count >= max_retries) {
+				RTE_LOG(ERR, USER1, "Max retries reached. Breaking loop.\n");
+				break;
+			}
+
+			retry_count++;
+		} else {
+			/* Reset retry count if enqueue was successful */
+			retry_count = 0;
 		}
 
 		for (j = 0; j < burst_size; j++) {
 			ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
-			if (ret == 0)
+			if (ret > 0)
 				ops_deqd++;
-			else
+			else if (ret < 0)
 				ops_deqd_failed++;
-			ops_deqd_total++;
 		}
+
+		ops_deqd_total += ops_deqd;
+	}
+
+	/* Dequeue any remaining operations */
+	for (j = 0; ops_deqd_total < ops_enqd_total; j++) {
+		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
+		if (ret > 0)
+			ops_deqd_total++;
+		else if (ret < 0)
+			ops_deqd_failed++;
 	}
 
 	tsc_end = rte_rdtsc_precise();
@@ -168,7 +198,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 
 	printf("%12u%12u%12" PRIu64 "%12" PRIu64 "%12" PRIu64 "%12" PRIu64 "%12.4f%12.4f%12.2f\n",
 	       ctx->lcore_id, ctx->options->test_buffer_size, ops_enqd_total, ops_deqd_total,
-	       ops_enqd_failed, ops_deqd_failed, ops_per_second / 1000000, throughput_gbps,
+	       total_ops_enqd_failed, ops_deqd_failed, ops_per_second / 1000000, throughput_gbps,
 	       cycles_per_packet);
 
 	return 0;
