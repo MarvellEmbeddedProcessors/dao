@@ -1565,13 +1565,43 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
 	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
 
-	result_offset = req->sess_meta->iv_len;
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (req->sess_meta == NULL) {
+		dao_err("Invalid session metadata pointer.");
+		rte_errno = -EINVAL;
+		return;
+	}
+#endif
 
-	/* OFFSET_CTRL_WORD len needs to be adjusted here */
-	result_len = rte_pktmbuf_pkt_len(mbuf) -
-		     (ROC_SE_OFF_CTRL_LEN + sizeof(struct __dao_lc_resp_sym) + result_offset);
+	/* Auth only post process involves simply copying the digest data to digest buffer. */
+	if (req->sess_meta->is_auth_only) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (req->digest == NULL) {
+			dao_err("Invalid digest pointer.");
+			rte_errno = -EINVAL;
+			return;
+		}
 
-	dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out, result_len);
+		if (req->sess_meta->digest_len == 0 ||
+		    req->sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
+			dao_err("Invalid digest length. digest_len: %d.",
+				req->sess_meta->digest_len);
+			rte_errno = -EINVAL;
+			return;
+		}
+#endif
+
+		memcpy(req->digest, resp->rptr, req->sess_meta->digest_len);
+	} else {
+		result_offset = req->sess_meta->iv_len;
+
+		/* OFFSET_CTRL_WORD len needs to be adjusted here */
+		result_len =
+			rte_pktmbuf_pkt_len(mbuf) -
+			(ROC_SE_OFF_CTRL_LEN + sizeof(struct __dao_lc_resp_sym) + result_offset);
+
+		dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out, result_len);
+	}
 }
 
 static inline uint16_t
@@ -1599,6 +1629,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 	uint32_t dlen, req_idx;
 
 	for (i = 0; i < nb_ops; i++) {
+		uint32_t off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		struct dao_lc_sym_sess_meta *sess_meta;
 		uint32_t cipher_offset, auth_offset;
 		uint8_t aad_len = 0, digest_len = 0;
@@ -1607,6 +1638,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		struct dao_lc_sym_op *op;
 		uint64_t *offset_vaddr;
 		union cpt_inst_w4 w4;
+		bool is_auth_only;
 		uint8_t iv_len;
 		uint8_t *dptr;
 
@@ -1624,19 +1656,32 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		qp->req_queue[req_idx].op_cookie = op->op_cookie;
 		qp->req_queue[req_idx].sess_meta = sess_meta;
 
+		is_auth_only = sess_meta->is_auth_only;
+		if (is_auth_only) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+			if (op->digest == NULL) {
+				dao_err("Invalid digest pointer for auth only operation.");
+				rte_errno = -EINVAL;
+				return i;
+			}
+#endif
+			qp->req_queue[req_idx].digest = op->digest;
+			/* No offset control word for auth only */
+			off_ctrl_len = 0;
+		}
+
 		if (op->out_buffer != NULL)
 			qp->req_queue[req_idx].data_out = op->out_buffer;
 		else
 			qp->req_queue[req_idx].data_out = op->in_buffer;
 
 		iv_len = sess_meta->iv_len;
-		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+		digest_len = sess_meta->digest_len;
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
 			aad_len = op->aad_len;
-			digest_len = 16;
-		}
 
 		dlen = op->in_buffer->total_len;
-		buf_len = sizeof(struct __dao_lc_req_sym) + ROC_SE_OFF_CTRL_LEN + iv_len + dlen;
+		buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + iv_len + dlen;
 		buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1661,7 +1706,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		}
 #endif
 		/* Input length starting from memory pointed by DPTR */
-		dlen += ROC_SE_OFF_CTRL_LEN + iv_len;
+		dlen += off_ctrl_len + iv_len;
 
 		/* Append transport header to mbuf */
 		req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbufs[i], buf_len);
@@ -1670,19 +1715,16 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		req->hdr.req_idx = req_idx;
 
 		/* Add instruction */
-		w4.u64 = 0;
-		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
+		w4.u64 = sess_meta->w4;
+		if (!is_auth_only) {
+			w4.s.param1 = op->cipher_len;
+			w4.s.param2 = op->auth_len;
 
-		if (op->encrypt)
-			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_ENCRYPT;
-		else
-			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_DECRYPT;
-
-		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
-			w4.s.opcode_minor |= (1 << 5);
-
-		w4.s.param1 = op->cipher_len;
-		w4.s.param2 = op->auth_len;
+			if (op->encrypt)
+				w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
+			else
+				w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_DECRYPT;
+		}
 
 		if (op->encrypt) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1701,6 +1743,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
 			w4.s.param2 = op->cipher_len + op->aad_len;
 
+		req->is_hash_only = is_auth_only;
 		req->w4 = w4.u64;
 		req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 
@@ -1710,15 +1753,18 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		cipher_offset = iv_offset + iv_len + aad_len + op->cipher_offset;
 		auth_offset = iv_offset + iv_len + op->auth_offset;
 
-		offset_vaddr = (uint64_t *)dptr;
+		if (off_ctrl_len != 0) {
+			offset_vaddr = (uint64_t *)dptr;
 
-		/*TODO: For some algorithms, IV length can be specified as part of OFFSET_CTRL_WORD
-		 * Bits 36:32*/
-		*(uint64_t *)offset_vaddr =
-			rte_cpu_to_be_64(((uint64_t)cipher_offset << 16) |
-					 ((uint64_t)iv_offset << 8) | ((uint64_t)auth_offset));
-
-		dptr += ROC_SE_OFF_CTRL_LEN;
+			/**
+			 * TODO: For some algorithms, IV length can be specified as part of
+			 * OFFSET_CTRL_WORD Bits 36:32
+			 */
+			*(uint64_t *)offset_vaddr = rte_cpu_to_be_64(
+				((uint64_t)cipher_offset << 16) | ((uint64_t)iv_offset << 8) |
+				((uint64_t)auth_offset));
+			dptr += off_ctrl_len;
+		}
 
 		/* Copy IV */
 		memcpy(dptr + iv_offset, op->cipher_iv, iv_len);
@@ -2048,6 +2094,7 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
+	req->opcode = ctx->opcode;
 
 	memcpy(req->cptr, &ctx->fc, sizeof(ctx->fc));
 

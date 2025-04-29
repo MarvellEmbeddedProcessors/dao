@@ -12,6 +12,9 @@
 
 #include "liquid_crypto_sym.h"
 
+#include "hw/cpt.h"
+#include "mc/se.h"
+
 static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 	sym_sess_list_head = TAILQ_HEAD_INITIALIZER(sym_sess_list_head);
 
@@ -20,6 +23,8 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	enum dao_lc_fc_enc_cipher cipher_type = DAO_LC_FC_ENC_CIPHER_NULL;
 	struct dao_lc_sym_sess_meta *sess_meta;
+	union cpt_inst_w4 w4 = {0};
+	uint16_t digest_len = 0;
 	uint16_t iv_len = 0;
 
 	sess_meta =
@@ -35,20 +40,43 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			break;
 		case DAO_LC_FC_ENC_CIPHER_AES_GCM:
 			cipher_type = DAO_LC_FC_ENC_CIPHER_AES_GCM;
+			digest_len = 16;
 			iv_len = 16;
+			w4.s.opcode_minor |= (1 << 5);
 			break;
 		default:
 			dao_err("Unsupported encryption cipher.");
 			rte_free(sess_meta);
 			return NULL;
 		}
+
 		sess_meta->cipher_type = cipher_type;
 		sess_meta->iv_len = iv_len;
+		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
+	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
+		switch (ctx->fc.hash_type) {
+		case DAO_LC_FC_HASH_TYPE_SHA1:
+			digest_len = 20;
+			break;
+		default:
+			dao_err("Unsupported hash type.");
+			rte_free(sess_meta);
+			return NULL;
+		}
+
+		sess_meta->hash_type = ctx->fc.hash_type;
+		sess_meta->is_auth_only = true;
+		w4.s.opcode_major = ROC_SE_MAJOR_OP_HASH;
+		w4.s.opcode_minor = 0x0;
+		w4.s.param1 = 0;
+		w4.s.param2 = ((uint16_t)ctx->fc.hash_type << 8) | (uint16_t)digest_len;
 	} else {
 		dao_err("Unsupported opcode.");
 		rte_free(sess_meta);
 		return NULL;
 	}
+	sess_meta->w4 = w4.u64;
+	sess_meta->digest_len = digest_len;
 
 	return sess_meta;
 }
@@ -166,6 +194,24 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 	return 0;
 }
 
+static int
+sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
+{
+	const struct dao_lc_sym_fc_ctx *fc_ctx;
+
+	fc_ctx = &ctx->fc;
+
+	switch (fc_ctx->hash_type) {
+	case DAO_LC_FC_HASH_TYPE_SHA1:
+		break;
+	default:
+		dao_err("Unsupported hash type.");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int
 liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 {
@@ -177,6 +223,8 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 	switch (ctx->opcode) {
 	case DAO_LC_SYM_OPCODE_FC:
 		return sym_sess_fc_verify(ctx);
+	case DAO_LC_SYM_OPCODE_HASH:
+		return sym_sess_hash_verify(ctx);
 	default:
 		dao_err("Unsupported opcode.");
 		return -EINVAL;

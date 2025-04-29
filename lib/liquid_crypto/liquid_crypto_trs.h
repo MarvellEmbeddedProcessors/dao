@@ -22,12 +22,15 @@ struct __rte_packed __dao_lc_req_sym {
 	struct __dao_lc_hdr hdr;
 	uint64_t w4;
 	uint64_t w7;
+	uint64_t is_hash_only : 1;
+	uint64_t rsvd_align : 63;
 	uint8_t dptr[];
 };
 
 struct __rte_packed __dao_lc_resp_sym {
 	struct __dao_lc_hdr hdr;
 	union dao_cpt_res_s res;
+	uint64_t rsvd_align;
 	uint8_t rptr[];
 };
 
@@ -48,6 +51,8 @@ struct __rte_packed __dao_lc_resp_asym {
 
 struct __rte_packed __dao_lc_req_sess_create {
 	struct __dao_lc_hdr hdr;
+	uint64_t opcode : 16;
+	uint64_t rsvd_align : 48;
 	uint8_t cptr[];
 };
 

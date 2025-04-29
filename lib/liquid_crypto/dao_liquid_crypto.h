@@ -22,6 +22,10 @@
 #define DAO_CMD_QP_IDX_INVALID 0xFFFF
 /** Session ID returned as response if the session create request fails */
 #define DAO_LC_SESS_ID_INVALID 0
+/** Session ID returned as response if the session create is for HASH operation */
+#define DAO_LC_SESS_ID_HASH 1
+/** Maximum digest length */
+#define DAO_LC_MAX_DIGEST_LEN 64
 
 /**
  * The liquid crypto buffer
@@ -323,6 +327,8 @@ struct dao_lc_cmd_event {
 enum dao_lc_sym_opcode {
 	/** Opcode for Flexi Crypto */
 	DAO_LC_SYM_OPCODE_FC = 0x33,
+	/** Opcode for HASH */
+	DAO_LC_SYM_OPCODE_HASH = 0x34,
 };
 
 /**

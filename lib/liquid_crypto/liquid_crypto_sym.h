@@ -18,14 +18,26 @@
 struct dao_lc_sym_sess_meta {
 	TAILQ_ENTRY(dao_lc_sym_sess_meta) next;
 
+	/** CPT Instruction W4 */
+	uint64_t w4;
+
 	/** CPT Instruction W7 */
 	uint64_t w7;
 
 	/** IV length */
 	uint16_t iv_len;
 
+	/** Digest length */
+	uint16_t digest_len;
+
 	/** Cipher type */
 	enum dao_lc_fc_enc_cipher cipher_type;
+
+	/** Hash type */
+	enum dao_lc_fc_hash_type hash_type;
+
+	/** Auth Only */
+	bool is_auth_only;
 };
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);
