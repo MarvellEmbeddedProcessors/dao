@@ -3,7 +3,7 @@
 
 # Non Linux Systems Not supported
 exec_env = host_machine.system()
-if exec_env != 'linux'
+if exec_env != 'linux' and exec_env != 'freebsd'
 	error('unsupported system type "@0@"'.format(exec_env))
 endif
 
