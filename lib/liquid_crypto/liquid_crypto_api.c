@@ -1719,7 +1719,7 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct __dao_lc_hdr *lc_hdr;
-	uint16_t nb_rx, i;
+	uint16_t nb_rx = 0, i;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
