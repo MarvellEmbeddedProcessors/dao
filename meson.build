@@ -45,6 +45,12 @@ if not host_build
 	endif
 endif
 
+enable_kmods = get_option('enable_kmods')
+if host_machine.system() != 'linux'
+    enable_kmods = false
+    message('Non-Linux system detected: Disabling kernel module build (kmods).')
+endif
+
 dpdk_version = run_command(find_program('cat', 'more'),
 							files('DPDK_VERSION'), check: true).stdout().strip()
 message('Supported DPDK version: ' + dpdk_version)
@@ -66,7 +72,7 @@ else
     warning('Doxygen not found. Skipping the documentation build!')
 endif
 
-if get_option('enable_kmods')
+if enable_kmods
     subdir('kmod')
 endif
 
