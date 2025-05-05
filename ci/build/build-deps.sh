@@ -52,7 +52,7 @@ HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v24.11"
 GIT_USER=${2}
-ALL_DEPS="dpdk libnl"
+ALL_DEPS="dpdk libnl grpc"
 DEPS_TO_BUILD=${4:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
