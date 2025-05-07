@@ -34,6 +34,8 @@ foreach test: tests
     cflags = default_cflags
     ldflags = []
 
+    test_deps = []
+
     subdir(test)
 
     dep_objs = DAO_EXT_DEPS_LIBDPDK
@@ -60,5 +62,5 @@ foreach test: tests
 	    link_whole: DAO_STATIC_LIBS,
             link_args: ldflags,
             c_args: cflags,
-            dependencies: dep_objs)
+            dependencies: dep_objs + test_deps)
 endforeach
