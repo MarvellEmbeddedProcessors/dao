@@ -47,6 +47,7 @@ The public API headers are grouped by topics
 
 - **virtio**
   - [virtio]              (@ref dao_virtio.h)
+  - [virtio_crypto]       (@ref dao_virtio_cryptodev.h)
   - [virtio_net]          (@ref dao_virtio_netdev.h)
 
 - **platform abstraction layer**

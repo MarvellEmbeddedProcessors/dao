@@ -16,6 +16,7 @@ INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/workers \
                           @TOPDIR@/../../lib/netlink \
                           @TOPDIR@/../../lib/virtio \
+                          @TOPDIR@/../../lib/virtio_crypto \
                           @TOPDIR@/../../lib/virtio_net \
                           @TOPDIR@/../../lib/pal \
 
