@@ -49,6 +49,7 @@ EXTRA_ARGS=
 EXTRA_HOST_ARGS=
 PROJECT_ROOT="$PWD"
 DEPS_PREFIX=
+DEPS_RE2_PREFIX=
 VERBOSE=
 
 eval set -- "$OPTS"
@@ -72,6 +73,10 @@ done
 if [[ -z $DEPS_PREFIX ]]; then
 	DEPS_PREFIX=$BUILD_ROOT/deps/deps-prefix
 fi
+
+# re2.pc is available in a separate directory
+DEPS_RE2_PREFIX=$DEPS_PREFIX/../host/grpc/third_party/re2
+
 EP_DEPS_PREFIX=$DEPS_PREFIX/ep
 HOST_DEPS_PREFIX=$DEPS_PREFIX/host
 
@@ -103,7 +108,11 @@ ${BUILD_SETUP_CMD:-}
 cd $PROJECT_ROOT
 
 # Build for EP
-export PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-$EP_DEPS_PREFIX/lib/pkgconfig}
+PKG_CONFIG_PATH_DEFAULT="$EP_DEPS_PREFIX/lib/pkgconfig:$DEPS_RE2_PREFIX"
+export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-$PKG_CONFIG_PATH_DEFAULT}"
+
+# Update path so that protoc is detected. protoc is required for gRPC build.
+export PATH=$PATH:$HOST_DEPS_PREFIX/bin
 EXTRA_ARGS="$EXTRA_ARGS --prefer-static"
 meson $BUILD_DIR --prefix $PREFIX_DIR $EXTRA_ARGS
 
