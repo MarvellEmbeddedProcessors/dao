@@ -8,6 +8,8 @@
 #include "lcperf_options.h"
 #include "lcperf_test_vectors.h"
 
+#define ENQ_TIMEOUT 12
+
 typedef int (*lcperf_enqueue_ops_t)(uint8_t dev_id, uint16_t qp_id,
 				    const struct lcperf_test_data *tdata);
 

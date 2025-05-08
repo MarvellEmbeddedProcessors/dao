@@ -98,11 +98,10 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint64_t op_cookie = rte_rand();
 	struct lcperf_test_data tdata;
 	uint16_t burst_size, qp_id;
-	uint32_t retry_count = 0;
+	uint64_t time_limit_tsc;
 	uint64_t remaining_ops;
 	uint64_t total_ops, j;
 	struct dao_lc_res res;
-	uint32_t max_retries;
 	uint32_t nb_desc;
 	uint8_t dev_id;
 	int ret;
@@ -116,11 +115,11 @@ lcperf_throughput_test_runner(void *test_ctx)
 	}
 
 	nb_desc = ctx->options->nb_descriptors;
-	max_retries = ctx->options->total_ops;
 	total_ops = ctx->options->total_ops;
 	dev_id = ctx->dev_id;
 	qp_id = ctx->qp_id;
 
+	time_limit_tsc = rte_get_tsc_hz() * ENQ_TIMEOUT * 60;
 	tsc_start = rte_rdtsc_precise();
 
 	while (ops_enqd_total < total_ops) {
@@ -142,16 +141,11 @@ lcperf_throughput_test_runner(void *test_ctx)
 		ops_enqd_total += ops_enqd;
 		total_ops_enqd_failed += ops_enqd_failed;
 
-		if (ops_enqd_failed > 0) {
-			if (retry_count >= max_retries) {
-				RTE_LOG(ERR, USER1, "Max retries reached. Breaking loop.\n");
-				break;
-			}
-
-			retry_count++;
-		} else {
-			/* Reset retry count if enqueue was successful */
-			retry_count = 0;
+		/* Check if time limit has been reached */
+		if ((ops_enqd_failed > 0) && ((rte_rdtsc_precise() - tsc_start) > time_limit_tsc)) {
+			RTE_LOG(ERR, USER1,
+				"Time limit reached due to enqueue failures. Breaking loop.\n");
+			break;
 		}
 
 		for (j = 0; j < burst_size; j++) {
