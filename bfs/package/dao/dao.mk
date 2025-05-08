@@ -26,6 +26,11 @@ ifneq ($(BR2_MARVELL_MESON_PROPERTIES_MACHINE_ARGS),)
 DAO_MESON_EXTRA_PROPERTIES += machine_args='-mcpu=$(BR2_MARVELL_MESON_PROPERTIES_MACHINE_ARGS)'
 endif
 
+ifeq ($(BR2_PACKAGE_DAO_BUILD_MINIMAL_CRYPTO_AGENT),y)
+DAO_CONF_OPTS += -Denable_libs=common,eth_transport,grpc_service/server
+DAO_CONF_OPTS += -Denable_apps=crypto-agent
+endif
+
 # Add DAO dependencies
 
 ifeq ($(BR2_PACKAGE_MARVELL_DPDK),y)

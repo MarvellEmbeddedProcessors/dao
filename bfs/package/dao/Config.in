@@ -25,6 +25,13 @@ config BR2_PACKAGE_DAO_CONFIG
 	default "arm64_cn10k_linux_gcc" \
 		if BR2_aarch64 && BR2_MARVELL_SOC_IS_OCTEON10
 
+config BR2_PACKAGE_DAO_BUILD_MINIMAL_CRYPTO_AGENT
+	bool
+	default n
+	prompt "Generate DAO with minimal libraries for crypto-agent"
+	help
+	  "Useful for reducing build size."
+
 endif
 
 comment "DAO needs aarch64 or x86 arch"
