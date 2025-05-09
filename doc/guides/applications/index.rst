@@ -9,6 +9,7 @@ Application User Guide
     :numbered:
 
     ovs-offload
+    virtio-crypto
     virtio-l2fwd
     secgw-graph
     smart-nic
