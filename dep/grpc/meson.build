@@ -16,15 +16,6 @@ if not grpc_cpp_plugin.found()
 	subdir_done()
 endif
 
-# For host build, linking to gRPC dep will resolve the internal dependencies such as re2.
-if not host_build
-	re2_dep = dependency('re2', method : 'pkg-config', version: '>=11.0.0', required:false)
-	if not re2_dep.found()
-		message('re2 not found')
-		subdir_done()
-	endif
-endif
-
 if not protobuf_dep.found()
 	message('protobuf pkgconfig not exported')
 	subdir_done()
