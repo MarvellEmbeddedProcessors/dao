@@ -228,15 +228,6 @@ function build_grpc() {
 
 	build_grpc_host || return
 
-	#Override pkg_config_libdir to chk if host has valid re2
-	tmp=$PKG_CONFIG_LIBDIR
-	export PKG_CONFIG_LIBDIR=$GRPC_HOST_CONFIG_LIBDIR:/usr/local/lib/pkgconfig
-	if [[ "$($PKGCONFIG --modversion re2)" == "" ]]; then
-		echo "$0: libre2-devel host package missing"
-		return 1
-	fi
-	export PKG_CONFIG_LIBDIR=$tmp
-
 	[[ $GRPC_CXX_CROSS_COMPILER='' ]] && GRPC_CXX_CROSS_COMPILER="aarch64-marvell-linux-gnu-g++"
 	[[ $GRPC_C_CROSS_COMPILER='' ]] && GRPC_C_CROSS_COMPILER="aarch64-marvell-linux-gnu-gcc"
 
