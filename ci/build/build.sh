@@ -114,6 +114,13 @@ export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-$PKG_CONFIG_PATH_DEFAULT}"
 # Update path so that protoc is detected. protoc is required for gRPC build.
 export PATH=$PATH:$HOST_DEPS_PREFIX/bin
 EXTRA_ARGS="$EXTRA_ARGS --prefer-static"
+
+# Check if 'libdpdk' is available with pkg-config
+if ! pkg-config --exists libdpdk; then
+	echo "Error: 'libdpdk' not found with pkg-config. Please ensure it is installed and available in PKG_CONFIG_PATH."
+	exit 1
+fi
+
 meson $BUILD_DIR --prefix $PREFIX_DIR $EXTRA_ARGS
 
 ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE
@@ -121,5 +128,13 @@ ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE install
 
 # Build for Host
 export PKG_CONFIG_PATH=$HOST_DEPS_PREFIX/lib/pkgconfig
+export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOST_DEPS_PREFIX/lib/x86_64-linux-gnu/pkgconfig
+
+# Check if 'libdpdk' is available with pkg-config
+if ! pkg-config --exists libdpdk; then
+	echo "Error: 'libdpdk' not found with pkg-config. Please ensure it is installed and available in PKG_CONFIG_PATH."
+	exit 1
+fi
+
 meson $BUILD_HOST_DIR $EXTRA_HOST_ARGS
 ninja -C $BUILD_HOST_DIR -j $MAKE_J $VERBOSE
