@@ -3,6 +3,7 @@
 
 subdirs = [
             'vdpa',
+            'iliad',
 ]
 
 if host_build
