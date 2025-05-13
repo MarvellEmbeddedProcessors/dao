@@ -121,6 +121,5 @@ ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE install
 
 # Build for Host
 export PKG_CONFIG_PATH=$HOST_DEPS_PREFIX/lib/pkgconfig
-EXTRA_HOST_ARGS="$EXTRA_HOST_ARGS --prefer-static"
 meson $BUILD_HOST_DIR $EXTRA_HOST_ARGS
 ninja -C $BUILD_HOST_DIR -j $MAKE_J $VERBOSE
