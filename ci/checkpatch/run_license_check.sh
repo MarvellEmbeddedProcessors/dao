@@ -32,6 +32,7 @@ IGNORE_DIRECTORIES=(
 	"doc/guides/contributing/img/"
 	"doc/guides/_static/demo/"
 	"doc/guides/_static/css/"
+	"doc/guides/_static/js/"
 	"patches/"
 	"configs/"
 	"ci/build/config/"
