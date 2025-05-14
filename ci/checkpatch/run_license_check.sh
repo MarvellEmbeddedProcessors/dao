@@ -28,6 +28,7 @@ IGNORE_DIRECTORIES=(
 	"doc/guides/img/"
 	"doc/guides/logo/"
 	"doc/guides/gsg/img/"
+	"doc/guides/platform/img/"
 	"doc/guides/prog_guide/img/"
 	"doc/guides/contributing/img/"
 	"doc/guides/_static/demo/"

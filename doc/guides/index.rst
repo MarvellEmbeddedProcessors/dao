@@ -9,6 +9,7 @@ Welcome to Data Accelerator Offload(DAO) Documentation
 
  intro
  gsg/index
+ platform/index
  prog_guide/index
  applications/index
  howtoguides/index
