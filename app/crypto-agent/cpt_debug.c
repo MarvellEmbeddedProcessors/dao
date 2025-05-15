@@ -9,6 +9,15 @@
 #include "crypto_agent.h"
 
 void
+cpt_debug_inst_print(struct cpt_inst_s *inst)
+{
+	CA_INFO("opcode_major: %d, opcode_minor: %d, param1: %d, param2: %d, dlen: %d",
+		inst->w4.s.opcode_major, inst->w4.s.opcode_minor, inst->w4.s.param1,
+		inst->w4.s.param2, inst->w4.s.dlen);
+	CA_INFO("w5: 0x%lx, w6: 0x%lx, w7: 0x%lx", inst->w5.u64, inst->w6.u64, inst->w7.u64);
+}
+
+void
 cpt_debug_res_print(struct cpt_inflight_req *req)
 {
 	union dao_cpt_res_s res;

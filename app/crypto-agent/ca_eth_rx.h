@@ -126,6 +126,10 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		infl_req->mbuf = rx_pkts[pkt_id];
 
 		pending_queue_advance(&head, pq_mask);
+
+#ifdef CA_DEBUG_ENABLE
+		cpt_debug_inst_print(&inst[i]);
+#endif
 	}
 
 	if ((nb_pkts - nb_cpt_bypass) > 0)
