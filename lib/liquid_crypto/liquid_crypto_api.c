@@ -1517,6 +1517,118 @@ dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
 	return copied;
 }
 
+static inline uint16_t
+dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
+		       struct rte_mbuf **mbufs, uint32_t *req_idxs, uint16_t nb_ops)
+{
+	uint16_t i, buf_len;
+	uint32_t dlen, req_idx;
+
+	for (i = 0; i < nb_ops; i++) {
+		struct dao_lc_sym_sess_meta *sess_meta;
+		uint32_t cipher_offset, auth_offset;
+		const uint32_t iv_offset = 0;
+		struct __dao_lc_req_sym *req;
+		struct dao_lc_sym_op *op;
+		uint64_t *offset_vaddr;
+		union cpt_inst_w4 w4;
+		uint8_t iv_len;
+		uint8_t *dptr;
+
+		op = &ops[i];
+		req_idx = req_idxs[i];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
+			dao_err("Invalid session id. sess_id = %lu", op->sess_id);
+			rte_errno = -EINVAL;
+			return i;
+		}
+#endif
+		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
+		qp->req_queue[req_idx].op_cookie = op->op_cookie;
+		qp->req_queue[req_idx].sess_meta = sess_meta;
+
+		if (op->out_buffer != NULL)
+			qp->req_queue[req_idx].data_out = op->out_buffer;
+		else
+			qp->req_queue[req_idx].data_out = op->in_buffer;
+
+		iv_len = sess_meta->iv_len;
+		dlen = op->in_buffer->total_len;
+		buf_len = sizeof(struct __dao_lc_req_sym) + ROC_SE_OFF_CTRL_LEN + iv_len + dlen;
+		buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (buf_len > rte_pktmbuf_tailroom(mbufs[i])) {
+			dao_err("Input data doesn't fit in single segment!");
+			rte_errno = -ENOMEM;
+			return i;
+		}
+
+		if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+			dao_err("Input data too large. buf_len = %u", buf_len);
+			rte_errno = -ENOMEM;
+			return i;
+		}
+
+		if (op->cipher_len & 0xf) {
+			if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
+				dao_err("Invalid cipher length. cipher_len = %u", op->cipher_len);
+				rte_errno = -EINVAL;
+				return i;
+			}
+		}
+#endif
+		/* Input length starting from memory pointed by DPTR */
+		dlen += ROC_SE_OFF_CTRL_LEN + iv_len;
+
+		/* Append transport header to mbuf */
+		req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbufs[i], buf_len);
+		req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
+		req->hdr.trs_hdr.op_len = buf_len;
+		req->hdr.req_idx = req_idx;
+
+		/* Add instruction */
+		w4.u64 = 0;
+		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
+
+		if (op->encrypt)
+			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_ENCRYPT;
+		else
+			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_DECRYPT;
+
+		w4.s.param1 = op->cipher_len;
+		w4.s.param2 = op->auth_len;
+		w4.s.dlen = dlen;
+		req->w4 = w4.u64;
+		req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
+
+		/* Add data */
+		dptr = req->dptr;
+
+		cipher_offset = iv_offset + iv_len + op->cipher_offset;
+		auth_offset = iv_offset + iv_len + op->auth_offset;
+
+		offset_vaddr = (uint64_t *)dptr;
+
+		/*TODO: For some algorithms, IV length can be specified as part of OFFSET_CTRL_WORD
+		 * Bits 36:32*/
+		*(uint64_t *)offset_vaddr =
+			rte_cpu_to_be_64(((uint64_t)cipher_offset << 16) |
+					 ((uint64_t)iv_offset << 8) | ((uint64_t)auth_offset));
+
+		dptr += ROC_SE_OFF_CTRL_LEN;
+
+		/* Copy IV */
+		memcpy(dptr + iv_offset, op->cipher_iv, iv_len);
+
+		dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + iv_len, dlen);
+	}
+
+	return i;
+}
+
 uint16_t
 dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_sym_op *ops,
 				    uint16_t nb_ops)
@@ -1525,9 +1637,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 	uint32_t req_idxs[LIQUID_CRYPTO_MAX_BURST];
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
-	uint32_t dlen, req_idx;
-	uint16_t i, buf_len;
-	uint16_t tx_cnt = 0;
+	uint16_t i = 0, tx_cnt = 0;
 	int rc = 0;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1594,111 +1704,8 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 	}
 #endif
 
-	for (i = 0; i < nb_ops; i++) {
-		struct dao_lc_sym_sess_meta *sess_meta;
-		uint32_t cipher_offset, auth_offset;
-		const uint32_t iv_offset = 0;
-		struct __dao_lc_req_sym *req;
-		struct dao_lc_sym_op *op;
-		uint64_t *offset_vaddr;
-		union cpt_inst_w4 w4;
-		uint8_t iv_len;
-		uint8_t *dptr;
+	i = dao_lc_sym_prepare_ops(qp, ops, mbufs, req_idxs, nb_ops);
 
-		op = &ops[i];
-		req_idx = req_idxs[i];
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
-			dao_err("Invalid session id. sess_id = %lu", op->sess_id);
-			rte_errno = -EINVAL;
-			goto transmit;
-		}
-#endif
-		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
-		qp->req_queue[req_idx].op_cookie = op->op_cookie;
-		qp->req_queue[req_idx].sess_meta = sess_meta;
-
-		if (op->out_buffer != NULL)
-			qp->req_queue[req_idx].data_out = op->out_buffer;
-		else
-			qp->req_queue[req_idx].data_out = op->in_buffer;
-
-		iv_len = sess_meta->iv_len;
-		dlen = op->in_buffer->total_len;
-		buf_len = sizeof(struct __dao_lc_req_sym) + ROC_SE_OFF_CTRL_LEN + iv_len + dlen;
-		buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (buf_len > rte_pktmbuf_tailroom(mbufs[i])) {
-			dao_err("Input data doesn't fit in single segment!");
-			rte_errno = -ENOMEM;
-			goto transmit;
-		}
-
-		if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
-			dao_err("Input data too large. buf_len = %u", buf_len);
-			rte_errno = -ENOMEM;
-			goto transmit;
-		}
-
-		if (op->cipher_len & 0xf) {
-			if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
-				dao_err("Invalid cipher length. cipher_len = %u", op->cipher_len);
-				rte_errno = -EINVAL;
-				goto transmit;
-			}
-		}
-#endif
-		/* Input length starting from memory pointed by DPTR */
-		dlen += ROC_SE_OFF_CTRL_LEN + iv_len;
-
-		/* Append transport header to mbuf */
-		req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbufs[i], buf_len);
-		req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
-		req->hdr.trs_hdr.op_len = buf_len;
-		req->hdr.req_idx = req_idx;
-
-		/* Add instruction */
-		w4.u64 = 0;
-		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
-
-		if (op->encrypt)
-			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_ENCRYPT;
-		else
-			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_DECRYPT;
-
-		w4.s.param1 = op->cipher_len;
-		w4.s.param2 = op->auth_len;
-		w4.s.dlen = dlen;
-		req->w4 = w4.u64;
-		req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
-
-		/* Add data */
-		dptr = req->dptr;
-
-		cipher_offset = iv_offset + iv_len + op->cipher_offset;
-		auth_offset = iv_offset + iv_len + op->auth_offset;
-
-		offset_vaddr = (uint64_t *)dptr;
-
-		/*TODO: For some algorithms, IV length can be specified as part of OFFSET_CTRL_WORD
-		 * Bits 36:32*/
-		*(uint64_t *)offset_vaddr =
-			rte_cpu_to_be_64(((uint64_t)cipher_offset << 16) |
-					 ((uint64_t)iv_offset << 8) | ((uint64_t)auth_offset));
-
-		dptr += ROC_SE_OFF_CTRL_LEN;
-
-		/* Copy IV */
-		memcpy(dptr + iv_offset, op->cipher_iv, iv_len);
-
-		dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + iv_len, dlen);
-	}
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-transmit:
-#endif
 	tx_cnt = rte_eth_tx_burst(qp->port_id, qp->queue_id, mbufs, i);
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	/* Free mbufs that are not transmitted. */
