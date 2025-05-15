@@ -329,15 +329,6 @@ lcperf_options_dump(struct lcperf_options *opts)
 int
 lcperf_options_check(struct lcperf_options *options)
 {
-	if (options->rsa_modlen || options->rsa_priv_keytype) {
-		if (options->op_type != LCPERF_OP_ASYM_RSA) {
-			RTE_LOG(ERR, USER1,
-				"RSA key length and private key type "
-				"options are only valid for RSA operation\n");
-			return -EINVAL;
-		}
-	}
-
 	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT) ||
 	    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT)) {
 		RTE_LOG(ERR, USER1, "Unsupported asymmetric operation type specified\n");
