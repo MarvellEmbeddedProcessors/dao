@@ -329,12 +329,6 @@ lcperf_options_dump(struct lcperf_options *opts)
 int
 lcperf_options_check(struct lcperf_options *options)
 {
-	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT) ||
-	    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT)) {
-		RTE_LOG(ERR, USER1, "Unsupported asymmetric operation type specified\n");
-		return -EINVAL;
-	}
-
 	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT) ||
 	    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT)) {
 		if ((options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_EXP) &&
