@@ -96,7 +96,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 				    w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC) {
 					infl_req->rsa_is_decrypt = 1;
 					/* Reserve two bytes for output length */
-					inst->rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
+					inst[i].rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
 				}
 			}
 			break;
