@@ -1527,6 +1527,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 	for (i = 0; i < nb_ops; i++) {
 		struct dao_lc_sym_sess_meta *sess_meta;
 		uint32_t cipher_offset, auth_offset;
+		uint8_t aad_len = 0, digest_len = 0;
 		const uint32_t iv_offset = 0;
 		struct __dao_lc_req_sym *req;
 		struct dao_lc_sym_op *op;
@@ -1555,6 +1556,11 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 			qp->req_queue[req_idx].data_out = op->in_buffer;
 
 		iv_len = sess_meta->iv_len;
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+			aad_len = op->aad_len;
+			digest_len = 16;
+		}
+
 		dlen = op->in_buffer->total_len;
 		buf_len = sizeof(struct __dao_lc_req_sym) + ROC_SE_OFF_CTRL_LEN + iv_len + dlen;
 		buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1598,16 +1604,36 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		else
 			w4.s.opcode_minor = ROC_SE_FC_MINOR_OP_DECRYPT;
 
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
+			w4.s.opcode_minor |= (1 << 5);
+
 		w4.s.param1 = op->cipher_len;
 		w4.s.param2 = op->auth_len;
-		w4.s.dlen = dlen;
+
+		if (op->encrypt) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+			if (dlen < digest_len) {
+				dao_err("dlen is less than digest_len. dlen = %u, digest_len = %u",
+					dlen, digest_len);
+				rte_errno = -EINVAL;
+				return i;
+			}
+#endif
+			w4.s.dlen = dlen - digest_len;
+		} else {
+			w4.s.dlen = dlen;
+		}
+
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
+			w4.s.param2 = op->cipher_len + op->aad_len;
+
 		req->w4 = w4.u64;
 		req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 
 		/* Add data */
 		dptr = req->dptr;
 
-		cipher_offset = iv_offset + iv_len + op->cipher_offset;
+		cipher_offset = iv_offset + iv_len + aad_len + op->cipher_offset;
 		auth_offset = iv_offset + iv_len + op->auth_offset;
 
 		offset_vaddr = (uint64_t *)dptr;
@@ -1623,7 +1649,31 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		/* Copy IV */
 		memcpy(dptr + iv_offset, op->cipher_iv, iv_len);
 
-		dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + iv_len, dlen);
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+			/* Copy Counter: 00 00 00 01*/
+			const uint8_t counter[4] = {0x00, 0x00, 0x00, 0x01};
+
+			memcpy(dptr + iv_offset + iv_len - 4, counter, 4);
+
+			/* Copy AAD */
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+			if (op->aad == NULL || op->aad_len <= 0) {
+				dao_err("Invalid AAD.");
+				rte_errno = -EINVAL;
+				return i;
+			}
+
+			if ((iv_offset + iv_len + aad_len) > buf_len) {
+				dao_err("Buffer Length is too small to fit AAD. buf_len = %u",
+					buf_len);
+				rte_errno = -ENOMEM;
+				return i;
+			}
+#endif
+			memcpy(dptr + iv_offset + iv_len, op->aad, op->aad_len);
+		}
+
+		dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + aad_len + iv_len, dlen);
 	}
 
 	return i;

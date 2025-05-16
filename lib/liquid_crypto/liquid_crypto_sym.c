@@ -33,6 +33,10 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			cipher_type = DAO_LC_FC_ENC_CIPHER_AES_CBC;
 			iv_len = 16;
 			break;
+		case DAO_LC_FC_ENC_CIPHER_AES_GCM:
+			cipher_type = DAO_LC_FC_ENC_CIPHER_AES_GCM;
+			iv_len = 16;
+			break;
 		default:
 			dao_err("Unsupported encryption cipher.");
 			rte_free(sess_meta);
@@ -127,6 +131,7 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 
 	switch (fc_ctx->enc_cipher) {
 	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
 		is_aes = true;
 		break;
 	default:
