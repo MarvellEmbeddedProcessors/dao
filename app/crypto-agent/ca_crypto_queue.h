@@ -21,6 +21,7 @@ struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 	union dao_cpt_res_s res;
 	struct rte_mbuf *mbuf;
 	uint8_t rsa_is_decrypt : 1;
+	uint8_t is_hash_only : 1;
 	uint16_t rsa_mod_len;
 };
 

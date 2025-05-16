@@ -79,12 +79,24 @@ ca_cpt_post_process_sym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *
 {
 	struct __dao_lc_resp_sym *resp;
 	struct rte_mbuf *mb;
+	uint16_t pkt_len;
 
 	mb = infl_req->mbuf;
 	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_sym *);
 
 	/* Host to trim the packet start to get the final result of crypto operation */
 	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+
+	if (infl_req->is_hash_only) {
+		pkt_len = sizeof(struct __dao_lc_resp_sym) + DAO_LC_MAX_DIGEST_LEN;
+		pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
+		mb->pkt_len = pkt_len;
+		mb->data_len = pkt_len;
+	}
+
+#ifdef CA_DEBUG_ENABLE
+	rte_pktmbuf_dump(stdout, mb, rte_pktmbuf_pkt_len(mb));
+#endif
 }
 
 static inline uint16_t

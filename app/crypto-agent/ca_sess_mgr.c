@@ -66,6 +66,13 @@ ca_sess_handle_create(struct rte_mbuf *mb)
 	sess_create = rte_pktmbuf_mtod(mb, struct __dao_lc_req_sess_create *);
 	sess_create_resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_sess_create *);
 
+	if (sess_create->opcode == DAO_LC_SYM_OPCODE_HASH) {
+		/* No need of context for HASH operation */
+		sess_create_resp->sess_id = DAO_LC_SESS_ID_HASH;
+		rc = 0;
+		goto exit;
+	}
+
 	/* Get the session mempool. */
 	/* TODO: use the right pool based on request host device */
 	sess_mempool = ca_host_sess_mempool_get(0);
@@ -119,6 +126,12 @@ ca_sess_handle_destroy(struct rte_mbuf *mb)
 	int rc = 0;
 
 	sess_destroy = rte_pktmbuf_mtod(mb, struct __dao_lc_req_resp_sess_destroy *);
+
+	if (sess_destroy->sess_id == DAO_LC_SESS_ID_HASH) {
+		/* There is no context associated with HASH operation to free! */
+		rc = 0;
+		goto exit;
+	}
 
 	rc = ca_sess_handle_lookup(sess_destroy->sess_id);
 	if (rc != 0) {
