@@ -44,7 +44,8 @@ sess_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *ev)
 static int
 test_block_cipher_only(const void *data, bool is_encrypt)
 {
-	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN] = {0};
+	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN] = {0};
+	uint8_t aad_buf_data[TEST_LC_MAX_AAD_LEN] = {0};
 	const struct test_sym_params *params = data;
 	uint8_t cipher_iv[TEST_LC_MAX_IV_LEN] = {0};
 	uint8_t dev_id = glb_params.dev_id;
@@ -76,15 +77,28 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	op[0].op_cookie = sess_cookie;
 	op[0].sess_id = ev.sess_event.sess_id;
 
+	if (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+		op[0].aad = aad_buf_data;
+		memcpy(op[0].aad, params->aad.data, params->aad.len);
+		op[0].aad_len = params->aad.len;
+
+		if (is_encrypt) {
+			op[0].digest = &(in_buf_data[params->aad.len + params->plaintext.len]);
+		} else {
+			op[0].digest = &(in_buf_data[params->plaintext.len]);
+			memcpy(op[0].digest, params->digest.data, params->digest.len);
+		}
+	}
+
 	if (is_encrypt) {
 		memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
-		in_buf[0].seg_len = params->plaintext.len;
-		in_buf[0].total_len = params->plaintext.len;
+		in_buf[0].seg_len = params->aad.len + params->plaintext.len + params->digest.len;
+		in_buf[0].total_len = params->aad.len + params->plaintext.len + params->digest.len;
 		op[0].encrypt = 1;
 	} else {
 		memcpy(in_buf_data, params->ciphertext.data, params->ciphertext.len);
-		in_buf[0].seg_len = params->ciphertext.len;
-		in_buf[0].total_len = params->ciphertext.len;
+		in_buf[0].seg_len = params->aad.len + params->ciphertext.len + params->digest.len;
+		in_buf[0].total_len = params->aad.len + params->ciphertext.len + params->digest.len;
 		op[0].encrypt = 0;
 	}
 
@@ -113,21 +127,34 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Symmetric operation failed");
 
 	if (is_encrypt) {
-		ret = memcmp(in_buf_data, params->ciphertext.data, params->ciphertext.len);
+		ret = memcmp(in_buf_data + params->aad.len, params->ciphertext.data,
+			     params->ciphertext.len);
 		if (ret != 0) {
-			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->ciphertext.len);
+			rte_hexdump(stdout, "RESULT: ", in_buf_data + params->aad.len,
+				    params->ciphertext.len + 32);
 			rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
 				    params->ciphertext.len);
 		}
+		TEST_ASSERT(ret == 0, "Invalid result");
+
+		ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
+		if (ret != 0) {
+			rte_hexdump(stdout, "RESULT digest: ", op[0].digest, params->digest.len);
+			rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
+				    params->digest.len);
+		}
+		TEST_ASSERT(ret == 0, "Invalid result");
+
 	} else {
-		ret = memcmp(in_buf_data, params->plaintext.data, params->plaintext.len);
+		ret = memcmp(in_buf_data + params->aad.len, params->plaintext.data,
+			     params->plaintext.len);
 		if (ret != 0) {
 			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->plaintext.len);
 			rte_hexdump(stdout, "EXPECTED: ", params->plaintext.data,
 				    params->plaintext.len);
 		}
+		TEST_ASSERT(ret == 0, "Invalid result");
 	}
-	TEST_ASSERT(ret == 0, "Invalid result");
 
 	ret = dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id,
 						 sess_cookie);
@@ -177,5 +204,9 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_cbc_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_cbc_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_gcm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_gcm_128_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}};
