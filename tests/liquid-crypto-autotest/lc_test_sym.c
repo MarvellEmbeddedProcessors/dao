@@ -208,5 +208,13 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_gcm_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_gcm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-GCM Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_gcm_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-GCM Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_gcm_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_gcm_256_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}};
