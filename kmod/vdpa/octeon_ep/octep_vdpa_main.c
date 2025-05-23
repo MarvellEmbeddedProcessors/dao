@@ -144,7 +144,7 @@ static int octep_request_irqs(struct octep_hw *oct_hw, irqreturn_t (*irq_handler
 	struct pci_dev *pdev = oct_hw->pdev;
 	int ret, irq, idx;
 
-	if (oct_hw->requested_irqs != nb_irqs)
+	if ((oct_hw->requested_irqs != nb_irqs) || (nb_irqs == 1))
 		octep_free_irqs(oct_hw);
 	else
 		return 0;
@@ -526,7 +526,8 @@ static void octep_vdpa_remove_vf(struct pci_dev *pdev)
 	atomic_set(&mgmt_dev->status, OCTEP_VDPA_DEV_STATUS_UNINIT);
 
 	cancel_work_sync(&mgmt_dev->setup_task);
-	if (status == OCTEP_VDPA_DEV_STATUS_READY)
+	if ((status == OCTEP_VDPA_DEV_STATUS_READY) || (status == OCTEP_VDPA_DEV_STATUS_ADDED) ||
+	    (status == OCTEP_VDPA_DEV_STATUS_REMOVED))
 		vdpa_mgmtdev_unregister(&mgmt_dev->mdev);
 
 	if (oct_hw->base[OCTEP_HW_CAPS_BAR])
