@@ -5,6 +5,7 @@ tests = [
 	'bar-rw',
 	'ct-func',
 	'ct-perf',
+	'ct-benchmark',
 	'dpi_test',
 	'liquid-crypto-autotest',
 	'liquid-crypto-perf-test',
