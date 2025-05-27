@@ -1,0 +1,203 @@
+From 4f17c92e2d6620cba33891a5ec4b1ac1c12fa311 Mon Sep 17 00:00:00 2001
+From: Ashwin Sekhar T K <asekhar@marvell.com>
+Date: Tue, 27 May 2025 09:49:29 +0530
+Subject: [PATCH] Revert "lib: remove sdp platform device references"
+
+This reverts commit e1b747a847d63806805623f307d6b05dce365f35.
+---
+ lib/pem/pem.c       | 17 ++++++------
+ lib/pem/sdp.c       | 64 +++++++++++++++++++++++++++------------------
+ lib/vfio/dao_vfio.h |  1 +
+ 3 files changed, 48 insertions(+), 34 deletions(-)
+
+diff --git a/lib/pem/pem.c b/lib/pem/pem.c
+index b781f40..f074f28 100644
+--- a/lib/pem/pem.c
++++ b/lib/pem/pem.c
+@@ -255,10 +255,6 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
+ 	if (!pem->max_vfs)
+ 		goto err;
+ 
+-	/* Assuming max_vfs is power of 2 */
+-	if (pem->max_vfs != 1)
+-		pem->max_vfs >>= 1;
+-
+ 	dao_info("Setting up %u VFs for PEM%u", pem->max_vfs, pem->pem_id);
+ 
+ 	pem->host_page_sz = conf->host_page_sz;
+@@ -413,11 +409,13 @@ uint8_t
+ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
+ {
+ 	struct pem *pem = &pem_devices[pem_devid];
++	uint64_t base;
+ 	int idx, ring_idx;
+ 	uint64_t reg_val;
+ 	uint8_t rpvf;
+ 
+-	reg_val = sdp_reg_read(&pem->sdp_pdev, SDP_VF_MBOX_DATA(0));
++	base = pem->sdp_pdev.rbar ? 0 : 0x80000000;
++	reg_val = sdp_reg_read(&pem->sdp_pdev, base + SDP_VF_MBOX_DATA(0));
+ 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
+ 
+ 	if (!rpvf) {
+@@ -428,11 +426,12 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
+ 	for (idx = 0; idx < rpvf; idx++) {
+ 		ring_idx = idx + (vfid - 1) * rpvf;
+ 
+-		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
+-		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
+-		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
++		sdp_reg_write(&pem->sdp_pdev, base + SDP_RX_OUT_ENABLE(ring_idx), 0x1);
++		sdp_reg_write(&pem->sdp_pdev, base + SDP_RX_OUT_CNTS(ring_idx), 0x1);
++		sdp_reg_write(&pem->sdp_pdev, base + SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
+ 
+-		__atomic_store_n(intr_addr, sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
++		__atomic_store_n(intr_addr,
++				 sdp_reg_addr(&pem->sdp_pdev, base + SDP_RX_OUT_CNTS(ring_idx)),
+ 				 __ATOMIC_RELAXED);
+ 		intr_addr++;
+ 	}
+diff --git a/lib/pem/sdp.c b/lib/pem/sdp.c
+index 29c8d46..641a66c 100644
+--- a/lib/pem/sdp.c
++++ b/lib/pem/sdp.c
+@@ -14,85 +14,99 @@
+ #include <dao_log.h>
+ #include <dao_util.h>
+ 
++#define SDP_PLAT_DEV_NAME  "86e000000000.dpi_sdp_regs"
+ #define SDP0_PCIE_DEV_NAME "0002:18:00.0"
+ #define SDP1_PCIE_DEV_NAME "0002:19:00.0"
+ 
+ int
+ sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val)
+ {
+-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
++	uint8_t rbar = sdp_pdev->rbar;
++
++	if (offset > sdp_pdev->mem[rbar].len)
+ 		return -ENOMEM;
+ 
+-	*((volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset)) = val;
++	*((volatile uint64_t *)(sdp_pdev->mem[rbar].addr + offset)) = val;
+ 	return 0;
+ }
+ 
+ uint64_t
+ sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset)
+ {
+-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
++	uint8_t rbar = sdp_pdev->rbar;
++
++	if (offset > sdp_pdev->mem[rbar].len)
+ 		return -ENOMEM;
+ 
+-	return *(volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
++	return *(volatile uint64_t *)(sdp_pdev->mem[rbar].addr + offset);
+ }
+ 
+ uint64_t *
+ sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset)
+ {
+-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
++	uint8_t rbar = sdp_pdev->rbar;
++
++	if (offset > sdp_pdev->mem[rbar].len)
+ 		return NULL;
+ 
+-	return (uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
++	return (uint64_t *)(sdp_pdev->mem[rbar].addr + offset);
+ }
+ 
+ int
+ sdp_init(struct dao_vfio_device *sdp_pdev)
+ {
+ 	uint8_t idx, ring_idx, rpvf, vfid, num_vfs;
+-	uint64_t reg_val, info;
++	uint64_t reg_val, info, base;
+ 	int rc;
+ 
+-	sdp_pdev->type = DAO_VFIO_DEV_PCIE;
+-	if (sdp_pdev->prime)
+-		rc = dao_vfio_device_setup(SDP0_PCIE_DEV_NAME, sdp_pdev);
+-	else
+-		rc = dao_vfio_device_setup(SDP1_PCIE_DEV_NAME, sdp_pdev);
++	rc = dao_vfio_device_setup(SDP_PLAT_DEV_NAME, sdp_pdev);
+ 	if (rc < 0) {
+-		dao_err("Filed to setup DAO VFIO device %s",
+-			sdp_pdev->prime ? SDP0_PCIE_DEV_NAME : SDP1_PCIE_DEV_NAME);
+-		return rc;
++		sdp_pdev->type = DAO_VFIO_DEV_PCIE;
++		if (sdp_pdev->prime)
++			rc = dao_vfio_device_setup(SDP0_PCIE_DEV_NAME, sdp_pdev);
++		else
++			rc = dao_vfio_device_setup(SDP1_PCIE_DEV_NAME, sdp_pdev);
++		if (rc < 0) {
++			dao_err("Filed to setup DAO VFIO device %s",
++				sdp_pdev->prime ? SDP0_PCIE_DEV_NAME : SDP1_PCIE_DEV_NAME);
++			return rc;
++		}
++		sdp_pdev->rbar = DAO_VFIO_DEV_BAR2;
++		sdp_pdev->mbar = DAO_VFIO_DEV_BAR4;
++	} else {
++		sdp_pdev->type = DAO_VFIO_DEV_PLATFORM;
++		sdp_pdev->rbar = DAO_VFIO_DEV_BAR0;
+ 	}
+ 
+-	sdp_pdev->mbar = DAO_VFIO_DEV_BAR4;
+-
+ 	if (sdp_pdev->prime) {
+-		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
++		base = sdp_pdev->rbar ? 0 : 0x80000000;
++		reg_val = sdp_reg_read(sdp_pdev, base + SDP_EPFX_RINFO(0));
+ 		reg_val &= ~SDP_EPFX_RINFO_SRN_MASK;
+-		sdp_reg_write(sdp_pdev, SDP_EPFX_RINFO(0), reg_val);
+-		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
++		sdp_reg_write(sdp_pdev, base + SDP_EPFX_RINFO(0), reg_val);
++		reg_val = sdp_reg_read(sdp_pdev, base + SDP_EPFX_RINFO(0));
+ 		rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
+ 		num_vfs = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0x7f;
+ 		/* Disable PF Ring */
+-		reg_val = sdp_reg_read(sdp_pdev, SDP_MAC0_PF_RING_CTL);
++		reg_val = sdp_reg_read(sdp_pdev, base + SDP_MAC0_PF_RING_CTL);
+ 		reg_val &= ~SDP_MAC0_PF_RING_CTL_RPPF_MASK;
+-		sdp_reg_write(sdp_pdev, SDP_MAC0_PF_RING_CTL, reg_val);
++		sdp_reg_write(sdp_pdev, base + SDP_MAC0_PF_RING_CTL, reg_val);
+ 
+ 		for (vfid = 1; vfid <= num_vfs; vfid++) {
+ 			for (idx = 0; idx < rpvf; idx++) {
+ 				ring_idx = idx + ((vfid - 1) * rpvf);
+ 
+-				sdp_reg_write(sdp_pdev, SDP_EPVF_RINGX(ring_idx), vfid);
++				sdp_reg_write(sdp_pdev, base + SDP_EPVF_RINGX(ring_idx), vfid);
+ 			}
+ 		}
+ 
+ 		vfid = 0;
+ 		info = rpvf | ((uint64_t)vfid << 8) | ((uint64_t)num_vfs << 16);
+ 		info <<= 32;
+-		sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(0), info);
++		sdp_reg_write(sdp_pdev, base + SDP_PF_MBOX_DATA(0), info);
+ 		vfid = num_vfs >> 1;
+ 		info = rpvf | ((uint64_t)vfid << 8) | ((uint64_t)num_vfs << 16);
+ 		info <<= 32;
+-		sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(32), info);
++		sdp_reg_write(sdp_pdev, base + SDP_PF_MBOX_DATA(32), info);
+ 	}
+ 
+ 	return 0;
+diff --git a/lib/vfio/dao_vfio.h b/lib/vfio/dao_vfio.h
+index 4cf03ac..672bf67 100644
+--- a/lib/vfio/dao_vfio.h
++++ b/lib/vfio/dao_vfio.h
+@@ -45,6 +45,7 @@ struct dao_vfio_device {
+ 	enum dao_vfio_dev_type type;      /**< Device type */
+ 	uint8_t prime;                    /**< Primary device */
+ 	uint8_t mbar;                     /**< Bar index of memory */
++	uint8_t rbar;                     /**< Bar index of device registers */
+ };
+ 
+ /* End of structure dao_vfio_device. */
+-- 
+2.25.1
+
