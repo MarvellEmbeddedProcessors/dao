@@ -21,6 +21,7 @@ INPUT                   = @TOPDIR@/doxy-api-index.md \
                           @TOPDIR@/../../lib/virtio \
                           @TOPDIR@/../../lib/virtio_crypto \
                           @TOPDIR@/../../lib/virtio_net \
+                          @TOPDIR@/../../lib/virtio_blk \
                           @TOPDIR@/../../lib/pal \
 
 FILE_PATTERNS           = dao*.h

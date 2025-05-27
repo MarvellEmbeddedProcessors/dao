@@ -32,6 +32,41 @@
 VIRTIO_BLK_DESC_MANAGE_MODES
 #undef M
 
+/**
+ Flags to control dequeue function pointers
+*/
+#define VIRTIO_BLK_DEQ_DEFAULT		(0)
+#define VIRTIO_BLK_DEQ_NOINOR		RTE_BIT64(0)
+#define VIRTIO_BLK_DEQ_LAST		RTE_BIT64(1)
+
+#define D_NOORDER_F VIRTIO_BLK_DEQ_NOINOR
+
+#define VIRTIO_BLK_DEQ_FASTPATH_MODES				\
+	R(deflt, VIRTIO_BLK_DEQ_DEFAULT)			\
+	R(noinorder, D_NOORDER_F)
+
+#define R(name, flags)										\
+	uint16_t virtio_blk_deq_##name(void *q, void **pkts, uint16_t nb_pkts);			\
+	uint16_t virtio_blk_deq_ext_##name(void *q, void **pkts, uint16_t nb_pkts);
+
+VIRTIO_BLK_DEQ_FASTPATH_MODES
+#undef R
+
+#define VIRTIO_BLK_COMPL_DEF		(0)
+#define VIRTIO_BLK_COMPL_LAST		(1)
+
+#define VIRTIO_BLK_COMPL_EXTBUF		RTE_BIT64(15)
+
+#define VIRTIO_BLK_COMPL_FASTPATH_MODES			\
+	T(def, VIRTIO_BLK_COMPL_DEF)
+
+#define T(name, flags)										\
+	uint16_t virtio_blk_process_compl_##name(void *q, void **pkts, uint16_t nb_pkts);	\
+	uint16_t virtio_blk_process_compl_ext_##name(void *q, void **pkts, uint16_t nb_pkts);
+
+VIRTIO_BLK_COMPL_FASTPATH_MODES
+#undef T
+
 struct virtio_blk_queue {
 	/* Fast path */
 	/* Read only, shared by both service and worker */
@@ -52,6 +87,9 @@ struct virtio_blk_queue {
 	/* Read-Write worker. */
 	uint16_t pend_sd_mbuf __rte_cache_aligned;
 	uint16_t pend_sd_mbuf_idx;
+	uint16_t pend_compl_off;
+	uint16_t m2d_pend_sd_mbuf;
+	uint16_t m2d_pend_sd_mbuf_idx;
 
 	RTE_CACHE_GUARD;
 
@@ -73,7 +111,7 @@ struct virtio_blk_queue {
 	/* Mempool to use for DMA inbound */
 	struct rte_mempool *mp;
 	union {
-		struct rte_mbuf **mbuf_arr;
+		void **mbuf_arr;
 		void **extbuf_arr;
 	};
 	uintptr_t driver_area;
@@ -93,12 +131,26 @@ struct virtio_blkdev {
 		/** Valid when DOS_VIRTIO_BLKDEV_EXTBUF is set */
 		uint16_t dataroom_size;
 	};
+	/* Number of virt queues */
+	uint16_t num_queues;
 
 	/* Fast path data */
 	struct virtio_blk_queue *qs[DAO_VIRTIO_MAX_QUEUES] __rte_cache_aligned;
 };
 
 extern struct dao_virtio_blkdev_cbs blkdev_user_cbs;
+uint8_t virtio_blkdev_hdr_size(struct virtio_blkdev *blkdev);
+void virtio_blk_flush_deq(struct virtio_blk_queue *q);
+void virtio_blk_flush_deq_ext(struct virtio_blk_queue *q);
+void virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start,
+			      uint16_t count, bool avail, bool used);
+
+#ifdef DAO_VIRTIO_DEBUG
+#define VIRTIO_BLK_DESC_CHECK(q, start, count, avail, used)                                        \
+	virtio_blk_desc_validate(q, start, count, avail, used)
+#else
+#define VIRTIO_BLK_DESC_CHECK(...)
+#endif
 
 static inline struct virtio_blkdev *
 virtio_blkdev_priv(struct dao_virtio_blkdev *blkdev)
@@ -156,7 +208,7 @@ alloc_extbufs(struct virtio_blk_queue *q, uint16_t off, uint16_t q_sz, uint16_t 
 }
 
 static __rte_always_inline uint16_t
-alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint16_t off, uint16_t q_sz,
+alloc_mbufs(void **mbuf_arr, struct rte_mempool *mp, uint16_t off, uint16_t q_sz,
 	    uint16_t nb_mbufs)
 {
 	uint16_t cnt;
@@ -172,7 +224,8 @@ alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint16_t off, ui
 }
 
 static __rte_always_inline void
-free_mseg_mbufs(struct rte_mbuf **mbuf_arr, uint16_t off, uint16_t q_sz, uint16_t nb_mbufs)
+free_mseg_mbufs(struct virtio_blk_queue *q, void **mbuf_arr, uint16_t off,
+		uint16_t q_sz, uint16_t nb_mbufs)
 {
 	struct rte_mempool *mp;
 	uint16_t cnt, i, count;
@@ -181,7 +234,7 @@ free_mseg_mbufs(struct rte_mbuf **mbuf_arr, uint16_t off, uint16_t q_sz, uint16_
 	 * all mbuf's ref_cnt is 1 without ext buf.
 	 */
 	/* Get mempool from first mbuf */
-	mp = mbuf_arr[off]->pool;
+	mp = q->mp;
 	cnt = (off + nb_mbufs) > q_sz ? q_sz - off : nb_mbufs;
 	count = cnt & ~(0x3u);
 	for (i = 0; i < count; i += 4) {
@@ -192,7 +245,7 @@ free_mseg_mbufs(struct rte_mbuf **mbuf_arr, uint16_t off, uint16_t q_sz, uint16_
 		off += 4;
 	}
 
-	rte_pktmbuf_free_bulk(&mbuf_arr[off], cnt - i);
+	rte_mempool_put_bulk(mp, &mbuf_arr[off], cnt - i);
 
 	off = (off + cnt - i) & (q_sz - 1);
 	cnt = nb_mbufs - cnt;
@@ -207,24 +260,24 @@ free_mseg_mbufs(struct rte_mbuf **mbuf_arr, uint16_t off, uint16_t q_sz, uint16_
 		rte_mempool_put_bulk(mp, (void **)&mbuf_arr[off], 4);
 		off += 4;
 	}
-	rte_pktmbuf_free_bulk(&mbuf_arr[off], cnt - i);
+	rte_mempool_put_bulk(mp, &mbuf_arr[off], cnt - i);
 }
 
 static __rte_always_inline void
-free_mbufs(struct rte_mbuf **mbuf_arr, uint16_t off, uint16_t q_sz, uint16_t nb_mbufs,
-	   const uint16_t flags)
+free_mbufs(struct virtio_blk_queue *q, void **mbuf_arr, uint16_t off, uint16_t q_sz,
+	 uint16_t nb_mbufs, const uint16_t flags)
 {
 	struct rte_mempool *mp;
 	uint16_t cnt;
 
 	if (flags & VIRTIO_BLK_DESC_MANAGE_MSEG)
-		return free_mseg_mbufs(mbuf_arr, off, q_sz, nb_mbufs);
+		return free_mseg_mbufs(q, mbuf_arr, off, q_sz, nb_mbufs);
 
 	/* Assuming all segments pkts are coming from same pool in this Tx queue and
 	 * all mbuf's ref_cnt is 1 without ext buf.
 	 */
 	/* Get mempool from first mbuf */
-	mp = mbuf_arr[off]->pool;
+	mp = q->mp;
 	cnt = (off + nb_mbufs) > q_sz ? q_sz - off : nb_mbufs;
 	rte_mempool_put_bulk(mp, (void **)&mbuf_arr[off], cnt);
 	off = (off + cnt) & (q_sz - 1);
@@ -235,12 +288,12 @@ free_mbufs(struct rte_mbuf **mbuf_arr, uint16_t off, uint16_t q_sz, uint16_t nb_
 
 static __rte_always_inline uint16_t
 fetch_io_desc_prep(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
-		   struct rte_dma_sge *src, struct rte_dma_sge *dst, const uint16_t flags)
+		    struct rte_dma_sge *src, struct rte_dma_sge *dst, const uint16_t flags)
 {
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	uint16_t sd_desc_off, pend_sd_desc;
 	uintptr_t desc_base = q->desc_base;
-	struct rte_mbuf **mbuf_arr;
+	void **mbuf_arr;
 	uint16_t q_sz = q->q_sz;
 	uint32_t notify_data;
 	uint16_t next_off, off;
@@ -285,7 +338,6 @@ fetch_io_desc_prep(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2m
 		dst[j].addr = (rte_iova_t)DESC_PTR_OFF(sd_desc_base, off, 0);
 		src[j].length = i << 4;
 		dst[j].length = i << 4;
-
 		desc_count += i;
 		off = (off + i) & (q_sz - 1);
 		nb_desc -= i;
@@ -330,37 +382,41 @@ mark_deq_compl_no_inorder(struct virtio_blk_queue *q, struct dao_dma_vchan_state
 
 static __rte_always_inline void
 mark_io_desc_compl(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev, uint16_t start,
-		   uint16_t end, const uint16_t flags)
+		   uint16_t nb_desc, const uint16_t flags)
 {
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	uintptr_t desc_base = q->desc_base;
 	uint16_t q_sz = q->q_sz;
-	uint16_t pend;
+	rte_iova_t src, dst;
+	uint64_t last_id;
+	uint64_t first;
+	uint64_t used;
+	uint16_t end;
 
+	RTE_SET_USED(flags);
 	if (unlikely(!q->auto_free)) {
 		if (flags & VIRTIO_BLK_DESC_MANAGE_EXTBUF)
-			free_extbufs(q, DESC_OFF(start), q_sz, desc_off_diff(end, start, q_sz),
+			free_extbufs(q, DESC_OFF(start), q_sz, nb_desc,
 				     flags);
 		else
-			free_mbufs(q->mbuf_arr, DESC_OFF(start), q_sz,
-				   desc_off_diff(end, start, q_sz), flags);
+			free_mbufs(q, q->mbuf_arr, DESC_OFF(start), q_sz,
+				   nb_desc, flags);
 	}
 
-	pend = desc_off_diff_no_wrap(end, start, q_sz);
+	end = desc_off_add(start, nb_desc - 1, q_sz);
+	/* Overwrite buffer id in first descriptor second word */
+	last_id = (*DESC_PTR_OFF(sd_desc_base, end, 8) >> 32) & 0xFFFF;
+	first = *DESC_PTR_OFF(sd_desc_base, start, 8) & ~0xFFFF00000000UL;
+	/* Mark the same value for free as used */
+	used = (first >> 55) & 0x1;
+	first = first & ~RTE_BIT64(63);
+	*DESC_PTR_OFF(sd_desc_base, start, 8) = first | (used << 63) | last_id << 32;
 
-	/* Issue descriptor data DMA */
-	dao_dma_enq_x1(mem2dev, (rte_iova_t)DESC_PTR_OFF(sd_desc_base, DESC_OFF(start), 0),
-		       DESC_ENTRY_SZ * pend,
-		       (rte_iova_t)DESC_PTR_OFF(desc_base, DESC_OFF(start), 0),
-		       DESC_ENTRY_SZ * pend);
-	start = desc_off_add(start, pend, q_sz);
-	pend = end - start;
-	if (pend) {
-		dao_dma_enq_x1(mem2dev, (rte_iova_t)DESC_PTR_OFF(sd_desc_base, DESC_OFF(start), 0),
-			       DESC_ENTRY_SZ * pend,
-			       (rte_iova_t)DESC_PTR_OFF(desc_base, DESC_OFF(start), 0),
-			       DESC_ENTRY_SZ * pend);
-	}
+	src = (rte_iova_t)DESC_PTR_OFF(sd_desc_base, start, 8);
+	dst = (rte_iova_t)DESC_PTR_OFF(desc_base, start, 8);
+
+	/* Enqueue DMA op assuming space is available */
+	dao_dma_enq_x1(mem2dev, src, 8, dst, 8);
 }
 
 #endif /* __INCLUDE_VIRTIO_BLK_PRIV_H__ */

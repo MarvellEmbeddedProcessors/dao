@@ -30,8 +30,8 @@ struct dao_virtio_blkdev_conf {
 	uint32_t seg_max;
 	/** Vchan to use for this virtio dev */
 	uint16_t dma_vchan;
-	/** Config flags */
-#define DAO_VIRTIO_BLKDEV_EXTBUF DAO_BIT_ULL(0)
+#define DAO_VIRTIO_BLKDEV_EXTBUF	DAO_BIT_ULL(0)
+	/* Config flags */
 	uint16_t flags;
 	union {
 		struct {
@@ -45,14 +45,30 @@ struct dao_virtio_blkdev_conf {
 	};
 	/** Max virt_queues */
 	uint16_t max_virt_queues;
+	/** Feature bits */
+	uint64_t feat_bits;
 	/** Auto free enabled/disabled */
 	bool auto_free_en;
 };
 
-/* End of structure dao_virtio_blkdev_conf. */
+/** Virtio blk header for external buffers */
+struct dao_virtio_blk_hdr {
+	/** Array of virtio descriptor data */
+	uint64_t desc_data[2];
+	/** blk request status byte's address */
+	uint8_t *status;
+	/** Total length of single blk request in bytes */
+	uint32_t tot_len;
+	/** Total number of segments in blk request */
+	uint32_t tot_segs;
+	/** Total number of ext buffers in the chain */
+	uint32_t tot_bufs;
+	/** Virtio blk header, data */
+	uint8_t hdr_data[];
+} __rte_packed;
 
 /** Virtio blk device data */
-struct dao_virtio_blkdev {
+typedef struct dao_virtio_blkdev {
 	/** Array of virtio queue pointers */
 	void *qs[DAO_VIRTIO_MAX_QUEUES] __rte_cache_aligned;
 	/** Dequeue function id */
@@ -61,39 +77,63 @@ struct dao_virtio_blkdev {
 	uint16_t compl_fn_id;
 	/** Descriptors management function id */
 	uint16_t mgmt_fn_id;
+
 #define DAO_VIRTIO_BLKDEV_MEM_SZ 8192
 	uint8_t reserved[DAO_VIRTIO_BLKDEV_MEM_SZ];
-};
+} dao_virtio_blkdev_t;
+
+/** Virtio Block request status  */
+typedef enum {
+	/** VirtIO block request is complete */
+	DAO_VIRTIO_BLK_REQ_COMPLETE,
+	/** VirtIO block request is still in progress */
+	DAO_VIRTIO_BLK_REQ_IN_PROGRESS
+} dao_virtio_blk_req_status_t;
 
 /** Virtio blk devices */
 extern struct dao_virtio_blkdev dao_virtio_blkdevs[];
 
 /* Fast path data */
 /** IO request dequeue function */
-typedef uint16_t (*dao_virtio_blk_io_deq_fn_t)(void *q, struct rte_mbuf **mbufs, uint16_t nb_mbufs);
+typedef uint16_t (*dao_virtio_blk_deq_fn_t)(void *q, void **mbufs,
+						uint16_t nb_mbufs);
 /** Dequeue external buf function */
-typedef uint16_t (*dao_virtio_blk_io_deq_ext_fn_t)(void *q, void **vbufs, uint16_t nb_bufs);
+typedef uint16_t (*dao_virtio_blk_deq_ext_fn_t)(void *q, void **vbufs,
+						uint16_t nb_bufs);
 /** IO request completion function */
-typedef uint16_t (*dao_virtio_blk_io_compl_fn_t)(void *q, uint16_t nb_compl);
+typedef uint16_t (*dao_virtio_blk_process_compl_fn_t)(void *q,
+			void **mbufs, uint16_t nb_compl);
+/** IO request completion function */
+typedef uint16_t (*dao_virtio_blk_process_compl_ext_fn_t)(void *q, void **vbufs,
+							uint16_t nb_compl);
 /** Management function */
-typedef int (*dao_blk_io_desc_manage_fn_t)(uint16_t devid, uint16_t qp_count);
+typedef int (*dao_virtio_blk_desc_manage_fn_t)(uint16_t devid, uint16_t qp_count);
+/** Management function */
+typedef int (*dao_virtio_blk_desc_manage_ext_fn_t)(uint16_t devid, uint16_t qp_count);
 
 /** Array of dequeue functions */
-extern dao_virtio_blk_io_deq_fn_t dao_virtio_blk_io_deq_fns[];
+extern dao_virtio_blk_deq_fn_t dao_virtio_blk_deq_fns[];
 /** Array of dequeue functions */
-extern dao_virtio_blk_io_deq_ext_fn_t dao_virtio_blk_io_deq_ext_fns[];
+extern dao_virtio_blk_deq_ext_fn_t dao_virtio_blk_deq_ext_fns[];
 /** Array of completion functions */
-extern dao_virtio_blk_io_compl_fn_t dao_virtio_blk_io_compl_fns[];
+extern dao_virtio_blk_process_compl_fn_t dao_virtio_blk_process_compl_fns[];
+/** Array of completion functions */
+extern dao_virtio_blk_process_compl_ext_fn_t dao_virtio_blk_process_compl_ext_fns[];
 /** Array of management functions */
-extern dao_blk_io_desc_manage_fn_t dao_blk_io_desc_manage_fns[];
+extern dao_virtio_blk_desc_manage_fn_t dao_blk_desc_manage_fns[];
+/** Array of management functions */
+extern dao_virtio_blk_desc_manage_ext_fn_t dao_blk_desc_manage_ext_fns[];
 
 /** Device status callback */
 typedef int (*dao_virtio_blkdev_status_cb_t)(uint16_t devid, uint8_t status);
 /** Multi queue configure callback */
 typedef int (*dao_virtio_blkdev_mq_cfg_t)(uint16_t devid, bool qmap_set);
-
-typedef int (*dao_virtio_blkdev_extbuf_get)(uint16_t devid, void *buffs[], uint16_t nb_buffs);
-typedef int (*dao_virtio_blkdev_extbuf_put)(uint16_t devid, void *buffs[], uint16_t nb_buffs);
+/** callback to get the ext buffers from the pool */
+typedef int (*dao_virtio_blkdev_extbuf_get)(uint16_t devid, void *buffs[],
+					uint16_t nb_buffs);
+/** callback to put the ext buffers into the pool */
+typedef int (*dao_virtio_blkdev_extbuf_put)(uint16_t devid, void *buffs[],
+					uint16_t nb_buffs);
 
 /** Virtio blk device callbacks */
 struct dao_virtio_blkdev_cbs {
@@ -194,8 +234,9 @@ static __rte_always_inline int
 dao_virtio_blk_io_desc_manage(uint16_t devid, uint16_t q_count)
 {
 	struct dao_virtio_blkdev *blkdev = &dao_virtio_blkdevs[devid];
-	dao_blk_io_desc_manage_fn_t mgmt_fn;
-	mgmt_fn = dao_blk_io_desc_manage_fns[blkdev->mgmt_fn_id];
+	dao_virtio_blk_desc_manage_fn_t mgmt_fn;
+
+	mgmt_fn = dao_blk_desc_manage_fns[blkdev->mgmt_fn_id];
 
 	return (*mgmt_fn)(devid, q_count);
 }
@@ -207,24 +248,57 @@ dao_virtio_blk_io_desc_manage(uint16_t devid, uint16_t q_count)
  *    Virtio blk device ID.
  * @param qid
  *    Virtio queue id.
+ * @param mbufs
+ *    pointer to array of buffer pointers to process IO completions
  * @param nb_compl
  *    Number of completions to process
  * @return
  *    Number of completions submitted to host
  */
 static __rte_always_inline uint16_t
-dao_virtio_blk_io_compl_process(uint16_t devid, uint16_t qid, uint16_t nb_compl)
+dao_virtio_blk_process_compl(uint16_t devid, uint16_t qid,
+			     void **mbufs, uint16_t nb_compl)
 {
 	struct dao_virtio_blkdev *blkdev = &dao_virtio_blkdevs[devid];
-	dao_virtio_blk_io_compl_fn_t compl_fn;
+	dao_virtio_blk_process_compl_fn_t compl_fn;
 	void *q = blkdev->qs[qid];
 
 	if (unlikely(!q))
 		return 0;
 
-	compl_fn = dao_virtio_blk_io_compl_fns[blkdev->compl_fn_id];
+	compl_fn = dao_virtio_blk_process_compl_fns[blkdev->compl_fn_id];
 
-	return (*compl_fn)(q, nb_compl);
+	return (*compl_fn)(q, mbufs, nb_compl);
+}
+
+/**
+ * Virtio blkdev process IO request completions in ext buf mode
+ *
+ * @param devid
+ *    Virtio blk device ID.
+ * @param qid
+ *    Virtio queue id.
+ * @param vbufs
+ *    pointer to array of ext buffers to process IO completions
+ * @param nb_compl
+ *    Number of completions to process
+ * @return
+ *    Number of completions submitted to host
+ */
+static __rte_always_inline uint16_t
+dao_virtio_blk_process_compl_ext(uint16_t devid, uint16_t qid, void **vbufs,
+				 uint16_t nb_compl)
+{
+	struct dao_virtio_blkdev *blkdev = &dao_virtio_blkdevs[devid];
+	dao_virtio_blk_process_compl_ext_fn_t compl_fn;
+	void *q = blkdev->qs[qid];
+
+	if (unlikely(!q))
+		return 0;
+
+	compl_fn = dao_virtio_blk_process_compl_ext_fns[blkdev->compl_fn_id];
+
+	return (*compl_fn)(q, vbufs, nb_compl);
 }
 
 /**
@@ -235,24 +309,24 @@ dao_virtio_blk_io_compl_process(uint16_t devid, uint16_t qid, uint16_t nb_compl)
  * @param qid
  *    Virtio queue id.
  * @param mbufs
- *    Array to store mbuf pointers of received pkts.
+ *    Array to store buffer pointers of received pkts.
  * @param nb_mbufs
- *    Size of mbuf array.
+ *    Size of buffer array.
  * @return
  *    Number of mbufs received from host.
  */
 static __rte_always_inline uint16_t
-dao_virtio_blk_io_dequeue_burst(uint16_t devid, uint16_t qid, struct rte_mbuf **mbufs,
-				uint16_t nb_mbufs)
+dao_virtio_blk_dequeue_burst(uint16_t devid, uint16_t qid,
+			     void **mbufs, uint16_t nb_mbufs)
 {
 	struct dao_virtio_blkdev *blkdev = &dao_virtio_blkdevs[devid];
-	dao_virtio_blk_io_deq_fn_t deq_fn;
+	dao_virtio_blk_deq_fn_t deq_fn;
 	void *q = blkdev->qs[qid];
 
 	if (unlikely(!q))
 		return 0;
 
-	deq_fn = dao_virtio_blk_io_deq_fns[blkdev->deq_fn_id];
+	deq_fn = dao_virtio_blk_deq_fns[blkdev->deq_fn_id];
 
 	return (*deq_fn)(q, mbufs, nb_mbufs);
 }
@@ -272,16 +346,17 @@ dao_virtio_blk_io_dequeue_burst(uint16_t devid, uint16_t qid, struct rte_mbuf **
  *    Number of buffers received from host.
  */
 static __rte_always_inline uint16_t
-dao_virtio_blk_io_dequeue_burst_ext(uint16_t devid, uint16_t qid, void **vbufs, uint16_t nb_bufs)
+dao_virtio_blk_dequeue_burst_ext(uint16_t devid, uint16_t qid, void **vbufs,
+				 uint16_t nb_bufs)
 {
 	struct dao_virtio_blkdev *blkdev = &dao_virtio_blkdevs[devid];
-	dao_virtio_blk_io_deq_ext_fn_t deq_fn;
+	dao_virtio_blk_deq_ext_fn_t deq_fn;
 	void *q = blkdev->qs[qid];
 
 	if (unlikely(!q))
 		return 0;
 
-	deq_fn = dao_virtio_blk_io_deq_ext_fns[blkdev->deq_fn_id];
+	deq_fn = dao_virtio_blk_deq_ext_fns[blkdev->deq_fn_id];
 
 	return (*deq_fn)(q, vbufs, nb_bufs);
 }

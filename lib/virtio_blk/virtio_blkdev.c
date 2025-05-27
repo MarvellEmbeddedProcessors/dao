@@ -10,6 +10,12 @@
 /** Virtio blk devices */
 struct dao_virtio_blkdev dao_virtio_blkdevs[DAO_VIRTIO_DEV_MAX + 1];
 
+dao_virtio_blk_desc_manage_fn_t dao_blk_desc_manage_fns[VIRTIO_BLK_DESC_MANAGE_LAST << 1] = {
+#define M(name, flags)[flags] = virtio_blk_desc_manage_##name,
+	VIRTIO_BLK_DESC_MANAGE_MODES
+#undef M
+};
+
 struct dao_virtio_blkdev_cbs blkdev_user_cbs;
 
 static int
@@ -49,7 +55,7 @@ virtio_queue_driver_event_flag(struct virtio_dev *dev, struct virtio_blk_queue *
 static void
 virtio_blkdev_cb_interrupt_conf(struct virtio_blkdev *blkdev)
 {
-	uint32_t max_vqs = blkdev->dev.max_virtio_queues - 1;
+	uint32_t max_vqs = blkdev->dev.max_virtio_queues;
 	struct virtio_dev *dev = &blkdev->dev;
 	struct virtio_blk_queue *queue;
 	uint32_t i, intr_idx = 0;
@@ -82,6 +88,40 @@ virtio_blkdev_feature_validate(struct virtio_dev *dev, uint64_t feature_bits)
 	return 0;
 }
 
+static __rte_always_inline uint16_t
+virtio_blkdev_flush_queue(struct virtio_blkdev *blkdev, uint16_t qid)
+{
+	struct dao_virtio_blkdev *dao_blkdev = virtio_blkdev_to_dao(blkdev);
+	void *q = blkdev->qs[qid];
+
+	if (unlikely(!q))
+		return 0;
+
+	if (!(dao_blkdev->mgmt_fn_id & VIRTIO_BLK_DESC_MANAGE_EXTBUF))
+		virtio_blk_flush_deq(q);
+	else
+		virtio_blk_flush_deq_ext(q);
+	return 0;
+}
+
+static __rte_always_inline  int
+virtio_blkdev_clear_queue_info(struct virtio_blkdev *blkdev)
+{
+	struct dao_virtio_blkdev *dao_blkdev = virtio_blkdev_to_dao(blkdev);
+	uint32_t max_vqs = blkdev->dev.max_virtio_queues;
+	uint32_t i;
+
+	for (i = 0; i < max_vqs; i++) {
+		virtio_blkdev_flush_queue(blkdev, i);
+		if (blkdev->qs[i])
+			rte_free(blkdev->qs[i]);
+		blkdev->qs[i] = NULL;
+		dao_blkdev->qs[i] = NULL;
+	}
+
+	return 0;
+}
+
 static int
 virtio_blkdev_status_cb(struct virtio_dev *dev, uint8_t status)
 {
@@ -100,7 +140,7 @@ virtio_blkdev_status_cb(struct virtio_dev *dev, uint8_t status)
 		dao_blkdev = virtio_blkdev_to_dao(blkdev);
 
 		/* Fetch event suppression data if queues is enabled */
-		for (i = 0; i < blkdev->dev.max_virtio_queues - 1; i++) {
+		for (i = 0; i < blkdev->dev.max_virtio_queues; i++) {
 			queue = dao_blkdev->qs[i];
 			if (!queue)
 				continue;
@@ -117,14 +157,22 @@ virtio_blkdev_status_cb(struct virtio_dev *dev, uint8_t status)
 		if (cb_enabled)
 			virtio_blkdev_cb_interrupt_conf(blkdev);
 
-		dao_blkdev->deq_fn_id = 0;
-		dao_blkdev->compl_fn_id = 0;
-		dao_blkdev->mgmt_fn_id = 0;
+		//dao_blkdev->deq_fn_id = 0;
+		//dao_blkdev->compl_fn_id = 0;
+		dao_blkdev->deq_fn_id &= ~VIRTIO_BLK_DEQ_NOINOR;
+		dao_blkdev->mgmt_fn_id &= ~VIRTIO_BLK_DESC_MANAGE_NOINORDER;
+		if (!(dev->feature_bits & RTE_BIT64(VIRTIO_F_IN_ORDER))) {
+			dao_blkdev->deq_fn_id |= VIRTIO_BLK_DEQ_NOINOR;
+			dao_blkdev->mgmt_fn_id |= VIRTIO_BLK_DESC_MANAGE_NOINORDER;
+		}
 
+		return blkdev_user_cbs.status_cb(blkdev->dev.dev_id, status);
 	} else if (status == VIRTIO_DEV_RESET) {
 		struct virtio_blk_queue *q;
 		uint32_t i;
 
+		/* Any blk dev pending requests needs to be cleared/flused
+		   in the cb function */
 		rc = blkdev_user_cbs.status_cb(blkdev->dev.dev_id, status);
 		for (i = 0; i < (DAO_VIRTIO_MAX_QUEUES - 1); i++) {
 			if (blkdev->qs[i]) {
@@ -133,6 +181,8 @@ virtio_blkdev_status_cb(struct virtio_dev *dev, uint8_t status)
 				break;
 			}
 		}
+		/* Clear queue info after user callback */
+		virtio_blkdev_clear_queue_info(blkdev);
 		return rc;
 	}
 
@@ -144,7 +194,7 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 {
 	struct virtio_blkdev *blkdev = virtio_dev_to_blkdev(vdev);
 	struct dao_virtio_blkdev *dao_blkdev = virtio_blkdev_to_dao(blkdev);
-	uint32_t max_vqs = blkdev->dev.max_virtio_queues - 1;
+	uint32_t max_vqs = blkdev->dev.max_virtio_queues;
 	struct virtio_dev *dev = &blkdev->dev;
 	struct virtio_queue_conf *q_conf;
 	struct virtio_blk_queue *queue;
@@ -183,13 +233,22 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 
 	queue->desc_base = (((uint64_t)q_conf->queue_desc_hi << 32) | (q_conf->queue_desc_lo));
 	queue->q_sz = q_conf->queue_size;
+	if (!(blkdev->flags & DAO_VIRTIO_BLKDEV_EXTBUF)) {
+		queue->mp = blkdev->pool;
+		/* Populate data offset along with queue for fast path purpose */
+		queue->data_off = (sizeof(struct rte_mbuf));
+		queue->data_off += RTE_PKTMBUF_HEADROOM;
+		queue->data_off += rte_pktmbuf_priv_size(blkdev->pool);
+	}
 
+	queue->buf_len = buf_len;
 	queue->notify_addr = (uint32_t *)(dev->notify_base + (queue_id * dev->notify_off_mltpr));
-	queue->mbuf_arr = (struct rte_mbuf **)((uintptr_t)(queue + 1) + shadow_area);
-	/* Initial queue wrap counter is 1 as per spec? */
+	queue->mbuf_arr = (void **)((uintptr_t)(queue + 1) + shadow_area);
+	/* Initial queue wrap counter is 1 as per spec */
 	queue->sd_desc_off = RTE_BIT64(15);
 	queue->sd_mbuf_off = RTE_BIT64(15);
 	queue->last_off = RTE_BIT64(15);
+	queue->pend_compl_off = RTE_BIT64(15);
 	queue->compl_off = RTE_BIT64(15);
 	queue->auto_free = blkdev->auto_free_en;
 	queue->qid = queue_id;
@@ -198,7 +257,7 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 	dao_blkdev->qs[queue_id] = queue;
 	queue->dao_blkdev = dao_blkdev;
 	queue->blkdev_id = blkdev->dev.dev_id;
-	queue->virtio_hdr_sz = sizeof(struct virtio_blk_outhdr);
+	queue->virtio_hdr_sz = sizeof(struct virtio_blk_hdr);
 
 	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
 	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
@@ -222,6 +281,35 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 	return 0;
 }
 
+uint8_t
+virtio_blkdev_hdr_size(struct virtio_blkdev *blkdev)
+{
+	struct virtio_dev *dev = &blkdev->dev;
+	uint8_t virtio_hdr_sz;
+
+	if (!(dev->features_ok))
+		return 0;
+
+	virtio_hdr_sz = sizeof(struct virtio_blk_hdr);
+	return virtio_hdr_sz;
+}
+
+int
+dao_virtio_blkdev_queue_count(uint16_t devid)
+{
+	struct dao_virtio_blkdev *dao_blkdev = &dao_virtio_blkdevs[devid];
+	struct virtio_blkdev *blkdev = virtio_blkdev_priv(dao_blkdev);
+	struct virtio_dev *dev = &blkdev->dev;
+
+	if (!(dev->common_cfg->device_status & VIRTIO_DEV_DRIVER_OK))
+		return 0;
+
+	/* Return vq pairs set count if set or default to 1 as per spec */
+	if (blkdev->num_queues)
+		return blkdev->num_queues;
+	return 1;
+}
+
 int
 dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 {
@@ -229,16 +317,23 @@ dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 	struct virtio_blkdev *blkdev = virtio_blkdev_priv(virtio_blkdev);
 	volatile struct virtio_blk_config *dev_cfg;
 	struct virtio_dev *dev = &blkdev->dev;
-	uint64_t feature_bits;
 	int rc;
 
 	dev->dev_id = devid;
 	dev->dev_type = VIRTIO_DEV_TYPE_BLK;
 	dev->pem_devid = conf->pem_devid;
 	dev->dma_vchan = conf->dma_vchan;
+	if (!(conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF))
+		blkdev->pool = conf->pool;
+	else
+		blkdev->dataroom_size = conf->dataroom_size;
 
 	blkdev->flags = conf->flags;
 	blkdev->auto_free_en = conf->auto_free_en;
+	blkdev->num_queues = dev->max_virtio_queues;
+
+	if (conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF)
+		blkdev->dataroom_size = conf->dataroom_size;
 
 	if (conf->max_virt_queues)
 		dev->max_virtio_queues_limit = conf->max_virt_queues + 1;
@@ -250,11 +345,6 @@ dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 
 	/* Setup blkdev config */
 	dev_cfg = (volatile struct virtio_blk_config *)dev->dev_cfg;
-	feature_bits = RTE_BIT64(VIRTIO_BLK_F_SIZE_MAX) | RTE_BIT64(VIRTIO_BLK_F_SEG_MAX) |
-		       RTE_BIT64(VIRTIO_BLK_F_GEOMETRY) | RTE_BIT64(VIRTIO_BLK_F_MQ) |
-		       RTE_BIT64(VIRTIO_BLK_F_BLK_SIZE) | RTE_BIT64(VIRTIO_BLK_F_FLUSH) |
-		       RTE_BIT64(VIRTIO_BLK_F_TOPOLOGY) | RTE_BIT64(VIRTIO_BLK_F_CONFIG_WCE) |
-		       RTE_BIT64(VIRTIO_BLK_F_DISCARD) | RTE_BIT64(VIRTIO_BLK_F_WRITE_ZEROES);
 
 	/* Copy default blkdev config */
 	dev_cfg->num_queues = dev->max_virtio_queues;
@@ -263,7 +353,14 @@ dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 	dev_cfg->seg_max = conf->seg_max;
 	dev_cfg->size_max = conf->seg_size_max;
 
-	virtio_dev_feature_bits_set(dev, feature_bits);
+	virtio_dev_feature_bits_set(dev, conf->feat_bits);
+
+	virtio_blkdev->deq_fn_id = 0;
+	virtio_blkdev->compl_fn_id = 0;
+	virtio_blkdev->mgmt_fn_id = 0;
+
+	if (conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF)
+		virtio_blkdev->mgmt_fn_id |= VIRTIO_BLK_DESC_MANAGE_EXTBUF;
 
 	/* One time setup */
 	dev_cbs[VIRTIO_DEV_TYPE_BLK].dev_status = virtio_blkdev_status_cb;
@@ -305,6 +402,56 @@ dao_virtio_blkdev_queue_count_max(uint16_t pem_devid, uint16_t devid)
 	return rc - 1;
 }
 
+void
+virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start, uint16_t count, bool avail,
+			 bool used)
+{
+	struct virtio_blkdev *blkdev = virtio_blkdev_priv(q->dao_blkdev);
+	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
+	struct virtio_dev *dev = &blkdev->dev;
+	uint16_t q_sz = q->q_sz, off;
+	uint64_t flags;
+	int i;
+
+	for (i = 0; i < count; i++) {
+		off = desc_off_add(start, i, q_sz);
+
+		/* Check if we need to clear the flags with 0x0 as debug */
+		if (!avail) {
+			*DESC_PTR_OFF(sd_desc_base, off, 8) = 0;
+			continue;
+		}
+
+		flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
+		if ((!!(flags & VIRT_PACKED_RING_DESC_F_AVAIL) != !!(off & RTE_BIT64(15))) ||
+		    (flags == 0)) {
+			dao_err("[dev %u] queue[%u]: avail does not match wrap bit,"
+				" flags=%016lx addr=%p off=%08x",
+				dev->dev_id, q->qid, flags,
+				(void *)*DESC_PTR_OFF(sd_desc_base, off, 0), off);
+			abort();
+		}
+
+		if ((!!(flags & VIRT_PACKED_RING_DESC_F_USED) !=
+		     !!(flags & VIRT_PACKED_RING_DESC_F_AVAIL)) &&
+		    used) {
+			dao_err("[dev %u] queue[%u]: used not set, flags=%016lx addr=%p off=%08x",
+				dev->dev_id, q->qid, flags,
+				(void *)*DESC_PTR_OFF(sd_desc_base, off, 0), off);
+			abort();
+		}
+
+		if ((!!(flags & VIRT_PACKED_RING_DESC_F_USED) ==
+		     !!(flags & VIRT_PACKED_RING_DESC_F_AVAIL)) &&
+		    !used) {
+			dao_err("[dev %u] queue[%u]: used not clear, flags=%016lx addr=%p off=%08x",
+				dev->dev_id, q->qid, flags,
+				(void *)*DESC_PTR_OFF(sd_desc_base, off, 0), off);
+			abort();
+		}
+	}
+}
+
 static  __rte_always_inline int
 virtio_blk_desc_manage(uint16_t devid, uint16_t q_count, const uint16_t flags)
 {
@@ -317,6 +464,7 @@ virtio_blk_desc_manage(uint16_t devid, uint16_t q_count, const uint16_t flags)
 	uint16_t off, sg_i = 0;
 	uint16_t compl_off;
 	uint16_t dma_vchan;
+	uint16_t nb_desc;
 	int i;
 
 	if (unlikely(!blkdev->qs[q_count - 1]))
@@ -354,7 +502,7 @@ virtio_blk_desc_manage(uint16_t devid, uint16_t q_count, const uint16_t flags)
 			q->pend_compl = 0;
 		}
 
-		off = __atomic_load_n(&q->sd_mbuf_off, __ATOMIC_ACQUIRE);
+		off = __atomic_load_n(&q->last_off, __ATOMIC_ACQUIRE);
 		compl_off = q->compl_off;
 		if (compl_off == off)
 			continue;
@@ -363,8 +511,9 @@ virtio_blk_desc_manage(uint16_t devid, uint16_t q_count, const uint16_t flags)
 		if (!dao_dma_flush(mem2dev, 2))
 			break;
 
+		nb_desc = desc_off_diff(off, compl_off, q->q_sz);
 		/* Enqueue Tx completion DMA */
-		mark_io_desc_compl(q, mem2dev, compl_off, off, flags);
+		mark_io_desc_compl(q, mem2dev, compl_off, nb_desc, flags);
 		q->compl_off = off;
 
 		/* Store tail to check descriptor DMA completion */

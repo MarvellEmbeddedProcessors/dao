@@ -9,7 +9,8 @@ sources = files(
 	'virtio_blkdev.c',
 	'virtio_blk_io_deq.c',
 	'virtio_blk_io_deq_ext.c',
-	'virtio_blk_completion.c',
+	'virtio_blk_cmpl_ext.c',
+	'virtio_blk_cmpl.c',
 )
 
 headers = files(

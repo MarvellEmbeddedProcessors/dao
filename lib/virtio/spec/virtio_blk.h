@@ -6,20 +6,20 @@
 #define __INCLUDE_VIRTIO_BLK_H__
 
 /** The feature bitmap for virtio blk */
-#define VIRTIO_BLK_F_SIZE_MAX     1  /** Indicates maximum segment size */
-#define VIRTIO_BLK_F_SEG_MAX      2  /** Indicates maximum num of segments */
-#define VIRTIO_BLK_F_GEOMETRY     4  /** Legacy geometry available  */
-#define VIRTIO_BLK_F_RO           5  /** Device is read-only */
-#define VIRTIO_BLK_F_BLK_SIZE     6  /** Block size of disk is available*/
-#define VIRTIO_BLK_F_FLUSH        9  /** Cache flush command support */
-#define VIRTIO_BLK_F_TOPOLOGY     10 /** Topology information is available */
-#define VIRTIO_BLK_F_CONFIG_WCE   11 /** Writeback mode is supported */
-#define VIRTIO_BLK_F_MQ           12 /** support more than one vq */
-#define VIRTIO_BLK_F_DISCARD      13 /** Discard command is supported */
-#define VIRTIO_BLK_F_WRITE_ZEROES 14 /** Writes zeros command is supported */
-#define VIRTIO_BLK_F_LIFETIME     15 /** Storage lifetime info available */
-#define VIRTIO_BLK_F_SECURE_ERASE 16 /** Secure erase command is supported */
-#define VIRTIO_BLK_F_ZONED        17 /** Zoned block device is supported */
+#define VIRTIO_BLK_F_SIZE_MAX     DAO_BIT(1)  /** Indicates maximum segment size */
+#define VIRTIO_BLK_F_SEG_MAX      DAO_BIT(2)  /** Indicates maximum num of segments */
+#define VIRTIO_BLK_F_GEOMETRY     DAO_BIT(4)  /** Legacy geometry available  */
+#define VIRTIO_BLK_F_RO           DAO_BIT(5)  /** Device is read-only */
+#define VIRTIO_BLK_F_BLK_SIZE     DAO_BIT(6)  /** Block size of disk is available*/
+#define VIRTIO_BLK_F_FLUSH        DAO_BIT(9)  /** Cache flush command support */
+#define VIRTIO_BLK_F_TOPOLOGY     DAO_BIT(10) /** Topology information is available */
+#define VIRTIO_BLK_F_CONFIG_WCE   DAO_BIT(11) /** Writeback mode is supported */
+#define VIRTIO_BLK_F_MQ           DAO_BIT(12) /** support more than one vq */
+#define VIRTIO_BLK_F_DISCARD      DAO_BIT(13) /** Discard command is supported */
+#define VIRTIO_BLK_F_WRITE_ZEROES DAO_BIT(14) /** Writes zeros command is supported */
+#define VIRTIO_BLK_F_LIFETIME     DAO_BIT(15) /** Storage lifetime info available */
+#define VIRTIO_BLK_F_SECURE_ERASE DAO_BIT(16) /** Secure erase command is supported */
+#define VIRTIO_BLK_F_ZONED        DAO_BIT(17) /** Zoned block device is supported */
 
 struct virtio_blk_config {
 	/** The capacity (in 512-byte sectors). */
@@ -98,19 +98,51 @@ struct virtio_blk_config {
 	} zoned;
 } __rte_packed;
 
-struct virtio_blk_outhdr {
+/** Read requests to get the data from block device  */
 #define VIRTIO_BLK_T_IN           0
+/** Read requests to put the data to block device    */
 #define VIRTIO_BLK_T_OUT          1
+/** Flush request on the block device                */
 #define VIRTIO_BLK_T_FLUSH        4
+/** Get device Identifier string of the block device */
 #define VIRTIO_BLK_T_GET_ID       8
+/** Discard sectors of block device                  */
 #define VIRTIO_BLK_T_DISCARD      11
+/** Write zeroes to the sectors of block device      */
 #define VIRTIO_BLK_T_WRITE_ZEROES 13
+/** Securely erase sectors of block device           */
 #define VIRTIO_BLK_T_SECURE_ERASE 14
-	/** VIRTIO_BLK_T */
+
+/** VirtIO block request header structure */
+typedef struct virtio_blk_hdr {
+	/** Request type */
 	uint32_t type;
-	/** io priority. */
-	uint32_t ioprio;
-	/** Sector (ie. 512 byte offset) */
+	uint32_t reserved;
+	/** Starting sector number */
 	uint64_t sector;
-} __rte_packed;
+} __rte_packed virtio_blk_hdr_t;
+
+typedef struct virtio_blk_discard_write_zeroes {
+	/** Starting sector number for the request  */
+	uint64_t sector;
+	/** Number of sectors to be used for the request */
+	uint32_t num_sectors;
+	struct {
+		/** For write zeroes command, unmap will discard the selected range */
+		uint32_t unmap:1;
+		uint32_t reserved:31;
+	} flags;
+} __rte_packed virtio_blk_discard_write_zeroes_t;
+
+enum virtio_blk_status {
+	/** Request finished successfully  */
+	VIRTIO_BLK_S_OK = 0,
+	/** Request resulted in driver or device error */
+	VIRTIO_BLK_S_IOERR = 1,
+	/** Request unsupported by the device */
+	VIRTIO_BLK_S_UNSUPP = 2
+};
+
+#define MAX_VIRTIO_BLK_ID_STRLEN 20
+
 #endif /* __INCLUDE_VIRTIO_BLK_H__ */

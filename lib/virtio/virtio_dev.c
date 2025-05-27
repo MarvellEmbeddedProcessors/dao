@@ -367,7 +367,11 @@ virtio_setup_cq_info(struct virtio_dev *dev)
 	if (!dev->features_ok)
 		return 0;
 
-	qid = dev_cbs[dev->dev_type].cq_id_get(dev, dev->feature_bits);
+	if (dev_cbs[dev->dev_type].cq_id_get)
+		qid = dev_cbs[dev->dev_type].cq_id_get(dev, dev->feature_bits);
+	else
+		return 0;
+
 	q_conf = &dev->queue_conf[qid];
 	if (!q_conf->queue_enable || dev->cq != NULL)
 		return 0;
@@ -659,8 +663,11 @@ virtio_process_queue_msix_vector(struct virtio_dev *dev, uint16_t queue_msix_vec
 static int
 virtio_process_queue_enable(struct virtio_dev *dev, uint16_t queue_enable)
 {
-	uint16_t cq_id = dev_cbs[dev->dev_type].cq_id_get(dev, dev->feature_bits);
+	uint16_t cq_id = -1;
 	uint16_t queue_id = dev->prev_queue_select;
+
+	if (dev_cbs[dev->dev_type].cq_id_get)
+		cq_id = dev_cbs[dev->dev_type].cq_id_get(dev, dev->feature_bits);
 
 	if (dev->prev_queue_select == VIRTIO_INVALID_QUEUE_INDEX)
 		return -EINVAL;
@@ -936,6 +943,8 @@ virtio_device_id_get(struct virtio_dev *dev)
 		return VIRTIO_ID_NET;
 	case VIRTIO_DEV_TYPE_CRYPTO:
 		return VIRTIO_ID_CRYPTO;
+	case VIRTIO_DEV_TYPE_BLK:
+		return VIRTIO_ID_BLOCK;
 	default:
 		/* Host kernel vdpa driver treats 0 as invalid device id */
 		dao_err("[dev %u] Invalid device type %u", dev->dev_id, dev->dev_type);

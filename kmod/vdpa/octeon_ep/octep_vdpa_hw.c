@@ -364,6 +364,8 @@ static u32 octep_get_config_size(struct octep_hw *oct_hw)
 		return sizeof(struct virtio_net_config);
 	case VIRTIO_ID_CRYPTO:
 		return sizeof(struct virtio_crypto_config);
+	case VIRTIO_ID_BLOCK:
+		return sizeof(struct virtio_blk_config);
 	default:
 		return 0;
 	}
