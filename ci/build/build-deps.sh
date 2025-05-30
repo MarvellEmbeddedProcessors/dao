@@ -230,18 +230,28 @@ function build_grpc() {
 
 	build_grpc_host || return
 
-	[[ $GRPC_CXX_CROSS_COMPILER='' ]] && GRPC_CXX_CROSS_COMPILER="aarch64-marvell-linux-gnu-g++"
-	[[ $GRPC_C_CROSS_COMPILER='' ]] && GRPC_C_CROSS_COMPILER="aarch64-marvell-linux-gnu-gcc"
-
-	if [[ -z $(which $GRPC_CXX_CROSS_COMPILER) ]]; then
-		echo "Unable to find $GRPC_CXX_CROSS_COMPILER compiler"
-		return
+	if [ "$GRPC_CXX_CROSS_COMPILER" = "" ]; then
+		if command -v aarch64-marvell-linux-gnu-g++ >/dev/null 2>&1; then
+			GRPC_CXX_CROSS_COMPILER=aarch64-marvell-linux-gnu-g++
+		elif command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
+			GRPC_CXX_CROSS_COMPILER=aarch64-linux-gnu-g++
+		else
+			echo "ERROR: Unable to find suitable aarch64 cross compiler"
+			return 1
+		fi
+	fi
+	if [ "$GRPC_C_CROSS_COMPILER" = "" ]; then
+		if command -v aarch64-marvell-linux-gnu-gcc >/dev/null 2>&1; then
+			GRPC_C_CROSS_COMPILER=aarch64-marvell-linux-gnu-gcc
+		elif command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+			GRPC_C_CROSS_COMPILER=aarch64-linux-gnu-gcc
+		else
+			echo "ERROR: Unable to find suitable aarch64 cross compiler"
+			return 1
+		fi
 	fi
 
-	if [[ -z $(which $GRPC_C_CROSS_COMPILER) ]]; then
-		echo "Unable to find $GRPC_C_CROSS_COMPILER compiler"
-		return
-	fi
+	echo "Using cross compiler: $GRPC_CXX_CROSS_COMPILER / $GRPC_C_CROSS_COMPILER"
 
 	GRPC_CROSS_COMPILER_PATH=$(dirname $(which $GRPC_CXX_CROSS_COMPILER))
 
