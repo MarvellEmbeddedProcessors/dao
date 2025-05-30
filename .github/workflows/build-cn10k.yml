@@ -76,7 +76,7 @@ jobs:
             export PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/bin:$PATH
             export LD_LIBRARY_PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/lib:$LD_LIBRARY_PATH
             export PKG_CONFIG_PATH="$GRPC_BUILD_DIR/deps/deps-prefix/ep/lib/pkgconfig:$GRPC_BUILD_DIR/deps/host/grpc/third_party/re2:${PKG_CONFIG_PATH:-}"
-            meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false
+            meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Dprefer_static_build=true --prefer-static
             ninja install -C build
             mkdir -p "${PWD}/install/DEBIAN"
             mkdir -p "${PWD}/install/debian"
