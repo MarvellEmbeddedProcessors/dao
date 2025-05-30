@@ -21,3 +21,5 @@ option('enable_host_build', type: 'boolean', value: false, description:
        'Build DAO packages required for host only.')
 option('enable_libs', type: 'string', value: '', description:
        'Comma-separated list of optional libraries to explicitly enable. [NOTE: mandatory libs are always enabled]')
+option('prefer_static_build', type: 'boolean', value: false, description:
+       'Build only static DAO libraries and link external dependencies statically')
