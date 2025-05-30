@@ -60,16 +60,22 @@ jobs:
             sudo apt-get install -y gcc-14 bzip2-doc icu-devtools libacl1-dev libattr1-dev
             sudo apt-get install -y libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev
             sudo apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
+            sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
             DISTRO=ubuntu-`lsb_release -rs`
             source "${PWD}/artifacts/env"
             echo "DISTRO=${DISTRO}" >> ${PWD}/artifacts/env
             BASE_DIR=${PWD}
             wget "https://github.com/MarvellEmbeddedProcessors/marvell-dpdk/releases/download/dpdk-cn10k-${DPDK_BASE_PKG_VERSION}_${DPDK_PKG_VERSION}-${DISTRO}-${DPDK_PKG_VERSION}/dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
             sudo apt-get install -y ./"dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
-            export CC='ccache gcc-14'
-            echo "cache_dir = ~/.ccache" > ~/.ccache/ccache.conf
             ccache -p
             pkg-config --list-all
+            unset CC
+            unset CXX
+            export GRPC_BUILD_DIR=/tmp/dao-deps-build
+            ./ci/build/build-deps.sh $GRPC_BUILD_DIR dummyuser cn10k grpc > /dev/null 2>&1
+            export PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/bin:$PATH
+            export LD_LIBRARY_PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/lib:$LD_LIBRARY_PATH
+            export PKG_CONFIG_PATH="$GRPC_BUILD_DIR/deps/deps-prefix/ep/lib/pkgconfig:$GRPC_BUILD_DIR/deps/host/grpc/third_party/re2:${PKG_CONFIG_PATH:-}"
             meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false
             ninja install -C build
             mkdir -p "${PWD}/install/DEBIAN"
