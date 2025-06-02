@@ -13,6 +13,7 @@ Welcome to Data Accelerator Offload(DAO) Documentation
  prog_guide/index
  applications/index
  howtoguides/index
+ tools/index
  contributing/index
  rel_notes/index
  community_lab/index
