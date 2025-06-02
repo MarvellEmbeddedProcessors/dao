@@ -148,12 +148,17 @@ fail:
 static int
 validate_feature(struct dao_flow_offload_config *config)
 {
-	if (config->feature & DAO_FLOW_KEX_OVS && config->feature & DAO_FLOW_KEX_DEFAULT) {
+	if (rte_popcount32(config->kex_profile) > 1) {
 		dao_err("More than one KEX profile specified");
 		return -EINVAL;
 	}
-	if (config->feature & DAO_FLOW_ALG_EM && config->feature & DAO_FLOW_ALG_ACL) {
+	if (rte_popcount32(config->alg) > 1) {
 		dao_err("More than one flow algorithm specified");
+		return -EINVAL;
+	}
+
+	if (config->kex_profile == DAO_FLOW_KEX_OVS && config->alg == DAO_FLOW_ALG_EM) {
+		dao_err("OVS kex profile with Exact Match algorithm not supported");
 		return -EINVAL;
 	}
 
@@ -164,13 +169,16 @@ static void
 parse_profile_setup(uint16_t port_id, struct flow_global_cfg *gbl_cfg,
 		    struct dao_flow_offload_config *config)
 {
-	if (config->feature & DAO_FLOW_KEX_OVS) {
-		gbl_cfg->flow_cfg[port_id].prfl_ops = &ovs_prfl_ops;
-		gbl_cfg->flow_cfg[port_id].parse_prfl = &ovs_kex_profile;
-	} else if (config->feature & DAO_FLOW_KEX_DEFAULT) {
-		gbl_cfg->flow_cfg[port_id].prfl_ops = &default_prfl_ops;
+	switch (config->kex_profile) {
+	case DAO_FLOW_KEX_DEFAULT:
 		gbl_cfg->flow_cfg[port_id].parse_prfl = &default_kex_profile;
-	} else {
+		gbl_cfg->flow_cfg[port_id].prfl_ops = &default_prfl_ops;
+		break;
+	case DAO_FLOW_KEX_OVS:
+		gbl_cfg->flow_cfg[port_id].parse_prfl = &ovs_kex_profile;
+		gbl_cfg->flow_cfg[port_id].prfl_ops = &ovs_prfl_ops;
+		break;
+	default:
 		dao_err("Invalid kex profile: %s", config->parse_profile);
 	}
 }
@@ -195,12 +203,16 @@ dao_flow_init(uint16_t port_id, struct dao_flow_offload_config *hw_offload_cfg)
 
 	parse_profile_setup(port_id, gbl_cfg, config);
 
-	if (config->feature & DAO_FLOW_ALG_EM)
+	switch (config->alg) {
+	case DAO_FLOW_ALG_EM:
 		gbl_cfg->flow_ops = &em_flow_ops;
-	else if (config->feature & DAO_FLOW_ALG_ACL)
+		break;
+	case DAO_FLOW_ALG_ACL:
 		gbl_cfg->flow_ops = &acl_flow_ops;
-	else
+		break;
+	default:
 		DAO_ERR_GOTO(-EINVAL, error, "Flow alg not supported.");
+	}
 
 	rc = gbl_cfg->flow_ops->init(port_id, &gbl_cfg->sw_flow_cfg);
 	if (rc)

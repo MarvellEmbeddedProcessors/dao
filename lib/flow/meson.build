@@ -7,14 +7,14 @@ endif
 
 sources = files(
 	'dao_flow.c',
-        'default_profile.c',
-        'em_profile.c',
 	'flow_acl.c',
         'flow_dbg.c',
         'flow_em.c',
 	'flow_hw_offload.c',
         'flow_parser.c',
-        'ovs_profile.c',
+        'profiles/acl/default_profile.c',
+        'profiles/acl/ovs_profile.c',
+        'profiles/em/em_profile.c',
 )
 
 headers = files(

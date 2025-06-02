@@ -79,10 +79,7 @@ static bool dump_iterations;
 static bool delete_flag;
 static bool lookup_flag;
 static uint32_t lookup_batch;
-static bool hw_offload_enable;
-static uint64_t flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
-static uint64_t flow_alg;
-static char kex_profile_name[DAO_FLOW_PROFILE_NAME_MAX];
+static struct dao_flow_offload_config dao_config;
 static bool dump_socket_mem_flag;
 static bool enable_fwd;
 static bool unique_data;
@@ -757,22 +754,23 @@ args_parse(int argc, char **argv)
 			}
 
 			if (strcmp(lgopts[opt_idx].name, "hw-offload") == 0)
-				hw_offload_enable = true;
+				dao_config.feature = DAO_FLOW_HW_OFFLOAD_ENABLE;
 			if (strcmp(lgopts[opt_idx].name, "flow-kex-profile") == 0) {
 				if (strcmp(optarg, "ovs") == 0)
-					flow_kex_profile = DAO_FLOW_KEX_OVS;
+					dao_config.kex_profile = DAO_FLOW_KEX_OVS;
 				else if (strcmp(optarg, "default") == 0)
-					flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
+					dao_config.kex_profile = DAO_FLOW_KEX_DEFAULT;
 				else
 					rte_exit(EXIT_FAILURE, "Invalid kex profile:%s\n", optarg);
 
-				strncpy(kex_profile_name, optarg, DAO_FLOW_PROFILE_NAME_MAX - 1);
+				strncpy(dao_config.parse_profile, optarg,
+					DAO_FLOW_PROFILE_NAME_MAX - 1);
 			}
 			if (strcmp(lgopts[opt_idx].name, "flow-alg") == 0) {
 				if (strcmp(optarg, "acl") == 0)
-					flow_alg = DAO_FLOW_ALG_ACL;
+					dao_config.alg = DAO_FLOW_ALG_ACL;
 				else if (strcmp(optarg, "em") == 0)
-					flow_alg = DAO_FLOW_ALG_EM;
+					dao_config.alg = DAO_FLOW_ALG_EM;
 				else
 					rte_exit(EXIT_FAILURE, "Invalid kex profile:%s\n", optarg);
 			}
@@ -2098,7 +2096,6 @@ main(int argc, char **argv)
 	int ret;
 	uint16_t port;
 	struct rte_flow_error error;
-	struct dao_flow_offload_config config;
 	char name[RTE_ETH_NAME_MAX_LEN];
 	uint16_t portid;
 
@@ -2146,14 +2143,8 @@ main(int argc, char **argv)
 	RTE_ETH_FOREACH_DEV (portid) {
 		if (rte_eth_dev_get_name_by_port(portid, name) < 0)
 			continue;
-		memset(&config, 0, sizeof(struct dao_flow_offload_config));
-		/* Enable HW offloading */
-		config.feature |= hw_offload_enable ? DAO_FLOW_HW_OFFLOAD_ENABLE : 0;
-		config.feature |= flow_kex_profile;
-		config.feature |= flow_alg;
-		rte_strscpy(config.parse_profile, kex_profile_name, DAO_FLOW_PROFILE_NAME_MAX);
 
-		ret = dao_flow_init(portid, &config);
+		ret = dao_flow_init(portid, &dao_config);
 		if (ret) {
 			printf("Error: DAO flow init failed, err %d", ret);
 			return -1;

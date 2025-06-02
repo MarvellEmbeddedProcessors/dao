@@ -48,13 +48,15 @@ struct dao_flow_count {
 
 /** Flow offloading configuration structure */
 struct dao_flow_offload_config {
-#define DAO_FLOW_HW_OFFLOAD_ENABLE DAO_BIT(0)
-#define DAO_FLOW_KEX_DEFAULT       DAO_BIT(1)
-#define DAO_FLOW_KEX_OVS           DAO_BIT(2)
-#define DAO_FLOW_ALG_EM            DAO_BIT(3)
-#define DAO_FLOW_ALG_ACL           DAO_BIT(4)
 	/** Different features supported */
+#define DAO_FLOW_HW_OFFLOAD_ENABLE DAO_BIT(0)
 	uint32_t feature;
+#define DAO_FLOW_ALG_EM  DAO_BIT(0)
+#define DAO_FLOW_ALG_ACL DAO_BIT(1)
+	uint32_t alg;
+#define DAO_FLOW_KEX_DEFAULT DAO_BIT(0)
+#define DAO_FLOW_KEX_OVS     DAO_BIT(1)
+	uint32_t kex_profile;
 	/** Key exchange profiles supported */
 	char parse_profile[DAO_FLOW_PROFILE_NAME_MAX];
 	/** Flow aging timeout in seconds */

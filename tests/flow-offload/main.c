@@ -17,11 +17,6 @@
 
 #define ACTION_MARK_ID 0x777
 
-static bool hw_offload_flag;
-static uint64_t flow_kex_profile;
-static uint64_t flow_alg;
-static char kex_profile_name[DAO_FLOW_PROFILE_NAME_MAX];
-
 enum port_type {
 	RX_PORT = 1,
 	TX_PORT = 2,
@@ -564,38 +559,31 @@ flow_test_mtables(struct flow_test_global_cfg *gbl_cfg, flow_test_mtables_t test
 }
 
 static void
-profile_tests(struct flow_test_global_cfg *gbl_cfg, uint8_t flow_kex_profile, char *profile_name,
-	      bool hw_offload_enable)
+profile_tests(struct flow_test_global_cfg *gbl_cfg, struct dao_flow_offload_config *config)
 {
-	struct dao_flow_offload_config config;
 	char name[RTE_ETH_NAME_MAX_LEN];
 	uint16_t portid;
 	int rc;
 
-	dao_info("##### Executing tests for profile: %s, hw_offload: %s #####", profile_name,
-		 hw_offload_enable ? "enable" : "disable");
-	RTE_ETH_FOREACH_DEV(portid) {
+	dao_info("##### Executing tests for profile: %s, hw_offload: %s #####",
+		 config->parse_profile,
+		 (config->feature & DAO_FLOW_HW_OFFLOAD_ENABLE) ? "enable" : "disable");
+	RTE_ETH_FOREACH_DEV (portid) {
 		if (rte_eth_dev_get_name_by_port(portid, name) < 0)
 			continue;
-		memset(&config, 0, sizeof(struct dao_flow_offload_config));
-		/* Enable HW offloading */
-		config.feature |= hw_offload_enable ? DAO_FLOW_HW_OFFLOAD_ENABLE : 0;
-		config.feature |= flow_kex_profile;
-		config.feature |= flow_alg;
 
-		rte_strscpy(config.parse_profile, profile_name, DAO_FLOW_PROFILE_NAME_MAX);
-		rc = dao_flow_init(portid, &config);
+		rc = dao_flow_init(portid, config);
 		if (rc) {
 			dao_err("Error: DAO flow init failed, err %d", rc);
 			return;
 		}
 	}
-	gbl_cfg->config = &config;
+	gbl_cfg->config = config;
 
-	switch (flow_kex_profile) {
+	switch (config->kex_profile) {
 	case DAO_FLOW_KEX_OVS:
 		flow_test_create_destroy(gbl_cfg, ovs_flow_test_create);
-		if (hw_offload_enable) {
+		if (config->feature & DAO_FLOW_HW_OFFLOAD_ENABLE) {
 			flow_test_query(gbl_cfg, basic_flow_test_create, false);
 			flow_test_query(gbl_cfg, basic_flow_test_create, true);
 		}
@@ -608,7 +596,7 @@ profile_tests(struct flow_test_global_cfg *gbl_cfg, uint8_t flow_kex_profile, ch
 		break;
 	case DAO_FLOW_KEX_DEFAULT:
 		flow_test_create_destroy(gbl_cfg, default_flow_test_create);
-		if (hw_offload_enable) {
+		if (config->feature & DAO_FLOW_HW_OFFLOAD_ENABLE) {
 			flow_test_query(gbl_cfg, default_flow_test_create, false);
 			flow_test_query(gbl_cfg, default_flow_test_create, true);
 		}
@@ -617,10 +605,10 @@ profile_tests(struct flow_test_global_cfg *gbl_cfg, uint8_t flow_kex_profile, ch
 		flow_test_flush(gbl_cfg, default_flow_test_create);
 		break;
 	default:
-		dao_err("Invalid parse profile name %s", config.parse_profile);
+		dao_err("Invalid parse profile name %s", config->parse_profile);
 	}
 
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		if (rte_eth_dev_get_name_by_port(portid, name) < 0)
 			continue;
 		dao_flow_fini(portid);
@@ -640,7 +628,7 @@ usage(char *progname)
 }
 
 static void
-args_parse(int argc, char **argv)
+args_parse(int argc, char **argv, struct dao_flow_offload_config *dao_config)
 {
 	char **argvopt;
 	int opt_idx;
@@ -666,24 +654,25 @@ args_parse(int argc, char **argv)
 
 			if (strcmp(lgopts[opt_idx].name, "flow-kex-profile") == 0) {
 				if (strcmp(optarg, "ovs") == 0)
-					flow_kex_profile = DAO_FLOW_KEX_OVS;
+					dao_config->kex_profile = DAO_FLOW_KEX_OVS;
 				else if (strcmp(optarg, "default") == 0)
-					flow_kex_profile = DAO_FLOW_KEX_DEFAULT;
+					dao_config->kex_profile = DAO_FLOW_KEX_DEFAULT;
 				else
-					flow_kex_profile = DAO_FLOW_KEX_OVS;
-				strncpy(kex_profile_name, optarg, DAO_FLOW_PROFILE_NAME_MAX - 1);
+					dao_config->kex_profile = DAO_FLOW_KEX_OVS;
+				strncpy(dao_config->parse_profile, optarg,
+					DAO_FLOW_PROFILE_NAME_MAX - 1);
 			}
 			if (strcmp(lgopts[opt_idx].name, "flow-alg") == 0) {
 				if (strcmp(optarg, "acl") == 0)
-					flow_alg = DAO_FLOW_ALG_ACL;
+					dao_config->alg = DAO_FLOW_ALG_ACL;
 				else if (strcmp(optarg, "em") == 0)
-					flow_alg = DAO_FLOW_ALG_EM;
+					dao_config->alg = DAO_FLOW_ALG_EM;
 				else
-					flow_alg = DAO_FLOW_ALG_EM;
+					dao_config->alg = DAO_FLOW_ALG_EM;
 			}
 
 			if (strcmp(lgopts[opt_idx].name, "hw-offload") == 0)
-				hw_offload_flag = true;
+				dao_config->feature = DAO_FLOW_HW_OFFLOAD_ENABLE;
 
 			break;
 		default:
@@ -697,12 +686,15 @@ args_parse(int argc, char **argv)
 int
 main(int argc, char *argv[])
 {
+	struct dao_flow_offload_config dao_config;
 	struct flow_test_global_cfg *gbl_cfg;
 	struct rte_mempool *mbuf_pool;
 	uint16_t nb_ports;
 	uint16_t portid;
 	uint32_t lcore_id;
 	int rc, i;
+
+	memset(&dao_config, 0, sizeof(dao_config));
 
 	/* Initializion the Environment Abstraction Layer (EAL). */
 	rc = rte_eal_init(argc, argv);
@@ -712,7 +704,7 @@ main(int argc, char *argv[])
 	argc -= rc;
 	argv += rc;
 	if (argc > 1)
-		args_parse(argc, argv);
+		args_parse(argc, argv, &dao_config);
 
 	nb_ports = rte_eth_dev_count_avail();
 	if (nb_ports != 2)
@@ -732,7 +724,7 @@ main(int argc, char *argv[])
 	lcore_id = 0;
 	gbl_cfg->mbp = mbuf_pool;
 	/* Initialize all ports. */
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		if (port_init(portid, mbuf_pool) != 0)
 			dao_err("Cannot init port %" PRIu8 "", portid);
 
@@ -757,7 +749,7 @@ main(int argc, char *argv[])
 	rte_eal_mp_remote_launch(flow_offload_launch_one_lcore, gbl_cfg, SKIP_MAIN);
 	/* Test cases */
 
-	profile_tests(gbl_cfg, flow_kex_profile, kex_profile_name, hw_offload_flag);
+	profile_tests(gbl_cfg, &dao_config);
 
 	/* Exiting the mbox sync thread */
 	if (gbl_cfg->start_tx_thread) {
@@ -770,7 +762,7 @@ main(int argc, char *argv[])
 			rte_eal_wait_lcore(gbl_cfg->lconf[i].lcore_id);
 	}
 
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		dao_info("Closing port %d...", portid);
 		rc = rte_eth_dev_stop(portid);
 		if (rc != 0)
