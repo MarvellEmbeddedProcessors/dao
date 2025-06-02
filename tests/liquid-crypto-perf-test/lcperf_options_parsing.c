@@ -254,7 +254,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 
 	for (i = 0; i < RTE_DIM(parsermap); i++) {
 		if (strncmp(lgopts[opt_idx].name, parsermap[i].lgopt_name,
-			    strlen(lgopts[opt_idx].name)) == 0)
+			    strlen(parsermap[i].lgopt_name) + 1) == 0)
 			return parsermap[i].parser_fn(opts, optarg);
 	}
 
