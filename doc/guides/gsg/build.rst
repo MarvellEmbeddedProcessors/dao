@@ -20,6 +20,23 @@ Data accelerator offload (DAO) sources can be downloaded from:
   # cd dao
   # git checkout dao-devel
 
+Installing Dependencies
+-----------------------
+
+Before compiling DAO, install the required packages:
+
+.. code-block:: console
+
+  # apt-get update
+  # apt-get install -y \
+    build-essential gcc ninja-build meson git \
+    pkg-config libssl-dev \
+    libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev \
+    libarchive-dev libbsd-dev libbpf-dev \
+    libfdt-dev libjansson-dev zlib1g-dev \
+    doxygen sphinx-common python3-sphinx-rtd-theme \
+    python3-pip python3-setuptools python3-wheel python3-pyelftools
+
 Compiling and Installing
 ------------------------
 
