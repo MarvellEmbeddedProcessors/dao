@@ -29,6 +29,11 @@
 #define DAO_CARD_MGR_MAX_CLIENTS 10
 #define BUFFER_SIZE              1024
 
+#define DAO_CARD_MGR_CARD_INIT "card_init"
+#define DAO_CARD_MGR_CARD_FINI "card_fini"
+#define DAO_CARD_MGR_CARD_INFO "card_info"
+#define DAO_CARD_MGR_APP_UPDATE "card_app_update"
+
 typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER,
 	DAO_CARD_MGR_AS_CLIENT,
@@ -42,8 +47,6 @@ typedef struct {
 } cli_args;
 
 static struct dao_card_grpc_ctx *card_ctx;
-
-const char *dao_card_mgr_cmds[] = {"card_init", "card_fini", "card_info"};
 
 static struct option long_options[] = {
 		{"help", no_argument, 0, 'h'},
@@ -73,6 +76,8 @@ dao_card_cmd_usage_print(void)
 		" card_init [--nb_desc <number of descriptors>] [EAL args]:  Initializes the DAO card\n");
 	fprintf(stderr, " card_fini: Frees any allocated resources and stops the DAO card\n");
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
+	fprintf(stderr,
+		" card_app_update [absolute path of file]: Update the given file on to the card\n");
 	fprintf(stderr, " quit: Exit the application\n");
 }
 
@@ -214,6 +219,62 @@ dao_card_mgr_usage_print(void)
 	fprintf(stderr, "-f, --server_cli Run the manager as server in cli mode\n");
 }
 
+static int
+dao_card_mgr_app_update(cli_args *cmd)
+{
+	struct dao_card_app_update_req update_req;
+	char *last_slash;
+	int rc = 0;
+
+	if (cmd->argc < 2) {
+		syslog(LOG_ERR, "card_app_update command requires file to update");
+		return -EINVAL;
+	}
+
+	update_req.filename = NULL;
+	update_req.filepath = NULL;
+
+	last_slash = strrchr(cmd->argv[1], '/');
+	if (last_slash != NULL) {
+		update_req.filepath =
+			(char *)malloc((last_slash - cmd->argv[1] + 1) * sizeof(char));
+		if (update_req.filepath == NULL)
+			return -ENOMEM;
+
+		if (last_slash - cmd->argv[1] > 0) {
+			strncpy(update_req.filepath, cmd->argv[1], last_slash - cmd->argv[1]);
+			/* Null-terminate the file path */
+			update_req.filepath[last_slash - cmd->argv[1]] = '\0';
+		} else {
+			/* Empty Path */
+			update_req.filepath[0] = '\0';
+		}
+
+		update_req.filename = strdup(last_slash + 1);
+		if (update_req.filename == NULL)
+			goto free_file_path;
+	} else {
+		char cwd[1024];
+
+		if (getcwd(cwd, sizeof(cwd)) == NULL)
+			return -EFAULT;
+		update_req.filepath = strdup(cwd);
+		if (update_req.filepath == NULL)
+			return -ENOMEM;
+
+		update_req.filename = strdup(cmd->argv[1]);
+		if (update_req.filename == NULL)
+			goto free_file_path;
+	}
+
+	rc = dao_card_app_update(card_ctx, &update_req);
+
+	free(update_req.filename);
+free_file_path:
+	free(update_req.filepath);
+	return rc;
+}
+
 static void
 dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 {
@@ -221,7 +282,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	struct dao_card_info card_info;
 	int rc = 0;
 
-	if (strcmp(cmd->argv[0], dao_card_mgr_cmds[0]) == 0) {
+	if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INIT) == 0) {
 		int skip_args = 1;
 
 		card_cfg.crypto_nb_desc = DAO_CARD_NB_DESC;
@@ -238,17 +299,20 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 			card_cfg.argv = NULL;
 
 		rc = dao_card_init(card_ctx, &card_cfg);
-	} else if (strcmp(cmd->argv[0], dao_card_mgr_cmds[1]) == 0) {
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_FINI) == 0) {
 		dao_card_fini(card_ctx);
-	} else if (strcmp(cmd->argv[0], dao_card_mgr_cmds[2]) == 0) {
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0) {
 		rc = dao_card_info_get(card_ctx, &card_info);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_UPDATE) == 0) {
+		rc = dao_card_mgr_app_update(cmd);
 	} else {
 		syslog(LOG_ERR, "Unsupported command");
 		rc = -1;
 	}
+
 	send(cli_fd, &rc, sizeof(rc), 0);
 
-	if (!rc && strcmp(cmd->argv[0], dao_card_mgr_cmds[2]) == 0)
+	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0)
 		send(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
 }
 
