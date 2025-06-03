@@ -5,6 +5,7 @@
 #ifndef __INCLUDE_SDP_H__
 #define __INCLUDE_SDP_H__
 
+#include <assert.h>
 #include <stdint.h>
 
 #include <dao_vfio.h>
@@ -24,7 +25,7 @@
 
 int sdp_init(struct dao_vfio_device *sdp_pdev);
 uint64_t sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset);
-int sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val);
+void sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val);
 uint64_t *sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset);
 void sdp_fini(struct dao_vfio_device *sdp_pdev);
 

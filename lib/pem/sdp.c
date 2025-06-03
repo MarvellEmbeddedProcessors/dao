@@ -17,31 +17,33 @@
 #define SDP0_PCIE_DEV_NAME "0002:18:00.0"
 #define SDP1_PCIE_DEV_NAME "0002:19:00.0"
 
-int
+/* Valid pointers and offsets are always guaranteed; no validation checks are necessary */
+static inline void
+is_sdp_offset_valid(struct dao_vfio_device *sdp_pdev, uint64_t offset)
+{
+	assert(sdp_pdev && sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr);
+	assert((offset % sizeof(uint64_t) == 0) &&
+	       (offset + sizeof(uint64_t) <= sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len));
+}
+
+void
 sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val)
 {
-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
-		return -ENOMEM;
-
+	is_sdp_offset_valid(sdp_pdev, offset);
 	*((volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset)) = val;
-	return 0;
 }
 
 uint64_t
 sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset)
 {
-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
-		return -ENOMEM;
-
+	is_sdp_offset_valid(sdp_pdev, offset);
 	return *(volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
 }
 
 uint64_t *
 sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset)
 {
-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
-		return NULL;
-
+	is_sdp_offset_valid(sdp_pdev, offset);
 	return (uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
 }
 
@@ -69,9 +71,12 @@ sdp_init(struct dao_vfio_device *sdp_pdev)
 		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
 		reg_val &= ~SDP_EPFX_RINFO_SRN_MASK;
 		sdp_reg_write(sdp_pdev, SDP_EPFX_RINFO(0), reg_val);
+
 		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
+
 		rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
-		num_vfs = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0x7f;
+		num_vfs = (reg_val >> SDP_EPFX_RINFO_NVVF_SHIFT) & 0x7f;
+
 		/* Disable PF Ring */
 		reg_val = sdp_reg_read(sdp_pdev, SDP_MAC0_PF_RING_CTL);
 		reg_val &= ~SDP_MAC0_PF_RING_CTL_RPPF_MASK;
