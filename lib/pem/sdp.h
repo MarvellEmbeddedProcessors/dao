@@ -23,7 +23,7 @@
 #define SDP_EPFX_RINFO_SRN_MASK        DAO_GENMASK_ULL(6, 0)
 
 int sdp_init(struct dao_vfio_device *sdp_pdev);
-uint64_t sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset);
+int sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t *val);
 int sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val);
 uint64_t *sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset);
 void sdp_fini(struct dao_vfio_device *sdp_pdev);
