@@ -1,25 +1,25 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2023 Marvell.
 
-option('kernel_dir', type: 'string', value: '', description:
-       'Path to the kernel for building kernel modules. Headers must be in $kernel_dir.')
 option('disable_apps', type: 'string', value: '', description:
        'Comma-separated list of apps to explicitly disable.')
 option('disable_libs', type: 'string', value: '', description:
        'Comma-separated list of optional libraries to explicitly disable. [NOTE: mandatory libs cannot be disabled]')
 option('dma_stats', type: 'boolean', value: false, description:
        'Enable DMA statistics of DAO.')
-option('virtio_debug', type: 'boolean', value: false, description:
-       'Enable virtio debug.')
-option('platform', type: 'string', value: 'native', description:
-       'Platform to build.')
-option('enable_kmods', type: 'boolean', value: true, description:
-       'build kernel modules')
 option('enable_apps', type: 'string', value: '', description:
        'Comma-separated list of apps to build. If unspecified, build all apps.')
 option('enable_host_build', type: 'boolean', value: false, description:
        'Build DAO packages required for host only.')
+option('enable_kmods', type: 'boolean', value: true, description:
+       'Build kernel modules.')
 option('enable_libs', type: 'string', value: '', description:
        'Comma-separated list of optional libraries to explicitly enable. [NOTE: mandatory libs are always enabled]')
+option('kernel_dir', type: 'string', value: '', description:
+       'Path to the kernel for building kernel modules. Headers must be in $kernel_dir.')
+option('platform', type: 'string', value: 'native', description:
+       'Platform to build.')
 option('prefer_static_build', type: 'boolean', value: false, description:
-       'Build only static DAO libraries and link external dependencies statically')
+       'Build only static DAO libraries and link external dependencies statically.')
+option('virtio_debug', type: 'boolean', value: false, description:
+       'Enable virtio debug.')
