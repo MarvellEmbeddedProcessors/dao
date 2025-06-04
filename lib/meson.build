@@ -16,6 +16,7 @@ libraries = [
 	'virtio_net',
 	'virtio_crypto',
 	'virtio_blk',
+	'blk_dev',
 	'workers',
 	'netlink',
 	'pal',
