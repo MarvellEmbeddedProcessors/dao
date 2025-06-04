@@ -93,6 +93,7 @@ Running NGINX DAO application
 |  | VPP QUIC Stack | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | [Link](https://s3-docs.fd.io/vpp/24.10/developer/plugins/quic.html) |
 |  | SoNiC with VPP | ![](https://img.shields.io/static/v1?label=&message=WIP&color=red) | |
 | **OVS** | HW accelerated OVS Offload | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/applications/ovs-offload.html) |
+| **Cryptographic Offloads** | Liquid Crypto Library | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link](https://marvellembeddedprocessors.github.io/dao/guides/platform/liquid_crypto.html) |
 | **VIRTIO Emulation** | VirtIO-Net | ![](https://img.shields.io/static/v1?label=&message=Ready&color=green) | [Link 1](https://marvellembeddedprocessors.github.io/dao/guides/prog_guide/virtio_net_lib.html) <br> [Link 2](https://marvellembeddedprocessors.github.io/dao/guides/applications/virtio-l2fwd.html) |
 |  | VirtIO-Crypto | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
 |  | VirtIO-Block | ![](https://img.shields.io/static/v1?label=&message=Planned&color=orange) | |
