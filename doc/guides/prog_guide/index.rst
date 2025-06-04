@@ -9,6 +9,7 @@ Programmer's Guide
     :numbered:
 
     common
+    conntrack_lib
     dma_lib
     eth_transport
     flow
