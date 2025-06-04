@@ -58,7 +58,7 @@ sdp_init(struct dao_vfio_device *sdp_pdev)
 	else
 		rc = dao_vfio_device_setup(SDP1_PCIE_DEV_NAME, sdp_pdev);
 	if (rc < 0) {
-		dao_err("Filed to setup DAO VFIO device %s",
+		dao_err("Failed to setup DAO VFIO device %s",
 			sdp_pdev->prime ? SDP0_PCIE_DEV_NAME : SDP1_PCIE_DEV_NAME);
 		return rc;
 	}
