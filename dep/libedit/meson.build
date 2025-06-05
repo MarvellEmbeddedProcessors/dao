@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
-edit_dep = dependency('libedit', method : 'pkg-config', required: true)
-ncurses_dep = dependency('ncurses', method : 'pkg-config', required: true)
+edit_dep = dependency('libedit', method : 'pkg-config', required: false)
+ncurses_dep = dependency('ncurses', method : 'pkg-config', required: false)
 
 if not edit_dep.found()
 	message('libedit pkgconfig not exported')
