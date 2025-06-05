@@ -17,10 +17,13 @@
 #define SDP_MAC0_PF_RING_CTL_RPPF_MASK DAO_GENMASK_ULL(21, 16)
 #define SDP_EPVF_RINGX(x)              (0x00026000 | (x) << 4)
 #define SDP_EPFX_RINFO(x)              (0x000209f0 | (x) << 25)
+#define SDP_VF_EVENT_STATE(x)          (0x00010030 | (x) << 17)
+#define SDP_VF_EVENT_REG(x)            (0x00010060 | (x) << 17)
 #define SDP_PF_MBOX_DATA(x)            (0x00022000 | ((x) << 4))
 #define SDP_VF_MBOX_DATA(x)            (0x00010210 | ((x) << 17))
 #define SDP_EPFX_RINFO_RPVF_SHIFT      32
 #define SDP_EPFX_RINFO_NVVF_SHIFT      48
+#define SDP_RX_OUT_INTERRUPT_SHIFT     59
 #define SDP_EPFX_RINFO_SRN_MASK        DAO_GENMASK_ULL(6, 0)
 
 int sdp_init(struct dao_vfio_device *sdp_pdev);
