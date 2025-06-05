@@ -15,6 +15,23 @@
 #define PEM_BAR4_INDEX_END     15
 #define PEM_BAR4_INDEX_SIZE    0x400000ULL
 
+#define PEM_EVENT_MASK 0xFF
+
+enum pem_host_dev_event_state {
+	PEM_HOST_DEV_NO_EVENT,
+	PEM_HOST_DEV_NEW_EVENT,
+	PEM_HOST_DEV_EVENT_ACTIVE,
+	PEM_HOST_DEV_EVENT_DONE,
+};
+
+enum pem_host_dev_event {
+	PEM_HOST_DEV_EVENT_NONE,
+	PEM_HOST_DEV_EVENT_ACK,
+	PEM_HOST_DEV_EVENT_NACK,
+	PEM_HOST_DEV_ADD_EVENT,
+	PEM_HOST_DEV_DEL_EVENT,
+};
+
 struct pem_region {
 	uintptr_t reg_base;
 	uint32_t sz;
@@ -31,6 +48,7 @@ struct pem {
 	size_t host_page_sz;
 	uint64_t host_pages_per_dev;
 	uint16_t max_vfs;
+	uint16_t rpvf;
 
 	rte_thread_t ctrl_thread;
 	bool ctrl_done;

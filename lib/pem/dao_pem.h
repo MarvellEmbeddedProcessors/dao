@@ -178,4 +178,28 @@ uint8_t dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **in
  *    Max VFs supported.
  */
 uint16_t dao_pem_max_vfs_get(uint16_t pem_devid);
+
+/**
+ * PEM host device add
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param vfid
+ *    VF device ID
+ * @return
+ *    Zero on success
+ */
+int dao_pem_host_dev_add(uint16_t pem_devid, int vfid);
+
+/**
+ * PEM host device remove
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param vfid
+ *    VF device ID
+ * @return
+ *    Zero on success
+ */
+int dao_pem_host_dev_del(uint16_t pem_devid, int vfid);
 #endif /* __INCLUDE_DAO_PEM_H__ */

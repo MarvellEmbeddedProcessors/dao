@@ -419,6 +419,7 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 
 	reg_val = sdp_reg_read(&pem->sdp_pdev, SDP_VF_MBOX_DATA(0));
 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
+	pem->rpvf = rpvf;
 
 	if (!rpvf) {
 		dao_err("No rings configured per VF, host interrupts unsupported");
@@ -431,6 +432,8 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
 		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
 		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
+		sdp_reg_write(&pem->sdp_pdev, SDP_VF_EVENT_STATE(ring_idx), 0x0);
+		sdp_reg_write(&pem->sdp_pdev, SDP_VF_EVENT_REG(ring_idx), 0x0);
 
 		__atomic_store_n(intr_addr, sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
 				 __ATOMIC_RELAXED);
@@ -438,6 +441,93 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 	}
 
 	return rpvf;
+}
+
+static void
+pem_get_host_dev_addrs(struct pem *pem, int vfid, uint64_t **intr_addr, uint64_t **event_addr,
+		       uint64_t **event_state_addr)
+{
+	uint16_t rpvf = pem->rpvf;
+
+	*intr_addr = sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(vfid * rpvf));
+	*event_addr = sdp_reg_addr(&pem->sdp_pdev, SDP_VF_EVENT_REG(vfid * rpvf));
+	*event_state_addr = sdp_reg_addr(&pem->sdp_pdev, SDP_VF_EVENT_STATE(vfid * rpvf));
+}
+
+static inline int
+pem_wait_for_event_state(uint64_t *event_addr, uint64_t timeout,
+			 enum pem_host_dev_event_state state)
+{
+	uint64_t reg_val;
+
+	do {
+		reg_val = __atomic_load_n(event_addr, __ATOMIC_ACQUIRE);
+		if ((reg_val & PEM_EVENT_MASK) == state)
+			return 0;
+
+		rte_delay_us_sleep(5000);
+		if (rte_get_timer_cycles() > timeout)
+			return -EBUSY;
+	} while (true);
+
+	return 0;
+}
+
+static int
+pem_host_dev_add_del(uint16_t pem_devid, int vfid, uint64_t event)
+{
+	uint64_t timeout = rte_get_timer_cycles() + rte_get_timer_hz() * 10;
+	uint64_t *intr_addr, *event_state_addr, *event_addr, reg_val;
+	struct pem *pem = &pem_devices[pem_devid];
+	int rc;
+
+	pem_get_host_dev_addrs(pem, vfid, &intr_addr, &event_addr, &event_state_addr);
+
+	rc = pem_wait_for_event_state(event_state_addr, timeout, PEM_HOST_DEV_NO_EVENT);
+	if (rc) {
+		/* Check if it's in DONE state due to previous event timeout */
+		reg_val = __atomic_load_n(event_state_addr, __ATOMIC_ACQUIRE);
+		if ((reg_val & PEM_EVENT_MASK) == PEM_HOST_DEV_EVENT_DONE) {
+			__atomic_store_n(event_state_addr, PEM_HOST_DEV_NO_EVENT, __ATOMIC_RELAXED);
+		} else {
+			dao_err("Could not send host device add/del request, retry!!");
+			return rc;
+		}
+	}
+
+	__atomic_store_n(event_addr, event & PEM_EVENT_MASK, __ATOMIC_RELAXED);
+	__atomic_store_n(event_state_addr, PEM_HOST_DEV_NEW_EVENT, __ATOMIC_RELAXED);
+	__atomic_store_n(intr_addr, (1UL << SDP_RX_OUT_INTERRUPT_SHIFT), __ATOMIC_RELAXED);
+
+	timeout = rte_get_timer_cycles() + rte_get_timer_hz() * 15;
+	rc = pem_wait_for_event_state(event_state_addr, timeout, PEM_HOST_DEV_EVENT_DONE);
+	if (rc) {
+		dao_err("Timed out to process host device add/del request");
+		goto clear_event_state;
+	}
+
+	reg_val = __atomic_load_n(event_addr, __ATOMIC_RELAXED);
+	if ((reg_val & PEM_EVENT_MASK) != PEM_HOST_DEV_EVENT_ACK) {
+		dao_err("Failed to process host device add/del request");
+		rc = -EIO;
+	}
+
+clear_event_state:
+	__atomic_store_n(event_state_addr, PEM_HOST_DEV_NO_EVENT, __ATOMIC_RELAXED);
+
+	return rc;
+}
+
+int
+dao_pem_host_dev_add(uint16_t pem_devid, int vfid)
+{
+	return pem_host_dev_add_del(pem_devid, vfid, PEM_HOST_DEV_ADD_EVENT);
+}
+
+int
+dao_pem_host_dev_del(uint16_t pem_devid, int vfid)
+{
+	return pem_host_dev_add_del(pem_devid, vfid, PEM_HOST_DEV_DEL_EVENT);
 }
 
 uint16_t
