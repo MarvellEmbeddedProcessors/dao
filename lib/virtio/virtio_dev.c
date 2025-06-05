@@ -943,6 +943,35 @@ virtio_device_id_get(struct virtio_dev *dev)
 	}
 }
 
+static int
+virtio_device_min_queues_check(struct virtio_dev *dev)
+{
+	int min_virt_queues = 0;
+
+	switch (dev->dev_type) {
+	case VIRTIO_DEV_TYPE_NET:
+		min_virt_queues = 3;
+		break;
+	case VIRTIO_DEV_TYPE_CRYPTO:
+		min_virt_queues = 2;
+		break;
+	case VIRTIO_DEV_TYPE_BLK:
+		min_virt_queues = 1;
+		break;
+	default:
+		/* Host kernel vdpa driver treats 0 as invalid device id */
+		dao_err("[dev %u] Invalid device type %u", dev->dev_id, dev->dev_type);
+		return -EINVAL;
+	}
+
+	if (dev->max_virtio_queues < min_virt_queues) {
+		dao_err("Need at least %d virt queues", min_virt_queues);
+		return -ENOSPC;
+	}
+
+	return 0;
+}
+
 static void
 virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 {
@@ -1138,10 +1167,11 @@ virtio_dev_init(struct virtio_dev *dev)
 		dev->max_virtio_queues =
 			RTE_MIN(dev->max_virtio_queues, (int)DAO_VIRTIO_MAX_QUEUES);
 
-	if (dev->max_virtio_queues < 3) {
-		dao_err("[dev %u] BAR4 space sz %luB insufficient, need for at least 3 queues",
+	rc = virtio_device_min_queues_check(dev);
+	if (rc) {
+		dao_err("[dev %u] BAR4 space sz %luB insufficient for minimum queues requirement",
 			dev->dev_id, dev->bar4_sz);
-		return -ENOSPC;
+		return rc;
 	}
 
 	virtio_dev_signature_add(dev);
