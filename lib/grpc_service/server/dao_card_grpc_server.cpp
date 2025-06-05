@@ -2,6 +2,8 @@
  * Copyright(C) 2025 Marvell.
  */
 
+#include <chrono>
+#include <fstream>
 #include <mutex>
 #include <sstream>
 #include <thread>
@@ -16,6 +18,9 @@
 
 #include <dao_lc.grpc.pb.h>
 
+#define BASE_DIR "/tmp"
+#define UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_app_update.sh"
+
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
@@ -27,6 +32,7 @@ using dao_card_manager::DaoCardService;
 using dao_card_manager::CardConfig;
 using dao_card_manager::CardInfo;
 using dao_card_manager::CardResponse;
+using dao_card_manager::UpdateReq;
 using dao_card_manager::Emp;
 
 using lc_manager::DaoLCService;
@@ -87,6 +93,50 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		response->set_max_sessions(info.max_sessions);
 
 		std::cout << "Card: nb_devs: " << response->nb_devs() << ", max_sessions: " << response->max_sessions() << std::endl;
+
+		return Status::OK;
+	}
+
+	Status AppUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
+	{
+		(void)(context);
+
+		std::string base_dir = BASE_DIR;
+		std::string file_full_path = base_dir + '/' + req->file_name();
+
+		static std::unordered_map<std::string, std::ofstream> file_map;
+		auto it = file_map.find(file_full_path);
+		if (it == file_map.end()) {
+			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
+			if (!output_file.is_open()) {
+				std::cerr << "Failed to open the file"<< std::endl;
+				response->set_err(1);
+				return grpc::Status::CANCELLED;
+			}
+			file_map[file_full_path] = std::move(output_file);
+		}
+
+		std::ofstream& output_file = file_map[file_full_path];
+		output_file.write(req->file_content().data(), req->file_content().size());
+		if (output_file.fail()) {
+			std::cerr << "Failed to write to file" << std::endl;
+			response->set_err(1);
+			return grpc::Status::CANCELLED;
+		}
+
+		if (req->is_last_chunk()) {
+			std::cerr << "last chunk received" << std::endl;
+			output_file.close();
+			file_map.erase(file_full_path);
+
+			std::string command = std::string(". ")  + UPDATE_SCRIPT + " " + req->file_name();
+			if (system(command.c_str()) != 0) {
+				std::cerr << "Failed to execute lc_fw_update.sh"<< std::endl;
+				std::remove(file_full_path.c_str());
+				response->set_err(1);
+				return grpc::Status::CANCELLED;
+			}
+		}
 
 		return Status::OK;
 	}
