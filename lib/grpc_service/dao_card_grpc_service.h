@@ -31,6 +31,14 @@ struct dao_card_config {
 	uint32_t crypto_nb_desc;
 };
 
+/**
+ * Request structure for DAO App update.
+ */
+struct dao_card_app_update_req {
+	char *filename;
+	char *filepath;
+};
+
 #ifdef __cplusplus
 }
 #endif

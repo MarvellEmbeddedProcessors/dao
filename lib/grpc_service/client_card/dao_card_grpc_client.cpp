@@ -3,6 +3,7 @@
  */
 
 #include <stdio.h>
+#include <fstream>
 
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/channel.h>
@@ -22,6 +23,7 @@ using dao_card_manager::CardConfig;
 using dao_card_manager::CardInfo;
 using dao_card_manager::CardResponse;
 using dao_card_manager::Emp;
+using dao_card_manager::UpdateReq;
 
 struct dao_card_grpc_ctx {
 	std::unique_ptr<DaoCardService::Stub> stub;
@@ -104,5 +106,49 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 	info->nb_devs = resp.nb_devs();
 	info->max_sessions = resp.max_sessions();
 
+	return 0;
+}
+
+int
+dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *update_req)
+{
+
+	if (update_req->filepath == NULL || ctx == NULL)
+		return -EINVAL;
+
+	if (strcmp(update_req->filename, "lc_service.tar") != 0 ) {
+		fprintf(stderr, "File name should be lc_service.tar\n");
+		return -EINVAL;
+	}
+
+	std::string full_path = std::string(update_req->filepath) + "/" + std::string(update_req->filename);
+	std::ifstream file(full_path, std::ios::binary);
+	if (!file.is_open()) {
+		fprintf(stderr, "Failed to open file: %s\n", update_req->filename);
+		return -ENOENT;
+	}
+
+	const size_t chunk_size = 3 * 1024 * 1024;
+	std::vector<char> buffer(chunk_size);
+
+	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
+		grpc::ClientContext context;
+		grpc::Status status;
+		UpdateReq req;
+		CardResponse resp;
+
+		req.set_file_name(update_req->filename);
+		req.set_file_content(buffer.data(), file.gcount());
+		req.set_is_last_chunk(file.eof());
+
+		status = ctx->stub->AppUpdate(&context, req, &resp);
+		if (!status.ok()) {
+			fprintf(stderr, "Failed to upload chunk: %s\n", status.error_message().c_str());
+			file.close();
+			return -EIO;
+		}
+	}
+
+	file.close();
 	return 0;
 }

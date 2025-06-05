@@ -75,6 +75,18 @@ void dao_card_fini(struct dao_card_grpc_ctx *ctx);
  */
 int dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info);
 
+/**
+ * Update the application in liquid crypto card.
+ *
+ * This function need to be called from management daemon.
+ * It will copy or update the application on the liquid crypto card.
+ *
+ * @param ctx: gRPC client context
+ * @param req: Request with file details
+ * @return: 0 on success, negative value on failure
+ */
+int dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *req);
+
 #ifdef __cplusplus
 }
 #endif
