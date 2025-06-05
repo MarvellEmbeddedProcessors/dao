@@ -15,8 +15,8 @@ function populate_ep_interfaces()
 	local remote_eth_ifaces=$(ep_remote_op eth_interfaces_get $remote_ssh_ip)
 	local remote_ip=20.0.0.51
 	local device_ip=20.0.0.52
-	local remote_iface
-	local ext_iface
+	local remote_iface=
+	local ext_iface=
 
 	echo "Device eth interfaces: $eth_ifaces"
 	echo "Remote eth interfaces: $remote_eth_ifaces"

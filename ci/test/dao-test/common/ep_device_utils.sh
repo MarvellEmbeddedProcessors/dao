@@ -168,23 +168,17 @@ function ep_device_dpi_setup()
 
 function ep_device_pem_setup()
 {
-	# Bind PEM BAR4 and DPI BAR0 platform devices to vfio-platform
-	# Platform device suffixes to search for
-	local pem_sfx="pem0-bar4-mem"
-	local sdp_sfx="dpi_sdp_regs"
+	# Bind pseudo RVU PEM devices to vfio-pci
 
 	# Loop through devices
 	echo "Binding PEM/SDP regs devices"
-	for dev_path in /sys/bus/platform/devices/*; do
-		if [[ -d "$dev_path" && "$dev_path" =~ $pem_sfx || "$dev_path" =~ $sdp_sfx ]]; then
-			# Get device name from path
-			local dev_name=$(basename "$dev_path")
 
-			# Bind the device to vfio-platform driver
-			ep_common_bind_driver platform $dev_name vfio-platform
-			echo "Device $dev_name configured."
-		fi
+	for dev in $(lspci -d :a0ef | awk -e '{print $1}'); do
+		# Bind the device to vfio-pci driver
+		ep_common_bind_driver pci $dev vfio-pci
+		echo "Device $dev configured."
 	done
+
 	echo "Done binding PEM/SDP regs devices"
 }
 
