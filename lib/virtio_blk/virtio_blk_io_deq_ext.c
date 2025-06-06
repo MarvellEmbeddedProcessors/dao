@@ -66,6 +66,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 
 	RTE_SET_USED(flags);
 	RTE_SET_USED(avail);
+	RTE_SET_USED(hint);
 	sd_mbuf_off = q->sd_mbuf_off;
 	/* Check if pending DMA's for rx data are done */
 	if (pend_sd_mbuf && dao_dma_op_status(dev2mem, q->pend_sd_mbuf_idx)) {
@@ -81,7 +82,11 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		return sd_mbuf_off;
 
 	nb_bufs = desc_off_diff(sd_desc_off, sd_mbuf_off, q_sz);
-	nb_bufs = RTE_MIN(nb_bufs, hint);
+	/* This is leading to issues due to broken chain of descriptors when
+	   nb_bufs > hint. There is no guarantee that hint will always limit
+	   the nb_bufs to exact boundary of descriptor chain. No need to
+	   limit here. Revist if necessary. */
+	// nb_bufs = RTE_MIN(nb_bufs, hint);
 
 	off = DESC_OFF(sd_mbuf_off);
 	rte_prefetch0(DESC_PTR_OFF(desc_base, off, 0));
@@ -105,6 +110,20 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		if (unlikely(slen > buf_len)) {
 			pend = slen - buf_len;
 			dlen = buf_len;
+			/* NOTE: This would break the statement "each segment
+			   is one desc in vring". i.e buf0->total_segs == num
+			   of desc making the IO. As long as buf_len >=
+			   size_max (i.e max segment size) in block dev config,
+			   it's unlikely that segment has to be fragmented to
+			   fit into local bufs. Currently buf_len value is
+			   coming from app, so outside the library scope.
+			   Library cannot assume that this statement will
+			   always hold good, can potentially lead to completion
+			   issues. Logging this as a warning for now. */
+			dao_warn("[dev %u] [qid %u] Fragmented segment "
+				 "detected at %s:%d. slen %u > buf_len "
+				 "%u, off %u",
+				 q->blkdev_id, q->qid, __func__, __LINE__, slen, buf_len, off);
 		}
 
 		if (is_rd) {
@@ -166,15 +185,15 @@ exit:
 }
 
 static __rte_always_inline uint16_t
-post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t *nb_bufs,
-		const uint16_t flags)
+post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, uint16_t *nb_desc,
+		  const uint16_t flags)
 {
 	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
 	uint16_t pend_compl_off = DESC_OFF(q->pend_compl_off), off;
 	struct dao_virtio_blk_hdr *buf0, *buf1, *buf2;
 	uint16_t q_sz = q->q_sz, segs = 0;
-	uint16_t total_bufs = *nb_bufs;
-	int i = 0, num = 0;
+	uint16_t total_desc = *nb_desc;
+	int i = 0, num_io_reqs = 0;
 	uint64_t dflags;
 	void **buf_arr;
 
@@ -182,7 +201,7 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t *nb_bufs,
 
 	buf_arr = q->extbuf_arr;
 
-	while (i < total_bufs) {
+	while ((i < total_desc) && (num_io_reqs < nb_bufs)) {
 		rte_prefetch0((uint8_t *)buf_arr[pend_compl_off + 1]);
 		buf0 = (struct dao_virtio_blk_hdr *)buf_arr[pend_compl_off];
 
@@ -198,15 +217,13 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t *nb_bufs,
 			segs++;
 		}
 
-		if (unlikely((i + segs >= total_bufs)))
-			break;
-
 		buf0->tot_segs += segs;
 		/* Create buf chain from descriptors */
 		while (unlikely(segs)) {
 			/* Internal bufs can also have chain based on descriptor length vs
 			 * buf length variation.
 			 */
+
 			while (buf1->desc_data[0])
 				buf1 = (struct dao_virtio_blk_hdr *)buf1->desc_data[0];
 
@@ -219,7 +236,7 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t *nb_bufs,
 			buf0->tot_bufs += buf2->tot_bufs;
 		}
 
-		d_bufs[num++] = buf0;
+		d_bufs[num_io_reqs++] = buf0;
 		/** Store/cache the address corresponding to status buffer in
 		    first buffer */
 		buf0->status = buf2->hdr_data;
@@ -230,8 +247,8 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t *nb_bufs,
 	/* Return consumed descriptor mbufs to update pend_compl_off,
 	   And num will hold number of copied mbufs.
 	 */
-	*nb_bufs = i;
-	return num;
+	*nb_desc = i;
+	return num_io_reqs;
 }
 
 static __rte_always_inline int
@@ -239,18 +256,20 @@ virtio_blk_deq_ext(struct virtio_blk_queue *q, void **vbufs, uint16_t nb_bufs,
 			const uint16_t flags)
 {
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
-	struct dao_dma_vchan_state *dev2mem;
+	struct dao_dma_vchan_state *dev2mem, *mem2dev;
 	uint16_t dma_vchan = q->dma_vchan;
-	uint16_t nb_avail, pend_compl_off;
+	uint16_t nb_desc, pend_compl_off;
 	uint16_t sd_mbuf_off;
 	uint16_t q_sz;
 	int rc = 0;
 
 	dev2mem = &vchan_info->dev2mem[dma_vchan];
+	mem2dev = &vchan_info->mem2dev[dma_vchan];
 
 	rte_prefetch0(&q->pend_compl_off);
 	/* Update completed DMA ops */
-	dao_dma_check_compl(dev2mem);
+	dao_dma_check_meta_compl(dev2mem, 0);
+	dao_dma_check_meta_compl(mem2dev, 0);
 
 	/**
 	 * Process io completion marking here. This is done here instead of
@@ -258,7 +277,7 @@ virtio_blk_deq_ext(struct virtio_blk_queue *q, void **vbufs, uint16_t nb_bufs,
 	 * are not called all the time from application. Hence, this is the
 	 * right place to implement this.
 	 */
-	if (q->m2d_pend_sd_mbuf && dao_dma_op_status(dev2mem, q->m2d_pend_sd_mbuf_idx)) {
+	if (q->m2d_pend_sd_mbuf && dao_dma_op_status(mem2dev, q->m2d_pend_sd_mbuf_idx)) {
 		uint16_t off = desc_off_add(q->last_off, q->m2d_pend_sd_mbuf, q->q_sz);
 
 		__atomic_store_n(&q->last_off, off, __ATOMIC_RELEASE);
@@ -271,17 +290,15 @@ virtio_blk_deq_ext(struct virtio_blk_queue *q, void **vbufs, uint16_t nb_bufs,
 
 	q_sz = q->q_sz;
 	/* Check for available mbufs */
-	nb_avail = desc_off_diff_no_wrap(sd_mbuf_off, pend_compl_off, q_sz);
+	nb_desc = desc_off_diff_no_wrap(sd_mbuf_off, pend_compl_off, q_sz);
 
 	/* Return if no buf's available */
-	if (unlikely(!nb_avail))
+	if (unlikely(!nb_desc || !nb_bufs))
 		goto exit;
 
-	nb_bufs = RTE_MIN(nb_bufs, nb_avail);
+	rc = post_process_bufs(q, vbufs, nb_bufs, &nb_desc, flags);
 
-	rc = post_process_bufs(q, vbufs, &nb_bufs, flags);
-
-	pend_compl_off = desc_off_add(pend_compl_off, nb_bufs, q_sz);
+	pend_compl_off = desc_off_add(pend_compl_off, nb_desc, q_sz);
 	q->pend_compl_off = pend_compl_off;
 
 exit:

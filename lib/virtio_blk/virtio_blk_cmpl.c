@@ -31,14 +31,16 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 
 	RTE_SET_USED(flags);
 
-	/* Check for minimum space */
-	if (!dao_dma_flush(mem2dev, 1))
-		goto exit;
-
 	while (i < nb_bufs) {
 		hdr = (struct dao_virtio_blk_hdr *)vbufs[i];
 
 		n_segs = hdr->tot_segs;
+		/* Make room to enqueue in worst possible case. Block request
+		   header is always read-only, so worst case would be a read
+		   request with n_segs-1 descriptors following the block
+		   header. */
+		if (!dao_dma_flush(mem2dev, n_segs - 1))
+			goto exit;
 
 		while (n_segs-- > 0) {
 			cur_len = (hdr->desc_data[1] & 0xFFFFFFFF);
@@ -74,15 +76,12 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 		i++;
 
 		last_idx = mem2dev->tail;
-		/* Flush on reaching max SG limit */
-		if (!dao_dma_flush(mem2dev, 1))
-			goto exit;
 	}
 
 exit:
 	if (used) {
-		q->pend_sd_mbuf += used;
-		q->pend_sd_mbuf_idx = last_idx;
+		q->m2d_pend_sd_mbuf = used;
+		q->m2d_pend_sd_mbuf_idx = last_idx;
 	}
 	return i;
 }
@@ -99,10 +98,10 @@ virtio_blk_process_compl(struct virtio_blk_queue *q, void **vbufs, uint16_t nb_b
 	mem2dev = &vchan_info->mem2dev[dma_vchan];
 
 	/* Fetch mem2dev DMA completed status */
-	dao_dma_check_compl(mem2dev);
+	dao_dma_check_meta_compl(mem2dev, 0);
 
 	/* If there are any pending mbufs, return */
-	if (q->m2d_pend_sd_mbuf)
+	if (q->m2d_pend_sd_mbuf || !nb_bufs)
 		return 0;
 
 	/* Process mbuf transfer using DMA */

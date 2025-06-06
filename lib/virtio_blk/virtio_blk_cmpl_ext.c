@@ -48,14 +48,16 @@ push_compl_ext_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2
 
 	RTE_SET_USED(flags);
 
-	/* Check for minimum space */
-	if (!dao_dma_flush(mem2dev, 1))
-		goto exit;
-
 	while (i < nb_bufs) {
 		hdr = (struct dao_virtio_blk_hdr *)vbufs[i];
 
 		n_segs = hdr->tot_segs;
+		/* Make room to enqueue in worst possible case. Block request
+		   header is always read-only, so worst case would be a read
+		   request with n_segs-1 descriptors following the block
+		   header. */
+		if (!dao_dma_flush(mem2dev, n_segs - 1))
+			goto exit;
 
 		while (n_segs-- > 0) {
 			cur_len = (hdr->desc_data[1] & 0xFFFFFFFF);
@@ -66,7 +68,10 @@ push_compl_ext_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2
 
 			/* The configuration should support each VIO BLock
 			   segment fits in single DMA buffer */
-			DAO_ASSERT_FATAL(cur_len == buf_len, "desc seg len must be equal to local dma seg buflen");
+			DAO_ASSERT_FATAL(
+				cur_len == buf_len,
+				"At off %u desc seg len must %u != local dma seg buflen %u", off,
+				cur_len, buf_len);
 
 			avail = !!(d_flags & VIRT_PACKED_RING_DESC_F_AVAIL);
 			d_flags &= ~VIRT_PACKED_RING_DESC_F_AVAIL_USED;
@@ -91,15 +96,12 @@ push_compl_ext_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2
 		i++;
 
 		last_idx = mem2dev->tail;
-		/* Flush on reaching max SG limit */
-		if (!dao_dma_flush(mem2dev, 1))
-			goto exit;
 	}
 
 exit:
 	if (used) {
-		q->pend_sd_mbuf += used;
-		q->pend_sd_mbuf_idx = last_idx;
+		q->m2d_pend_sd_mbuf = used;
+		q->m2d_pend_sd_mbuf_idx = last_idx;
 	}
 	return i;
 }
@@ -116,10 +118,10 @@ virtio_blk_process_compl_ext(struct virtio_blk_queue *q, void **vbufs, uint16_t 
 	mem2dev = &vchan_info->mem2dev[dma_vchan];
 
 	/* Fetch mem2dev DMA completed status */
-	dao_dma_check_compl(mem2dev);
+	dao_dma_check_meta_compl(mem2dev, 0);
 
 	/* If there are any pending mbufs, return */
-	if (q->m2d_pend_sd_mbuf)
+	if (q->m2d_pend_sd_mbuf || !nb_bufs)
 		return 0;
 
 	/* Process mbuf transfer using DMA */

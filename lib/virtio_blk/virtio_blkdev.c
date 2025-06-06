@@ -207,16 +207,12 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 	if (queue_id >= max_vqs)
 		return -EINVAL;
 
-	if (!(blkdev->flags & DAO_VIRTIO_BLKDEV_EXTBUF)) {
-		/* Calculate first segment pkt data space */
+	if (!(blkdev->flags & DAO_VIRTIO_BLKDEV_EXTBUF))
 		buf_len = blkdev->pool->elt_size;
-		buf_len -= sizeof(struct rte_mbuf);
-		buf_len -= RTE_PKTMBUF_HEADROOM;
-		buf_len -= rte_pktmbuf_priv_size(blkdev->pool);
-	} else {
+	else
 		buf_len = blkdev->dataroom_size;
-	}
 
+	buf_len -= sizeof(struct dao_virtio_blk_hdr);
 	q_conf = &dev->queue_conf[queue_id];
 	if (!q_conf->queue_enable || blkdev->qs[queue_id] != NULL)
 		return 0;
@@ -254,6 +250,7 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 	queue->qid = queue_id;
 	queue->dma_vchan = dev->dma_vchan;
 	blkdev->qs[queue_id] = queue;
+	blkdev->num_queues++;
 	dao_blkdev->qs[queue_id] = queue;
 	queue->dao_blkdev = dao_blkdev;
 	queue->blkdev_id = blkdev->dev.dev_id;
@@ -330,13 +327,13 @@ dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 
 	blkdev->flags = conf->flags;
 	blkdev->auto_free_en = conf->auto_free_en;
-	blkdev->num_queues = dev->max_virtio_queues;
+	blkdev->num_queues = 0;
 
 	if (conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF)
 		blkdev->dataroom_size = conf->dataroom_size;
 
 	if (conf->max_virt_queues)
-		dev->max_virtio_queues_limit = conf->max_virt_queues + 1;
+		dev->max_virtio_queues_limit = conf->max_virt_queues;
 
 	/* Initialize base virtio device */
 	rc = virtio_dev_init(dev);
@@ -358,7 +355,6 @@ dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 	virtio_blkdev->deq_fn_id = 0;
 	virtio_blkdev->compl_fn_id = 0;
 	virtio_blkdev->mgmt_fn_id = 0;
-
 	if (conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF)
 		virtio_blkdev->mgmt_fn_id |= VIRTIO_BLK_DESC_MANAGE_EXTBUF;
 
