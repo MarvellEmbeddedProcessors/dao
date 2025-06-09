@@ -139,6 +139,7 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	uint8_t aad_buf_data[TEST_LC_MAX_AAD_LEN] = {0};
 	const struct test_sym_params *params = data;
 	uint8_t cipher_iv[TEST_LC_MAX_IV_LEN] = {0};
+	struct dao_lc_sym_ctx ctx = params->ctx;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
 	uint64_t sess_cookie = rte_rand();
@@ -148,7 +149,8 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	struct dao_lc_res res[1];
 	int ret;
 
-	ret = dao_liquid_crypto_sym_sess_create(dev_id, &params->ctx, sess_cookie);
+	ctx.iv_len = params->iv.len;
+	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not create session");
 		return -1;
