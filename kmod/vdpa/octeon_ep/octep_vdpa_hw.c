@@ -3,6 +3,7 @@
  */
 #include <linux/iopoll.h>
 #include <linux/build_bug.h>
+#include <linux/platform_device.h>
 
 #include "octep_vdpa.h"
 
@@ -100,11 +101,11 @@ static inline void octep_write32_word(struct octep_mbox __iomem *mbox, u16 word_
 	return iowrite32(word, &mbox->data[word_idx]);
 }
 
-static int octep_process_mbox(struct octep_hw *oct_hw, u16 id, u16 qid, void *buffer,
-			      u32 buf_size, bool write)
+static int octep_process_mbox(struct octep_hw *oct_hw, u16 id, u16 qid, void *buffer, u32 buf_size,
+			      bool write)
 {
 	struct octep_mbox __iomem *mbox = octep_get_mbox(oct_hw);
-	struct pci_dev *pdev = oct_hw->pdev;
+	struct device *dev = oct_hw->dev;
 	u32 *p = (u32 *)buffer;
 	u16 data_wds;
 	int ret, i;
@@ -116,7 +117,7 @@ static int octep_process_mbox(struct octep_hw *oct_hw, u16 id, u16 qid, void *bu
 	/* Make sure mbox space is available */
 	ret = octep_wait_for_mbox_avail(mbox);
 	if (ret) {
-		dev_warn(&pdev->dev, "Timeout waiting for previous mbox data to be consumed\n");
+		dev_warn(dev, "Timeout waiting for previous mbox data to be consumed\n");
 		return ret;
 	}
 	data_wds = buf_size / 4;
@@ -134,20 +135,20 @@ static int octep_process_mbox(struct octep_hw *oct_hw, u16 id, u16 qid, void *bu
 
 	ret = octep_wait_for_mbox_rsp(mbox);
 	if (ret) {
-		dev_warn(&pdev->dev, "Timeout waiting for mbox : %d response\n", id);
+		dev_warn(dev, "Timeout waiting for mbox : %d response\n", id);
 		return ret;
 	}
 
 	val = octep_read_sig(mbox);
 	if ((val & 0xFFFF) != MBOX_RSP_SIG) {
-		dev_warn(&pdev->dev, "Invalid Signature from mbox : %d response\n", id);
+		dev_warn(dev, "Invalid Signature from mbox : %d response\n", id);
 		return -EINVAL;
 	}
 
 	val = octep_read_sts(mbox);
 	if (val & MBOX_RC_MASK) {
 		ret = MBOX_RSP_TO_ERR(val);
-		dev_warn(&pdev->dev, "Error while processing mbox : %d, err %d\n", id, ret);
+		dev_warn(dev, "Error while processing mbox : %d, err %d\n", id, ret);
 		return ret;
 	}
 
@@ -195,7 +196,7 @@ void octep_hw_reset(struct octep_hw *oct_hw)
 	octep_hw_set_status(oct_hw, 0 | BIT(DEV_RST_ACK_BIT));
 	if (readx_poll_timeout(ioread8, &oct_hw->common_cfg->device_status, val, !val, 10,
 			       OCTEP_HW_TIMEOUT)) {
-		dev_warn(&oct_hw->pdev->dev, "Octeon device reset timeout\n");
+		dev_warn(oct_hw->dev, "Octeon device reset timeout\n");
 		return;
 	}
 }
@@ -207,7 +208,7 @@ static int feature_sel_write_with_timeout(struct octep_hw *oct_hw, u32 select, v
 	iowrite32(select | BIT(FEATURE_SEL_ACK_BIT), addr);
 
 	if (readx_poll_timeout(ioread32, addr, val, val == select, 10, OCTEP_HW_TIMEOUT)) {
-		dev_warn(&oct_hw->pdev->dev, "Feature select%d write timeout\n", select);
+		dev_warn(oct_hw->dev, "Feature select%d write timeout\n", select);
 		return -1;
 	}
 	return 0;
@@ -268,7 +269,7 @@ void octep_write_queue_select(struct octep_hw *oct_hw, u16 queue_id)
 
 	if (readx_poll_timeout(ioread16, &oct_hw->common_cfg->queue_select, val, val == queue_id,
 			       10, OCTEP_HW_TIMEOUT)) {
-		dev_warn(&oct_hw->pdev->dev, "Queue select write timeout\n");
+		dev_warn(oct_hw->dev, "Queue select write timeout\n");
 		return;
 	}
 }
@@ -371,27 +372,44 @@ static u32 octep_get_config_size(struct octep_hw *oct_hw)
 	}
 }
 
+static u32 octep_get_resource_len(struct octep_hw *oct_hw, u8 bar)
+{
+	if (oct_hw->dev_type == OCTEP_DEV_TYPE_PCI) {
+		struct pci_dev *pdev = to_pci_dev(oct_hw->dev);
+
+		return pci_resource_len(pdev, bar);
+	} else if (oct_hw->dev_type == OCTEP_DEV_TYPE_PLATFORM) {
+		struct platform_device *pdev = to_platform_device(oct_hw->dev);
+		struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, bar);
+
+		if (!res)
+			return 0;
+		return resource_size(res);
+	}
+
+	dev_err(oct_hw->dev, "Unsupported device type: %d\n", oct_hw->dev_type);
+	return 0;
+}
+
 static void __iomem *octep_get_cap_addr(struct octep_hw *oct_hw, struct virtio_pci_cap *cap)
 {
-	struct device *dev = &oct_hw->pdev->dev;
 	u32 length = le32_to_cpu(cap->length);
 	u32 offset = le32_to_cpu(cap->offset);
-	u8  bar    = cap->bar;
+	struct device *dev = oct_hw->dev;
+	u8 bar = cap->bar;
 	u32 len;
 
-	if (bar != OCTEP_HW_CAPS_BAR) {
+	if (bar != oct_hw->caps_bar) {
 		dev_err(dev, "Invalid bar: %u\n", bar);
 		return NULL;
 	}
 	if (offset + length < offset) {
-		dev_err(dev, "offset(%u) + length(%u) overflows\n",
-			offset, length);
+		dev_err(dev, "offset(%u) + length(%u) overflows\n", offset, length);
 		return NULL;
 	}
-	len = pci_resource_len(oct_hw->pdev, bar);
+	len = octep_get_resource_len(oct_hw, bar);
 	if (offset + length > len) {
-		dev_err(dev, "invalid cap: overflows bar space: %u > %u\n",
-			offset + length, len);
+		dev_err(dev, "invalid cap: overflows bar space: %u > %u\n", offset + length, len);
 		return NULL;
 	}
 	return oct_hw->base[bar] + offset;
@@ -403,7 +421,7 @@ static void __iomem *octep_get_cap_addr(struct octep_hw *oct_hw, struct virtio_p
  */
 static void octep_pci_caps_read(struct octep_hw *oct_hw, void *buf, size_t len, off_t offset)
 {
-	u8 __iomem *bar = oct_hw->base[OCTEP_HW_CAPS_BAR];
+	u8 __iomem *bar = oct_hw->base[oct_hw->caps_bar];
 	u8 *p = buf;
 	size_t i;
 
@@ -436,24 +454,41 @@ static void octep_vndr_data_process(struct octep_hw *oct_hw,
 		oct_hw->dev_id = (u8)vndr_data->data;
 		break;
 	default:
-		dev_err(&oct_hw->pdev->dev, "Invalid vendor data id %u\n",
-			vndr_data->id);
+		dev_err(oct_hw->dev, "Invalid vendor data id %u\n", vndr_data->id);
 		break;
 	}
 }
 
-#define VIRTIO_PCI_CAP_VENDOR_CFG	9
-int octep_hw_caps_read(struct octep_hw *oct_hw, struct pci_dev *pdev)
+static resource_size_t octep_get_resource_start(struct octep_hw *oct_hw, u8 bar)
+{
+	if (oct_hw->dev_type == OCTEP_DEV_TYPE_PCI) {
+		struct pci_dev *pdev = to_pci_dev(oct_hw->dev);
+
+		return pci_resource_start(pdev, bar);
+	} else if (oct_hw->dev_type == OCTEP_DEV_TYPE_PLATFORM) {
+		struct platform_device *pdev = to_platform_device(oct_hw->dev);
+		struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, bar);
+
+		if (!res)
+			return 0;
+		return res->start;
+	}
+
+	dev_err(oct_hw->dev, "Unsupported device type: %d\n", oct_hw->dev_type);
+	return 0;
+}
+
+#define VIRTIO_PCI_CAP_VENDOR_CFG 9
+int octep_hw_caps_read(struct octep_hw *oct_hw)
 {
 	struct octep_pci_vndr_data vndr_data;
+	struct device *dev = oct_hw->dev;
 	struct octep_mbox __iomem *mbox;
-	struct device *dev = &pdev->dev;
 	struct virtio_pci_cap cap;
 	u16 notify_off;
 	int i, ret;
 	u8 pos;
 
-	oct_hw->pdev = pdev;
 	ret = octep_pci_signature_verify(oct_hw);
 	if (ret) {
 		dev_err(dev, "Octeon Virtio FW is not initialized\n");
@@ -485,8 +520,8 @@ int octep_hw_caps_read(struct octep_hw *oct_hw, struct pci_dev *pdev)
 
 			oct_hw->notify_base = octep_get_cap_addr(oct_hw, &cap);
 			oct_hw->notify_bar = cap.bar;
-			oct_hw->notify_base_pa = pci_resource_start(pdev, cap.bar) +
-						 le32_to_cpu(cap.offset);
+			oct_hw->notify_base_pa =
+				octep_get_resource_start(oct_hw, cap.bar) + le32_to_cpu(cap.offset);
 			break;
 		case VIRTIO_PCI_CAP_DEVICE_CFG:
 			oct_hw->dev_cfg = octep_get_cap_addr(oct_hw, &cap);
@@ -523,26 +558,26 @@ int octep_hw_caps_read(struct octep_hw *oct_hw, struct pci_dev *pdev)
 
 	ret = octep_verify_features(oct_hw->features);
 	if (ret) {
-		dev_err(&pdev->dev, "Couldn't read features from the device FW\n");
+		dev_err(dev, "Couldn't read features from the device FW\n");
 		return ret;
 	}
 	oct_hw->nr_vring = vp_ioread16(&oct_hw->common_cfg->num_queues);
 
-	oct_hw->vqs = devm_kcalloc(&pdev->dev, oct_hw->nr_vring, sizeof(*oct_hw->vqs), GFP_KERNEL);
+	oct_hw->vqs = devm_kcalloc(dev, oct_hw->nr_vring, sizeof(*oct_hw->vqs), GFP_KERNEL);
 	if (!oct_hw->vqs)
 		return -ENOMEM;
 
-	dev_info(&pdev->dev, "Device features : %llx\n", oct_hw->features);
-	dev_info(&pdev->dev, "Maximum queues : %u\n", oct_hw->nr_vring);
+	dev_info(dev, "Device features : %llx\n", oct_hw->features);
+	dev_info(dev, "Maximum queues : %u\n", oct_hw->nr_vring);
 
 	for (i = 0; i < oct_hw->nr_vring; i++) {
 		octep_write_queue_select(oct_hw, i);
 		notify_off = vp_ioread16(&oct_hw->common_cfg->queue_notify_off);
-		oct_hw->vqs[i].notify_addr = oct_hw->notify_base +
-			notify_off * oct_hw->notify_off_multiplier;
+		oct_hw->vqs[i].notify_addr =
+			oct_hw->notify_base + notify_off * oct_hw->notify_off_multiplier;
 		oct_hw->vqs[i].cb_notify_addr = (u32 __iomem *)oct_hw->vqs[i].notify_addr + 1;
-		oct_hw->vqs[i].notify_pa = oct_hw->notify_base_pa +
-			notify_off * oct_hw->notify_off_multiplier;
+		oct_hw->vqs[i].notify_pa =
+			oct_hw->notify_base_pa + notify_off * oct_hw->notify_off_multiplier;
 	}
 	mbox = octep_get_mbox(oct_hw);
 	octep_mbox_init(mbox);

@@ -9,42 +9,6 @@
 #include <linux/iommu.h>
 #include "octep_vdpa.h"
 
-#define OCTEP_VDPA_DRIVER_NAME "octep_vdpa"
-#define OCTEP_VDPA_NAME_BUFSIZE 16
-
-struct octep_pf {
-	u8 __iomem *base[PCI_STD_NUM_BARS];
-	struct pci_dev *pdev;
-	struct resource res;
-	u64 vf_base;
-	int enabled_vfs;
-	u32 vf_stride;
-	u16 vf_devid;
-};
-
-struct octep_vdpa_event_wk {
-	struct work_struct work;
-	void *ctxptr;
-};
-
-struct octep_vdpa {
-	struct vdpa_device vdpa;
-	struct octep_hw *oct_hw;
-	struct pci_dev *pdev;
-};
-
-struct octep_vdpa_mgmt_dev {
-	struct vdpa_mgmt_dev mdev;
-	struct octep_hw oct_hw;
-	struct pci_dev *pdev;
-	/* Work entry to handle device setup */
-	struct work_struct setup_task;
-	/* Device status */
-	atomic_t status;
-	struct octep_vdpa *oct_vdpa;
-	struct octep_vdpa_event_wk event_wk;
-};
-
 static struct octep_hw *vdpa_to_octep_hw(struct vdpa_device *vdpa_dev)
 {
 	struct octep_vdpa *oct_vdpa;
@@ -52,27 +16,6 @@ static struct octep_hw *vdpa_to_octep_hw(struct vdpa_device *vdpa_dev)
 	oct_vdpa = container_of(vdpa_dev, struct octep_vdpa, vdpa);
 
 	return oct_vdpa->oct_hw;
-}
-
-static inline void octep_vdpa_dev_event_schedule(struct octep_hw *oct_hw)
-{
-	u8 __iomem *addr = oct_hw->base[OCTEP_HW_MBOX_BAR];
-	struct octep_vdpa_mgmt_dev *mgmt_dev;
-
-	mgmt_dev = container_of(oct_hw, struct octep_vdpa_mgmt_dev, oct_hw);
-	writeb(OCTEP_VDPA_DEV_EVENT_ACTIVE, addr + OCTEP_VF_EVENT_STATE(0));
-	schedule_work(&mgmt_dev->event_wk.work);
-}
-
-static irqreturn_t octep_vdpa_dev_event_handler(int irq, void *data)
-{
-	struct octep_hw *oct_hw = data;
-
-	if (readb(oct_hw->base[OCTEP_HW_MBOX_BAR] + OCTEP_VF_EVENT_STATE(0)) ==
-	    OCTEP_VDPA_DEV_NEW_EVENT)
-		octep_vdpa_dev_event_schedule(oct_hw);
-
-	return IRQ_HANDLED;
 }
 
 static irqreturn_t octep_vdpa_intr_handler(int irq, void *data)
@@ -120,72 +63,11 @@ static irqreturn_t octep_vdpa_intr_handler(int irq, void *data)
 				oct_hw->config_cb.callback(oct_hw->config_cb.private);
 		}
 
-		octep_vdpa_dev_event_handler(irq, data);
+		if (oct_hw->ops->handle_event)
+			return oct_hw->ops->handle_event(irq, data);
 	}
 
 	return IRQ_HANDLED;
-}
-
-static void octep_free_irqs(struct octep_hw *oct_hw)
-{
-	struct pci_dev *pdev = oct_hw->pdev;
-	int irq;
-
-	if (!oct_hw->irqs)
-		return;
-
-	for (irq = 0; irq < oct_hw->nb_irqs; irq++) {
-		if (!oct_hw->irqs[irq])
-			break;
-
-		devm_free_irq(&pdev->dev, oct_hw->irqs[irq], oct_hw);
-	}
-
-	pci_free_irq_vectors(pdev);
-	devm_kfree(&pdev->dev, oct_hw->irqs);
-	oct_hw->irqs = NULL;
-	oct_hw->requested_irqs = 0;
-}
-
-static int octep_request_irqs(struct octep_hw *oct_hw, irqreturn_t (*irq_handler)(int, void *),
-			      int nb_irqs)
-{
-	struct pci_dev *pdev = oct_hw->pdev;
-	int ret, irq, idx;
-
-	if ((oct_hw->requested_irqs != nb_irqs) || (nb_irqs == 1))
-		octep_free_irqs(oct_hw);
-	else
-		return 0;
-
-	oct_hw->irqs = devm_kcalloc(&pdev->dev, nb_irqs, sizeof(int), GFP_KERNEL);
-	if (!oct_hw->irqs)
-		return -ENOMEM;
-
-	ret = pci_alloc_irq_vectors(pdev, 1, nb_irqs, PCI_IRQ_MSIX);
-	if (ret < 0) {
-		dev_err(&pdev->dev, "Failed to alloc msix vector");
-		return ret;
-	}
-
-	for (idx = 0; idx < nb_irqs; idx++) {
-		irq = pci_irq_vector(pdev, idx);
-		ret = devm_request_irq(&pdev->dev, irq, irq_handler, 0, dev_name(&pdev->dev),
-				       oct_hw);
-		if (ret) {
-			dev_err(&pdev->dev, "Failed to register interrupt handler\n");
-			goto free_irqs;
-		}
-		oct_hw->irqs[idx] = irq;
-	}
-
-	oct_hw->requested_irqs = nb_irqs;
-
-	return 0;
-
-free_irqs:
-	octep_free_irqs(oct_hw);
-	return ret;
 }
 
 static u64 octep_vdpa_get_device_features(struct vdpa_device *vdpa_dev)
@@ -204,10 +86,9 @@ static int octep_vdpa_set_driver_features(struct vdpa_device *vdpa_dev, u64 feat
 
 	ret = octep_verify_features(features);
 	if (ret) {
-		dev_warn(&oct_hw->pdev->dev,
-			 "Must negotiate minimum features 0x%llx for this device",
-			 BIT_ULL(VIRTIO_F_VERSION_1) | BIT_ULL(VIRTIO_F_NOTIFICATION_DATA) |
-			 BIT_ULL(VIRTIO_F_RING_PACKED));
+		pr_warn("Must negotiate minimum features 0x%llx for this device",
+			BIT_ULL(VIRTIO_F_VERSION_1) | BIT_ULL(VIRTIO_F_NOTIFICATION_DATA) |
+				BIT_ULL(VIRTIO_F_RING_PACKED));
 		return ret;
 	}
 	octep_hw_set_drv_features(oct_hw, features);
@@ -239,9 +120,9 @@ static void octep_vdpa_set_status(struct vdpa_device *vdpa_dev, u8 status)
 	if (status_old == status)
 		return;
 
-	if ((status & VIRTIO_CONFIG_S_DRIVER_OK) &&
-	    !(status_old & VIRTIO_CONFIG_S_DRIVER_OK)) {
-		if (octep_request_irqs(oct_hw, octep_vdpa_intr_handler, oct_hw->nb_irqs))
+	if ((status & VIRTIO_CONFIG_S_DRIVER_OK) && !(status_old & VIRTIO_CONFIG_S_DRIVER_OK)) {
+		if (!oct_hw->ops->request_irqs ||
+		    oct_hw->ops->request_irqs(oct_hw, octep_vdpa_intr_handler, oct_hw->nb_irqs))
 			status = status_old | VIRTIO_CONFIG_S_FAILED;
 	}
 	octep_hw_set_status(oct_hw, status);
@@ -265,8 +146,10 @@ static int octep_vdpa_reset(struct vdpa_device *vdpa_dev)
 	octep_hw_reset(oct_hw);
 
 	if (status & VIRTIO_CONFIG_S_DRIVER_OK) {
-		octep_free_irqs(oct_hw);
-		octep_request_irqs(oct_hw, octep_vdpa_dev_event_handler, 1);
+		if (oct_hw->ops->free_irqs)
+			oct_hw->ops->free_irqs(oct_hw);
+		if (oct_hw->ops->handle_event && oct_hw->ops->request_irqs)
+			oct_hw->ops->request_irqs(oct_hw, oct_hw->ops->handle_event, 1);
 	}
 
 	return 0;
@@ -448,140 +331,31 @@ static struct vdpa_config_ops octep_vdpa_ops = {
 	.get_vq_notification = octep_get_vq_notification,
 };
 
-static int octep_iomap_region(struct pci_dev *pdev, u8 __iomem **tbl, u8 bar)
-{
-	int ret;
-
-	ret = pci_request_region(pdev, bar, OCTEP_VDPA_DRIVER_NAME);
-	if (ret) {
-		dev_err(&pdev->dev, "Failed to request BAR:%u region\n", bar);
-		return ret;
-	}
-
-	tbl[bar] = pci_iomap(pdev, bar, pci_resource_len(pdev, bar));
-	if (!tbl[bar]) {
-		dev_err(&pdev->dev, "Failed to iomap BAR:%u\n", bar);
-		pci_release_region(pdev, bar);
-		ret = -ENOMEM;
-	}
-
-	return ret;
-}
-
-static void octep_iounmap_region(struct pci_dev *pdev, u8 __iomem **tbl, u8 bar)
-{
-	pci_iounmap(pdev, tbl[bar]);
-	pci_release_region(pdev, bar);
-}
-
-static void octep_vdpa_pf_bar_shrink(struct octep_pf *octpf)
-{
-	struct pci_dev *pf_dev = octpf->pdev;
-	struct resource *res = pf_dev->resource + PCI_STD_RESOURCES + 4;
-	struct pci_bus_region bus_region;
-
-	octpf->res.start = res->start;
-	octpf->res.end = res->end;
-	octpf->vf_base = res->start;
-
-	bus_region.start = res->start;
-	bus_region.end = res->start - 1;
-
-	pcibios_bus_to_resource(pf_dev->bus, res, &bus_region);
-}
-
-static void octep_vdpa_pf_bar_expand(struct octep_pf *octpf)
-{
-	struct pci_dev *pf_dev = octpf->pdev;
-	struct resource *res = pf_dev->resource + PCI_STD_RESOURCES + 4;
-	struct pci_bus_region bus_region;
-
-	bus_region.start = octpf->res.start;
-	bus_region.end = octpf->res.end;
-
-	pcibios_bus_to_resource(pf_dev->bus, res, &bus_region);
-}
-
-static void octep_vdpa_remove_pf(struct pci_dev *pdev)
-{
-	struct octep_pf *octpf = pci_get_drvdata(pdev);
-
-	pci_disable_sriov(pdev);
-
-	if (octpf->base[OCTEP_HW_CAPS_BAR])
-		octep_iounmap_region(pdev, octpf->base, OCTEP_HW_CAPS_BAR);
-
-	if (octpf->base[OCTEP_HW_MBOX_BAR])
-		octep_iounmap_region(pdev, octpf->base, OCTEP_HW_MBOX_BAR);
-
-	octep_vdpa_pf_bar_expand(octpf);
-}
-
-static void octep_vdpa_vf_bar_shrink(struct pci_dev *pdev)
-{
-	struct resource *vf_res = pdev->resource + PCI_STD_RESOURCES + 4;
-
-	memset(vf_res, 0, sizeof(*vf_res));
-}
-
-static void octep_vdpa_remove_vf(struct pci_dev *pdev)
-{
-	struct octep_vdpa_mgmt_dev *mgmt_dev = pci_get_drvdata(pdev);
-	struct octep_hw *oct_hw;
-	int status;
-
-	oct_hw = &mgmt_dev->oct_hw;
-	status = atomic_read(&mgmt_dev->status);
-	atomic_set(&mgmt_dev->status, OCTEP_VDPA_DEV_STATUS_UNINIT);
-
-	cancel_work_sync(&mgmt_dev->setup_task);
-	if ((status == OCTEP_VDPA_DEV_STATUS_READY) || (status == OCTEP_VDPA_DEV_STATUS_ADDED) ||
-	    (status == OCTEP_VDPA_DEV_STATUS_REMOVED))
-		vdpa_mgmtdev_unregister(&mgmt_dev->mdev);
-
-	if (oct_hw->base[OCTEP_HW_CAPS_BAR])
-		octep_iounmap_region(pdev, oct_hw->base, OCTEP_HW_CAPS_BAR);
-
-	if (oct_hw->base[OCTEP_HW_MBOX_BAR])
-		octep_iounmap_region(pdev, oct_hw->base, OCTEP_HW_MBOX_BAR);
-
-	octep_vdpa_vf_bar_shrink(pdev);
-
-	octep_free_irqs(oct_hw);
-}
-
-static void octep_vdpa_remove(struct pci_dev *pdev)
-{
-	if (pdev->is_virtfn)
-		octep_vdpa_remove_vf(pdev);
-	else
-		octep_vdpa_remove_pf(pdev);
-}
-
-static int octep_vdpa_dev_add(struct vdpa_mgmt_dev *mdev, const char *name,
-			      const struct vdpa_dev_set_config *config)
+int octep_vdpa_dev_add(struct vdpa_mgmt_dev *mdev, const char *name,
+		       const struct vdpa_dev_set_config *config)
 {
 	struct octep_vdpa_mgmt_dev *mgmt_dev = container_of(mdev, struct octep_vdpa_mgmt_dev, mdev);
 	struct octep_hw *oct_hw = &mgmt_dev->oct_hw;
-	struct pci_dev *pdev = oct_hw->pdev;
+	struct device *dev = oct_hw->dev;
 	struct vdpa_device *vdpa_dev;
 	struct octep_vdpa *oct_vdpa;
+	struct device *dma_dev;
 	u64 device_features;
 	int ret;
 
-	if (!device_iommu_capable(&pdev->dev, IOMMU_CAP_CACHE_COHERENCY)) {
-		dev_info(&pdev->dev, "NO-IOMMU\n");
+	dma_dev = oct_hw->dma_dev ? oct_hw->dma_dev : dev;
+	if (!device_iommu_capable(dma_dev, IOMMU_CAP_CACHE_COHERENCY)) {
+		dev_info(dev, "NO-IOMMU\n");
 		octep_vdpa_ops.set_map = octep_vdpa_set_map;
 	}
-	oct_vdpa = vdpa_alloc_device(struct octep_vdpa, vdpa, &pdev->dev, &octep_vdpa_ops, 1, 1,
-				     NULL, false);
+	oct_vdpa =
+		vdpa_alloc_device(struct octep_vdpa, vdpa, dev, &octep_vdpa_ops, 1, 1, NULL, false);
 	if (IS_ERR(oct_vdpa)) {
-		dev_err(&pdev->dev, "Failed to allocate vDPA structure for octep vdpa device");
+		dev_err(dev, "Failed to allocate vDPA structure for octep vdpa device");
 		return PTR_ERR(oct_vdpa);
 	}
 
-	oct_vdpa->pdev = pdev;
-	oct_vdpa->vdpa.dma_dev = &pdev->dev;
+	oct_vdpa->vdpa.dma_dev = dma_dev;
 	oct_vdpa->vdpa.mdev = mdev;
 	oct_vdpa->oct_hw = oct_hw;
 	vdpa_dev = &oct_vdpa->vdpa;
@@ -590,7 +364,8 @@ static int octep_vdpa_dev_add(struct vdpa_mgmt_dev *mdev, const char *name,
 	device_features = oct_hw->features;
 	if (config->mask & BIT_ULL(VDPA_ATTR_DEV_FEATURES)) {
 		if (config->device_features & ~device_features) {
-			dev_err(&pdev->dev, "The provisioned features 0x%llx are not supported by this device with features 0x%llx\n",
+			dev_err(dev,
+				"The provisioned features 0x%llx are not supported by this device with features 0x%llx\n",
 				config->device_features, device_features);
 			ret = -EINVAL;
 			goto vdpa_dev_put;
@@ -599,7 +374,7 @@ static int octep_vdpa_dev_add(struct vdpa_mgmt_dev *mdev, const char *name,
 	}
 
 	oct_hw->features = device_features;
-	dev_info(&pdev->dev, "Vdpa management device features : %llx\n", device_features);
+	dev_info(dev, "Vdpa management device features : %llx\n", device_features);
 
 	ret = octep_verify_features(device_features);
 	if (ret) {
@@ -616,7 +391,7 @@ static int octep_vdpa_dev_add(struct vdpa_mgmt_dev *mdev, const char *name,
 
 	ret = _vdpa_register_device(&oct_vdpa->vdpa, oct_hw->nr_vring);
 	if (ret) {
-		dev_err(&pdev->dev, "Failed to register to vDPA bus");
+		dev_err(dev, "Failed to register to vDPA bus");
 		goto vdpa_dev_put;
 	}
 
@@ -629,7 +404,7 @@ vdpa_dev_put:
 	return ret;
 }
 
-static void octep_vdpa_dev_del(struct vdpa_mgmt_dev *mdev, struct vdpa_device *vdpa_dev)
+void octep_vdpa_dev_del(struct vdpa_mgmt_dev *mdev, struct vdpa_device *vdpa_dev)
 {
 	struct octep_vdpa_mgmt_dev *mgmt_dev = container_of(mdev, struct octep_vdpa_mgmt_dev, mdev);
 
@@ -643,365 +418,28 @@ static const struct vdpa_mgmtdev_ops octep_vdpa_mgmt_dev_ops = {
 	.dev_del = octep_vdpa_dev_del
 };
 
-static bool get_device_ready_status(u8 __iomem *addr)
-{
-	u32 signature = readl(addr + OCTEP_VF_MBOX_DATA(0));
-
-	if (signature == OCTEP_DEV_READY_SIGNATURE) {
-		writel(0, addr + OCTEP_VF_MBOX_DATA(0));
-		return true;
-	}
-
-	return false;
-}
-
 static struct virtio_device_id id_table[] = {
 	{ VIRTIO_ID_NET, VIRTIO_DEV_ANY_ID },
 	{ 0 },
 };
 
-static void octep_event_work(struct work_struct *work)
+int octep_vdpa_mgmt_dev_register(struct octep_vdpa_mgmt_dev *mgmt_dev)
 {
-	struct octep_vdpa_event_wk *wk = container_of(work, struct octep_vdpa_event_wk, work);
-	struct octep_vdpa_mgmt_dev *mgmt_dev = (struct octep_vdpa_mgmt_dev *)wk->ctxptr;
-	u8 __iomem *addr = mgmt_dev->oct_hw.base[OCTEP_HW_MBOX_BAR];
-	u8 event = readb(addr + OCTEP_VF_EVENT_REG(0));
-	struct vdpa_dev_set_config config = {0};
-	char name[OCTEP_VDPA_NAME_BUFSIZE];
-	int ret = 0;
-
-	switch (event) {
-	case OCTEP_VDPA_DEV_ADD_EVENT:
-		if (atomic_read(&mgmt_dev->status) != OCTEP_VDPA_DEV_STATUS_ADDED) {
-			snprintf(name, sizeof(name), "%s-%x", "vdpa", mgmt_dev->pdev->devfn);
-			ret = octep_vdpa_dev_add(&mgmt_dev->mdev, name, &config);
-		}
-		break;
-	case OCTEP_VDPA_DEV_DEL_EVENT:
-		if (atomic_read(&mgmt_dev->status) == OCTEP_VDPA_DEV_STATUS_ADDED)
-			octep_vdpa_dev_del(&mgmt_dev->mdev, &mgmt_dev->oct_vdpa->vdpa);
-		break;
-	default:
-		break;
-	}
-
-	event = ret ? OCTEP_VDPA_DEV_EVENT_NACK : OCTEP_VDPA_DEV_EVENT_ACK;
-	writeb(event, addr + OCTEP_VF_EVENT_REG(0));
-	writeb(OCTEP_VDPA_DEV_EVENT_DONE, addr + OCTEP_VF_EVENT_STATE(0));
-}
-
-static void octep_vdpa_setup_task(struct work_struct *work)
-{
-	struct octep_vdpa_mgmt_dev *mgmt_dev = container_of(work, struct octep_vdpa_mgmt_dev,
-							    setup_task);
-	struct pci_dev *pdev = mgmt_dev->pdev;
-	struct device *dev = &pdev->dev;
-	struct octep_hw *oct_hw;
-	unsigned long timeout;
-	u64 val;
+	struct octep_hw *oct_hw = &mgmt_dev->oct_hw;
 	int ret;
-
-	oct_hw = &mgmt_dev->oct_hw;
-
-	atomic_set(&mgmt_dev->status, OCTEP_VDPA_DEV_STATUS_WAIT_FOR_BAR_INIT);
-
-	/* Wait for a maximum of 5 sec */
-	timeout = jiffies + msecs_to_jiffies(5000);
-	while (!time_after(jiffies, timeout)) {
-		if (get_device_ready_status(oct_hw->base[OCTEP_HW_MBOX_BAR])) {
-			atomic_set(&mgmt_dev->status, OCTEP_VDPA_DEV_STATUS_INIT);
-			break;
-		}
-
-		if (atomic_read(&mgmt_dev->status) >= OCTEP_VDPA_DEV_STATUS_READY) {
-			dev_info(dev, "Stopping vDPA setup task.\n");
-			return;
-		}
-
-		usleep_range(1000, 1500);
-	}
-
-	if (atomic_read(&mgmt_dev->status) != OCTEP_VDPA_DEV_STATUS_INIT) {
-		dev_err(dev, "BAR initialization is timed out\n");
-		return;
-	}
-
-	ret = octep_iomap_region(pdev, oct_hw->base, OCTEP_HW_CAPS_BAR);
-	if (ret)
-		return;
-
-	val = readq(oct_hw->base[OCTEP_HW_MBOX_BAR] + OCTEP_VF_IN_CTRL(0));
-	oct_hw->nb_irqs = OCTEP_VF_IN_CTRL_RPVF(val);
-	if (!oct_hw->nb_irqs || oct_hw->nb_irqs > OCTEP_MAX_CB_INTR) {
-		dev_err(dev, "Invalid number of interrupts %d\n", oct_hw->nb_irqs);
-		goto unmap_region;
-	}
-
-	ret = octep_hw_caps_read(oct_hw, pdev);
-	if (ret < 0)
-		goto unmap_region;
 
 	mgmt_dev->mdev.ops = &octep_vdpa_mgmt_dev_ops;
 	mgmt_dev->mdev.id_table = id_table;
 	mgmt_dev->mdev.max_supported_vqs = oct_hw->nr_vring;
 	mgmt_dev->mdev.supported_features = oct_hw->features;
 	mgmt_dev->mdev.config_attr_mask = (1 << VDPA_ATTR_DEV_FEATURES);
-	mgmt_dev->mdev.device = dev;
+	mgmt_dev->mdev.device = oct_hw->dev;
 
 	ret = vdpa_mgmtdev_register(&mgmt_dev->mdev);
 	if (ret) {
-		dev_err(dev, "Failed to register vdpa management interface\n");
-		goto unmap_region;
-	}
-
-	atomic_set(&mgmt_dev->status, OCTEP_VDPA_DEV_STATUS_READY);
-
-	INIT_WORK(&mgmt_dev->event_wk.work, octep_event_work);
-	mgmt_dev->event_wk.ctxptr = mgmt_dev;
-
-	octep_request_irqs(&mgmt_dev->oct_hw, octep_vdpa_dev_event_handler, 1);
-
-	return;
-
-unmap_region:
-	octep_iounmap_region(pdev, oct_hw->base, OCTEP_HW_CAPS_BAR);
-	oct_hw->base[OCTEP_HW_CAPS_BAR] = NULL;
-}
-
-static int octep_vdpa_probe_vf(struct pci_dev *pdev)
-{
-	struct octep_vdpa_mgmt_dev *mgmt_dev;
-	struct device *dev = &pdev->dev;
-	int ret;
-
-	ret = pcim_enable_device(pdev);
-	if (ret) {
-		dev_err(dev, "Failed to enable device\n");
+		dev_err(oct_hw->dev, "Failed to register vdpa management interface\n");
 		return ret;
 	}
-
-	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
-	if (ret) {
-		dev_err(dev, "No usable DMA configuration\n");
-		return ret;
-	}
-	pci_set_master(pdev);
-
-	mgmt_dev = devm_kzalloc(dev, sizeof(struct octep_vdpa_mgmt_dev), GFP_KERNEL);
-	if (!mgmt_dev)
-		return -ENOMEM;
-
-	ret = octep_iomap_region(pdev, mgmt_dev->oct_hw.base, OCTEP_HW_MBOX_BAR);
-	if (ret)
-		return ret;
-
-	mgmt_dev->pdev = pdev;
-	pci_set_drvdata(pdev, mgmt_dev);
-
-	atomic_set(&mgmt_dev->status, OCTEP_VDPA_DEV_STATUS_ALLOC);
-	INIT_WORK(&mgmt_dev->setup_task, octep_vdpa_setup_task);
-	schedule_work(&mgmt_dev->setup_task);
-	dev_info(&pdev->dev, "octep vdpa mgmt device setup task is queued\n");
 
 	return 0;
 }
-
-static void octep_vdpa_assign_barspace(struct pci_dev *vf_dev, struct pci_dev *pf_dev, u8 idx)
-{
-	struct resource *vf_res = vf_dev->resource + PCI_STD_RESOURCES + 4;
-	struct resource *pf_res = pf_dev->resource + PCI_STD_RESOURCES + 4;
-	struct octep_pf *pf = pci_get_drvdata(pf_dev);
-	struct pci_bus_region bus_region;
-
-	vf_res->name = pci_name(vf_dev);
-	vf_res->flags = pf_res->flags;
-	vf_res->parent = (pf_dev->resource + PCI_STD_RESOURCES)->parent;
-
-	bus_region.start = pf->vf_base + idx * pf->vf_stride;
-	bus_region.end = bus_region.start + pf->vf_stride - 1;
-	pcibios_bus_to_resource(vf_dev->bus, vf_res, &bus_region);
-}
-
-static int octep_sriov_enable(struct pci_dev *pdev, int num_vfs)
-{
-	struct octep_pf *pf = pci_get_drvdata(pdev);
-	u8 __iomem *addr = pf->base[OCTEP_HW_MBOX_BAR];
-	struct pci_dev *vf_pdev = NULL;
-	bool done = false;
-	int index = 0;
-	int ret, i;
-	u8 rpvf;
-	u64 val;
-
-	ret = pci_enable_sriov(pdev, num_vfs);
-	if (ret)
-		return ret;
-
-	pf->enabled_vfs = num_vfs;
-
-	while ((vf_pdev = pci_get_device(PCI_VENDOR_ID_CAVIUM, PCI_ANY_ID, vf_pdev))) {
-		if (vf_pdev->device != pf->vf_devid)
-			continue;
-
-		octep_vdpa_assign_barspace(vf_pdev, pdev, index);
-		if (++index == num_vfs) {
-			done = true;
-			break;
-		}
-	}
-
-	val = readq(addr + OCTEP_EPF_RINFO(0));
-	rpvf = FIELD_GET(GENMASK_ULL(35, 32), val);
-	if (done) {
-		for (i = 0; i < pf->enabled_vfs; i++)
-			writel(OCTEP_DEV_READY_SIGNATURE, addr + OCTEP_PF_MBOX_DATA(i * rpvf));
-	}
-
-	return num_vfs;
-}
-
-static int octep_sriov_disable(struct pci_dev *pdev)
-{
-	struct octep_pf *pf = pci_get_drvdata(pdev);
-
-	if (!pci_num_vf(pdev))
-		return 0;
-
-	pci_disable_sriov(pdev);
-	pf->enabled_vfs = 0;
-
-	return 0;
-}
-
-static int octep_vdpa_sriov_configure(struct pci_dev *pdev, int num_vfs)
-{
-	if (num_vfs > 0)
-		return octep_sriov_enable(pdev, num_vfs);
-	else
-		return octep_sriov_disable(pdev);
-}
-
-static u16 octep_get_vf_devid(struct pci_dev *pdev)
-{
-	u16 did;
-
-	switch (pdev->device) {
-	case OCTEP_VDPA_DEVID_CN106K_PF:
-		did = OCTEP_VDPA_DEVID_CN106K_VF;
-		break;
-	case OCTEP_VDPA_DEVID_CN105K_PF:
-		did = OCTEP_VDPA_DEVID_CN105K_VF;
-		break;
-	case OCTEP_VDPA_DEVID_CN103K_PF:
-		did = OCTEP_VDPA_DEVID_CN103K_VF;
-		break;
-	default:
-		did = 0xFFFF;
-		break;
-	}
-
-	return did;
-}
-
-static int octep_vdpa_pf_setup(struct octep_pf *octpf)
-{
-	u8 __iomem *addr = octpf->base[OCTEP_HW_MBOX_BAR];
-	struct pci_dev *pdev = octpf->pdev;
-	int totalvfs;
-	size_t len;
-	u64 val;
-
-	totalvfs = pci_sriov_get_totalvfs(pdev);
-	if (unlikely(!totalvfs)) {
-		dev_info(&pdev->dev, "Total VFs are %d in PF sriov configuration\n", totalvfs);
-		return 0;
-	}
-
-	addr = octpf->base[OCTEP_HW_MBOX_BAR];
-	val = readq(addr + OCTEP_EPF_RINFO(0));
-	if (val == 0) {
-		dev_err(&pdev->dev, "Invalid device configuration\n");
-		return -EINVAL;
-	}
-
-	len = pci_resource_len(pdev, OCTEP_HW_CAPS_BAR);
-
-	octpf->vf_stride = len / totalvfs;
-	octpf->vf_devid = octep_get_vf_devid(pdev);
-
-	octep_vdpa_pf_bar_shrink(octpf);
-
-	return 0;
-}
-
-static int octep_vdpa_probe_pf(struct pci_dev *pdev)
-{
-	struct device *dev = &pdev->dev;
-	struct octep_pf *octpf;
-	int ret;
-
-	ret = pcim_enable_device(pdev);
-	if (ret) {
-		dev_err(dev, "Failed to enable device\n");
-		return ret;
-	}
-
-	ret = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
-	if (ret) {
-		dev_err(dev, "No usable DMA configuration\n");
-		return ret;
-	}
-	octpf = devm_kzalloc(dev, sizeof(*octpf), GFP_KERNEL);
-	if (!octpf)
-		return -ENOMEM;
-
-	ret = octep_iomap_region(pdev, octpf->base, OCTEP_HW_MBOX_BAR);
-	if (ret)
-		return ret;
-
-	pci_set_master(pdev);
-	pci_set_drvdata(pdev, octpf);
-	octpf->pdev = pdev;
-
-	ret = octep_vdpa_pf_setup(octpf);
-	if (ret)
-		goto unmap_region;
-
-	return 0;
-
-unmap_region:
-	octep_iounmap_region(pdev, octpf->base, OCTEP_HW_MBOX_BAR);
-	return ret;
-}
-
-static int octep_vdpa_probe(struct pci_dev *pdev, const struct pci_device_id *id)
-{
-	if (pdev->is_virtfn)
-		return octep_vdpa_probe_vf(pdev);
-	else
-		return octep_vdpa_probe_pf(pdev);
-}
-
-static struct pci_device_id octep_pci_vdpa_map[] = {
-	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN106K_PF) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN106K_VF) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN105K_PF) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN105K_VF) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN103K_PF) },
-	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_VDPA_DEVID_CN103K_VF) },
-	{ 0 },
-};
-
-static struct pci_driver octep_pci_vdpa = {
-	.name     = OCTEP_VDPA_DRIVER_NAME,
-	.id_table = octep_pci_vdpa_map,
-	.probe    = octep_vdpa_probe,
-	.remove   = octep_vdpa_remove,
-	.sriov_configure = octep_vdpa_sriov_configure
-};
-
-module_pci_driver(octep_pci_vdpa);
-
-MODULE_AUTHOR("Marvell");
-MODULE_DESCRIPTION("Marvell Octeon PCIe endpoint vDPA driver");
-MODULE_LICENSE("GPL");

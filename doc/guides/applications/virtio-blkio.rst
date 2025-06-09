@@ -256,14 +256,14 @@ Setting up Host environment
 
 Prior to this, application should be up and running. Once the application is up, run steps on host as follows:
 
-On Host, we need to bind host PF and VF devices provided by CN10K to ``octep_vdpa`` driver.
+On Host, we need to bind host PF and VF devices provided by CN10K to ``octep_vdpa_pci`` driver.
 
 .. code-block:: console
 
    modprobe vdpa
    modprobe virtio-vdpa
 
-   insmod octep_vdpa.ko
+   insmod octep_vdpa_pci.ko
 
    HOST_PF=`lspci -Dn -d :b900 | head -1 | cut -f 1 -d " "`
    VF_CNT=1
@@ -271,7 +271,7 @@ On Host, we need to bind host PF and VF devices provided by CN10K to ``octep_vdp
    VF_CNT=$((VF_CNT >VF_CNT_MAX ? VF_CNT_MAX : VF_CNT))
 
    echo $HOST_PF > /sys/bus/pci/devices/$HOST_PF/driver/unbind
-   echo octep_vdpa > /sys/bus/pci/devices/$HOST_PF/driver_override
+   echo octep_vdpa_pci > /sys/bus/pci/devices/$HOST_PF/driver_override
    echo $HOST_PF > /sys/bus/pci/drivers_probe
    echo $VF_CNT >/sys/bus/pci/devices/$HOST_PF/sriov_numvfs
 

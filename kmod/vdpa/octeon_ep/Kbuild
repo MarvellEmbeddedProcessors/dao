@@ -2,5 +2,9 @@
 # Copyright (c) 2023 Marvell.
 
 ccflags-y := $(MODULE_CFLAGS)
-obj-m := octep_vdpa.o
-octep_vdpa-y := octep_vdpa_main.o octep_vdpa_hw.o
+
+obj-m := octep_vdpa_pci.o
+octep_vdpa_pci-y := octep_vdpa_main.o octep_vdpa_hw.o octep_pci.o
+
+obj-m += octep_vdpa_plat.o
+octep_vdpa_plat-y := octep_vdpa_main.o octep_vdpa_hw.o octep_plat.o

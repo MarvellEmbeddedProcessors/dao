@@ -512,12 +512,12 @@ HOST Configuration
   modprobe vdpa
   modprobe virtio_vdpa
   modprobe virtio_net
-  insmod octep_vdpa.ko
+  insmod octep_vdpa_pci.ko
   SDP_PF=`lspci -Dn -d :b900 | head -1 | cut -f 1 -d " "`
   VF_CNT=1
   VF_CNT_MAX=`cat /sys/bus/pci/devices/$SDP_PF/sriov_totalvfs`
   VF_CNT=$((VF_CNT >VF_CNT_MAX ? VF_CNT_MAX : VF_CNT))
-  dpdk-devbind.py -b octep_vdpa $SDP_PF
+  dpdk-devbind.py -b octep_vdpa_pci $SDP_PF
   echo $VF_CNT >/sys/bus/pci/devices/$SDP_PF/sriov_numvfs
   vdpa dev add name vdpa0 mgmtdev pci/0000:01:02.0
 

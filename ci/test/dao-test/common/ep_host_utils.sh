@@ -122,11 +122,11 @@ function ep_host_vdpa_common_setup()
 		modprobe virtio-vdpa
 	fi
 	set +e # Module may be already loaded
-	rmmod octep_vdpa
+	rmmod octep_vdpa_pci
 	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
-		insmod $EP_HOST_MODULE_DIR/octep_vdpa.ko
+		insmod $EP_HOST_MODULE_DIR/octep_vdpa_pci.ko
 	else
-		insmod $EP_DIR/kmod/vdpa/octeon_ep/octep_vdpa.ko
+		insmod $EP_DIR/kmod/vdpa/octeon_ep/octep_vdpa_pci.ko
 	fi
 	set -e
 
@@ -135,7 +135,7 @@ function ep_host_vdpa_common_setup()
 	vf_cnt_max=$(cat /sys/bus/pci/devices/$host_pf/sriov_totalvfs)
 	vf_cnt=$((vf_cnt >vf_cnt_max ? vf_cnt_max : vf_cnt))
 
-	ep_common_bind_driver pci $host_pf octep_vdpa
+	ep_common_bind_driver pci $host_pf octep_vdpa_pci
 	ep_common_set_numvfs $host_pf $vf_cnt
 
 	sleep 1
@@ -191,7 +191,7 @@ function ep_host_vdpa_cleanup()
 {
 	echo "Cleaning up VDPA on host"
 	set +e # Module may be already loaded
-	rmmod octep_vdpa
+	rmmod octep_vdpa_pci
 	rmmod vhost-vdpa
 	rmmod vdpa
 	set -e
@@ -207,7 +207,7 @@ function ep_host_virtio_vdpa_cleanup()
 			echo $vdev > /sys/bus/vdpa/drivers/virtio_vdpa/unbind
 		fi
 	done
-	rmmod octep_vdpa
+	rmmod octep_vdpa_pci
 	rmmod virtio-vdpa
 	rmmod vdpa
 	set -e

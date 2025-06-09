@@ -7,7 +7,7 @@ Getting started with VirtIO on host
 OCTEON vDPA driver
 ------------------
 
-OCTEON vDPA driver(octep_vdpa.ko) manages the virtio control plane over vDPA bus
+OCTEON vDPA driver(octep_vdpa_pci.ko) manages the virtio control plane over vDPA bus
 for OCTEON devices.
 
 Setting up Host environment
@@ -56,7 +56,7 @@ To compile modules for specific kernel sources ``kernel_dir`` option should be s
 
 Bind PEM PF and VF to Host Octeon VDPA driver
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-On Host, we need to bind host PF and VF devices provided by CN10K to ``octep_vdpa`` driver and
+On Host, we need to bind host PF and VF devices provided by CN10K to ``octep_vdpa_pci`` driver and
 then bind the VDPA devices to ``vhost_vdpa`` devices to be available for DPDK or guest.
 
 .. code-block:: console
@@ -65,7 +65,7 @@ then bind the VDPA devices to ``vhost_vdpa`` devices to be available for DPDK or
    modprobe vdpa
    modprobe vhost-vdpa
 
-   insmod octep_vdpa.ko
+   insmod octep_vdpa_pci.ko
 
    HOST_PF=`lspci -Dn -d :b900 | head -1 | cut -f 1 -d " "`
    VF_CNT=1
@@ -73,7 +73,7 @@ then bind the VDPA devices to ``vhost_vdpa`` devices to be available for DPDK or
    VF_CNT=$((VF_CNT >VF_CNT_MAX ? VF_CNT_MAX : VF_CNT))
 
    echo $HOST_PF > /sys/bus/pci/devices/$HOST_PF/driver/unbind
-   echo octep_vdpa > /sys/bus/pci/devices/$HOST_PF/driver_override
+   echo octep_vdpa_pci > /sys/bus/pci/devices/$HOST_PF/driver_override
    echo $HOST_PF > /sys/bus/pci/drivers_probe
    echo $VF_CNT >/sys/bus/pci/devices/$HOST_PF/sriov_numvfs
 
@@ -229,14 +229,14 @@ Run the code block below to create a virtio device on host for each VF using vir
 
    modprobe vfio-pci
    modprobe vdpa
-   insmod octep_vdpa.ko
+   insmod octep_vdpa_pci.ko
    HOST_PF=`lspci -Dn -d :b900 | head -1 | cut -f 1 -d " "`
    VF_CNT=1
    VF_CNT_MAX=`cat /sys/bus/pci/devices/$HOST_PF/sriov_totalvfs`
    VF_CNT=$((VF_CNT >VF_CNT_MAX ? VF_CNT_MAX : VF_CNT))
 
    echo $HOST_PF > /sys/bus/pci/devices/$HOST_PF/driver/unbind
-   echo octep_vdpa > /sys/bus/pci/devices/$HOST_PF/driver_override
+   echo octep_vdpa_pci > /sys/bus/pci/devices/$HOST_PF/driver_override
    echo $HOST_PF > /sys/bus/pci/drivers_probe
    echo $VF_CNT >/sys/bus/pci/devices/$HOST_PF/sriov_numvfs
 
