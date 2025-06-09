@@ -1770,11 +1770,6 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		memcpy(dptr + iv_offset, op->cipher_iv, iv_len);
 
 		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
-			/* Copy Counter: 00 00 00 01*/
-			const uint8_t counter[4] = {0x00, 0x00, 0x00, 0x01};
-
-			memcpy(dptr + iv_offset + iv_len - 4, counter, 4);
-
 			/* Copy AAD */
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->aad == NULL || op->aad_len <= 0) {
