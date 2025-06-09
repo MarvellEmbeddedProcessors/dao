@@ -23,14 +23,15 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	enum dao_lc_fc_enc_cipher cipher_type = DAO_LC_FC_ENC_CIPHER_NULL;
 	struct dao_lc_sym_sess_meta *sess_meta;
+	uint16_t iv_len = 0, digest_len = 0;
 	union cpt_inst_w4 w4 = {0};
-	uint16_t digest_len = 0;
-	uint16_t iv_len = 0;
 
 	sess_meta =
 		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
-	if (sess_meta == NULL)
+	if (sess_meta == NULL) {
 		dao_err("Could not allocate memory for session metadata.");
+		return NULL;
+	}
 
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_FC) {
 		switch (ctx->fc.enc_cipher) {
@@ -46,8 +47,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			break;
 		default:
 			dao_err("Unsupported encryption cipher.");
-			rte_free(sess_meta);
-			return NULL;
+			goto sess_meta_free;
 		}
 
 		sess_meta->cipher_type = cipher_type;
@@ -60,8 +60,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			break;
 		default:
 			dao_err("Unsupported hash type.");
-			rte_free(sess_meta);
-			return NULL;
+			goto sess_meta_free;
 		}
 
 		sess_meta->hash_type = ctx->fc.hash_type;
@@ -72,13 +71,17 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		w4.s.param2 = ((uint16_t)ctx->fc.hash_type << 8) | (uint16_t)digest_len;
 	} else {
 		dao_err("Unsupported opcode.");
-		rte_free(sess_meta);
-		return NULL;
+		goto sess_meta_free;
 	}
+
 	sess_meta->w4 = w4.u64;
 	sess_meta->digest_len = digest_len;
 
 	return sess_meta;
+
+sess_meta_free:
+	rte_free(sess_meta);
+	return NULL;
 }
 
 void
