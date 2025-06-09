@@ -80,6 +80,7 @@ dao_get_tcp_opt(const struct rte_tcp_hdr *tcp, struct dao_conn_tcp_peer *state)
 			state->opt |= DAO_CONN_TCPOPT_FLAG(SACK_FLAG);
 			break;
 		default:
+			break;
 		}
 
 		optlen = opt[1];

@@ -483,12 +483,13 @@ conn_update_state(struct rte_mbuf *pkt, struct conn_lookup_ctx *ctx, struct dao_
 		case CONN_UPDATE_INVALID:
 			mdata->ct_state = DAO_CONN_STATE_FLAG(DAO_CONN_STATE_INVALID);
 			break;
-		case CONN_UPDATE_NEW:
+		case CONN_UPDATE_NEW: {
 			int bid;
 			if (conn_hash_lookup(&conn->conn_key[CONN_DIR_FWD], &bid))
 				conn_force_expire(conn, now);
 			create_new_conn = true;
 			break;
+		}
 		case CONN_UPDATE_VALID_NEW:
 			mdata->ct_state |= DAO_CONN_STATE_FLAG(DAO_CONN_STATE_NEW);
 			break;
