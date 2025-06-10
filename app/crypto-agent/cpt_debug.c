@@ -11,6 +11,11 @@
 void
 cpt_debug_inst_print(struct cpt_inst_s *inst)
 {
+	if (inst == NULL) {
+		CA_ERR("Invalid instruction pointer");
+		return;
+	}
+
 	CA_INFO("opcode_major: %d, opcode_minor: %d, param1: %d, param2: %d, dlen: %d",
 		inst->w4.s.opcode_major, inst->w4.s.opcode_minor, inst->w4.s.param1,
 		inst->w4.s.param2, inst->w4.s.dlen);
@@ -22,6 +27,11 @@ cpt_debug_res_print(struct cpt_inflight_req *req)
 {
 	union dao_cpt_res_s res;
 	char log_str[256];
+
+	if (req == NULL) {
+		CA_ERR("Invalid request pointer");
+		return;
+	}
 
 	res.u64[0] = __atomic_load_n(&req->res.u64[0], __ATOMIC_RELAXED);
 	res.u64[1] = __atomic_load_n(&req->res.u64[1], __ATOMIC_RELAXED);
