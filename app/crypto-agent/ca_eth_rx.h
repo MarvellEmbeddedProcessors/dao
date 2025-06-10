@@ -128,7 +128,10 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		pending_queue_advance(&head, pq_mask);
 
 #ifdef CA_DEBUG_ENABLE
-		cpt_debug_inst_print(&inst[i]);
+		if (req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM ||
+		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM ||
+		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC)
+			cpt_debug_inst_print(&inst[i]);
 #endif
 	}
 
