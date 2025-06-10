@@ -5,6 +5,8 @@
 #ifndef __CPT_DEBUG_H__
 #define __CPT_DEBUG_H__
 
+#include <hw/cpt.h>
+
 #include "ca_crypto_queue.h"
 
 void cpt_debug_inst_print(struct cpt_inst_s *inst);

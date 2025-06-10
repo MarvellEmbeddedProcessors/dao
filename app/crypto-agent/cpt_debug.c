@@ -3,6 +3,7 @@
  */
 
 #include <dao_liquid_crypto.h>
+#include <hw/cpt.h>
 
 #include "ca_crypto_queue.h"
 #include "cpt_debug.h"
