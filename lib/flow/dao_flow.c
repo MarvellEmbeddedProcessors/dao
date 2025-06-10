@@ -178,8 +178,18 @@ parse_profile_setup(uint16_t port_id, struct flow_global_cfg *gbl_cfg,
 		gbl_cfg->flow_cfg[port_id].parse_prfl = &ovs_kex_profile;
 		gbl_cfg->flow_cfg[port_id].prfl_ops = &ovs_prfl_ops;
 		break;
+	case DAO_FLOW_KEX_CPT_EM:
+		gbl_cfg->flow_cfg[port_id].parse_prfl = &cpt_em_kex_profile;
+		break;
 	default:
 		dao_err("Invalid kex profile: %s", config->parse_profile);
+	}
+
+	if (config->kex_profile & DAO_FLOW_KEX_CPT_EM) {
+		/* Key generation is done by CPT microcode, but KEX profile is needed
+		 * to validate and create key from rte_flow patters and action. */
+		//             gbl_cfg->flow_cfg[port_id].prfl_ops = &exact_match_prfl_ops;
+		gbl_cfg->flow_cfg[port_id].parse_prfl = &cpt_em_kex_profile;
 	}
 }
 
@@ -209,6 +219,9 @@ dao_flow_init(uint16_t port_id, struct dao_flow_offload_config *hw_offload_cfg)
 		break;
 	case DAO_FLOW_ALG_ACL:
 		gbl_cfg->flow_ops = &acl_flow_ops;
+		break;
+	case DAO_FLOW_ALG_CPT_EM:
+		gbl_cfg->flow_ops = &cpt_em_flow_ops;
 		break;
 	default:
 		DAO_ERR_GOTO(-EINVAL, error, "Flow alg not supported.");

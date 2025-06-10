@@ -78,14 +78,18 @@ struct flow_fops_t {
 
 extern struct flow_parser_tcam_kex default_kex_profile;
 extern struct parse_profile_ops default_prfl_ops;
+
 extern struct flow_parser_tcam_kex ovs_kex_profile;
 extern struct parse_profile_ops ovs_prfl_ops;
 
 extern struct flow_parser_tcam_kex exact_match_kex_profile;
 extern struct parse_profile_ops exact_match_prfl_ops;
 
+extern struct flow_parser_tcam_kex cpt_em_kex_profile;
+
 extern struct flow_fops_t acl_flow_ops;
 extern struct flow_fops_t em_flow_ops;
+extern struct flow_fops_t cpt_em_flow_ops;
 
 static inline void
 reverse_memcpy(uint8_t *ptr, const uint8_t *data, int len)

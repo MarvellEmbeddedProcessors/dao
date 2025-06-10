@@ -8,6 +8,7 @@ endif
 sources = files(
 	'dao_flow.c',
 	'flow_acl.c',
+        'flow_cpt_em.c',
         'flow_dbg.c',
         'flow_em.c',
 	'flow_hw_offload.c',

@@ -51,11 +51,13 @@ struct dao_flow_offload_config {
 	/** Different features supported */
 #define DAO_FLOW_HW_OFFLOAD_ENABLE DAO_BIT(0)
 	uint32_t feature;
-#define DAO_FLOW_ALG_EM  DAO_BIT(0)
-#define DAO_FLOW_ALG_ACL DAO_BIT(1)
+#define DAO_FLOW_ALG_EM     DAO_BIT(0)
+#define DAO_FLOW_ALG_ACL    DAO_BIT(1)
+#define DAO_FLOW_ALG_CPT_EM DAO_BIT(2)
 	uint32_t alg;
 #define DAO_FLOW_KEX_DEFAULT DAO_BIT(0)
 #define DAO_FLOW_KEX_OVS     DAO_BIT(1)
+#define DAO_FLOW_KEX_CPT_EM  DAO_BIT(2)
 	uint32_t kex_profile;
 	/** Key exchange profiles supported */
 	char parse_profile[DAO_FLOW_PROFILE_NAME_MAX];
