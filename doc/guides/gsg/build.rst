@@ -29,29 +29,38 @@ Before compiling DAO, install the required packages:
 
   # apt-get update
   # apt-get install -y \
-    build-essential gcc ninja-build meson git \
+    build-essential gcc-14 ninja-build meson git \
     pkg-config libssl-dev \
     libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev \
     libarchive-dev libbsd-dev libbpf-dev \
     libfdt-dev libjansson-dev zlib1g-dev \
     doxygen sphinx-common python3-sphinx-rtd-theme \
-    python3-pip python3-setuptools python3-wheel python3-pyelftools
+    python3-pip python3-setuptools python3-wheel python3-pyelftools \
+    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
 Compiling and Installing
 ------------------------
 
-When compiling for the Octeon platform, DAO has a mandatory dependency on DPDK.
+When compiling for the Octeon platform, DAO has a mandatory dependency on DPDK and gRPC.
 
 .. note::
 
- Steps to build DPDK are as follows:
- (Steps are for natively compiling DPDK on ARM based rootfs)
+ Steps to build DPDK and gRPC are as follows:
+ (Steps are for natively compiling DPDK and gRPC on ARM based rootfs)
 
+ * # Build DPDK
  * git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
  * cd marvell-dpdk
  * git checkout dpdk-23.11-release
  * meson build -Dexamples=all -Denable_drivers=*/cnxk,net/ring -Dplatform=cn10k --prefix=${PWD}/install
  * ninja -C build install
+ * # Build gRPC
+ * cd <Path to DAO repo>/dao
+ * export GRPC_BUILD_DIR=/tmp/dao-deps-build
+ * ./ci/build/build-deps.sh $GRPC_BUILD_DIR <git user name> cn10k grpc
+ * export PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/bin:$PATH
+ * export LD_LIBRARY_PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/lib:$LD_LIBRARY_PATH
+ * export PKG_CONFIG_PATH="$GRPC_BUILD_DIR/deps/deps-prefix/ep/lib/pkgconfig:$GRPC_BUILD_DIR/deps/host/grpc/third_party/re2:${PKG_CONFIG_PATH:-}"
 
 Native Compilation
 ``````````````````
@@ -60,7 +69,7 @@ Compiling on ARM server for CN10k platform
 .. code-block:: console
 
   # cd <Path to DAO repo>/dao
-  # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false --prefer-static
+  # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Dprefer_static_build=true --prefer-static
   # ninja -C build install
 
 Compiling on x86 machine

@@ -11,9 +11,10 @@ Compilation of DAO
 ------------------
 
 Required system Tools and Libraries
+
 * General development tools including a C compiler supporting the C11 standard,
-including standard atomics, for example: GCC (version 10.0+), and pkg-config or
-pkgconf required for resolving library dependencies.
+  including standard atomics, for example: GCC (version 14.0+), and pkg-config or
+  pkgconf required for resolving library dependencies.
 
 For RHEL/Fedora systems these can be installed using
 
@@ -29,15 +30,7 @@ For Ubuntu/Debian systems these can be installed using
 
 * Python 3.6 or later.
 
-* Meson (version 0.53.0+) and ninja
-
-meson & ninja-build packages in most Linux distributions
-If the packaged version is below the minimum version, the latest versions can be
-installed from Python’s “pip” repository:
-
-.. code-block:: console
-
- # pip3 install meson ninja
+* Meson (version 1.3.2+) and ninja
 
 * DPDK 24.11 or later
 
@@ -50,7 +43,7 @@ Check if pkg-config able to resolve libdpdk dependency:
 
  # pkg-config --modversion libdpdk
 
-* pyelftools (version 0.22+)
+* pyelftools (version 0.30+)
 
 For Fedora systems it can be installed using
 
