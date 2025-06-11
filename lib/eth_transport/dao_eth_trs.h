@@ -143,7 +143,8 @@ int dao_eth_trs_fini(void);
  *  Pointer to the structure to store the information.
  *
  * @return
- *  0 on success, negative on error.
+ *  - 0 on success
+ *  - -EINVAL if the ethernet transport library is not initialized
  */
 int dao_eth_trs_info(struct dao_eth_trs_info *info);
 

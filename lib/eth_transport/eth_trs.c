@@ -24,18 +24,18 @@ dao_eth_trs_dev_start(uint8_t dev_id)
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_id >= eth_trs->nb_devs) {
 		dao_err("Invalid device ID %u", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	dev = eth_trs->devs[dev_id];
 	if (dev == NULL) {
 		dao_err("Device %u is not initialized", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev->state == ETH_TRS_DEV_STATE_UP) {
@@ -82,18 +82,18 @@ dao_eth_trs_dev_stop(uint8_t dev_id)
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_id >= eth_trs->nb_devs) {
 		dao_err("Invalid device ID %u", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	dev = eth_trs->devs[dev_id];
 	if (dev == NULL) {
 		dao_err("Device %u is not initialized", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev->state == ETH_TRS_DEV_STATE_DOWN) {
@@ -126,43 +126,43 @@ dao_eth_trs_dev_queue_configure(uint8_t dev_id, uint16_t dev_queue_id,
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_id >= eth_trs->nb_devs) {
 		dao_err("Invalid device ID %u", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (conf == NULL) {
 		dao_err("Invalid queue configuration");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (conf->queue_size == 0) {
 		dao_err("Invalid queue size");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (conf->rx_mp == NULL) {
 		dao_err("Invalid RX mempool");
-		return -1;
+		return -EINVAL;
 	}
 
 	dev = eth_trs->devs[dev_id];
 	if (dev == NULL) {
 		dao_err("Device %u is not initialized", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_queue_id >= dev->nb_queues) {
 		dao_err("Invalid device queue ID %u", dev_queue_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev->state == ETH_TRS_DEV_STATE_UP) {
 		dao_err("Device is in use, stop it first");
-		return -1;
+		return -EBUSY;
 	}
 
 	/* Get ethernet port ID and queue ID */
@@ -196,23 +196,23 @@ dao_eth_trs_dev_queue_map(uint8_t dev_id, uint16_t dev_queue_id, uint16_t *port_
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_id >= eth_trs->nb_devs) {
 		dao_err("Invalid device ID %u", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	dev = eth_trs->devs[dev_id];
 	if (dev == NULL) {
 		dao_err("Device %u is not initialized", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_queue_id >= dev->nb_queues) {
 		dao_err("Invalid device queue ID %u", dev_queue_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	/* Get ethernet port ID and queue ID */
@@ -235,24 +235,24 @@ dao_eth_trs_dev_alloc(uint8_t dev_id, struct dao_eth_trs_dev_config *conf)
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_id >= eth_trs->nb_devs) {
 		dao_err("Invalid device ID %u", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (conf->nb_queues == 0 || conf->nb_queues > eth_trs->nb_queues) {
 		dao_err("Invalid number of device queues %u", conf->nb_queues);
-		return -1;
+		return -EINVAL;
 	}
 
 	sprintf(dev_name, "eth_trs_dev_%u", dev_id);
 	dev = rte_zmalloc(dev_name, sizeof(struct eth_trs_dev), 0);
 	if (dev == NULL) {
 		dao_err("Failed to allocate memory for ethernet transport device");
-		return -1;
+		return -ENOMEM;
 	}
 
 	/* Calculate the number of ports and queues per port */
@@ -272,7 +272,7 @@ dao_eth_trs_dev_alloc(uint8_t dev_id, struct dao_eth_trs_dev_config *conf)
 	rc = rte_eth_dev_info_get(dev->port_id[0], &dev_info);
 	if (rc < 0) {
 		dao_err("Failed to get ethernet device info (port %u): %d", dev->port_id[0], rc);
-		goto fail;
+		goto dev_free;
 	}
 
 	memset(&eth_conf, 0, sizeof(eth_conf));
@@ -287,14 +287,14 @@ dao_eth_trs_dev_alloc(uint8_t dev_id, struct dao_eth_trs_dev_config *conf)
 		if (rc < 0) {
 			dao_err("Failed to configure ethernet device (port %u): %d",
 				dev->port_id[i], rc);
-			goto fail;
+			goto dev_free;
 		}
 	}
 
 	return 0;
-fail:
+dev_free:
 	dao_eth_trs_dev_free(dev_id);
-	return -1;
+	return rc;
 }
 
 int
@@ -306,23 +306,23 @@ dao_eth_trs_dev_free(uint8_t dev_id)
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev_id >= eth_trs->nb_devs) {
 		dao_err("Invalid device ID %u", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	dev = eth_trs->devs[dev_id];
 	if (dev == NULL) {
 		dao_err("Device %u not initialized", dev_id);
-		return -1;
+		return -EINVAL;
 	}
 
 	if (dev->state == ETH_TRS_DEV_STATE_UP) {
 		dao_err("Device is in use, stop it first");
-		return -1;
+		return -EBUSY;
 	}
 
 	for (i = 0; i < dev->nb_ports; i++) {
@@ -348,7 +348,7 @@ dao_eth_trs_info(struct dao_eth_trs_info *info)
 
 	if (eth_trs == NULL) {
 		dao_err("Ethernet transport library is not initialized");
-		return -1;
+		return -EINVAL;
 	}
 
 	/* Information is the same for all the ports */
