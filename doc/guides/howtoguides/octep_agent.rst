@@ -58,6 +58,15 @@ Hugepage setup
  or
  # echo 256 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 
+Loading vfio-pci driver
+-----------------------
+
+.. code-block:: console
+
+   modprobe vfio-pci
+
+This ensures that the vfio-pci driver is loaded before binding devices.
+
 Binding the required devices
 ----------------------------
 
@@ -93,88 +102,81 @@ Execute ``lspci -ks 0001:00:10.0`` to confirm successful binding of PEM device w
       Subsystem: Cavium, Inc. Device b900
       Kernel driver in use: vfio-pci
 
-Binding DPI device
-``````````````````
+Binding SDP RVU PF devices
+``````````````````````````
 
-Check for device ID ``0xa080`` viz DPI and bind to vfio-pci
-
-.. code-block:: console
-
- # lspci | grep a080
- 0000:06:00.0 System peripheral: Cavium, Inc. Device a080
-
-Bind to vfio-pci
+Check for device ID ``0xa0ef`` and bind to vfio-pci:
 
 .. code-block:: console
 
- echo  0000:06:00.0 > /sys/bus/pci/drivers/octeontx2-dpi/unbind
- echo  "177d a080" > /sys/bus/pci/drivers/vfio-pci/new_id
- echo  0000:06:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
+  #lspci | grep a0ef
+  0002:18:00.0 Ethernet controller: Cavium, Inc. Device a0ef
+  0002:19:00.0 Ethernet controller: Cavium, Inc. Device a0ef
 
-.. note ::
- Please ignore any error message, something like ``-bash: echo: write error: Device or resource busy``
-
-Execute ``lspci -ks 0000:06:00.0`` to confirm successful binding of DPI device with vfio
+Bind both to vfio-pci:
 
 .. code-block:: console
 
- # lspci -ks 0000:06:00.0
- 0000:06:00.0 System peripheral: Cavium, Inc. Device a080
-      Subsystem: Cavium, Inc. Device b900
-      Kernel driver in use: vfio-pci
+  echo "177d a0ef" > /sys/bus/pci/drivers/vfio-pci/new_id
+  echo "0002:18:00.0" > /sys/bus/pci/drivers/vfio-pci/bind
+  echo "0002:19:00.0" > /sys/bus/pci/drivers/vfio-pci/bind
+
+.. note::
+   If the device is already bound to another driver, unbind it first:
+
+.. code-block:: console
+
+  lspci -ks <BDF>
+  echo "<BDF>" > /sys/bus/pci/drivers/<driver>/unbind
 
 Running the octep-agent
 -----------------------
 
+Using SDP RVU PF devices
+````````````````````````
+
+When SDP RVU PF devices are used, pass them via --sdp_rvu_pf argument:
+
 .. code-block:: console
 
-  /usr/bin/octep_cp_agent /usr/bin/<soc>.cfg  -- --dpi_dev 0000:06:00.0 --pem_dev 0001:00:10.0
+  /usr/bin/octep_cp_agent /usr/bin/cn106xx.cfg
+  -- --sdp_rvu_pf 0002:18:00.0,0002:19:00.0 --pem_dev 0001:00:10.0
 
-  <soc> has to replaced with soc name of the target on which the app is to be run.
-  Eg.
-     /usr/bin/octep_cp_agent /usr/bin/cn106xx.cfg -- --dpi_dev 0000:06:00.0 --pem_dev 0001:00:10.0
+.. note::
+  The first SDP RVU PF (e.g., 0002:18:00.0) must appear first in the comma-separated list passed to --sdp_rvu_pf.
 
 To run the application in background and dump logs:
 
 .. code-block:: console
 
-   /usr/bin/octep_cp_agent /usr/bin/cn106xx.cfg -- --dpi_dev 0000:06:00.0 --pem_dev 0001:00:10.0 2>&1 > /tmp/octep-cp-log.txt &
-
-Optional parameters
-  ``-y`` <milliseconds> yield cpu for msecs between subsequent calls to msg poll (default: 1ms)
-
-  ``-m`` <1-n> Max control messages and events to be polled at one time (default: 6)
-  htop can be used to check cpu usage by the app
+   /usr/bin/octep_cp_agent /usr/bin/cn106xx.cfg -- --pem_dev 0001:00:10.0 --sdp_rvu_pf 0002:18:00.0,0002:19:00.0 2>&1 > /tmp/octep-cp-log.txt &
 
 Upon successful launch of the application, the following logs will be displayed and application
 will run in background
 
 .. code-block:: console
 
- # CNXK: DPI: device = 0000:06:00.0; IOMMU group = 29
- CNXK: PEM: device = 0001:00:10.0; IOMMU group = 32
- LIB: init
- SOC: Model: cn10ka_a0
- CNXK: init
- CNXK: Created VFIO container successfully; fd=3
- CNXK: Initializing DPI ...
- CNXK: mapped DPI device region-0; size=0x100000000.
- CNXK: Enabling DPI engine 0 ...
- CNXK: Enabling DPI engine 1 ...
- CNXK: Enabling DPI engine 2 ...
- CNXK: Enabling DPI engine 3 ...
- CNXK: Enabling DPI engine 4 ...
- CNXK: Enabling DPI engine 5 ...
- CNXK: mapped PEM device region-0; size=0x40000000.
- CNXK: mapped PEM device region-4; size=0x100000.
- CNXK: CP mailbox: virt_addr = 0xfffe20000000; phys_addr = 0x320000000
- CNXK: Number of PEM interrupts = 10
- CNXK: Enabled PEM link down and PERST interrupts
- CNXK: pem[0] pf[0] control plane versions 10000:10000
- CNXK: pem[0] pf[0] mbox h2fq sz 16256 addr 0xfffe20000120
- CNXK: pem[0] pf[0] mbox f2hq sz 16256 addr 0xfffe200040a0
- CNXK: pem[0] pf[0] oei_trig_addr 0xffff44c10000
- CNXK: pem[0] pf[0] fw ready 1 addr 0xfffe44c18418
+  CNXK: PEM: device = 0001:00:10.0; IOMMU group = 73
+  CNXK: SDP RVU PF: device = 0002:18:00.0; IOMMU group = 74
+  CNXK: SDP RVU PF: device = 0002:19:00.0; IOMMU group = 75
+  LIB: init
+  SOC: Model: cn10ka_a0
+  CNXK: init
+  CNXK: Created VFIO container successfully; fd=3
+  CNXK: Initializing SDP RVU PF ...
+  CNXK: mapped SDP RVU PF device region-2; size=0x400000.
+  CNXK: mapped SDP RVU PF device region-4; size=0x2000000.
+  CNXK: mapped SDP RVU PF device region-2; size=0x40080000.
+  CNXK: mapped SDP RVU PF device region-4; size=0x2000000.
+  CNXK: mapped PEM device region-0; size=0x40000000.
+  CNXK: mapped PEM device region-4; size=0x100000.
+  CNXK: Number of PEM interrupts = 10
+  CNXK: Enabled PEM link down and PERST interrupts
+  CNXK: pem[0] pf[0] control plane versions 10000:10000
+  CNXK: pem[0] pf[0] mbox h2fq sz 16256 addr 0xffff8dec0120
+  CNXK: pem[0] pf[0] mbox f2hq sz 16256 addr 0xffff8dec40a0
+  CNXK: pem[0] pf[0] oei_trig_addr 0xffff8be40000
+  CNXK: pem[0] pf[0] fw ready 1 addr 0xffff0a248418
 
 Runtime Configurations
 ######################
