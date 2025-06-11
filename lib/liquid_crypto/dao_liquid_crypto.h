@@ -47,7 +47,7 @@ struct dao_lc_buf {
 struct dao_lc_sym_op {
 	/**
 	 * The cookie to be associated with the operation. This cookie is returned in the
-	 * *dao_crypto_res* structure when the operation is dequeued.
+	 * *dao_lc_res* structure when the operation is dequeued.
 	 */
 	uint64_t op_cookie;
 	/** Session ID to be used. */
@@ -746,7 +746,7 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  *  Length of this buffer must be at least *mod_len* bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
- *  in the *dao_crypto_res* structure when the operation is dequeued.
+ *  in the *dao_lc_res* structure when the operation is dequeued.
  *
  * @return
  *  0 on success, negative value on failure.
@@ -788,7 +788,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
  *  Length of this buffer must be at least *mod_len* - 11 bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
- *  in the *dao_crypto_res* structure when the operation is dequeued.
+ *  in the *dao_lc_res* structure when the operation is dequeued.
  *
  * @return
  *  0 on success, negative value on failure.
@@ -837,7 +837,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  *  Length of this buffer must be *mod_len* bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
- *  in the *dao_crypto_res* structure when the operation is dequeued.
+ *  in the *dao_lc_res* structure when the operation is dequeued.
  *
  * @return
  *  0 on success, negative value on failure.
@@ -884,7 +884,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uin
  *  Length of this buffer must be at least *mod_len* - 11 bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
- *  in the *dao_crypto_res* structure when the operation is dequeued.
+ *  in the *dao_lc_res* structure when the operation is dequeued.
  *
  * @return
  *  0 on success, negative value on failure.
@@ -976,7 +976,7 @@ int dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ct
  * The session identifier.
  * @param sess_cookie
  * The cookie to be associated with the operation. This cookie is returned in the
- * *dao_lc_sess_event* structure when the operation is dequeued.
+ * *dao_lc_cmd_sess_event* structure when the operation is dequeued.
  *
  * @return
  * - On success, 0 is returned.
