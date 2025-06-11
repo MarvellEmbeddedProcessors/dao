@@ -22,7 +22,8 @@ cdata = configuration_data()
 cdata.set('OUTPUT', meson.current_build_dir())
 cdata.set('HTML_OUTPUT', 'html')
 cdata.set('TOPDIR', meson.current_source_dir())
-cdata.set('STRIP_FROM_PATH', meson.current_source_dir())
+project_root = meson.project_source_root()
+cdata.set('STRIP_FROM_PATH', project_root)
 
 doxy_conf = configure_file(
 	input: 'doxy-api.conf.in',
