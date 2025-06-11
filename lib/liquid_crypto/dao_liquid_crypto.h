@@ -626,7 +626,6 @@ int dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf);
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
  *   -EINVAL, indicating an invalid argument.
- *   -EEXIST, indicating that the file exists.
  */
 int dao_liquid_crypto_dev_destroy(uint8_t dev_id);
 
@@ -712,6 +711,7 @@ uint16_t dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params);
  * @return
  * - 0 on success, negative value on failure.
  * -  -EINVAL, indicating an invalid argument.
+ * -  -ENOSPC, indicating that there is no space left on the device.
  * -  -ENOMEM, indicating an out of memory error.
  * -  -EIO, indicating an I/O error.
  *
