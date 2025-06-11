@@ -347,6 +347,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
 	if (mp == NULL) {
 		dao_err("Could not create Rx mbuf pool.");
+		rc = -ENOMEM;
 		goto qp_free;
 	}
 
@@ -357,6 +358,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
 	if (mp == NULL) {
 		dao_err("Could not create Tx mbuf pool.");
+		rc = -ENOMEM;
 		goto rx_mp_free;
 	}
 
@@ -368,6 +370,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	qp->req_queue = rte_zmalloc(name, size, 0);
 	if (qp->req_queue == NULL) {
 		dao_err("Could not allocate memory for request queue.");
+		rc = -ENOMEM;
 		goto tx_mp_free;
 	}
 
@@ -388,6 +391,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	bm_mem_size = rte_bitmap_get_memory_footprint(nb_desc);
 	if (bm_mem_size == 0) {
 		dao_err("Could not get memory footprint for bitmap.");
+		rc = -EINVAL;
 		goto req_queue_free;
 	}
 
@@ -395,12 +399,14 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	qp->req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
 	if (qp->req_bm_mem == NULL) {
 		dao_err("Could not allocate memory for bitmap.");
+		rc = -ENOMEM;
 		goto req_queue_free;
 	}
 
 	qp->req_bm = rte_bitmap_init_with_all_set(nb_desc, qp->req_bm_mem, bm_mem_size);
 	if (qp->req_bm == NULL) {
 		dao_err("Could not initialize bitmap.");
+		rc = -EINVAL;
 		goto bm_mem_free;
 	}
 
@@ -409,6 +415,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		qp->cmd_req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
 		if (qp->cmd_req_bm_mem == NULL) {
 			dao_err("Could not allocate memory for command queue bitmap.");
+			rc = -ENOMEM;
 			goto bitmap_free;
 		}
 
@@ -416,6 +423,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 			rte_bitmap_init_with_all_set(nb_desc, qp->cmd_req_bm_mem, bm_mem_size);
 		if (qp->cmd_req_bm == NULL) {
 			dao_err("Could not initialize command queue bitmap.");
+			rc = -EINVAL;
 			goto cmd_bm_mem_free;
 		}
 
@@ -460,7 +468,7 @@ rx_mp_free:
 
 qp_free:
 	rte_free(qp);
-	return -ENOMEM;
+	return rc;
 }
 
 static int

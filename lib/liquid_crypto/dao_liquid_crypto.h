@@ -646,7 +646,8 @@ int dao_liquid_crypto_dev_destroy(uint8_t dev_id);
  * @return
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
- *   -EINVAL, indicating an invalid argument.
+ * - -EINVAL, indicating an invalid argument.
+ * - -ENOMEM, indicating an out of memory error.
  */
 int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_conf *conf);
 
