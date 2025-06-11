@@ -2225,12 +2225,14 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
-		return -EINVAL;
+		rte_errno = EINVAL;
+		return 0;
 	}
 
 	if (events == NULL) {
 		dao_err("Invalid argument. events cannot be NULL.");
-		return -EINVAL;
+		rte_errno = EINVAL;
+		return 0;
 	}
 
 	dev = &liquid_crypto_devs[dev_id];
@@ -2239,12 +2241,14 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 
 	if (qp_id == DAO_CMD_QP_IDX_INVALID) {
 		dao_err("Command queue is disabled!");
-		return -EINVAL;
+		rte_errno = EINVAL;
+		return 0;
 	}
 
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
-		return -EINVAL;
+		rte_errno = EINVAL;
+		return 0;
 	}
 
 	qp = dev->qp[qp_id];

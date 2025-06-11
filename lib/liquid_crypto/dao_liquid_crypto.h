@@ -1007,7 +1007,11 @@ int dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_
  * @param nb_events
  * The maximum number of command events to dequeue.
  * @return
- * The number of command events dequeued.
+ * The number of command events dequeued. The return value can be less than
+ * the number of command events requested to be dequeued if the queue is empty
+ * or if there are no command events available. In case of errors, 'rte_errno'
+ * will be set to indicate the cause.
+ * - EINVAL, indicating an invalid argument.
  */
 uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *events,
 					     uint16_t nb_events);
