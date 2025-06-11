@@ -147,7 +147,7 @@ PPA for development version:
 Installing DAO package
 ----------------------
 
-Two typeis of DAO packages are available for installation:
+Two types of DAO packages are available for installation:
 
 Release version
 ^^^^^^^^^^^^^^^
