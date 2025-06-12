@@ -2,9 +2,9 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
-APP_HOME="/root"
-BIN="$APP_HOME/lc_service/bin"
-CFG="$APP_HOME/lc_service/config"
+APP_HOME=$1
+BIN="$APP_HOME/bin"
+CFG="$APP_HOME/config"
 
 # Check if the number of iterations is provided
 if [ -z "$1" ]; then
@@ -12,7 +12,7 @@ if [ -z "$1" ]; then
 	exit 1
 fi
 
-iterations=$1
+iterations=$2
 i=1
 
 while [ $i -le $iterations ]; do

@@ -3,12 +3,40 @@
 # Copyright (c) 2025 Marvell.
 
 DAEMON="lc_service.sh"
-EXEC="/root/lc_service/scripts/$DAEMON"
+EXEC="/scripts/$DAEMON"
 PIDFILE="/var/run/$DAEMON.pid"
 
 start() {
+	# Check if the booting is from mmc or spi.
+	# application source will be based on which boot
+	cmdline=$(cat /proc/cmdline)
+
+
+	# Mount the appropriate partition based on app_env
+	if echo "$cmdline" | grep -q "root="; then
+		if [ ! -d /mnt/app ]; then
+			mkdir -p /mnt/app
+		fi
+
+		app_env=$(fw_printenv -c /etc/fw_mmc_env.config app_env | cut -d'=' -f2)
+		if [ -z "$app_env" ]; then
+			echo "FAIL: app_env not set"
+			exit 1
+		elif [ "$app_env" = "p3" ]; then
+			mount /dev/mmcblk0p3 /mnt/app
+		elif [ "$app_env" = "p5" ]; then
+			mount /dev/mmcblk0p5 /mnt/app
+		else
+			echo "FAIL: Unknown app_env value"
+			exit 1
+		fi
+		APP_HOME="/mnt/app/lc_service"
+	else
+		APP_HOME="/root/lc_service"
+	fi
+
 	printf 'Starting %s: ' "$DAEMON"
-	start-stop-daemon --start --background --make-pidfile -p "$PIDFILE" --exec "$EXEC"
+	start-stop-daemon --start --background --make-pidfile -p "$PIDFILE" --exec "$APP_HOME$EXEC" -- "$APP_HOME"
 	status=$?
 	if [ "$status" -eq 0 ]; then
 		echo "OK"

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
-APP_HOME="/root"
-SCRIPTS="$APP_HOME/lc_service/scripts"
-BIN="$APP_HOME/lc_service/bin"
-MC="$APP_HOME/lc_service/mc"
+APP_HOME=$1
+SCRIPTS="$APP_HOME/scripts"
+BIN="$APP_HOME/bin"
+CPT_MODULE="$APP_HOME/cpt_module"
 
 function load_ep() {
 	# Unload the module if it is already loaded
@@ -26,9 +26,9 @@ function setup_hp() {
 	echo $HP > /proc/sys/vm/nr_hugepages
 }
 
-function copy_mc() {
-	mkdir -p /lib/firmware/mrvl/cpt02
-	cp $MC/* /lib/firmware/mrvl/cpt02/
+function load_cpt() {
+	insmod $CPT_MODULE/rvu_cptcommon.ko
+	insmod $CPT_MODULE/rvu_cptpf.ko
 }
 
 function setup_devices() {
@@ -91,7 +91,7 @@ HP=${HP:-8}
 load_ep
 mount_hugetlbfs
 setup_hp
-copy_mc
+load_cpt
 setup_devices
 run_cp
 config_static_ip

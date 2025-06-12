@@ -3,7 +3,8 @@
 # Copyright (c) 2025 Marvell.
 
 mkdir -p ${TARGET_DIR}/root/lc_service/bin
-mkdir -p ${TARGET_DIR}/root/lc_service/mc
+mkdir -p ${TARGET_DIR}/root/lc_service/mc/mrvl/cpt02
+mkdir -p ${TARGET_DIR}/root/lc_service/cpt_module
 
 files=("dao-crypto-agent"
        "dpdk-test-crypto-perf"
@@ -36,12 +37,18 @@ CPT_MC_DIR=${MRVL_FW_DIR}/cpt
 
 # Move CPT microcode files to the appropriate lc_service directory
 if [ -d "${CPT_MC_DIR}/cpt02_lc" ]; then
-	mv -f ${CPT_MC_DIR}/cpt02_lc/* ${TARGET_DIR}/root/lc_service/mc/
+	mv -f ${CPT_MC_DIR}/cpt02_lc/* ${TARGET_DIR}/root/lc_service/mc/mrvl/cpt02/
 fi
 
 if ls ${CPT_MC_DIR}/cpt02/ae.out* 1> /dev/null 2>&1; then
-	mv -f ${CPT_MC_DIR}/cpt02/ae.out* ${TARGET_DIR}/root/lc_service/mc/
+	mv -f ${CPT_MC_DIR}/cpt02/ae.out* ${TARGET_DIR}/root/lc_service/mc/mrvl/cpt02/
 fi
+
+# Copy CPT kernel modules
+
+MRVL_CPT_DIR=${TARGET_DIR}/lib/modules/6.1.67/kernel/drivers/crypto/marvell/octeontx2
+mv -f ${MRVL_CPT_DIR}/rvu_cptpf.ko ${TARGET_DIR}/root/lc_service/cpt_module/
+mv -f ${MRVL_CPT_DIR}/rvu_cptcommon.ko ${TARGET_DIR}/root/lc_service/cpt_module/
 
 # Remove other firmware files
 eval rm -rf ${MRVL_FW_DIR}
