@@ -924,10 +924,10 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uin
  *  the number of operations requested to be enqueued if the queue is full or
  *  if there are any errors in the operations. In case of errors, 'rte_errno'
  *  will be set to indicate the cause.
- *   - -EINVAL, indicating an invalid argument.
- *   - -ENOMEM, indicating an out of memory error.
- *   - -ENOSPC, indicating that there is no space left on the device.
- *   - -EIO, indicating an I/O error.
+ *   - EINVAL, indicating an invalid argument.
+ *   - ENOMEM, indicating an out of memory error.
+ *   - ENOSPC, indicating that there is no space left on the device.
+ *   - EIO, indicating an I/O error.
  */
 uint16_t dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
 					     struct dao_lc_sym_op *op, uint16_t nb_ops);
@@ -952,7 +952,7 @@ uint16_t dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
  * the number of operations requested to be dequeued if the queue is empty or
  * if there are any errors in the operations. In case of errors, 'rte_errno'
  * will be set to indicate the cause.
- *  - -EINVAL, indicating an invalid argument.
+ *  - EINVAL, indicating an invalid argument.
  */
 uint16_t dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 					 uint16_t nb_ops);

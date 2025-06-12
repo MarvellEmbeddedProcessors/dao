@@ -1576,7 +1576,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (req->sess_meta == NULL) {
 		dao_err("Invalid session metadata pointer.");
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		return;
 	}
 #endif
@@ -1586,7 +1586,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (req->digest == NULL) {
 			dao_err("Invalid digest pointer.");
-			rte_errno = -EINVAL;
+			rte_errno = EINVAL;
 			return;
 		}
 
@@ -1594,7 +1594,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 		    req->sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
 			dao_err("Invalid digest length. digest_len: %d.",
 				req->sess_meta->digest_len);
-			rte_errno = -EINVAL;
+			rte_errno = EINVAL;
 			return;
 		}
 #endif
@@ -1656,7 +1656,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
 			dao_err("Invalid session id. sess_id = %lu", op->sess_id);
-			rte_errno = -EINVAL;
+			rte_errno = EINVAL;
 			return i;
 		}
 #endif
@@ -1669,7 +1669,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->digest == NULL) {
 				dao_err("Invalid digest pointer for auth only operation.");
-				rte_errno = -EINVAL;
+				rte_errno = EINVAL;
 				return i;
 			}
 #endif
@@ -1695,20 +1695,20 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (buf_len > rte_pktmbuf_tailroom(mbufs[i])) {
 			dao_err("Input data doesn't fit in single segment!");
-			rte_errno = -ENOMEM;
+			rte_errno = ENOMEM;
 			return i;
 		}
 
 		if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
 			dao_err("Input data too large. buf_len = %u", buf_len);
-			rte_errno = -ENOMEM;
+			rte_errno = ENOMEM;
 			return i;
 		}
 
 		if (op->cipher_len & 0xf) {
 			if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
 				dao_err("Invalid cipher length. cipher_len = %u", op->cipher_len);
-				rte_errno = -EINVAL;
+				rte_errno = EINVAL;
 				return i;
 			}
 		}
@@ -1739,7 +1739,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 			if (dlen < digest_len) {
 				dao_err("dlen is less than digest_len. dlen = %u, digest_len = %u",
 					dlen, digest_len);
-				rte_errno = -EINVAL;
+				rte_errno = EINVAL;
 				return i;
 			}
 #endif
@@ -1782,14 +1782,14 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->aad == NULL || op->aad_len <= 0) {
 				dao_err("Invalid AAD.");
-				rte_errno = -EINVAL;
+				rte_errno = EINVAL;
 				return i;
 			}
 
 			if ((iv_offset + iv_len + aad_len) > buf_len) {
 				dao_err("Buffer Length is too small to fit AAD. buf_len = %u",
 					buf_len);
-				rte_errno = -ENOMEM;
+				rte_errno = ENOMEM;
 				return i;
 			}
 #endif
@@ -1816,7 +1816,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 #endif
@@ -1826,25 +1826,25 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 
 	if (ops == NULL) {
 		dao_err("Invalid argument. ops cannot be NULL.");
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 #endif
@@ -1872,7 +1872,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (unlikely(rc != 0)) {
 		dao_err("Could not allocate mbufs.");
-		rte_errno = -ENOMEM;
+		rte_errno = ENOMEM;
 		goto put_req_idx;
 	}
 #endif
@@ -1884,7 +1884,7 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 	/* Free mbufs that are not transmitted. */
 	if (tx_cnt != i) {
 		dao_err("Could not transmit all packets.");
-		rte_errno = -EIO;
+		rte_errno = EIO;
 		goto mbuf_free;
 	}
 
@@ -1927,13 +1927,13 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 
 	if (res == NULL) {
 		dao_err("Invalid argument. res cannot be NULL.");
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 #endif
@@ -1943,19 +1943,19 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 
 	if (qp_id == dev->cmd_qp_idx) {
 		dao_err("Invalid argument. qp_id cannot be the command queue index.");
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
-		rte_errno = -EINVAL;
+		rte_errno = EINVAL;
 		goto exit;
 	}
 #endif
