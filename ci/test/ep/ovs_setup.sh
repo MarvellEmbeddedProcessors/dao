@@ -121,6 +121,7 @@ function dao_ovs_setup()
 	echo "Setting up EP Host for ovs"
 	ep_host_op sdp_setup
 
+	ep_device_op pem_setup
 	ep_device_op_bg 10 agent_init
 
 	echo "Verifying setup"

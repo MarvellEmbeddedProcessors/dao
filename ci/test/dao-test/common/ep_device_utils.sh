@@ -22,6 +22,7 @@ PCI_DEVID_CN10K_RVU_SDP_VF="0xa0f7"
 PCI_DEVID_CN10K_RVU_DPI_PF="0xa080"
 PCI_DEVID_CN10K_RVU_DPI_VF="0xa081"
 PCI_DEVID_CN10K_RVU_ESW_PF="0xa0e0"
+PCI_DEVID_CN10K_RVU_PEM_PF="0xa06c"
 
 RVU_DEV_IDS="
 $PCI_DEVID_CNXK_RVU_PF
@@ -274,7 +275,6 @@ function ep_device_agent_cleanup()
 
 function ep_device_agent_init()
 {
-	local mod=$(lsmod | grep pcie_marvell_cnxk_ep)
 	local ep_agent=$(pidof octep_cp_agent)
 	local ep_bin_dir=$EP_DIR/ep_files
 	local part=$(ep_device_get_part)
@@ -289,13 +289,13 @@ function ep_device_agent_init()
 		exit 1
 	fi
 
-	if [[ $mod == "" ]]; then
-		insmod $ep_bin_dir/pcie-marvell-cnxk-ep.ko
-	fi
+        pem_pf_pcie=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_PEM_PF)
+        ep_common_bind_driver pci $pem_pf_pcie vfio-pci
 
 	if [[ $ep_agent == "" ]]; then
 		$ep_bin_dir/octep_cp_agent \
-			$agent_conf 2>&1 > $ep_bin_dir/octep_cp_agent.log &
+			$agent_conf -- --sdp_rvu_pf 0002:18:00.0,0002:19:00.0 \
+			--pem_dev 0001:00:10.0 2>&1 > $ep_bin_dir/octep_cp_agent.log &
 	fi
 }
 
