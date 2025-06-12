@@ -417,7 +417,7 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 	uint64_t reg_val;
 	uint8_t rpvf;
 
-	reg_val = sdp_reg_read(&pem->sdp_pdev, SDP_VF_MBOX_DATA(0));
+	sdp_reg_read(&pem->sdp_pdev, SDP_VF_MBOX_DATA(0), &reg_val);
 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
 
 	if (!rpvf) {

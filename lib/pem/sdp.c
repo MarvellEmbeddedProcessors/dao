@@ -17,29 +17,35 @@
 #define SDP0_PCIE_DEV_NAME "0002:18:00.0"
 #define SDP1_PCIE_DEV_NAME "0002:19:00.0"
 
+static inline int sdp_offset_valid(struct dao_vfio_device *sdp_pdev, uint64_t offset)
+{
+	return offset < sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len;
+}
+
 int
 sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val)
 {
-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
+	if (!sdp_offset_valid(sdp_pdev, offset))
 		return -ENOMEM;
 
 	*((volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset)) = val;
 	return 0;
 }
 
-uint64_t
-sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset)
+int
+sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t *val)
 {
-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
+	if (!sdp_pdev || !val || !sdp_offset_valid(sdp_pdev, offset))
 		return -ENOMEM;
 
-	return *(volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
+	*val = *(volatile uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
+	return 0;
 }
 
 uint64_t *
 sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset)
 {
-	if (offset > sdp_pdev->mem[DAO_VFIO_DEV_BAR2].len)
+	if (!sdp_offset_valid(sdp_pdev, offset))
 		return NULL;
 
 	return (uint64_t *)(sdp_pdev->mem[DAO_VFIO_DEV_BAR2].addr + offset);
@@ -66,14 +72,14 @@ sdp_init(struct dao_vfio_device *sdp_pdev)
 	sdp_pdev->mbar = DAO_VFIO_DEV_BAR4;
 
 	if (sdp_pdev->prime) {
-		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
+		sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0), &reg_val);
 		reg_val &= ~SDP_EPFX_RINFO_SRN_MASK;
 		sdp_reg_write(sdp_pdev, SDP_EPFX_RINFO(0), reg_val);
-		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
+		sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0), &reg_val);
 		rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
-		num_vfs = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0x7f;
+		num_vfs = (reg_val >> SDP_EPFX_RINFO_NVVF_SHIFT) & 0x7f;
 		/* Disable PF Ring */
-		reg_val = sdp_reg_read(sdp_pdev, SDP_MAC0_PF_RING_CTL);
+		sdp_reg_read(sdp_pdev, SDP_MAC0_PF_RING_CTL, &reg_val);
 		reg_val &= ~SDP_MAC0_PF_RING_CTL_RPPF_MASK;
 		sdp_reg_write(sdp_pdev, SDP_MAC0_PF_RING_CTL, reg_val);
 
@@ -90,9 +96,11 @@ sdp_init(struct dao_vfio_device *sdp_pdev)
 		info <<= 32;
 		sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(0), info);
 		vfid = num_vfs >> 1;
-		info = rpvf | ((uint64_t)vfid << 8) | ((uint64_t)num_vfs << 16);
-		info <<= 32;
-		sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(32), info);
+		if (vfid) {
+			info = rpvf | ((uint64_t)vfid << 8) | ((uint64_t)num_vfs << 16);
+			info <<= 32;
+			sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(vfid * rpvf), info);
+		}
 	}
 
 	return 0;
