@@ -28,7 +28,7 @@
 
 static volatile bool force_quit;
 
-static struct ca_global_ctx ca_glb_ctx;
+struct ca_global_ctx ca_glb_ctx;
 
 struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
@@ -490,6 +490,20 @@ card_init(struct dao_card_config *config)
 	if (ret) {
 		CA_ERR("Could not initialize crypto devices");
 		goto map_fini;
+	}
+
+	ret = ca_ae_ec_grp_get(ca_glb_ctx.cryptodev_ids[0]);
+	if (ret) {
+		CA_ERR("Could not get AE EC group table for cryptodev: %d, error: %d",
+		       ca_glb_ctx.cryptodev_ids[0], ret);
+		goto cdev_fini;
+	}
+
+	ret = ca_ae_fpm_get(ca_glb_ctx.cryptodev_ids[0]);
+	if (ret) {
+		CA_ERR("Could not get AE FPM table for cryptodev: %d, error: %d",
+		       ca_glb_ctx.cryptodev_ids[0], ret);
+		goto cdev_fini;
 	}
 
 	ret = host_dev_init();

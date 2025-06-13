@@ -14,6 +14,7 @@
 #include <mc/ae.h>
 #include <mc/se.h>
 
+#include "ca_asym.h"
 #include "ca_crypto_queue.h"
 #include "ca_sess_mgr.h"
 #include "cpt_debug.h"
@@ -91,14 +92,12 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			infl_req->op_type = asym->op_type;
 
-			if (w4.s.opcode_major == ROC_AE_MAJOR_OP_MODEX) {
-				infl_req->rsa_mod_len = w4.s.param1;
-
-				if (w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC_CRT ||
-				    w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC) {
-					/* Reserve two bytes for output length */
-					inst[i].rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
-				}
+			rc = ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
+			if (rc != 0) {
+				infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
+				nb_cpt_bypass++;
+				CA_ERR("Asym operation failed: rc: %d", rc);
+				continue;
 			}
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:

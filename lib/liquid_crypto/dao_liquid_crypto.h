@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "liquid_crypto_asym.h"
+
 /** The version of the liquid crypto library */
 #define DAO_LC_VERSION "25.07.1"
 /** The maximum length of the version string. */
@@ -296,6 +298,11 @@ struct dao_lc_res {
 			/** The length of the output data */
 			uint16_t data_out_len;
 		} rsa;
+		/** Metadata associated with ECDSA operations */
+		struct {
+			/**< Length of the ECDSA r and s components */
+			uint16_t ecc_rs_out_len;
+		} ecdsa;
 		/** Generic 64-bit metadata */
 		uint64_t u64;
 	};
@@ -1175,5 +1182,91 @@ int dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_
  */
 uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *events,
 					     uint16_t nb_events);
+
+/**
+ * Enqueue request to perform ECDSA sign operation on the crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param curve_id
+ *  The identifier of the elliptic curve to be used for ECDSA signing.
+ * @param nonce_len
+ *  The length of the secret number in bytes.
+ * @param pkey_len
+ *  The length of the private key in bytes.
+ * @param digest_len
+ *  The length of the message digest in bytes.
+ * @param nonce
+ *  The address of the buffer containing the secret number.
+ * @param pkey
+ *  The address of the buffer containing the private key.
+ * @param digest_data
+ *  The address of the buffer containing the message digest.
+ * @param rs_outdata
+ *  The address of the buffer where the ECDSA signature (r and s components) is to be stored.
+ *  Length of this buffer must be at least twice the length of the order of the elliptic curve.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ *
+ * @return
+ *  0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -ENOSPC, indicating that there is no space left on the device.
+ */
+int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
+					enum dao_liquid_crypto_ec_curve_type curve_id,
+					uint16_t nonce_len, uint16_t pkey_len, uint16_t digest_len,
+					uint8_t *nonce, uint8_t *pkey, uint8_t *digest_data,
+					uint8_t *rs_outdata, uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform ECDSA verify operation on the crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param curve_id
+ *  The identifier of the elliptic curve to be used for ECDSA signing.
+ * @param r_len
+ *  The length of the ECDSA r component in bytes.
+ * @param s_len
+ *  The length of the ECDSA s component in bytes.
+ * @param digest_len
+ *  The length of the message digest in bytes.
+ * @param qx_len
+ *  The length of the x-coordinate of the public key in bytes.
+ * @param qy_len
+ *  The length of the y-coordinate of the public key in bytes.
+ * @param r_data
+ *  The address of the buffer containing the ECDSA r component.
+ * @param s_data
+ *  The address of the buffer containing the ECDSA s component.
+ * @param digest
+ *  The address of the buffer containing the message digest.
+ * @param qx_data
+ *  The address of the buffer containing the x-coordinate of the public key.
+ * @param qy_data
+ *  The address of the buffer containing the y-coordinate of the public key.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ *
+ * @return
+ *  0 on success, negative value on failure.
+ *   -EINVAL, indicating an invalid argument.
+ *   -ENOMEM, indicating an out of memory error.
+ *   -ENOSPC, indicating that there is no space left on the device.
+ */
+int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
+					  enum dao_liquid_crypto_ec_curve_type curve_id,
+					  uint16_t r_len, uint16_t s_len, uint16_t digest_len,
+					  uint16_t qx_len, uint16_t qy_len, uint8_t *r_data,
+					  uint8_t *s_data, uint8_t *digest, uint8_t *qx_data,
+					  uint8_t *qy_data, uint64_t op_cookie);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

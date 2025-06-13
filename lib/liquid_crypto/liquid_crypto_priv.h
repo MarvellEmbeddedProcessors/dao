@@ -80,7 +80,8 @@ struct liquid_crypto_inflight_req {
 	uint64_t op_cookie;
 	/** Output buffer given for a crypto operation. */
 	void *data_out;
-
+	/**< ECC operation type */
+	enum dao_lc_ecdsa_sign_type ecc_op;
 	/** Digest location */
 	void *digest;
 

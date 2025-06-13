@@ -11,5 +11,8 @@
 #define ROC_AE_MINOR_OP_PKCS_ENC_CRT 0x03
 #define ROC_AE_MINOR_OP_PKCS_DEC     0x04
 #define ROC_AE_MINOR_OP_PKCS_DEC_CRT 0x05
+#define ROC_AE_MAJOR_OP_EC           0x04
+#define ROC_AE_MINOR_OP_EC_SIGN      0x01
+#define ROC_AE_MINOR_OP_EC_VERIFY    0x02
 
 #endif /*  __MC_AE_H__ */

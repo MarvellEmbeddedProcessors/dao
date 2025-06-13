@@ -40,6 +40,8 @@ DAO_STATIC_ASSERT(CA_MAX_LCORE <= RTE_MAX_LCORE);
 #define CA_WARN(fmt, args...)    RTE_LOG(WARNING, AGENT, fmt "\n", ##args)
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
 
+extern struct ca_global_ctx ca_glb_ctx;
+
 struct ca_eth_dev_ctx {
 	bool is_configured;
 	bool is_started;
@@ -73,6 +75,9 @@ struct ca_global_ctx {
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr[CA_MAX_LCORE];
 	uint16_t nb_host_dev;
 	struct ca_hostdev_ctx host_ctx[CA_MAX_HOST_DEV];
+	uint16_t nb_ae_ec_max_entries;
+	uint64_t *ca_ae_fpm_iova;
+	struct rte_pmd_cnxk_crypto_ae_ec_group_params **ca_ec_grp;
 };
 
 struct lcore_conf {

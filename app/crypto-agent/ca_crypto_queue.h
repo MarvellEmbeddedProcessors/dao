@@ -22,7 +22,8 @@ struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 	struct rte_mbuf *mbuf;
 	enum lc_crypto_op_type op_type;
 	uint16_t rsa_mod_len;
-	uint8_t padding[96];
+	uint16_t ec_prime_len;
+	uint8_t padding[94];
 };
 
 DAO_STATIC_ASSERT(sizeof(struct cpt_inflight_req) == 128);

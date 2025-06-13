@@ -15,6 +15,7 @@
 #include <mc/ae.h>
 #include <mc/se.h>
 
+#include "ca_asym.h"
 #include "ca_crypto_queue.h"
 #include "cpt_debug.h"
 #include "crypto_agent.h"
@@ -25,7 +26,7 @@ static inline void
 ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
 {
 	struct __dao_lc_resp_asym *resp;
-	uint16_t rlen, pkt_len;
+	uint16_t rlen = 0, pkt_len;
 	struct rte_mbuf *mb;
 	uint8_t *rptr;
 
@@ -44,6 +45,8 @@ ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s 
 		 * the output data.
 		 */
 		rlen = infl_req->rsa_mod_len;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
 		break;
 	case LC_ASYM_RSA_DECRYPT:
 		/* For decryption operations, the dequeue API in the host library needs the
@@ -51,9 +54,21 @@ ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s 
 		 * response buffer.
 		 */
 		rlen = rte_cpu_to_be_16(*((uint16_t *)RTE_PTR_SUB(rptr, 2)));
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		break;
+	case LC_ASYM_ECDSA_SIGN:
+		/* For ECDSA sign, the lengths of r and s components are equal to the
+		 * prime length.
+		 */
+		rlen = infl_req->ec_prime_len;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + (rlen + RTE_ALIGN_CEIL(rlen, 8));
 		break;
 	default:
 		rlen = 0;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
 		break;
 	}
 
@@ -63,8 +78,6 @@ rlen_set:
 
 	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
 
-	/* Set the length of the response buffer */
-	pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
 	pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
 	resp->hdr.trs_hdr.op_len = pkt_len;
 
