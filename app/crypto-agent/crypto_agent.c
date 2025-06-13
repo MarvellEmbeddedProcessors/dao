@@ -555,7 +555,6 @@ card_fini(void)
 	rte_eal_cleanup();
 }
 
-#define DEFAULT_MAX_SESSIONS 1000000
 static int
 card_info(struct dao_card_info *info)
 {
@@ -566,10 +565,10 @@ card_info(struct dao_card_info *info)
 	info->max_sessions = dev_info.sym.max_nb_sessions;
 
 	/* If device has no limitation on max number of sessions,
-	 * keeping as 1M sessions for now considering available memory on card.
+	 * keeping it same as mempool size.
 	 */
 	if (info->max_sessions == 0)
-		info->max_sessions = DEFAULT_MAX_SESSIONS;
+		info->max_sessions = CA_MAX_SYM_SESSIONS;
 
 	CA_INFO("nb_devs: %u, max_sessions: %u", info->nb_devs, info->max_sessions);
 
