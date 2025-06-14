@@ -16,6 +16,8 @@ IGNORE_FILES=(
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/README.md"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/dma_config.ini"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/lc_env"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/etc/fw_mmc_env.config"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/etc/fw_spi_env.config"
 	"bfs/external.desc"
 	"ci/build/env/deps/dpdk.env"
 	"ci/checkpatch/checkpatch.conf"
