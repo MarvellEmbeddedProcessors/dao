@@ -272,37 +272,35 @@ Configure PCIe Endpoint Interface
 
     # Check dmesg logs to confirm if the PF driver load is successful
     # Example dmesg output:
-    # [ 48.098357] octeon_ep 0000:34:00.0: chip_id =0xb200
-    # [ 48.098362] octeon_ep 0000:34:00.0: Setting up OCTEON CN93XX PF PASS1.0
-    # [ 48.098367] octeon_ep 0000:34:00.0: Octeon device using PCIE Port 0
-    # [ 48.098371] octeon_ep 0000:34:00.0: pf_srn=0 rpvf=8 nvfs=8 rppf=8
-    # [ 48.098398] Octep ctrl mbox : Init successful.
-    # [ 48.098401] octeon_ep 0000:34:00.0: Control plane versions host: 10000, firmware: 10000:10000
-    # [ 48.199845] octeon_ep 0000:34:00.0: Heartbeat interval 1000 msecs Heartbeat miss count 20
-    # [ 48.409736] octeon_ep 0000:34:00.0: Device probe successful
-    # [ 48.410061] octeon_ep: Loaded successfully !
-    # [ 48.416823] octeon_ep 0000:34:00.0 ens8191f0: renamed from eth0
-    # [ 48.435849] octeon_ep 0000:34:00.0 ens8191f0: Starting netdev ...
-    # [ 48.437443] octeon_ep 0000:34:00.0: Allocated 8 IOQ vectors
-    # [ 48.438400] octeon_ep 0000:34:00.0: MSI-X enabled successfully
-    # [ 48.441492] IPv6: ADDRCONF(NETDEV_CHANGE): ens8191f0: link becomes ready
-    # [ 48.511710] octeon_ep 0000:34:00.0: Interrupt poll task stopped.
-    # [ 68.079862] pci 0000:34:02.0: [177d:b203] type 00 class 0x028000 PCIe Endpoint
-    # [ 68.079891] pci 0000:34:02.0: enabling Extended Tags
-    # [ 68.091851] octeon_ep_vf: Loading Marvell Octeon EndPoint NIC VF Driver ...
-    # [ 68.091978] octeon_ep_vf 0000:34:02.0: enabling device (0000 -> 0002)
-    # [ 68.092112] octeon_ep_vf 0000:34:02.0: chip_id = 0xb203
-    # [ 68.092118] octeon_ep_vf 0000:34:02.0: Setting up OCTEON CN93XX VF PASS1.0
-    # [ 68.092136] octeon_ep_vf 0000:34:02.0: setup vf mbox successfully
-    # [ 68.166107] octeon_ep_vf 0000:34:02.0: Device probe successful
-    # [ 68.308985] octeon_ep_vf 0000:34:02.0 ens8191f0v0: renamed from eth0
-    # [ 68.462159] octeon_ep_vf 0000:34:02.0 ens8191f0v0: Starting netdev ...
-    # [ 68.464521] octeon_ep_vf 0000:34:02.0: Allocated 8 IOQ vectors
-    # [ 68.464887] octeon_ep_vf 0000:34:02.0: MSI-X enabled successfully
-    # [ 68.675454] IPv6: ADDRCONF(NETDEV_CHANGE): ens8191f0v0: link becomes ready
+    # [  323.239202] octeon_ep 0000:01:00.0: chip_id = 0xb200
+    # [  323.239204] octeon_ep 0000:01:00.0: Setting up OCTEON CN93XX PF PASS2.0
+    # [  323.239206] octeon_ep 0000:01:00.0: Octeon device using PCIE Port 0
+    # [  323.239208] octeon_ep 0000:01:00.0: pf_srn=0 rpvf=8 nvfs=0 rppf=8
+    # [  323.239224] octeon_ep: Loaded successfully !
+    # [  323.239225] octeon_ep 0000:01:00.0: Control plane versions host: 10000, firmware: 10000:10000
+    # [  323.343303] octeon_ep 0000:01:00.0: Heartbeat interval 1000 msecs Heartbeat miss count 20
+    # [  323.551931] octeon_ep 0000:01:00.0: Device setup successful
+    # [  323.555080] octeon_ep 0000:01:00.0 enp1s0f0: renamed from eth0
+    # [  323.569766] octeon_ep 0000:01:00.0 enp1s0f0: Starting netdev ...
+    # [  323.571429] octeon_ep 0000:01:00.0: Allocated 8 IOQ vectors
+    # [  323.571672] octeon_ep 0000:01:00.0: MSI-X enabled successfully
+    # [  323.573241] octeon_ep 0000:01:00.0 enp1s0f0: Started netdev ...
+    # [  323.655226] octeon_ep 0000:01:00.0: Interrupt poll task stopped.
+    # [  428.302798] pci 0000:01:00.2: [177d:b203] type 00 class 0x028000 PCIe Endpoint
+    # [  428.302808] pci 0000:01:00.2: enabling Extended Tags
+    # [  428.386406] octeon_ep_vf: Loading Marvell Octeon EndPoint NIC VF Driver ...
+    # [  428.386428] octeon_ep_vf 0000:01:00.2: enabling device (0000 -> 0002)
+    # [  428.386451] octeon_ep_vf 0000:01:00.2: chip_id = 0xb203
+    # [  428.386453] octeon_ep_vf 0000:01:00.2: Setting up OCTEON CN93XX VF PASS2.0
+    # [  428.386456] octeon_ep_vf 0000:01:00.2: setup vf mbox successfully
+    # [  428.390287] octeon_ep_vf 0000:01:00.2: Device probe successful
+    # [  428.394636] octeon_ep_vf 0000:01:00.2 enp1s0f0v0: renamed from eth0
+    # [  428.414667] octeon_ep_vf 0000:01:00.2 enp1s0f0v0: Starting netdev ...
+    # [  428.416014] octeon_ep_vf 0000:01:00.2: Allocated 8 IOQ vectors
+    # [  428.416145] octeon_ep_vf 0000:01:00.2: MSI-X enabled successfully
 
     # Get the BDF of the device
-    SDP_DEV_BDF=$(sudo dmesg | grep 'Setting up OCTEON CN93XX PF PASS1.0' | grep -oP '0000:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]')
+    SDP_DEV_BDF=$(sudo dmesg | grep 'Setting up OCTEON CN93XX PF PASS2.0' | grep -oP '0000:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]')
 
     # Enable SR-IOV with 1 VF. BDF would be the one obtained in previous step.
     echo 1 | sudo tee /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
@@ -319,6 +317,8 @@ Configure PCIe Endpoint Interface
     sudo modprobe vfio-pci
 
     # Allow VFIO to be used without an IOMMU.
+    echo 1 | sudo tee /sys/module/vfio/parameters/enable_unsafe_noiommu_mode
+    # or
     echo 1 > /sys/module/vfio/parameters/enable_unsafe_noiommu_mode
 
     # Bind the device to the vfio-pci driver
@@ -327,7 +327,7 @@ Configure PCIe Endpoint Interface
     echo "177d b203" > /sys/bus/pci/drivers/vfio-pci/new_id
 
     # Bring up the interface. The interface name may change from host to host
-    ifconfig enp1s0f0 192.168.1.2 up
+    sudo ifconfig enp1s0f0 192.168.1.2 up
 
 Run the Card Manager
 --------------------
