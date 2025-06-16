@@ -552,6 +552,8 @@ struct dao_lc_feature_params {
 struct dao_lc_sym_ctx {
 	/** The operation code */
 	enum dao_lc_sym_opcode opcode;
+	/** IV length */
+	uint16_t iv_len;
 	union {
 		/** Flexi Crypto context */
 		struct dao_lc_sym_fc_ctx fc;

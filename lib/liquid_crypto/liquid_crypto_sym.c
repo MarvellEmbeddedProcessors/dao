@@ -18,12 +18,35 @@
 static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 	sym_sess_list_head = TAILQ_HEAD_INITIALIZER(sym_sess_list_head);
 
+static int
+sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
+{
+	uint16_t iv_len = 0;
+
+	switch (ctx->fc.enc_cipher) {
+	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
+		iv_len = 16;
+		break;
+	default:
+		dao_err("Unsupported encryption cipher.");
+		return -ENOTSUP;
+	}
+
+	if (ctx->iv_len != iv_len) {
+		dao_err("Invalid IV length for encryption cipher.");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 struct dao_lc_sym_sess_meta *
 liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
-	uint16_t iv_len = 0, digest_len = 0;
 	union cpt_inst_w4 w4 = {0};
+	uint16_t digest_len = 0;
 
 	sess_meta =
 		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
@@ -33,22 +56,16 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 	}
 
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_FC) {
-		switch (ctx->fc.enc_cipher) {
-		case DAO_LC_FC_ENC_CIPHER_AES_CBC:
-			iv_len = 16;
-			break;
-		case DAO_LC_FC_ENC_CIPHER_AES_GCM:
-			digest_len = 16;
-			iv_len = 16;
-			w4.s.opcode_minor |= (1 << 5);
-			break;
-		default:
-			dao_err("Unsupported encryption cipher.");
+		if (sym_sess_fc_iv_len_validate(ctx))
 			goto sess_meta_free;
+
+		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+			digest_len = 16;
+			w4.s.opcode_minor |= (1 << 5);
 		}
 
 		sess_meta->cipher_type = ctx->fc.enc_cipher;
-		sess_meta->iv_len = iv_len;
+		sess_meta->iv_len = ctx->iv_len;
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		switch (ctx->fc.hash_type) {
