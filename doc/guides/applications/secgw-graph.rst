@@ -170,6 +170,18 @@ The following are the application command-line options:
 
         Optional argument. UDP Port on which app should listen for CLI connection. Default: ``8086``
 
+secgw.cli
+~~~~~~~~~
+
+``secgw.cli`` is a CLI script file that can be passed as an argument to application. Content of this file are following
+
+.. code-block:: console
+
+    show graph
+    show ports
+    show routes
+    show neigh
+
 Application bootup logs
 ~~~~~~~~~~~~~~~~~~~~~~~
 
