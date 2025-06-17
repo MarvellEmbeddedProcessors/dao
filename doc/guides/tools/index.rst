@@ -8,4 +8,5 @@ DAO Tools User Guides
     :maxdepth: 4
     :numbered:
 
+    card_mgr
     liquid_crypto_perf

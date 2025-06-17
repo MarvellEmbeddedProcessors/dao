@@ -573,6 +573,8 @@ LiquidCrypto cards are shipped with standard firmware that includes three main c
 This integrated firmware stack ensures reliable operation, hardware acceleration, and a consistent
 software environment for cryptographic workloads.
 
+.. _liquidcrypto_partitioning:
+
 Partitioning and Configuration
 ------------------------------
 

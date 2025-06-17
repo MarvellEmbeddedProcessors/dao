@@ -47,6 +47,7 @@ IGNORE_DIRECTORIES=(
 	"doc/guides/logo/"
 	"doc/guides/platform/img/"
 	"doc/guides/prog_guide/img/"
+	"doc/guides/tools/img/"
 	"license/"
 	"patches/"
 )
