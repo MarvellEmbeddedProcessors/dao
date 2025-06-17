@@ -11,6 +11,7 @@ Application User Guide
     ovs-offload
     virtio-crypto
     virtio-l2fwd
+    virtio-blkio
     secgw-graph
     smart-nic
     vpp
