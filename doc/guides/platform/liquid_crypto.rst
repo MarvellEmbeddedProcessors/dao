@@ -522,6 +522,16 @@ Sample Output
      + Tests Failed :       0
      + ------------------------------------------------------- +
 
+Running Performance Tests
+==========================
+
+The LiquidCrypto card supports performance testing to evaluate its cryptographic capabilities
+and throughput. These tests are designed to measure the card's performance under various
+workloads, ensuring it meets the required performance benchmarks for cryptographic operations.
+
+For more details on the performance tests, refer to the
+:doc:`../tools/liquid_crypto_perf` section.
+
 Running Stress Tests
 ====================
 
