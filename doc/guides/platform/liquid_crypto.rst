@@ -552,13 +552,76 @@ To enable stress testing mode, follow these steps:
 
     # sed -i.bak -e 's/^[^#]/#&/' -e 's/^#ARGUMENT=run_stress_test/ARGUMENT=run_stress_test/' -e 's/^#NUM_ITR=.*/NUM_ITR=5/' /root/lc_service/config/lc_env
 
-
-
 Card Firmware
 =============
 
+LiquidCrypto cards are shipped with standard firmware that includes three main components:
+- Low-level firmware for hardware initialization and management
+- Marvell SDK Linux kernel
+- Buildroot-based root filesystem (rootFS)
+
+This integrated firmware stack ensures reliable operation, hardware acceleration, and a consistent
+software environment for cryptographic workloads.
+
 Partitioning and Configuration
 ------------------------------
+
+LiquidCrypto cards have two separate images
+
+Main Image
+~~~~~~~~~~
+
+This image resides in the eMMC partitions present in the card. It contains the low-level firmware,
+Marvell SDK Linux kernel, and the buildroot-based root filesystem. The main image is responsible
+for the core functionality of the LiquidCrypto card, including hardware initialization, management,
+and providing a consistent software environment.
+
+The main image is partitioned into several sections, each serving a specific purpose:
+
++--------------+------------------------------------------------------------------+
+| Partition    | Description                                                      |
++==============+==================================================================+
+| mmc0:1       | Bootloader and initial boot scripts for hardware startup         |
++--------------+------------------------------------------------------------------+
+| mmc0:2       | Linux kernel, device tree files, and root filesystem (rootfs)    |
++--------------+------------------------------------------------------------------+
+| mmc0:3       | LiquidCrypto Application 1 binaries and related resources (APP1) |
++--------------+------------------------------------------------------------------+
+| mmc0:5       | LiquidCrypto Application 2 binaries and related resources (APP2) |
++--------------+------------------------------------------------------------------+
+| mmc0:6       | Logs and diagnostic data storage                                 |
++--------------+------------------------------------------------------------------+
+
+The Application partitions (APP1 and APP2) are dedicated to storing the LiquidCrypto application
+binaries and associated resources. These partitions enable seamless updates of the LiquidCrypto
+card's firmware or application versions, provided that the bootloader and Linux kernel remain
+compatible. By alternating between APP1 and APP2, the card supports robust firmware management
+and rollback capabilities, ensuring minimal downtime and enhanced reliability during upgrades.
+
+Failsafe Image
+~~~~~~~~~~~~~~
+
+This image resides in the SPI flash present in the card. It is a minimal image that contains
+the bootloader and a basic Linux kernel. The failsafe image is used to recover the card in case
+of a failure or corruption of the main image. It allows the card to boot into a minimal environment
+where basic recovery operations can be performed.
+
+The failsafe image is partitioned into several sections, each serving a specific purpose:
+
++----------------+------------------------------------------------------------------+------------+
+| Memory Regions | Description                                                      | Size       |
++================+==================================================================+============+
+| region_1       | Bootloader and initial boot scripts for hardware startup         |  15 MB     |
++----------------+------------------------------------------------------------------+------------+
+| region_2       | U-boot env (failsafe image)                                      |   1 MB     |
++----------------+------------------------------------------------------------------+------------+
+| region_3       | U-boot env (main image)                                          |   1 MB     |
++----------------+------------------------------------------------------------------+------------+
+| region_4       | Linux kernel, device tree files, and initramfs-based             | 160 MB     |
+|                | root filesystem (rootFS)                                         |            |
++----------------+------------------------------------------------------------------+------------+
+| region_5       | Free space                                                       |  80 MB     |
++----------------+------------------------------------------------------------------+------------+
 
 Building Card Firmware
 ----------------------
