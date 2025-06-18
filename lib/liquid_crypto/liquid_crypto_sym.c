@@ -41,12 +41,47 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 	return 0;
 }
 
+static int
+sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
+{
+	switch (ctx->fc.enc_cipher) {
+	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+		return 0;
+	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
+		if (ctx->fc.mac_len == 16)
+			return 0;
+		break;
+	default:
+		dao_err("Unsupported encryption cipher.");
+		return -ENOTSUP;
+	}
+
+	dao_err("Invalid digest length for encryption cipher.");
+	return -EINVAL;
+}
+
+static int
+sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
+{
+	switch (ctx->fc.hash_type) {
+	case DAO_LC_FC_HASH_TYPE_SHA1:
+		if (ctx->fc.mac_len == 20)
+			return 0;
+		break;
+	default:
+		dao_err("Unsupported hash type.");
+		return -ENOTSUP;
+	}
+
+	dao_err("Invalid digest length for hash type.");
+	return -EINVAL;
+}
+
 struct dao_lc_sym_sess_meta *
 liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	union cpt_inst_w4 w4 = {0};
-	uint16_t digest_len = 0;
 
 	sess_meta =
 		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
@@ -59,37 +94,32 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		if (sym_sess_fc_iv_len_validate(ctx))
 			goto sess_meta_free;
 
-		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
-			digest_len = 16;
+		if (sym_sess_fc_digest_len_validate(ctx))
+			goto sess_meta_free;
+
+		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM)
 			w4.s.opcode_minor |= (1 << 5);
-		}
 
 		sess_meta->cipher_type = ctx->fc.enc_cipher;
 		sess_meta->iv_len = ctx->iv_len;
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
-		switch (ctx->fc.hash_type) {
-		case DAO_LC_FC_HASH_TYPE_SHA1:
-			digest_len = 20;
-			break;
-		default:
-			dao_err("Unsupported hash type.");
+		if (sym_sess_hash_digest_len_validate(ctx))
 			goto sess_meta_free;
-		}
 
 		sess_meta->hash_type = ctx->fc.hash_type;
 		sess_meta->is_auth_only = true;
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_HASH;
 		w4.s.opcode_minor = 0x0;
 		w4.s.param1 = 0;
-		w4.s.param2 = ((uint16_t)ctx->fc.hash_type << 8) | (uint16_t)digest_len;
+		w4.s.param2 = ((uint16_t)ctx->fc.hash_type << 8) | (uint16_t)ctx->fc.mac_len;
 	} else {
 		dao_err("Unsupported opcode.");
 		goto sess_meta_free;
 	}
 
 	sess_meta->w4 = w4.u64;
-	sess_meta->digest_len = digest_len;
+	sess_meta->digest_len = ctx->fc.mac_len;
 
 	return sess_meta;
 
