@@ -113,13 +113,8 @@ int
 dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *update_req)
 {
 
-	if (update_req->filepath == NULL || ctx == NULL)
+	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
 		return -EINVAL;
-
-	if (strcmp(update_req->filename, "lc_service.tar") != 0 ) {
-		fprintf(stderr, "File name should be lc_service.tar\n");
-		return -EINVAL;
-	}
 
 	std::string full_path = std::string(update_req->filepath) + "/" + std::string(update_req->filename);
 	std::ifstream file(full_path, std::ios::binary);
