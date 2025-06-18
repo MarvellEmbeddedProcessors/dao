@@ -1,8 +1,8 @@
 ..  SPDX-License-Identifier: Marvell-MIT
     Copyright (c) 2024 Marvell.
 
-DAO Tools User Guides
-=====================
+Tools User Guides
+=================
 
 .. toctree::
     :maxdepth: 4
