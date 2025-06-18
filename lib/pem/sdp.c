@@ -95,9 +95,11 @@ sdp_init(struct dao_vfio_device *sdp_pdev)
 		info <<= 32;
 		sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(0), info);
 		vfid = num_vfs >> 1;
-		info = rpvf | ((uint64_t)vfid << 8) | ((uint64_t)num_vfs << 16);
-		info <<= 32;
-		sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(32), info);
+		if (vfid) {
+			info = rpvf | ((uint64_t)vfid << 8) | ((uint64_t)num_vfs << 16);
+			info <<= 32;
+			sdp_reg_write(sdp_pdev, SDP_PF_MBOX_DATA(vfid * rpvf), info);
+		}
 	}
 
 	return 0;
