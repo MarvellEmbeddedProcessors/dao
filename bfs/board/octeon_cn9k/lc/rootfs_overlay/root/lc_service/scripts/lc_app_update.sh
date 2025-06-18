@@ -5,8 +5,7 @@
 CONFIG_FILE="/etc/fw_mmc_env.config"
 
 update_app() {
-    app_file="lc_service.tar"
-    app_folder="lc_service"
+    app_file=$1
 
     # Check for the presence of lc_service.tar in /tmp
     if [ ! -f /tmp/$app_file ]; then
@@ -25,6 +24,9 @@ update_app() {
         new_env="p5"
     elif [ "$app_env" = "p5" ]; then
         new_env="p3"
+    elif [ "$app_env" = "spi" ]; then
+        echo "App update is not supported in failsafe"
+        exit 1
     fi
 
     # Mount the new app partition
@@ -70,4 +72,4 @@ update_app() {
     exit 0
 }
 
-update_app
+update_app $1
