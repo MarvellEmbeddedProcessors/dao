@@ -30,7 +30,8 @@ Before compiling DAO, install the required packages:
   # apt-get update
   # apt-get install -y \
     build-essential gcc-14 ninja-build meson git \
-    pkg-config libssl-dev \
+    wget flex bison check file \
+    pkg-config libssl-dev libsystemd-dev \
     libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev \
     libarchive-dev libbsd-dev libbpf-dev \
     libfdt-dev libjansson-dev zlib1g-dev \
@@ -77,13 +78,13 @@ Compiling on x86 machine
 .. code-block:: console
 
   # cd <Path to DAO repo>/dao
-  # meson build --prefix="${PWD}/install" -Denable_kmods=false --prefer-static
+  # meson build --prefix="${PWD}/install" -Denable_kmods=false
   # ninja -C build install
 
 .. note::
 
  To link dpdk library statically, meson option ``--prefer-static`` shall be
- used.
+ used. To build only static DAO libraries, use ``-Dprefer_static_build=true``.
 
 Cross compilation
 `````````````````
@@ -92,7 +93,7 @@ Setup the toolchain and follow the below steps.
 .. code-block:: console
 
  # cd <Path to DAO repo>/dao
- # PKG_CONFIG_LIBDIR=/path/to/dpdk/build/prefix/lib/pkgconfig/ meson setup --cross config/arm64_cn10k_linux_gcc build --prefer-static
+ # PKG_CONFIG_LIBDIR=/path/to/dpdk/build/prefix/lib/pkgconfig/ meson setup --cross config/arm64_cn10k_linux_gcc build -Dprefer_static_build=true --prefer-static
  # ninja -C build
 
 Compiling the documentation

@@ -38,8 +38,8 @@ Update ubuntu repository to download released dao packages
 
 ```sh
 
-curl -fsSL https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2204/release/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
-curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2204/release/dao.list
+curl -fsSL https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
+curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release/dao.list
 sudo chmod 644 /etc/apt/sources.list.d/dao.list
 sudo chmod 644 /etc/apt/keyrings/dao.gpg
 apt-get update

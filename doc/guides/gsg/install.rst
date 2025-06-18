@@ -36,6 +36,10 @@ Packages available for different distributions
    +-------------------------+-----------------------+-----------------------+
    | OpenSSL 1.1.1q          | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
+   | Snort                   | Yes                   | Planned               |
+   +-------------------------+-----------------------+-----------------------+
+   | ML Models               | Yes                   | Planned               |
+   +-------------------------+-----------------------+-----------------------+
 
 Ubuntu
 ======
@@ -167,21 +171,17 @@ To check all available release versions of the package, user can run below comma
  # apt-cache policy dao-cn10k
  dao-cn10k:
   Installed: (none)
-  Candidate: 24.09.0
+  Candidate: 25.01.0
   Version table:
-     24.09.0 500
-        500 https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204 ./ Packages
-     24.05.1 500
-        500 https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204 ./ Packages
-     24.05.0 500
-        500 https://www.marvell.com/public/repo/octeon/dao/ubuntu/v2204 ./ Packages
+     25.01.0 500
+        500 https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release ./ Packages
 
 By default it will install the latest version of the package. If user wants to
 install a specific version, then user can specify the version as below:
 
 .. code-block:: console
 
- # apt-get install dao-cn10k=24.05
+ # apt-get install dao-cn10k=25.01.0
 
 .. note:: While installing an older package user may observe some dependency issues:
 
