@@ -635,5 +635,8 @@ The failsafe image is partitioned into several sections, each serving a specific
 | region_5       | Free space                                                       |  80 MB     |
 +----------------+------------------------------------------------------------------+------------+
 
+For details on updating the LiquidCrypto card firmware and application partitions, refer to the
+:ref:`DAO Firmware Update <firmware_management>`.
+
 Building Card Firmware
 ----------------------

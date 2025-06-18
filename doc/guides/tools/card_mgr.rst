@@ -97,6 +97,8 @@ available:
 
 Above options are supported on all DAO cards.
 
+.. _firmware_management:
+
 Firmware Management
 ~~~~~~~~~~~~~~~~~~~
 
