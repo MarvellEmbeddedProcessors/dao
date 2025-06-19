@@ -11,6 +11,7 @@
 #include <hw/cpt.h>
 
 #include "lc_autotest.h"
+#include "lc_test_asym_ecdsa.h"
 #include "lc_test_asym_rsa.h"
 #include "lc_test_generic.h"
 #include "test.h"
@@ -581,6 +582,88 @@ test_rsa_seg_size(void)
 	return TEST_SUCCESS;
 }
 
+static int
+test_ecdsa_sign(const void *data)
+{
+	const struct test_ecdsa_params *params = data;
+	uint8_t rs_output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	uint16_t prime_length = 0;
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(rs_output, 0, sizeof(rs_output));
+
+	/* ECDSA SIGN */
+	ret = dao_liquid_crypto_enq_op_ecdsa_sign(
+		dev_id, qp_id, params->curve, params->scalar.length, params->pkey.length,
+		params->digest.length, params->scalar.data, params->pkey.data, params->digest.data,
+		rs_output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue ECDSA sign operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue ECDSA sign operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "ECDSA Sign operation failed");
+
+	prime_length = res.ecdsa.ecc_rs_out_len / 2;
+
+	TEST_ASSERT(prime_length != 0, "Invalid prime length");
+	TEST_ASSERT(memcmp(rs_output, params->sign_r.data, prime_length) == 0, "Invalid result");
+	TEST_ASSERT(memcmp(rs_output + prime_length, params->sign_s.data, prime_length) == 0,
+		    "Invalid result");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_ecdsa_verify(const void *data)
+{
+	const struct test_ecdsa_params *params = data;
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+
+	/* ECDSA Verify */
+	ret = dao_liquid_crypto_enq_op_ecdsa_verify(
+		dev_id, qp_id, params->curve, params->sign_r.length, params->sign_s.length,
+		params->digest.length, params->pubkey_qx.length, params->pubkey_qy.length,
+		params->sign_r.data, params->sign_s.data, params->digest.data,
+		params->pubkey_qx.data, params->pubkey_qy.data, op_cookie);
+
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue ECDSA verify operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue ECDSA verify operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "ECDSA verify operation failed");
+
+	return TEST_SUCCESS;
+}
+
 struct unit_test_suite lc_testsuite_asym = {
 	.suite_name = "Liquid Crypto Asymmetric Test Suite",
 	.setup = testsuite_setup,
@@ -630,6 +713,26 @@ struct unit_test_suite lc_testsuite_asym = {
 					  ut_teardown, test_rsa_enc_unsupported_msw, &rsa_params),
 		TEST_CASE_NAMED_ST("RSA segment size calculation", ut_setup, ut_teardown,
 				   test_rsa_seg_size),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp192r1 Sign", ut_setup, ut_teardown,
+					  test_ecdsa_sign, &ecdsa_param_secp192r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp192r1 Verify", ut_setup, ut_teardown,
+					  test_ecdsa_verify, &ecdsa_param_secp192r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp224r1 Sign", ut_setup, ut_teardown,
+					  test_ecdsa_sign, &ecdsa_param_secp224r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp224r1 Verify", ut_setup, ut_teardown,
+					  test_ecdsa_verify, &ecdsa_param_secp224r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp256r1 Sign", ut_setup, ut_teardown,
+					  test_ecdsa_sign, &ecdsa_param_secp256r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp256r1 Verify", ut_setup, ut_teardown,
+					  test_ecdsa_verify, &ecdsa_param_secp256r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp384r1 Sign", ut_setup, ut_teardown,
+					  test_ecdsa_sign, &ecdsa_param_secp384r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp384r1 Verify", ut_setup, ut_teardown,
+					  test_ecdsa_verify, &ecdsa_param_secp384r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp521r1 Sign", ut_setup, ut_teardown,
+					  test_ecdsa_sign, &ecdsa_param_secp521r1),
+		TEST_CASE_NAMED_WITH_DATA("ECDSA secp521r1 Verify", ut_setup, ut_teardown,
+					  test_ecdsa_verify, &ecdsa_param_secp521r1),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
