@@ -1,4 +1,4 @@
-..  SPDX-License-Identifier: Marvell-MIT
+..  SPDX-License-Identifier: Apache-2.0
     Copyright (c) 2025 Marvell.
 
 **********************
@@ -234,6 +234,9 @@ the default Cilium configuration, running directly on the host
      2. kubectl label node <hostname> marvell.com/dpu=true
      3. kubectl taint node <hostname> node.cilium.io/agent-not-ready- (After make deploy)
 
+.. raw:: html
+  :file: ../_static/demo/cni_offload_setup.html
+
 Build and Deploy CNI-Offload Solution
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -353,26 +356,10 @@ standard Cilium approach with the Star Wars example, available at:
 Testbed Diagram:
 ~~~~~~~~~~~~~~~~
 
-.. figure:: ./img/cni-offload-testbed1.png
+.. figure:: ./img/cni-offload-testbed-diagram.png
    :alt: TestBed diagram
 
    TestBed diagram
-
-.. code:: bash
-
-   # Pods shown in the diagram
-   Test pod 1 - Xwing (XW)
-   Test pod 2 - Tiefighter (TF)
-   Service pods - Deathstar (DS)
-   Cilium Agent pod CA
-
-.. code:: bash
-
-   # Nodes shown in the diagram
-   master node - hyd1413
-   worker 1 - host-1
-   worker 2 - hyd11152
-   worker 3 - hyd11153
 
 ``kubectl get node``
 
@@ -438,7 +425,7 @@ Star Wars Demo Video with CNI-Offload
    3. Star Wars Demo
 
 .. raw:: html
-  :file: ../_static/demo/cni_offload.html
+  :file: ../_static/demo/cni_offload_services.html
 
 Test IPsec Transparent Encryption with CNI-Offload
 --------------------------------------------------
