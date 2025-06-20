@@ -103,6 +103,7 @@ On Debian-based systems, the required packages can be installed using the follow
 
 	sudo apt-get update
 	sudo apt-get install build-essential meson ninja-build pkg-config libnuma-dev git doxygen cmake openssl-dev
+	sudo apt-get install zlib1g-dev
 
 On Red Hat-based systems, the following command can be used:
 
@@ -117,6 +118,7 @@ On Red Hat-based systems, the following command can be used:
     sudo pip3 install pyelftools
     sudo dnf install cmake
     sudo dnf install openssl-devel
+    sudo dnf install zlib-devel
 
 .. note::
 
