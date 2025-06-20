@@ -75,6 +75,8 @@ dao_liquid_crypto_init(void)
 		goto trs_fini;
 	}
 
+	strncpy(lc_info.version, DAO_LC_VERSION, sizeof(lc_info.version) - 1);
+	lc_info.version[sizeof(lc_info.version) - 1] = '\0';
 	lc_info.nb_dev = trs_info.nb_devs;
 
 	for (i = 0; i < trs_info.nb_devs; i++)

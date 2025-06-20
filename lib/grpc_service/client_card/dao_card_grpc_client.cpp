@@ -103,6 +103,8 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 		return -1;
 	}
 
+	strncpy(info->version, resp.version().c_str(), sizeof(info->version) - 1);
+	info->version[sizeof(info->version) - 1] = '\0';
 	info->nb_devs = resp.nb_devs();
 	info->max_sessions = resp.max_sessions();
 

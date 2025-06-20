@@ -20,8 +20,9 @@ message CardConfig {
 }
 
 message CardInfo {
-	uint32 nb_devs = 1;
-	uint32 max_sessions = 2;
+	string version = 1;
+	uint32 nb_devs = 2;
+	uint32 max_sessions = 3;
 }
 
 message CardResponse {

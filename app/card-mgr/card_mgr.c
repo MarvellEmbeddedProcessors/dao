@@ -108,8 +108,8 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	/* Dump the received info, if the cmd is to get the info */
 	if (!resp && strstr(line, "card_info") != NULL) {
 		recv(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
-		dao_info("Card info: num SDP devices: %d, max_sessions: %d", card_info.nb_devs,
-			 card_info.max_sessions);
+		dao_info("Card info: version: %s, num SDP devices: %d, max_sessions: %d",
+			 card_info.version, card_info.nb_devs, card_info.max_sessions);
 	}
 }
 

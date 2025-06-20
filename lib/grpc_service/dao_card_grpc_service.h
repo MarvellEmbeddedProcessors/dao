@@ -9,10 +9,17 @@
 extern "C" {
 #endif
 
+/** The version of the crypto agent */
+#define DAO_CARD_VERSION "25.06.1"
+/** The maximum length of the version string. */
+#define DAO_CARD_VERSION_LEN 32
+
 /**
  * Liquid crypto card information.
  */
 struct dao_card_info {
+	/** Version of the liquid crypto card */
+	char version[DAO_CARD_VERSION_LEN];
 	/** Number of Ethernet devices on card */
 	uint32_t nb_devs;
 	/** Maximum number of sessions supported on card */

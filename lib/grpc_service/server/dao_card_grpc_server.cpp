@@ -89,10 +89,14 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		(void)(empty);
 
 		server_cbs->card_info_cb(&info);
+
+		response->set_version(DAO_CARD_VERSION);
 		response->set_nb_devs(info.nb_devs);
 		response->set_max_sessions(info.max_sessions);
 
-		std::cout << "Card: nb_devs: " << response->nb_devs() << ", max_sessions: " << response->max_sessions() << std::endl;
+		std::cout << "Card Info: version: " << response->version()
+		          << ", nb_devs: " << response->nb_devs()
+		          << ", max_sessions: " << response->max_sessions() << std::endl;
 
 		return Status::OK;
 	}
