@@ -20,7 +20,7 @@ extern struct lcore_conf lcore_conf[CA_MAX_LCORE];
 /* Forward declarations */
 
 static void ca_eth_flow_clear(uint8_t port_id);
-static int ca_eth_flow_create(uint8_t port_id);
+static int ca_eth_flow_create(uint8_t port_id, uint16_t nb_queue);
 
 int
 ca_eth_lcore_map_init(void)
@@ -603,7 +603,7 @@ ca_eth_dev_start(uint32_t port_id)
 		goto eth_dev_close;
 	}
 
-	ret = ca_eth_flow_create(port_id);
+	ret = ca_eth_flow_create(port_id, eth_ctx->nb_queue);
 	if (ret) {
 		CA_ERR("Could not initialize flow rules for ethdev: %d", port_id);
 		goto eth_dev_close;
@@ -648,13 +648,12 @@ ca_eth_dev_start(uint32_t port_id)
 			if (eth_map->link[i].port_id != port_id)
 				continue;
 
+			/* Skip if pq is not registered */
+			if (eth_map->link[i].pq == NULL)
+				continue;
+
 			/* Save pq to lconf */
 			lconf->pq[nb_pq] = eth_map->link[i].pq;
-			if (lconf->pq[i] == NULL) {
-				CA_ERR("Could not get pending queue for lcore: %d, link: %d",
-				       lcore_id, i);
-				goto eth_dev_close;
-			}
 			nb_pq++;
 		}
 
@@ -772,13 +771,7 @@ eth_ingress_queue_mapping(uint8_t port_id, uint16_t *reta_tbl, uint16_t nb_queue
 		return -EINVAL;
 	}
 
-	if (!rte_is_power_of_2(nb_queue)) {
-		CA_ERR("Total queues is not a power of 2.");
-		return -EINVAL;
-	}
-
-	/* Mask is uin64_t to support up to 64 queues */
-	if (nb_queue > 64) {
+	if (nb_queue > CA_MAX_ETH_QUEUE) {
 		CA_ERR("Number of queues exceeds the maximum supported queues.");
 		return -EINVAL;
 	}
@@ -792,8 +785,7 @@ eth_ingress_queue_mapping(uint8_t port_id, uint16_t *reta_tbl, uint16_t nb_queue
 
 	mask = 0;
 
-	for (i = 0; i < nb_queue; i++)
-		reta_tbl[i] = 0;
+	memset(reta_tbl, 0, sizeof(uint16_t) * CA_ETH_RETA_SIZE);
 
 	eth_rss_key_get(rss_key);
 
@@ -831,9 +823,9 @@ eth_ingress_queue_mapping(uint8_t port_id, uint16_t *reta_tbl, uint16_t nb_queue
 		}
 	}
 
-	for (i = 0; i < RTE_DIM(hash_val); i++) {
+	for (i = 0; i < nb_queue; i++) {
 		/* Get the last bits to be used for indexing */
-		masked_hash = hash_val[i] % nb_queue;
+		masked_hash = hash_val[i] % CA_ETH_RETA_SIZE;
 
 		/* Check for hash collision */
 		if (mask & (1 << masked_hash)) {
@@ -853,7 +845,7 @@ eth_ingress_queue_mapping(uint8_t port_id, uint16_t *reta_tbl, uint16_t nb_queue
 }
 
 static int
-ca_eth_flow_create(uint8_t port_id)
+ca_eth_flow_create(uint8_t port_id, uint16_t nb_queue)
 {
 	struct rte_flow_action actions[2];
 	uint16_t queue[CA_ETH_RETA_SIZE];
@@ -885,7 +877,7 @@ ca_eth_flow_create(uint8_t port_id)
 	actions[1].type = RTE_FLOW_ACTION_TYPE_END;
 
 	/* Populate queue_ids */
-	ret = eth_ingress_queue_mapping(port_id, queue, CA_ETH_RETA_SIZE);
+	ret = eth_ingress_queue_mapping(port_id, queue, nb_queue);
 	if (ret) {
 		CA_ERR("Could not populate ingress queue mapping");
 		return ret;
