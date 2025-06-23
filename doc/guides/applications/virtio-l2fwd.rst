@@ -86,7 +86,8 @@ Sample code to map CN10K ethdev's to vfio-pci.
 Bind PEM BAR4 and DPI BAR0 platform devices to vfio-platform
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 VirtIO library uses ``pem0-bar4-mem`` and ``dpi_sdp_regs`` platform devices via ``vfio-platform``.
-Hence enable ``vfio-platform`` in kernel build.
+Hence enable ``vfio-platform`` in kernel build. If the platform devices are not available, skip
+this section.
 
 * Use ``vfio-platform.reset_required=0`` in kernel command line if ``vfio-platform`` is inbuilt
   kernel or pass ``reset_required=0`` as module parameter while doing loading ``vfio-platform``

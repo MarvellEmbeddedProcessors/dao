@@ -93,7 +93,8 @@ Sample code to map CN10K cryptodev's to vfio-pci.
 Bind PEM BAR4 and DPI BAR0 platform devices to vfio-platform
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 VirtIO library uses ``pem0-bar4-mem`` and ``dpi_sdp_regs`` platform devices via ``vfio-platform``.
-Hence enable ``vfio-platform`` in kernel build.
+Hence enable ``vfio-platform`` in kernel build. If the platform devices are not available, skip
+this section.
 
 * Use ``vfio-platform.reset_required=0`` in kernel command line if ``vfio-platform`` is inbuilt
   kernel or pass ``reset_required=0`` as module parameter while doing loading ``vfio-platform``
@@ -122,6 +123,15 @@ Sample code to bind platform devices to vfio-platform.
            echo "Device $dev_name configured."
        fi
    done
+
+Bind required SDP RVU devices to vfio-pci
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+VirtIO library uses ``RVU SDP devices`` when platform devices are not present.
+
+.. code-block:: bash
+
+   dpdk-devbind.py -b vfio-pci 0002:18:00.0
+   dpdk-devbind.py -b vfio-pci 0002:19:00.0
 
 Running the EP firmware application
 -----------------------------------
