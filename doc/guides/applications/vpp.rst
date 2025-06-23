@@ -380,13 +380,18 @@ Configure DMA and NPA devices on OCTEON
   echo 177d a0fb > /sys/bus/pci/drivers/vfio-pci/new_id
   oecho 0002:17:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
 
-  # Bind platform devices pem0-bar4-mem and dpi_sdp_regs to vfio-platform
+  # Bind platform devices pem0-bar4-mem and dpi_sdp_regs to vfio-platform if available
 
   echo "vfio-platform" | sudo tee "/sys/bus/platform/devices/\*pem0-bar4-mem/driver_override" > /dev/null
   echo "\*pem0-bar4-mem" | sudo tee "/sys/bus/platform/drivers/vfio-platform/bind" > /dev/null
   echo "vfio-platform" | sudo tee "/sys/bus/platform/devices/\*dpi_sdp_regs/driver_override" > /dev/null
   echo "\*dpi_sdp_regs" | sudo tee "/sys/bus/platform/drivers/vfio-platform/bind" > /dev/null
   Note: Replace * with actual runtime address attached with platform device.
+
+  # Bind RVU SDP devices to vfio-pci if above platform devices are not present.
+  echo 177d a0fe > /sys/bus/pci/drivers/vfio-pci/new_id
+  echo 0002:18:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
+  echo 0002:19:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
 
 VPP Configuration
 +++++++++++++++++
