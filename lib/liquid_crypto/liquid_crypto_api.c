@@ -1553,7 +1553,7 @@ dao_lc_buf_copy_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint32_t len)
 	uint16_t to_copy;
 
 	do {
-		to_copy = RTE_MIN(tmp->seg_len, len - copied);
+		to_copy = RTE_MIN(tmp->frag_len, len - copied);
 
 		memcpy(tmp->data, src + copied, to_copy);
 		copied += to_copy;
@@ -1619,7 +1619,7 @@ dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
 	uint16_t to_copy, copied = 0;
 
 	do {
-		to_copy = RTE_MIN(tmp->seg_len, len - copied);
+		to_copy = RTE_MIN(tmp->frag_len, len - copied);
 
 		memcpy(dst + copied, tmp->data, to_copy);
 		copied += to_copy;

@@ -81,7 +81,7 @@ test_hash_only(const void *data)
 	op[0].encrypt = 1;
 
 	memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
-	in_buf[0].seg_len = params->plaintext.len + params->digest.len;
+	in_buf[0].frag_len = params->plaintext.len + params->digest.len;
 	in_buf[0].total_len = params->plaintext.len + params->digest.len;
 
 	in_buf[0].data = in_buf_data;
@@ -185,12 +185,12 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 
 	if (is_encrypt) {
 		memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
-		in_buf[0].seg_len = params->aad.len + params->plaintext.len + params->digest.len;
+		in_buf[0].frag_len = params->aad.len + params->plaintext.len + params->digest.len;
 		in_buf[0].total_len = params->aad.len + params->plaintext.len + params->digest.len;
 		op[0].encrypt = 1;
 	} else {
 		memcpy(in_buf_data, params->ciphertext.data, params->ciphertext.len);
-		in_buf[0].seg_len = params->aad.len + params->ciphertext.len + params->digest.len;
+		in_buf[0].frag_len = params->aad.len + params->ciphertext.len + params->digest.len;
 		in_buf[0].total_len = params->aad.len + params->ciphertext.len + params->digest.len;
 		op[0].encrypt = 0;
 	}

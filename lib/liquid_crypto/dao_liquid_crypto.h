@@ -33,10 +33,10 @@
 struct dao_lc_buf {
 	/** The data buffer */
 	void *data;
-	/**< Total pkt len: sum of all segments. Need to be set only for the first segment. */
+	/**< Total pkt len: sum of all fragments. Need to be set only for the first fragment. */
 	uint32_t total_len;
 	/** The length of the data buffer */
-	uint32_t seg_len;
+	uint32_t frag_len;
 	/** Pointer to the next buffer */
 	struct dao_lc_buf *next;
 };
@@ -244,7 +244,17 @@ struct dao_lc_qp_conf {
 	 * number of descriptors would be rounded up to a power of 2.
 	 */
 	uint16_t nb_desc;
-	/** The maximum segment size. */
+	/**
+	 * The maximum segment size. Sum of size of all buffers passed to the API must not
+	 * exceed this value.
+	 *
+	 * In case of symmetric crypto operations, the maximum segment size is calculated based on
+	 * the following parameters:
+	 * - Total length of all fragments in the input buffer.
+	 * - Length of IV (if applicable).
+	 * - Length of AAD (if applicable).
+	 * - Length of digest (if applicable).
+	 */
 	uint16_t max_seg_size;
 };
 
@@ -695,6 +705,9 @@ int dao_liquid_crypto_dev_stop(uint8_t dev_id);
  *
  * This function calculates the size of the maximum segment size for the liquid crypto device to
  * support the given feature parameters.
+ *
+ * This value can be passed to the *max_seg_size* field of the *dao_lc_qp_conf* structure
+ * when configuring a queue pair.
  *
  * @param params
  * A pointer to the liquid crypto feature parameters structure.
