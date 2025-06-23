@@ -213,8 +213,6 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->burst_size_list[0] = 32;
 	opts->burst_size_count = 1;
 
-	opts->nb_qps = 1;
-
 	opts->op_type = LCPERF_OP_PASSTHROUGH;
 
 	opts->asym_op_type = LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT;
@@ -309,8 +307,6 @@ lcperf_options_dump(struct lcperf_options *opts)
 	for (size_idx = 0; size_idx < opts->burst_size_count; size_idx++)
 		printf("%u ", opts->burst_size_list[size_idx]);
 	printf("\n");
-	printf("# number of queue pairs per device: %u\n", opts->nb_qps);
-	printf("#\n");
 
 	printf("# lcperf operation type: %s\n", lcperf_op_type_strs[opts->op_type]);
 	printf("#\n");

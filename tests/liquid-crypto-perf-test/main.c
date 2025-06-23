@@ -48,12 +48,21 @@ const struct lcperf_test lcperf_testmap[] = {
 					 lcperf_throughput_test_destructor},
 };
 
+struct lcore_qp_mapping {
+	uint8_t cdev_id;
+	uint16_t qp_id;
+};
+
+static struct lcore_qp_mapping lcore_qp_map[RTE_MAX_LCORE];
+
 static int
-lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cdevs)
+lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 {
-	uint8_t enabled_cdev_count = 0, nb_lcores, cdev_id;
-	struct dao_lc_qp_conf qp_conf;
+	uint8_t enabled_cdev_count, nb_lcores, cdev_id, required_cdev_cnt, lcore_id;
+	uint16_t qp_id, required_qp_cnt;
 	struct dao_lc_dev_conf dev_conf;
+	struct dao_lc_qp_conf qp_conf;
+	bool is_cmd_qp_reqd = false;
 	struct dao_lc_info info;
 	unsigned int j;
 	int ret;
@@ -80,47 +89,87 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 	enabled_cdev_count = info.nb_dev;
 
 	nb_lcores = rte_lcore_count() - 1;
-
 	if (nb_lcores < 1) {
 		RTE_LOG(ERR, USER1, "Number of enabled cores need to be higher than 1\n");
 		goto fini;
 	}
 
-	/*
-	 * Use less number of devices,
-	 * if there are more available than cores.
-	 */
-	if (enabled_cdev_count > nb_lcores)
-		enabled_cdev_count = nb_lcores;
+	required_qp_cnt = nb_lcores;
 
-	/*
-	 * Calculate number of needed queue pairs, based on the amount
-	 * of available number of logical cores and liquid crypto devices.
-	 * For instance, if there are 4 cores and 2 devices,
-	 * 2 queue pairs will be set up per device.
-	 */
-	opts->nb_qps = (nb_lcores % enabled_cdev_count) ? (nb_lcores / enabled_cdev_count) + 1 :
-							  nb_lcores / enabled_cdev_count;
+	required_cdev_cnt = 0;
 
-	/* Add one more queue pair for the command queue */
-	opts->nb_qps += 1;
+	if (opts->op_type == LCPERF_OP_SYM)
+		is_cmd_qp_reqd = true;
 
-	for (cdev_id = 0; cdev_id < enabled_cdev_count && cdev_id < LCPERF_MAX_DEVS; cdev_id++) {
-		enabled_cdevs[cdev_id] = cdev_id;
+	/* Determine the number of 'qp's required per device */
+	while (required_qp_cnt > 0 && required_cdev_cnt <= info.nb_dev) {
+		/* If required, consider one queue per device for command queue */
+		if (is_cmd_qp_reqd)
+			required_qp_cnt++;
 
-		if (opts->nb_qps > info.nb_qp[cdev_id]) {
-			printf("Number of needed queue pairs is higher "
-			       "than the maximum number of queue pairs "
-			       "per device.\n");
-			printf("Lower the number of cores or increase "
-			       "the number of liquid crypto devices\n");
-			goto dev_destroy;
+		/* Check if the device has more queues than required */
+		if (required_qp_cnt < info.nb_qp[required_cdev_cnt]) {
+			info.nb_qp[required_cdev_cnt] = required_qp_cnt;
+			required_qp_cnt = 0;
+			required_cdev_cnt++;
+			break;
 		}
 
+		required_qp_cnt -= info.nb_qp[required_cdev_cnt];
+		required_cdev_cnt++;
+	}
+
+	if (required_qp_cnt > 0) {
+		RTE_LOG(ERR, USER1, "Not enough queue pairs available for the number of cores\n");
+		RTE_LOG(ERR, USER1,
+			"Increase the number of liquid crypto devices or decrease"
+			" the number of cores\n");
+		goto fini;
+	}
+
+	if (required_cdev_cnt > LCPERF_MAX_DEVS) {
+		RTE_LOG(ERR, USER1,
+			"Number of required devices is higher than the maximum "
+			"number of devices supported by this test\n");
+		goto fini;
+	}
+
+	if (required_cdev_cnt == 0) {
+		RTE_LOG(ERR, USER1, "No liquid crypto devices available for the test\n");
+		goto fini;
+	}
+
+	/* Populate lcore-qp mapping */
+
+	cdev_id = 0;
+	qp_id = 0;
+
+	RTE_LCORE_FOREACH_WORKER(lcore_id)
+	{
+		lcore_qp_map[lcore_id].cdev_id = cdev_id;
+		lcore_qp_map[lcore_id].qp_id = qp_id;
+
+		qp_id++;
+
+		/* If command queue is required, do not use up all queues */
+		if (is_cmd_qp_reqd && qp_id >= info.nb_qp[cdev_id] - 1) {
+			cdev_id++;
+			qp_id = 0;
+		} else if (qp_id >= info.nb_qp[cdev_id]) {
+			cdev_id++;
+			qp_id = 0;
+		}
+	}
+
+	/* Create and start liquid crypto devices */
+	for (cdev_id = 0; cdev_id < required_cdev_cnt; cdev_id++) {
 		memset(&dev_conf, 0, sizeof(dev_conf));
 		dev_conf.dev_id = cdev_id;
-		dev_conf.nb_qp = opts->nb_qps;
-		dev_conf.cmd_qp_idx = opts->nb_qps - 1;
+		dev_conf.nb_qp = info.nb_qp[cdev_id];
+		if (is_cmd_qp_reqd)
+			dev_conf.cmd_qp_idx = info.nb_qp[cdev_id] - 1;
+		else
+			dev_conf.cmd_qp_idx = DAO_CMD_QP_IDX_INVALID;
 
 		ret = dao_liquid_crypto_dev_create(&dev_conf);
 		if (ret < 0) {
@@ -134,11 +183,10 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 		qp_conf.out_of_order_delivery_en = false;
 		qp_conf.max_seg_size = LCPERF_MAX_OUTPUT_LEN;
 
-		for (j = 0; j < opts->nb_qps; j++) {
+		for (j = 0; j < info.nb_qp[cdev_id]; j++) {
 			ret = dao_liquid_crypto_qp_configure(cdev_id, j, &qp_conf);
 			if (ret < 0) {
-				printf("Failed to setup queue pair %u on "
-				       "liquid crypto device %u",
+				printf("Failed to setup queue pair %u on liquid crypto device %u",
 				       j, cdev_id);
 				dao_liquid_crypto_dev_destroy(cdev_id);
 				goto dev_destroy;
@@ -170,15 +218,13 @@ fini:
 int
 main(int argc, char **argv)
 {
-	uint8_t enabled_cdevs[LCPERF_MAX_DEVS] = {0};
-	uint8_t qp_id = 0, cdev_index = 0;
 	struct lcperf_options opts = {0};
 	void *ctx[RTE_MAX_LCORE] = {};
 	struct lcperf_op_fns op_fns;
-	uint16_t total_nb_qps = 0;
 	uint8_t cdev_id, i;
 	int nb_lcdevs = 0;
 	uint32_t lcore_id;
+	uint16_t qp_id;
 	int ret = 0;
 
 	/* Initialise DPDK EAL */
@@ -202,12 +248,9 @@ main(int argc, char **argv)
 		goto eal_cleanup;
 	}
 
-	nb_lcdevs = lcperf_initialize_liquid_crypto(&opts, enabled_cdevs);
-
-	if (nb_lcdevs < 1) {
-		RTE_LOG(ERR, USER1,
-			"Failed to initialise requested crypto "
-			"device type\n");
+	nb_lcdevs = lcperf_initialize_liquid_crypto(&opts);
+	if (nb_lcdevs == 0) {
+		RTE_LOG(ERR, USER1, "Failed to initialise liquid crypto device\n");
 		nb_lcdevs = 0;
 		goto eal_cleanup;
 	}
@@ -222,25 +265,17 @@ main(int argc, char **argv)
 		goto dev_stop_destroy;
 	}
 
-	total_nb_qps = nb_lcdevs * opts.nb_qps;
-
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
-		if (i == total_nb_qps)
-			break;
-
-		cdev_id = enabled_cdevs[cdev_index];
+		cdev_id = lcore_qp_map[lcore_id].cdev_id;
+		qp_id = lcore_qp_map[lcore_id].qp_id;
 
 		ctx[i] = lcperf_testmap[opts.test].constructor(cdev_id, qp_id, &opts, &op_fns);
 		if (ctx[i] == NULL) {
 			RTE_LOG(ERR, USER1, "Test run constructor failed\n");
 			goto ctx_destructor;
 		}
-
-		qp_id = (qp_id + 1) % opts.nb_qps;
-		if (qp_id == 0)
-			cdev_index++;
 		i++;
 	}
 
@@ -249,9 +284,6 @@ main(int argc, char **argv)
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
-		if (i == total_nb_qps)
-			break;
-
 		rte_eal_remote_launch(lcperf_testmap[opts.test].runner, ctx[i], lcore_id);
 		i++;
 	}
@@ -259,8 +291,6 @@ main(int argc, char **argv)
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
-		if (i == total_nb_qps)
-			break;
 		ret |= rte_eal_wait_lcore(lcore_id);
 		i++;
 	}
@@ -270,20 +300,19 @@ ctx_destructor:
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
-		if (i == total_nb_qps)
-			break;
-
-		if (ctx[i] == NULL || lcperf_testmap[opts.test].destructor == NULL)
+		if (ctx[i] == NULL || lcperf_testmap[opts.test].destructor == NULL) {
+			i++;
 			continue;
+		}
 
 		lcperf_testmap[opts.test].destructor(ctx[i]);
 		i++;
 	}
 
 dev_stop_destroy:
-	for (i = 0; i < nb_lcdevs && i < LCPERF_MAX_DEVS; i++) {
-		dao_liquid_crypto_dev_stop(enabled_cdevs[i]);
-		dao_liquid_crypto_dev_destroy(enabled_cdevs[i]);
+	for (i = 0; i < nb_lcdevs; i++) {
+		dao_liquid_crypto_dev_stop(i);
+		dao_liquid_crypto_dev_destroy(i);
 	}
 
 	dao_liquid_crypto_fini();

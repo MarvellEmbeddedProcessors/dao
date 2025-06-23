@@ -27,6 +27,7 @@ extern const char *lcperf_test_type_strs[];
 enum lcperf_op_type {
 	LCPERF_OP_PASSTHROUGH = 1,
 	LCPERF_OP_ASYM_RSA,
+	LCPERF_OP_SYM,
 };
 
 enum lcperf_crypto_asym_op_type {
@@ -52,7 +53,6 @@ struct lcperf_options {
 	uint32_t total_ops;
 	uint32_t test_buffer_size;
 	uint32_t nb_descriptors;
-	uint16_t nb_qps;
 
 	enum lcperf_op_type op_type;
 	enum lcperf_crypto_asym_op_type asym_op_type;
