@@ -170,7 +170,8 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	op[0].op_cookie = sess_cookie;
 	op[0].sess_id = ev.sess_event.sess_id;
 
-	if (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+	if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
+	    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM)) {
 		op[0].aad = aad_buf_data;
 		memcpy(op[0].aad, params->aad.data, params->aad.len);
 		op[0].aad_len = params->aad.len;
@@ -200,7 +201,7 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	op[0].cipher_offset = params->cipher_offset;
 	op[0].cipher_len = params->ciphertext.len;
 
-	memcpy(cipher_iv, params->iv.data, params->iv.len);
+	memcpy(cipher_iv, params->iv.data, ctx.iv_len);
 	op[0].cipher_iv = cipher_iv;
 
 	ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
@@ -309,6 +310,18 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_gcm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_ccm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_ccm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-CCM Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_ccm_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-CCM Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_ccm_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-CCM Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &aes_ccm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-CCM Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &aes_ccm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown,
 					  test_hash_only, &sha1_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA224 Digest Gen", ut_setup, ut_teardown,
