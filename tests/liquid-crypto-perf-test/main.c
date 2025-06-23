@@ -55,13 +55,13 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 	struct dao_lc_qp_conf qp_conf;
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_info info;
-	unsigned int i, j;
+	unsigned int j;
 	int ret;
 
 	ret = dao_liquid_crypto_init();
 	if (ret < 0) {
 		RTE_LOG(ERR, USER1, "Could not initialize liquid crypto\n");
-		return -EINVAL;
+		return 0;
 	}
 
 	memset(&info, 0, sizeof(info));
@@ -74,7 +74,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 
 	if (info.nb_dev == 0) {
 		RTE_LOG(ERR, USER1, "No liquid crypto devices found\n");
-		return -EINVAL;
+		goto fini;
 	}
 
 	enabled_cdev_count = info.nb_dev;
@@ -83,7 +83,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 
 	if (nb_lcores < 1) {
 		RTE_LOG(ERR, USER1, "Number of enabled cores need to be higher than 1\n");
-		return -EINVAL;
+		goto fini;
 	}
 
 	/*
@@ -105,8 +105,8 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 	/* Add one more queue pair for the command queue */
 	opts->nb_qps += 1;
 
-	for (i = 0; i < enabled_cdev_count && i < LCPERF_MAX_DEVS; i++) {
-		cdev_id = enabled_cdevs[i];
+	for (cdev_id = 0; cdev_id < enabled_cdev_count && cdev_id < LCPERF_MAX_DEVS; cdev_id++) {
+		enabled_cdevs[cdev_id] = cdev_id;
 
 		if (opts->nb_qps > info.nb_qp[cdev_id]) {
 			printf("Number of needed queue pairs is higher "
@@ -114,7 +114,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 			       "per device.\n");
 			printf("Lower the number of cores or increase "
 			       "the number of liquid crypto devices\n");
-			return -EINVAL;
+			goto dev_destroy;
 		}
 
 		memset(&dev_conf, 0, sizeof(dev_conf));
@@ -125,7 +125,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 		ret = dao_liquid_crypto_dev_create(&dev_conf);
 		if (ret < 0) {
 			printf("Failed to create liquid crypto device %u", cdev_id);
-			goto fini;
+			goto dev_destroy;
 		}
 
 		memset(&qp_conf, 0, sizeof(qp_conf));
@@ -140,6 +140,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 				printf("Failed to setup queue pair %u on "
 				       "liquid crypto device %u",
 				       j, cdev_id);
+				dao_liquid_crypto_dev_destroy(cdev_id);
 				goto dev_destroy;
 			}
 		}
@@ -147,19 +148,23 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts, uint8_t *enabled_cd
 		ret = dao_liquid_crypto_dev_start(cdev_id);
 		if (ret < 0) {
 			printf("Failed to start device %u: error %d\n", cdev_id, ret);
+			dao_liquid_crypto_dev_destroy(cdev_id);
 			goto dev_destroy;
 		}
 	}
 
 	return enabled_cdev_count;
+
 dev_destroy:
-	for (i = 0; i < enabled_cdev_count && i < LCPERF_MAX_DEVS; i++) {
-		cdev_id = enabled_cdevs[i];
-		dao_liquid_crypto_dev_destroy(i);
+	while (cdev_id > 0) {
+		cdev_id--;
+		dao_liquid_crypto_dev_stop(cdev_id);
+		dao_liquid_crypto_dev_destroy(cdev_id);
 	}
+
 fini:
 	dao_liquid_crypto_fini();
-	return -EINVAL;
+	return 0;
 }
 
 int
@@ -269,8 +274,8 @@ main(int argc, char **argv)
 	}
 
 	for (i = 0; i < nb_lcdevs && i < LCPERF_MAX_DEVS; i++) {
-		dao_liquid_crypto_dev_stop(i);
-		dao_liquid_crypto_dev_destroy(i);
+		dao_liquid_crypto_dev_stop(enabled_cdevs[i]);
+		dao_liquid_crypto_dev_destroy(enabled_cdevs[i]);
 	}
 
 	dao_liquid_crypto_fini();
@@ -291,8 +296,8 @@ err:
 	}
 
 	for (i = 0; i < nb_lcdevs && i < LCPERF_MAX_DEVS; i++) {
-		dao_liquid_crypto_dev_stop(i);
-		dao_liquid_crypto_dev_destroy(i);
+		dao_liquid_crypto_dev_stop(enabled_cdevs[i]);
+		dao_liquid_crypto_dev_destroy(enabled_cdevs[i]);
 	}
 
 	dao_liquid_crypto_fini();
