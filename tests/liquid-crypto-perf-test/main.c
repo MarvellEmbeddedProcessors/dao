@@ -179,7 +179,7 @@ main(int argc, char **argv)
 	uint8_t cdev_id, i;
 	int nb_lcdevs = 0;
 	uint32_t lcore_id;
-	int ret;
+	int ret = 0;
 
 	/* Initialise DPDK EAL */
 	ret = rte_eal_init(argc, argv);
@@ -193,12 +193,13 @@ main(int argc, char **argv)
 	ret = lcperf_options_parse(&opts, argc, argv);
 	if (ret) {
 		RTE_LOG(ERR, USER1, "Parsing one or more user options failed\n");
-		goto err;
+		goto eal_cleanup;
 	}
+
 	ret = lcperf_options_check(&opts);
 	if (ret) {
 		RTE_LOG(ERR, USER1, "Checking one or more user options failed\n");
-		goto err;
+		goto eal_cleanup;
 	}
 
 	nb_lcdevs = lcperf_initialize_liquid_crypto(&opts, enabled_cdevs);
@@ -208,7 +209,7 @@ main(int argc, char **argv)
 			"Failed to initialise requested crypto "
 			"device type\n");
 		nb_lcdevs = 0;
-		goto err;
+		goto eal_cleanup;
 	}
 
 	lcperf_options_dump(&opts);
@@ -218,7 +219,7 @@ main(int argc, char **argv)
 		RTE_LOG(ERR, USER1,
 			"Failed to find function ops set for "
 			"specified algorithms combination\n");
-		goto err;
+		goto dev_stop_destroy;
 	}
 
 	total_nb_qps = nb_lcdevs * opts.nb_qps;
@@ -234,7 +235,7 @@ main(int argc, char **argv)
 		ctx[i] = lcperf_testmap[opts.test].constructor(cdev_id, qp_id, &opts, &op_fns);
 		if (ctx[i] == NULL) {
 			RTE_LOG(ERR, USER1, "Test run constructor failed\n");
-			goto err;
+			goto ctx_destructor;
 		}
 
 		qp_id = (qp_id + 1) % opts.nb_qps;
@@ -254,6 +255,7 @@ main(int argc, char **argv)
 		rte_eal_remote_launch(lcperf_testmap[opts.test].runner, ctx[i], lcore_id);
 		i++;
 	}
+
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
@@ -263,16 +265,22 @@ main(int argc, char **argv)
 		i++;
 	}
 
+ctx_destructor:
+
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
 		if (i == total_nb_qps)
 			break;
+
+		if (ctx[i] == NULL || lcperf_testmap[opts.test].destructor == NULL)
+			continue;
 
 		lcperf_testmap[opts.test].destructor(ctx[i]);
 		i++;
 	}
 
+dev_stop_destroy:
 	for (i = 0; i < nb_lcdevs && i < LCPERF_MAX_DEVS; i++) {
 		dao_liquid_crypto_dev_stop(enabled_cdevs[i]);
 		dao_liquid_crypto_dev_destroy(enabled_cdevs[i]);
@@ -280,28 +288,12 @@ main(int argc, char **argv)
 
 	dao_liquid_crypto_fini();
 	printf("\n");
+
+eal_cleanup:
+	rte_eal_cleanup();
+
+	if (ret)
+		return EXIT_FAILURE;
 
 	return EXIT_SUCCESS;
-
-err:
-	i = 0;
-	RTE_LCORE_FOREACH_WORKER(lcore_id)
-	{
-		if (i == total_nb_qps)
-			break;
-
-		if (ctx[i] && lcperf_testmap[opts.test].destructor)
-			lcperf_testmap[opts.test].destructor(ctx[i]);
-		i++;
-	}
-
-	for (i = 0; i < nb_lcdevs && i < LCPERF_MAX_DEVS; i++) {
-		dao_liquid_crypto_dev_stop(enabled_cdevs[i]);
-		dao_liquid_crypto_dev_destroy(enabled_cdevs[i]);
-	}
-
-	dao_liquid_crypto_fini();
-	printf("\n");
-
-	return EXIT_FAILURE;
 }
