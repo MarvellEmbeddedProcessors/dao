@@ -8,6 +8,7 @@ Application User Guide
     :maxdepth: 3
     :numbered:
 
+    conntrack
     ovs-offload
     virtio-crypto
     virtio-l2fwd
