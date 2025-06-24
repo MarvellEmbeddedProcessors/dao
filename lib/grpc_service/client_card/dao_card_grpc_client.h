@@ -87,6 +87,18 @@ int dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
  */
 int dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *req);
 
+/**
+ * Get the card stats.
+ *
+ * It will get the card stats like packets received or sent by each active core on liquid crypto
+ * card.
+ *
+ * @param ctx: gRPC client context
+ * @param stats [out]: card information
+ * @return: 0 on success, negative value on failure
+ */
+int dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats);
+
 #ifdef __cplusplus
 }
 #endif

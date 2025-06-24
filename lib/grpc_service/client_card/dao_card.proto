@@ -11,6 +11,7 @@ service DaoCardService {
 	rpc Fini(Emp) returns (Emp){}
 	rpc Info(Emp) returns (CardInfo) {}
 	rpc AppUpdate(UpdateReq) returns (CardResponse) {}
+	rpc Stats(Emp) returns (CardStats) {}
 }
 
 message CardConfig {
@@ -33,6 +34,11 @@ message UpdateReq {
 	string file_name = 1;
 	bytes file_content = 2;
 	bool is_last_chunk = 3;
+}
+
+message CardStats {
+	repeated uint64 rx_packets = 1;
+	repeated uint64 tx_packets = 2;
 }
 
 message Emp {

@@ -586,6 +586,24 @@ card_info(struct dao_card_info *info)
 	return 0;
 }
 
+static int
+card_stats(struct dao_card_stats *stats)
+{
+	int i;
+
+	for (i = 1; i < CA_MAX_LCORE; i++) {
+		if (!rte_lcore_is_enabled(i)) {
+			stats->rx_packets[i - 1] = 0;
+			stats->tx_packets[i - 1] = 0;
+		} else {
+			stats->rx_packets[i - 1] = lcore_conf[i].rx_packets;
+			stats->tx_packets[i - 1] = lcore_conf[i].tx_packets;
+		}
+	}
+
+	return 0;
+}
+
 struct rte_mempool *
 ca_host_sess_mempool_get(uint8_t dev_id)
 {
@@ -666,6 +684,7 @@ static struct dao_card_server_cbs card_cbs = {
 	.init_cb = card_init,
 	.fini_cb = card_fini,
 	.card_info_cb = card_info,
+	.card_stats_cb = card_stats,
 
 	.dev_create_cb = ca_eth_dev_init,
 	.dev_destroy_cb = ca_eth_dev_close,

@@ -28,11 +28,13 @@
 #define DAO_CARD_GRPC_PORT       50051
 #define DAO_CARD_MGR_MAX_CLIENTS 10
 #define BUFFER_SIZE              1024
+#define CA_MAX_WORKER_CORES      23
 
-#define DAO_CARD_MGR_CARD_INIT "card_init"
-#define DAO_CARD_MGR_CARD_FINI "card_fini"
-#define DAO_CARD_MGR_CARD_INFO "card_info"
+#define DAO_CARD_MGR_CARD_INIT  "card_init"
+#define DAO_CARD_MGR_CARD_FINI  "card_fini"
+#define DAO_CARD_MGR_CARD_INFO  "card_info"
 #define DAO_CARD_MGR_APP_UPDATE "card_app_update"
+#define DAO_CARD_MGR_CARD_STATS "card_stats"
 
 typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER,
@@ -78,12 +80,14 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
 	fprintf(stderr,
 		" card_app_update [absolute path of file]: Update the given file on to the card\n");
+	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
 	fprintf(stderr, " quit: Exit the application\n");
 }
 
 static void
 dao_card_mgr_send_to_server(int cli_fd, const char *line)
 {
+	struct dao_card_stats card_stats;
 	struct dao_card_info card_info;
 	int resp;
 
@@ -110,6 +114,30 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 		recv(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
 		dao_info("Card info: version: %s, num SDP devices: %d, max_sessions: %d",
 			 card_info.version, card_info.nb_devs, card_info.max_sessions);
+	}
+
+	/* Dump the stats info */
+	if (!resp && strstr(line, "card_stats") != NULL) {
+		int i = 0;
+		uint64_t total_rx_pkts = 0, total_tx_pkts = 0;
+
+		recv(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0);
+
+		dao_info("LC stats:");
+		dao_info("--------------------------------------------------");
+		dao_info("| Core |      RX Packets      |      TX Packets      |");
+		dao_info("--------------------------------------------------");
+
+		for (i = 0; i < CA_MAX_WORKER_CORES; i++) {
+			dao_info("| %4u | %20lu | %20lu |", i + 1, card_stats.rx_packets[i],
+				 card_stats.tx_packets[i]);
+			total_rx_pkts += card_stats.rx_packets[i];
+			total_tx_pkts += card_stats.tx_packets[i];
+		}
+
+		dao_info("--------------------------------------------------");
+		dao_info("| Total| %20lu | %20lu |", total_rx_pkts, total_tx_pkts);
+		dao_info("--------------------------------------------------");
 	}
 }
 
@@ -278,6 +306,7 @@ free_file_path:
 static void
 dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 {
+	struct dao_card_stats card_stats;
 	struct dao_card_config card_cfg;
 	struct dao_card_info card_info;
 	int rc = 0;
@@ -305,6 +334,8 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = dao_card_info_get(card_ctx, &card_info);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_UPDATE) == 0) {
 		rc = dao_card_mgr_app_update(cmd);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
+		rc = dao_card_stats_get(card_ctx, &card_stats);
 	} else {
 		syslog(LOG_ERR, "Unsupported command");
 		rc = -1;
@@ -314,6 +345,9 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 
 	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0)
 		send(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
+
+	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0)
+		send(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0);
 }
 
 static void

@@ -37,6 +37,7 @@ using dao_card_manager::CardConfig;
 using dao_card_manager::CardInfo;
 using dao_card_manager::CardResponse;
 using dao_card_manager::UpdateReq;
+using dao_card_manager::CardStats;
 using dao_card_manager::Emp;
 
 using lc_manager::DaoLCService;
@@ -104,6 +105,22 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 		return Status::OK;
 	}
+
+	Status Stats(ServerContext *context, const Emp *empty, CardStats *response) override
+	{
+		struct dao_card_stats stats;
+		(void)(context);
+		(void)(empty);
+
+		server_cbs->card_stats_cb(&stats);
+		for (int i = 0; i < CA_MAX_WORKER_CORES; ++i) {
+			response->add_rx_packets(stats.rx_packets[i]);
+			response->add_tx_packets(stats.tx_packets[i]);
+		}
+
+		return Status::OK;
+	}
+
 
 	Status AppUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
 	{

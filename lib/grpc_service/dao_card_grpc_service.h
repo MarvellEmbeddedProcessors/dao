@@ -5,6 +5,8 @@
 #ifndef __INCLUDE_DAO_CARD_GRPC_SERVICE_H__
 #define __INCLUDE_DAO_CARD_GRPC_SERVICE_H__
 
+#define CA_MAX_WORKER_CORES 23
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,6 +46,16 @@ struct dao_card_config {
 struct dao_card_app_update_req {
 	char *filename;
 	char *filepath;
+};
+
+/**
+ * Liquid crypto card stats.
+ */
+struct dao_card_stats {
+	/** Number of packets received on each core */
+	uint64_t rx_packets[CA_MAX_WORKER_CORES];
+	/** Number of packets sent by each core */
+	uint64_t tx_packets[CA_MAX_WORKER_CORES];
 };
 
 #ifdef __cplusplus

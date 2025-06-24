@@ -24,6 +24,7 @@ using dao_card_manager::CardInfo;
 using dao_card_manager::CardResponse;
 using dao_card_manager::Emp;
 using dao_card_manager::UpdateReq;
+using dao_card_manager::CardStats;
 
 struct dao_card_grpc_ctx {
 	std::unique_ptr<DaoCardService::Stub> stub;
@@ -149,3 +150,28 @@ dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_re
 	file.close();
 	return 0;
 }
+
+int
+dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
+{
+	ClientContext context;
+	grpc::Status status;
+	CardStats resp;
+	Emp empty;
+
+	if (ctx == NULL || stats == NULL)
+		return -EINVAL;
+
+	status = ctx->stub->Stats(&context, empty, &resp);
+	if (!status.ok()) {
+		fprintf(stderr, "Failed to get card stats: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return -EIO;
+	}
+
+	for (int i = 0; i < CA_MAX_WORKER_CORES; ++i) {
+		stats->rx_packets[i] = resp.rx_packets(i);
+		stats->tx_packets[i] = resp.tx_packets(i);
+	}
+	return 0;
+}
+

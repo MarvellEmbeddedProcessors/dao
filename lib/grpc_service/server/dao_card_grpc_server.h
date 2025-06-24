@@ -44,6 +44,13 @@ typedef int (*dao_card_info_cb)(struct dao_card_info *info);
 typedef void (*dao_card_fini_cb)(void);
 
 /**
+ * Function pointer for card stats.
+ * @param info: Pointer to card stats
+ * @return: 0 on success, negative value on failure
+ */
+typedef int (*dao_card_stats_cb)(struct dao_card_stats *stats);
+
+/**
  * Function pointer for getting eth device information.
  * @param dev_id: Device ID
  * @param info: Pointer to eth device information
@@ -105,6 +112,8 @@ struct dao_card_server_cbs {
 	dao_card_fini_cb fini_cb;
 	/** DAO Card info callback */
 	dao_card_info_cb card_info_cb;
+	/** DAO Card stats callback */
+	dao_card_stats_cb card_stats_cb;
 
 	/** DAO LC get dev info callback */
 	dao_lc_get_dev_info_cb dev_info_cb;
