@@ -4,7 +4,7 @@
 
 mkdir -p ${TARGET_DIR}/root/lc_service/bin
 mkdir -p ${TARGET_DIR}/root/lc_service/mc/mrvl/cpt02
-mkdir -p ${TARGET_DIR}/root/lc_service/cpt_module
+mkdir -p ${TARGET_DIR}/root/cpt_module
 
 files=("dao-crypto-agent"
        "dpdk-test-crypto-perf"

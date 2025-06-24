@@ -5,7 +5,7 @@
 APP_HOME=$1
 SCRIPTS="$APP_HOME/scripts"
 BIN="$APP_HOME/bin"
-CPT_MODULE="$APP_HOME/cpt_module"
+CPT_MODULE="/root/cpt_module"
 
 function load_ep() {
 	# Unload the module if it is already loaded
