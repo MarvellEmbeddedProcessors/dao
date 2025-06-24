@@ -696,8 +696,11 @@ main(int argc, char **argv)
 	}
 
 	/* This is blocking call. We need another thread to stop the server. */
-	/* TODO Need to identify way to get IP and port */
-	dao_card_grpc_server_run(50051);
+	rc = dao_card_grpc_server_run();
+	if (rc) {
+		CA_ERR("Could not run grpc server: %d", rc);
+		return rc;
+	}
 
 	card_fini();
 

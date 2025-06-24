@@ -15,10 +15,9 @@ extern "C" {
 /**
  * Run the gRPC server.
  *
- * @param server_port: Port number of the server
  * @return: 0 on success, negative value on failure
  */
-int dao_card_grpc_server_run(uint16_t server_port);
+int dao_card_grpc_server_run(void);
 
 /**
  * Stop the gRPC server.

@@ -7,6 +7,7 @@
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <arpa/inet.h>
 
 #include <grpc/grpc.h>
 #include <grpcpp/server.h>
@@ -20,6 +21,9 @@
 
 #define BASE_DIR "/tmp"
 #define UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_app_update.sh"
+#define LC_IP_ADDRESS_ENV_VAR "LC_IP_ADDRESS"
+#define LC_DEFAULT_PORT 50051
+#define LC_DEFAULT_IP_ADDRESS "192.168.1.1"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -274,10 +278,32 @@ dao_card_register_server_cbs(struct dao_card_server_cbs *cbs)
 	return 0;
 }
 
+bool
+validate_ip_address(const std::string &ip) {
+	struct in_addr inaddr;
+	return inet_pton(AF_INET, ip.c_str(), &inaddr) != 0;
+}
+
 int
-dao_card_grpc_server_run(uint16_t server_port)
+dao_card_grpc_server_run(void)
 {
-	std::string server_address = absl::StrFormat("192.168.1.1:%d", server_port);
+	char *ip_env = getenv(LC_IP_ADDRESS_ENV_VAR);
+	std::string server_ip;
+	if (ip_env == NULL) {
+		fprintf(stderr, "Environment variable %s is not set, continue with default: %s\n",
+			LC_IP_ADDRESS_ENV_VAR, LC_DEFAULT_IP_ADDRESS);
+		server_ip = LC_DEFAULT_IP_ADDRESS;
+	} else {
+		server_ip = std::string(ip_env);
+		if (server_ip.empty() || !validate_ip_address(server_ip)) {
+			fprintf(stderr, "Env: %s is not a valid IPv4 address, continue with default: %s\n",
+				LC_IP_ADDRESS_ENV_VAR, LC_DEFAULT_IP_ADDRESS);
+			server_ip = LC_DEFAULT_IP_ADDRESS;
+		}
+	}
+
+	std::string server_address = absl::StrFormat("%s:%d", server_ip, LC_DEFAULT_PORT);
+
 	card_service = std::make_unique<DaoCardServiceImpl>();
 	lc_service = std::make_unique<DaoLCServiceImpl>();
 	int selected_port = -1;
