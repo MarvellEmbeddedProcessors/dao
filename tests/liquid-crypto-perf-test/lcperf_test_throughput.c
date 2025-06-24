@@ -94,15 +94,15 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint64_t ops_deqd = 0, ops_deqd_total = 0, ops_deqd_failed = 0;
 	struct lcperf_throughput_ctx *ctx = test_ctx;
 	uint64_t tsc_start, tsc_end, tsc_duration;
+	uint32_t burst_size, curr_burst_sz;
 	uint32_t lcore = rte_lcore_id();
 	uint64_t op_cookie = rte_rand();
 	struct lcperf_test_data tdata;
-	uint16_t burst_size, qp_id;
 	uint64_t time_limit_tsc;
 	uint64_t remaining_ops;
 	uint64_t total_ops, j;
 	struct dao_lc_res res;
-	uint32_t nb_desc;
+	uint16_t qp_id;
 	uint8_t dev_id;
 	int ret;
 
@@ -114,7 +114,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 		return -1;
 	}
 
-	nb_desc = ctx->options->nb_descriptors;
+	burst_size = ctx->options->burst_size;
 	total_ops = ctx->options->total_ops;
 	dev_id = ctx->dev_id;
 	qp_id = ctx->qp_id;
@@ -124,13 +124,13 @@ lcperf_throughput_test_runner(void *test_ctx)
 
 	while (ops_enqd_total < total_ops) {
 		remaining_ops = total_ops - ops_enqd_total;
-		burst_size = (remaining_ops < nb_desc) ? remaining_ops : nb_desc;
+		curr_burst_sz = RTE_MIN(remaining_ops, burst_size);
 
 		ops_enqd = 0;
 		ops_deqd = 0;
 		ops_enqd_failed = 0;
 
-		for (j = 0; j < burst_size; j++) {
+		for (j = 0; j < curr_burst_sz; j++) {
 			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata, ctx->options);
 			if (ret == 0)
 				ops_enqd++;
@@ -150,10 +150,12 @@ lcperf_throughput_test_runner(void *test_ctx)
 
 		for (j = 0; j < burst_size; j++) {
 			ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
-			if (ret > 0)
+			if (ret == 1) {
 				ops_deqd++;
-			else if (ret < 0)
+			} else {
 				ops_deqd_failed++;
+				break;
+			}
 		}
 
 		ops_deqd_total += ops_deqd;

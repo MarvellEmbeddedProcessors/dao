@@ -28,6 +28,7 @@ usage(char *progname)
 	       " --rsa-priv-keytype exp / qt : set rsa private key type\n"
 	       " --rsa-keysize N : set RSA modulus length, supported length are 256, 1024, "
 	       " 2048, 4096 and 8192. default is 1024\n"
+	       " --burst-size N : set burst size for enqueue/dequeue operations\n"
 	       " -h: prints this help\n",
 	       progname);
 }
@@ -200,6 +201,24 @@ parse_rsa_modlen(struct lcperf_options *opts, const char *arg)
 	return 0;
 }
 
+static int
+parse_burst_size(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->burst_size, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse burst size\n");
+		return -1;
+	}
+
+	if (opts->burst_size == 0) {
+		RTE_LOG(ERR, USER1, "Invalid burst size specified\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -210,8 +229,7 @@ lcperf_options_default(struct lcperf_options *opts)
 
 	opts->buffer_size_list[0] = 64;
 	opts->buffer_size_count = 1;
-	opts->burst_size_list[0] = 32;
-	opts->burst_size_count = 1;
+	opts->burst_size = 2048;
 
 	opts->op_type = LCPERF_OP_PASSTHROUGH;
 
@@ -234,6 +252,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_ASYM_OP, required_argument, 0, 0},
 				 {LCPERF_RSA_PRIV_KEYTYPE, required_argument, 0, 0},
 				 {LCPERF_RSA_MODLEN, required_argument, 0, 0},
+				 {LCPERF_BURST_SIZE, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -247,6 +266,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_ASYM_OP, parse_asym_op},
 		{LCPERF_RSA_PRIV_KEYTYPE, parse_rsa_priv_keytype},
 		{LCPERF_RSA_MODLEN, parse_rsa_modlen},
+		{LCPERF_BURST_SIZE, parse_burst_size},
 	};
 	unsigned int i;
 
@@ -303,9 +323,7 @@ lcperf_options_dump(struct lcperf_options *opts)
 	for (size_idx = 0; size_idx < opts->buffer_size_count; size_idx++)
 		printf("%u ", opts->buffer_size_list[size_idx]);
 	printf("\n");
-	printf("# burst sizes: ");
-	for (size_idx = 0; size_idx < opts->burst_size_count; size_idx++)
-		printf("%u ", opts->burst_size_list[size_idx]);
+	printf("# burst size: %u\n", opts->burst_size);
 	printf("\n");
 
 	printf("# lcperf operation type: %s\n", lcperf_op_type_strs[opts->op_type]);

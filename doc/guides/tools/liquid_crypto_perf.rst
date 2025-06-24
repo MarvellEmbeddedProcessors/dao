@@ -105,6 +105,13 @@ The following are the application-specific command-line options:
 	- ``4096``: 4096 bits
 	- ``8192``: 8192 bits
 
+* ``--burst-size <n>``
+
+	Specify the burst size for each enqueue/dequeue operation. The burst size determines
+	how many operations are submitted to or retrieved from the device in a single batch.
+	Adjusting this value can impact performance and resource utilization. Replace ``<n>``
+	with the desired burst size (e.g., 32, 64, 128).
+
 Examples
 --------
 

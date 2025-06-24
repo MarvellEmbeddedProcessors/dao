@@ -17,6 +17,7 @@
 #define LCPERF_ASYM_OP          ("asym-op")
 #define LCPERF_RSA_PRIV_KEYTYPE ("rsa-priv-keytype")
 #define LCPERF_RSA_MODLEN       ("rsa-modlen")
+#define LCPERF_BURST_SIZE       ("burst-size")
 
 #define MAX_LIST 1
 
@@ -61,8 +62,8 @@ struct lcperf_options {
 	uint32_t buffer_size_list[MAX_LIST];
 	uint8_t buffer_size_count;
 
-	uint32_t burst_size_list[MAX_LIST];
-	uint8_t burst_size_count;
+	uint32_t burst_size;
+
 	uint32_t rsa_modlen;
 	struct lcperf_rsa_test_data *rsa_data;
 };
