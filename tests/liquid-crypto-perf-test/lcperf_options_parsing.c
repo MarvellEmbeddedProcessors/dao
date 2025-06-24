@@ -20,7 +20,7 @@ static void
 usage(char *progname)
 {
 	printf("%s [EAL options] --\n"
-	       " --ptest throughput :"
+	       " --ptest throughput / latency :"
 	       " set test type\n"
 	       " --total-ops N: set the number of total operations performed\n"
 	       " --desc-nb N: set number of descriptors for each liquid crypto device\n"
@@ -61,6 +61,7 @@ parse_lcperf_test_type(struct lcperf_options *opts, const char *arg)
 {
 	struct name_id_map lcperftest_namemap[] = {
 		{lcperf_test_type_strs[LCPERF_TEST_TYPE_THROUGHPUT], LCPERF_TEST_TYPE_THROUGHPUT},
+		{lcperf_test_type_strs[LCPERF_TEST_TYPE_LATENCY], LCPERF_TEST_TYPE_LATENCY},
 	};
 
 	int id = get_str_key_id_mapping((struct name_id_map *)lcperftest_namemap,

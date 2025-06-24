@@ -6,7 +6,7 @@ DAO Liquid Crypto Performance Application
 
 The ``dao-liquid-crypto-perf-test`` tool is a performance benchmarking
 utility designed to evaluate the performance characteristics of the LiquidCrypto card.
-Currently, it supports throughput performance testing, enabling users to measure
+Currently, it supports throughput and latency performance testing, enabling users to measure
 the card's data processing capabilities under various configurations.
 
 The tool is capable of performing different types of operations, including
@@ -47,6 +47,7 @@ The following are the application-specific command-line options:
 	Specify the type of performance test to run. The ``type`` can be::
 
 	   throughput
+	   latency
 
 	This option determines the nature of the performance evaluation.
 
@@ -193,6 +194,22 @@ The following are examples of how to use the ``dao-liquid-crypto-perf-test`` app
 	Perform a throughput test for RSA private key decryption using the quintuple-based private key, with 25,000 total operations and 1024 descriptors::
 
 		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 25000 --desc-nb 1024 --optype rsa --asym-op prv-decrypt --rsa-priv-keytype qt --ptest throughput
+
+4. **Latency Test for Passthrough Operation**
+	Perform a latency test for the passthrough operation with 128 total ops and burst size is 32::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 128 --optype passthrough --ptest latency --burst-size 32
+
+5. **Latency Test for RSA Encryption**
+	Perform a latency test for RSA public key encryption with 256 total operations, 1024-bit modulus length, and burst size is 32::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 256 --optype rsa --asym-op pub-encrypt --rsa-modlen 1024 --ptest latency --burst-size 32
+
+6. **Latency Test for RSA Decryption**
+	Perform a latency test for RSA private key decryption using the quintuple-based private key, with 512 total operations and burst size is 32::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 512 --optype rsa --asym-op prv-decrypt --rsa-priv-keytype qt --ptest latency --burst-size 32
+
 
 Optional Command-Line Options
 -----------------------------

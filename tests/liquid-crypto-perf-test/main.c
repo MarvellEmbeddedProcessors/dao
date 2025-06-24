@@ -14,6 +14,7 @@
 
 #include "lcperf.h"
 #include "lcperf_options.h"
+#include "lcperf_test_latency.h"
 #include "lcperf_test_throughput.h"
 
 /* Maximum length of output buffer */
@@ -23,6 +24,7 @@
 
 const char *lcperf_test_type_strs[] = {
 	[LCPERF_TEST_TYPE_THROUGHPUT] = "throughput",
+	[LCPERF_TEST_TYPE_LATENCY] = "latency",
 };
 
 const char *lcperf_op_type_strs[] = {
@@ -70,6 +72,8 @@ const struct lcperf_test lcperf_testmap[] = {
 	[LCPERF_TEST_TYPE_THROUGHPUT] = {lcperf_throughput_test_constructor,
 					 lcperf_throughput_test_runner,
 					 lcperf_throughput_test_destructor},
+	[LCPERF_TEST_TYPE_LATENCY] = {lcperf_latency_test_constructor, lcperf_latency_test_runner,
+				      lcperf_latency_test_destructor},
 };
 
 struct lcore_qp_mapping {

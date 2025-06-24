@@ -30,7 +30,10 @@
 
 #define MAX_LIST 1
 
-enum lcperf_perf_test_type { LCPERF_TEST_TYPE_THROUGHPUT };
+enum lcperf_perf_test_type {
+	LCPERF_TEST_TYPE_THROUGHPUT,
+	LCPERF_TEST_TYPE_LATENCY,
+};
 
 extern const char *lcperf_test_type_strs[];
 
