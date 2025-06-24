@@ -34,6 +34,8 @@ struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
 static pthread_t stats_thread;
 
+static bool card_initialized;
+
 static int host_dev_init(void);
 static int host_dev_fini(void);
 
@@ -514,6 +516,8 @@ card_init(struct dao_card_config *config)
 		goto qsbr_fini;
 	}
 
+	card_initialized = true;
+
 	return 0;
 
 qsbr_fini:
@@ -535,6 +539,11 @@ card_fini(void)
 {
 	int i;
 
+	if (!card_initialized) {
+		CA_INFO("Card not initialized, nothing to clean up");
+		return;
+	}
+
 	force_quit = true;
 	CA_INFO("Cleaning up DAO card");
 
@@ -553,6 +562,8 @@ card_fini(void)
 	ca_eth_dev_fini();
 	ca_eth_lcore_map_fini();
 	rte_eal_cleanup();
+
+	card_initialized = false;
 }
 
 static int
