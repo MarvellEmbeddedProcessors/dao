@@ -10,11 +10,12 @@
 
 #define MAX_VIRTIO_DEV_PER_LCORE 128
 
-#define MAX_LCORE_PARAMS 1024
-
-#define NB_SOCKETS 8
-
-#define MAX_DMA_VCHANS 4
+/* 64 could suffice most use cases. 64 is just application limit and comes from
+ * 64-bit virt_q_map in struct blkdev_ctx. To support beyond 64 queues, use map
+ * big enough to hold all. Real max queue limit comes from virtio lib (check
+ * virtio_dev_init() in virtio_dev.c).
+ */
+#define MAX_VIRTIO_BLK_QUEUES 64
 
 #define MEMPOOL_CACHE_SIZE 512
 
@@ -23,7 +24,7 @@
 #define NUM_STASH_PER_QUEUE 2 /* process_compl_stash, process_pend_stash */
 
 /* Default block device attributes */
-#define BLK_CAPACITY 204800 /* Capacity in units of sectors. 204800 x 512 = 100MiB */
+#define BLK_CAPACITY ((100 << 20) >> 9) /* 100MiB in units of 512B sectors */
 
 #define MAX_SEG_SIZE 4096 /* As big as block size used by kernel IO stack */
 

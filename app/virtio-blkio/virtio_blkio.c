@@ -296,8 +296,35 @@ print_usage(const char *prgname)
 		"  -d DMA_FLUSH_THR: Number of SGE's before DMA is flushed(1..15). Default is 8.\n"
 		"  -f : Disable auto free with virtio Tx do sw freeing\n"
 		"  -y : DMA_VFID: Value to override DMA VCHAN VFID\n"
-		"  --virtio-blkconfig (dev_id[,[lcore_mask=val],[capacity=val],[blk_sz=val],[max_segs=val],[max_seg_sz=val]]) : Configure block device attributes\n\n",
+		"  --virtio-blkconfig (dev_id[,[lcore_mask=val],[capacity=val[M|G]],[blk_sz=val],[max_segs=val],[max_seg_sz=val]]) : Configure block device attributes\n\n",
 		prgname);
+}
+
+/* VirtIO protocol expects capacity in units of 512B blocks */
+static uint64_t
+parse_capacity(const char *str)
+{
+	uint64_t val, sectors;
+	char *end = NULL;
+
+	/* Parse numeric value */
+	val = strtoul(str, &end, 0);
+	if ((str[0] == '\0') || (end == NULL) || (*end == '\0')) {
+		APP_ERR("Invalid size format: %s\n", str);
+		return 0;
+	}
+
+	/* Handle suffix for MB or GB */
+	if (strcmp(end, "M") == 0) {
+		sectors = (val << 20) >> 9; // Convert MB to 512B sectors
+	} else if (strcmp(end, "G") == 0) {
+		sectors = (val << 30) >> 9; // Convert GB to 512B sectors
+	} else {
+		APP_ERR("Invalid size suffix: %s\n", end);
+		return 0;
+	}
+
+	return sectors;
 }
 
 static uint64_t
@@ -317,6 +344,7 @@ parse_uint(const char *str)
 static int
 parse_virtio_config(const char *q_arg)
 {
+	uint32_t max_queues = MAX_VIRTIO_BLK_QUEUES;
 	uint32_t max_seg_sz = MAX_SEG_SIZE;
 	uint64_t capacity = BLK_CAPACITY;
 	uint32_t max_segs = MAX_SEGS;
@@ -324,7 +352,6 @@ parse_virtio_config(const char *q_arg)
 	char *token, *key, *value;
 	char *saveptr1, *saveptr2;
 	uint64_t lcore_mask = 0;
-	uint32_t max_queues = 0; /* whatever libvirtio derives from host_page_sz */
 	uint16_t dev_id;
 	char s[256];
 	char *end;
@@ -390,7 +417,7 @@ parse_virtio_config(const char *q_arg)
 				errno = 0;
 				switch (i) {
 				case KEY_CAPACITY:
-					capacity = parse_uint(value);
+					capacity = parse_capacity(value);
 					if (capacity == 0) {
 						APP_ERR("Invalid value for capacity: %s\n", value);
 						return -1;
@@ -405,9 +432,9 @@ parse_virtio_config(const char *q_arg)
 					break;
 				case KEY_MAX_QUEUES:
 					max_queues = parse_uint(value);
-					if (max_queues == 0) {
-						APP_ERR("Invalid value for max_queues: %s\n",
-							value);
+					if (max_queues == 0 || max_queues > MAX_VIRTIO_BLK_QUEUES) {
+						APP_ERR("Invalid value for max_queues: %s. (hint: 0 < value < %u))\n",
+							value, MAX_VIRTIO_BLK_QUEUES);
 						return -1;
 					}
 					break;
@@ -462,7 +489,7 @@ parse_virtio_config(const char *q_arg)
 		blkdev_conf[dev_id].lcore_mask = lcore_mask;
 
 	APP_INFO(
-		"Parsed config for device_id %u: capacity=%lu, blk_sz=%u, max_queues=%u, max_segs=%u, max_seg_sz=%u\n",
+		"Parsed config for device_id %u: capacity=%lu (in 512B sectors), blk_sz=%u, max_queues=%u, max_segs=%u, max_seg_sz=%u\n",
 		dev_id, capacity, blk_sz, max_queues, max_segs, max_seg_sz);
 
 	return 0;
@@ -752,6 +779,8 @@ virtio_blk_io_process_request(uint16_t devid, void *vbuf)
 			break;
 		default:
 			ret = DAO_BLK_DEV_REQ_UNSUPPORTED; // Unsupported operation
+			APP_ERR("Unsupported request type %u for virtio blkdev %u\n", req_type,
+				devid);
 			break;
 		}
 
@@ -775,7 +804,8 @@ virtio_blk_io_process_request(uint16_t devid, void *vbuf)
 		req_stat = DAO_VIRTIO_BLK_REQ_IN_PROGRESS;
 		break;
 	default:
-		printf("Unknown error in blk device req processing\n");
+		APP_ERR("Unknown return code %d from blkdev request for virtio blkdev %u\n", ret,
+			devid);
 	}
 	/** For in DAO_BLK_DEV_REQ_IN_PROCESS, the status needs
 	    to be updated when the request is done. May be in callback function
@@ -1071,7 +1101,7 @@ worker_main_loop(void *conf)
 			while (q_count) {
 				q_id = __builtin_ctzll(q_map);
 				virtio_blkio_main(dev_id, q_id);
-				q_map &= ~(1 << q_id);
+				q_map &= ~RTE_BIT64(q_id);
 				q_count--;
 			}
 		}
@@ -1162,7 +1192,7 @@ clear_lcore_queue_mapping(uint16_t virtio_devid)
 			blkdev_ctx->virt_q_count = 0;
 			blkdev_ctx->stash = NULL;
 
-			for (; q_map; q_map &= ~(1 << q_id)) {
+			for (; q_map; q_map &= ~RTE_BIT64(q_id)) {
 				q_id = __builtin_ctzll(q_map);
 				stash_memory_cleanup(&stash[q_id * NUM_STASH_PER_QUEUE]);
 			}
@@ -1193,7 +1223,7 @@ virtio_dev_status_cb(uint16_t virtio_devid, uint8_t status)
 		/* Get active virt queue count */
 		virt_q_count = dao_virtio_blkdev_queue_count(virtio_devid);
 
-		if (virt_q_count <= 0 || virt_q_count >= (DAO_VIRTIO_MAX_QUEUES - 1)) {
+		if (virt_q_count <= 0 || virt_q_count > MAX_VIRTIO_BLK_QUEUES) {
 			APP_ERR("virtio_dev=%d: invalid virt_q_count=%d\n", virtio_devid,
 				virt_q_count);
 			return -EIO;
