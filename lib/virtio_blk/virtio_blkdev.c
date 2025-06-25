@@ -119,6 +119,8 @@ virtio_blkdev_clear_queue_info(struct virtio_blkdev *blkdev)
 		dao_blkdev->qs[i] = NULL;
 	}
 
+	blkdev->num_queues = 0;
+
 	return 0;
 }
 
