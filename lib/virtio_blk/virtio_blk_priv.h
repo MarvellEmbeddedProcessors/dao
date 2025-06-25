@@ -298,7 +298,7 @@ fetch_io_desc_prep(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2m
 	uint32_t notify_data;
 	uint16_t next_off, off;
 	int i, j = 0;
-	int nb_desc;
+	int16_t nb_desc;
 	int desc_count = 0;
 	uint16_t sd_desc_val = 0;
 
@@ -313,7 +313,7 @@ fetch_io_desc_prep(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2m
 
 	/* Limit the fetch to end of the queue */
 	nb_desc = desc_off_diff(next_off, sd_desc_off, q_sz) - pend_sd_desc;
-	if (unlikely(!nb_desc))
+	if (unlikely(nb_desc <= 0))
 		return 0;
 
 	/* Allocate required mbufs */
