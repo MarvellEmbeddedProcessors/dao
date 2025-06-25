@@ -69,8 +69,8 @@ pending_queue_infl_cnt(uint64_t head, uint64_t tail, const uint64_t mask)
 static __rte_always_inline uint64_t
 pending_queue_free_cnt(uint64_t head, uint64_t tail, const uint64_t mask)
 {
-	/* mask is nb_desc - 1 */
-	return mask + 1 - pending_queue_infl_cnt(head, tail, mask);
+	/* mask is nb_desc - 1. Reserve 1 slot to differentiate between queue full and empty */
+	return mask - pending_queue_infl_cnt(head, tail, mask);
 }
 
 #endif /* __CA_CRYPTO_QUEUE_H__ */
