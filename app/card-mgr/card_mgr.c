@@ -288,7 +288,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		card_cfg.crypto_nb_desc = DAO_CARD_NB_DESC;
 
 		if ((cmd->argc > 1) && (strcmp(cmd->argv[1], "--nb_desc") == 0)) {
-			card_cfg.crypto_nb_desc = atoi(cmd->argv[3]);
+			card_cfg.crypto_nb_desc = atoi(cmd->argv[2]);
 			skip_args += 2;
 		}
 
