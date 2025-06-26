@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 /** The version of the crypto agent */
-#define DAO_CARD_VERSION "25.06.1"
+#define DAO_CARD_VERSION "25.06.2"
 /** The maximum length of the version string. */
 #define DAO_CARD_VERSION_LEN 32
 
