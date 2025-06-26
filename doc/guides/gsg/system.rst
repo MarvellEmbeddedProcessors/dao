@@ -30,7 +30,7 @@ For Ubuntu/Debian systems these can be installed using
 
 * Python 3.6 or later.
 
-* Meson (version 1.3.2+) and ninja
+* Meson (version 0.53.0+) and ninja
 
 * DPDK 24.11 or later
 
@@ -43,7 +43,7 @@ Check if pkg-config able to resolve libdpdk dependency:
 
  # pkg-config --modversion libdpdk
 
-* pyelftools (version 0.30+)
+* pyelftools (version 0.22+)
 
 For Fedora systems it can be installed using
 

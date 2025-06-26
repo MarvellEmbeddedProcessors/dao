@@ -82,7 +82,7 @@ TAG and execute the following commands to build the drivers:
   git clone https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git -b <release_tag>
 
   Example:
-  # git clone https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git -b v24.08
+  # git clone https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git -b v25.05
   # cd pcie_ep_octeon_host
   # make
 
@@ -149,7 +149,7 @@ Steps to build DPDK are as follows:
 
   # git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
   # cd marvell-dpdk
-  # git checkout dpdk-23.11-release
+  # git checkout dpdk-24.11-release
   # meson build –prefix=${PWD}/install
   # ninja -C build install
 
