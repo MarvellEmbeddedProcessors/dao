@@ -435,7 +435,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	memset(&card_qp_conf, 0, sizeof(card_qp_conf));
 	card_qp_conf.dev_id = dev_id;
 	card_qp_conf.qp_id = qp_id;
-	card_qp_conf.nb_desc = conf->nb_desc;
+	card_qp_conf.nb_desc = nb_desc;
 	card_qp_conf.max_seg_size = conf->max_seg_size;
 	card_qp_conf.out_of_order_delivery_en = conf->out_of_order_delivery_en;
 
