@@ -86,7 +86,7 @@ Get the OVS sources by cloning the repository or by download from
 .. code-block:: console
 
  # git clone https://github.com/openvswitch/ovs
- # git checkout branch-3.3
+ # git checkout branch-3.4
  # ./boot.sh
 
 Apply custom patches
@@ -100,7 +100,7 @@ Apply the patches:
 
 .. code-block:: console
 
- # patch -p1 < <DAO_repo>patches/ovs/v3.3.0/*.patch
+ # patch -p1 < <DAO_repo>patches/ovs/v3.4.1/*.patch
 
 Compilation
 ```````````
