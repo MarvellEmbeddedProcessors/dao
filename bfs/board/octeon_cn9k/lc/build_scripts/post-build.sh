@@ -47,8 +47,8 @@ fi
 # Copy CPT kernel modules
 
 MRVL_CPT_DIR=${TARGET_DIR}/lib/modules/6.1.67/kernel/drivers/crypto/marvell/octeontx2
-mv -f ${MRVL_CPT_DIR}/rvu_cptpf.ko ${TARGET_DIR}/root/lc_service/cpt_module/
-mv -f ${MRVL_CPT_DIR}/rvu_cptcommon.ko ${TARGET_DIR}/root/lc_service/cpt_module/
+mv -f ${MRVL_CPT_DIR}/rvu_cptpf.ko ${TARGET_DIR}/root/cpt_module/
+mv -f ${MRVL_CPT_DIR}/rvu_cptcommon.ko ${TARGET_DIR}/root/cpt_module/
 
 # Remove other firmware files
 eval rm -rf ${MRVL_FW_DIR}
