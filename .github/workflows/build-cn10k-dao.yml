@@ -1,4 +1,4 @@
-name: build-cn10k
+name: build-cn10k-dao
 
 on:
   push:
