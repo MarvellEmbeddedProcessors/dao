@@ -92,8 +92,8 @@ foreach l:libraries
     includes += include_directories(l)
     includes += DAO_INCLUDES
 
-    shared_deps = lib_deps + DAO_EXT_DEPS_LIBDPDK
-    static_deps = lib_deps + DAO_EXT_DEPS_LIBDPDK
+    shared_deps = DAO_EXT_DEPS_LIBDPDK
+    static_deps = DAO_EXT_DEPS_LIBDPDK
     foreach d:deps
 	if not is_variable('static_dao_' + d)
             build = false
@@ -121,7 +121,7 @@ foreach l:libraries
             c_args: cflags,
             cpp_args: cxxflags,
             include_directories: includes,
-            dependencies: static_deps,
+            dependencies: static_deps + lib_deps,
             install: true)
     static_dep = declare_dependency(
             include_directories: includes,
@@ -132,7 +132,7 @@ foreach l:libraries
                 sources,
                 c_args: cflags,
                 cpp_args: cxxflags,
-                dependencies: shared_deps,
+                dependencies: shared_deps + lib_deps,
                 include_directories: includes,
                 version: DAO_BUILD_CONF.get('DAO_LIB_VERSION'),
                 soversion: DAO_BUILD_CONF.get('DAO_VERSION_MAJOR'),

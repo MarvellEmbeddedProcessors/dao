@@ -47,3 +47,5 @@ deps = ['portgroup']
 deps += ['workers']
 deps += ['netlink']
 deps += ['featurearc']
+
+app_deps += DAO_EXT_DEPS_LIBNL
