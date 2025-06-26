@@ -11,7 +11,7 @@ int ramdisk_read(uint16_t devid, uint64_t sector, dao_blk_io_vec_t *iov, size_t 
 {
 	struct dao_blkdev *dev = &dao_blkdevs[devid];
 	ramdisk_dev_t *rdisk = dev->priv_data;
-	uint64_t offset = sector * rdisk->sector_size;
+	uint64_t offset = sector << DAO_BLK_REQ_SECTOR_SHIFT;
 	int64_t tot_len = len, cur_len, i;
 
 	if (RDISK_IS_REQ_CROSSING_LIMIT(rdisk, offset, len))
@@ -32,7 +32,7 @@ int ramdisk_write(uint16_t devid, uint64_t sector, dao_blk_io_vec_t *iov, size_t
 {
 	struct dao_blkdev *dev = &dao_blkdevs[devid];
 	ramdisk_dev_t *rdisk = dev->priv_data;
-	uint64_t offset = sector * rdisk->sector_size;
+	uint64_t offset = sector << DAO_BLK_REQ_SECTOR_SHIFT;
 	int64_t tot_len = len, cur_len, i;
 
 	if (RDISK_IS_REQ_CROSSING_LIMIT(rdisk, offset, len))
@@ -74,7 +74,7 @@ int ramdisk_unmap(uint16_t devid, uint64_t sector, size_t len)
 {
 	struct dao_blkdev *dev = &dao_blkdevs[devid];
 	ramdisk_dev_t *rdisk = dev->priv_data;
-	uint64_t offset = sector * rdisk->sector_size;
+	uint64_t offset = sector << DAO_BLK_REQ_SECTOR_SHIFT;
 
 	if (RDISK_IS_REQ_CROSSING_LIMIT(rdisk, offset, len))
 		return DAO_BLK_DEV_REQ_FAIL;

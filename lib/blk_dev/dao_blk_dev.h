@@ -8,8 +8,9 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#define DAO_BLKDEV_MAX			(128)
-#define DAO_MAX_BLKDEV_ID_STRLEN	(20)
+#define DAO_BLKDEV_MAX           (128)
+#define DAO_MAX_BLKDEV_ID_STRLEN (20)
+#define DAO_BLK_REQ_SECTOR_SHIFT (9) /* 512 bytes sector size */
 
 /** Type of block device */
 typedef enum dao_blkdev_type {
