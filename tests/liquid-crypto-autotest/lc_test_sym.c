@@ -311,6 +311,14 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_decrypt, &aes_gcm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown,
 					  test_hash_only, &sha1_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA224 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_only, &sha224_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA256 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_only, &sha256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA384 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_only, &sha384_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA512 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_only, &sha512_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
