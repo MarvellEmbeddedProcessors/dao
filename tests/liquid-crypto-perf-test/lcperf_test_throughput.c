@@ -9,7 +9,7 @@
 
 #include <rte_cycles.h>
 #include <rte_malloc.h>
-#include <rte_random.h>
+#include <rte_mempool.h>
 
 #include "lcperf_ops.h"
 #include "lcperf_test_throughput.h"
@@ -27,6 +27,7 @@ struct lcperf_throughput_ctx {
 	const struct lcperf_options *options;
 	const struct lcperf_op_fns *op_fns;
 	struct lcperf_test_data *tdata;
+	struct rte_mempool *buf_pool;
 };
 
 static void
@@ -40,6 +41,11 @@ lcperf_throughput_test_free(struct lcperf_throughput_ctx *ctx)
 			ctx->op_fns->sess_destroy(ctx->dev_id, ctx->sess_id);
 	}
 
+	if (ctx->buf_pool != NULL) {
+		rte_mempool_free(ctx->buf_pool);
+		ctx->buf_pool = NULL;
+	}
+
 	rte_free(ctx);
 }
 
@@ -50,16 +56,12 @@ lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 {
 	struct lcperf_throughput_ctx *ctx = NULL;
 	struct lcperf_test_data *tdata = NULL;
+	struct rte_mempool *data_buf_pool = NULL;
+	char pool_name[32] = "";
 
 	ctx = rte_zmalloc(NULL, sizeof(struct lcperf_throughput_ctx), 0);
 	if (ctx == NULL)
 		return NULL;
-
-	tdata = lcperf_test_vector_get_dummy(options);
-	if (tdata == NULL) {
-		RTE_LOG(ERR, USER1, "Failed to get test data\n");
-		goto test_free;
-	}
 
 	ctx->dev_id = dev_id;
 	ctx->qp_id = qp_id;
@@ -68,9 +70,29 @@ lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 	ctx->populate_ops = op_fns->populate_ops;
 	ctx->options = options;
 	ctx->op_fns = op_fns;
+
+	tdata = lcperf_test_vector_get_dummy(options);
+	if (tdata == NULL) {
+		RTE_LOG(ERR, USER1, "Failed to get test data\n");
+		goto test_free;
+	}
 	ctx->tdata = tdata;
 
-	if (op_fns->sess_create != NULL) {
+	if (options->op_type == LCPERF_OP_SYM) {
+		snprintf(pool_name, sizeof(pool_name), "buf_pool_cdev_%u_qp_%u", dev_id, qp_id);
+		data_buf_pool =
+			rte_mempool_create(pool_name, options->nb_descriptors * RTE_MAX_LCORE,
+					   sizeof(struct lcperf_test_buf_mem), 512, 0, NULL, NULL,
+					   NULL, NULL, SOCKET_ID_ANY, 0);
+
+		if (data_buf_pool == NULL) {
+			RTE_LOG(ERR, USER1, "Failed to create operation pool\n");
+			goto test_vector_free;
+		}
+		ctx->buf_pool = data_buf_pool;
+		RTE_LOG(INFO, USER1, "Buffer pool %s created for device %u, queue %u\n", pool_name,
+			dev_id, qp_id);
+
 		ctx->sess_id = op_fns->sess_create(dev_id, &tdata->sym_params);
 		if (ctx->sess_id == DAO_LC_SESS_ID_INVALID) {
 			RTE_LOG(ERR, USER1, "Could not create session\n");
@@ -91,8 +113,8 @@ test_free:
 static int
 lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_data *tdata)
 {
-	struct dao_lc_res res;
 	uint64_t tsc_start = 0;
+	struct dao_lc_res res;
 	int ret = 0;
 
 	ret = ctx->populate_ops(ctx->sess_id, ctx->options, tdata);
@@ -112,10 +134,8 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 		ret = dao_liquid_crypto_dequeue_burst(ctx->dev_id, ctx->qp_id, &res, 1);
 
 		if (ret == 1) {
-			if (res.op_cookie != tdata->op_cookie) {
-				RTE_LOG(ERR, USER1, "Invalid operation cookie\n");
-				return -1;
-			}
+			if (res.op_cookie != 0)
+				rte_mempool_put(ctx->buf_pool, (void *)(uintptr_t)res.op_cookie);
 			return 1;
 		}
 
@@ -136,7 +156,6 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint64_t tsc_start, tsc_end, tsc_duration;
 	uint32_t burst_size, curr_burst_sz;
 	uint32_t lcore = rte_lcore_id();
-	uint64_t op_cookie = rte_rand();
 	struct lcperf_test_data *tdata;
 	uint64_t time_limit_tsc;
 	uint64_t remaining_ops;
@@ -154,8 +173,9 @@ lcperf_throughput_test_runner(void *test_ctx)
 		return -1;
 	}
 
-	tdata->op_cookie = op_cookie;
+	tdata->op_cookie = 0;
 	tdata->nb_ops = 1;
+	tdata->buf_pool = ctx->buf_pool;
 
 	if (lcperf_check_single_op(ctx, tdata) < 0) {
 		RTE_LOG(ERR, USER1, "Single operation check failed\n");
@@ -203,6 +223,9 @@ lcperf_throughput_test_runner(void *test_ctx)
 			ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
 			if (ret == 1) {
 				ops_deqd++;
+				if (res.op_cookie != 0)
+					rte_mempool_put(ctx->buf_pool,
+							(void *)(uintptr_t)res.op_cookie);
 			} else {
 				ops_deqd_failed++;
 				break;
@@ -215,10 +238,13 @@ lcperf_throughput_test_runner(void *test_ctx)
 	/* Dequeue any remaining operations */
 	for (j = 0; ops_deqd_total < ops_enqd_total; j++) {
 		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
-		if (ret > 0)
+		if (ret > 0) {
 			ops_deqd_total++;
-		else if (ret < 0)
+			if (res.op_cookie != 0)
+				rte_mempool_put(ctx->buf_pool, (void *)(uintptr_t)res.op_cookie);
+		} else if (ret < 0) {
 			ops_deqd_failed++;
+		}
 	}
 
 	tsc_end = rte_rdtsc_precise();

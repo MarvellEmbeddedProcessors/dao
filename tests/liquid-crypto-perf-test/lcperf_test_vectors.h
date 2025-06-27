@@ -34,11 +34,17 @@ struct lcperf_test_sym_params {
 	} ciphertext;
 };
 
+struct lcperf_test_buf_mem {
+	struct dao_lc_buf in_buffer;
+	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN];
+};
+
 struct lcperf_test_data {
 	uint64_t op_cookie;
 	uint16_t nb_ops;
 	struct dao_lc_sym_op ops[TEST_LC_MAX_BURST_SIZE];
 	struct lcperf_test_sym_params sym_params;
+	struct rte_mempool *buf_pool;
 };
 
 struct lcperf_rsa_test_data {

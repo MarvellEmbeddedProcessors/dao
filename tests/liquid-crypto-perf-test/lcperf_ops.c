@@ -3,15 +3,13 @@
  */
 
 #include <rte_cycles.h>
+#include <rte_mempool.h>
 #include <rte_random.h>
 
 #include <dao_liquid_crypto.h>
 
 #include "lcperf_ops.h"
 #include "lcperf_test_vectors.h"
-
-static uint8_t inbuf_data[TEST_LC_MAX_PLAINTEXT_LEN] = {0};
-struct dao_lc_buf in_buf[1];
 
 static int
 lcperf_set_op_passthrough(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
@@ -130,43 +128,42 @@ static int
 lcperf_populate_ops_sym(uint64_t sess_id, const struct lcperf_options *options,
 			struct lcperf_test_data *test_data)
 {
+	struct lcperf_test_buf_mem *buf_mem[test_data->nb_ops];
 	struct dao_lc_sym_op *op = test_data->ops;
-	bool is_encrypt = false;
-	uint8_t *in_buf_data;
-	int i;
+	int i, ret;
 
-	in_buf_data = inbuf_data;
-	if (in_buf_data == NULL) {
-		RTE_LOG(ERR, USER1, "Could not allocate input buffer\n");
+	ret = rte_mempool_get_bulk(test_data->buf_pool, (void **)buf_mem, test_data->nb_ops);
+	if (ret < 0) {
+		RTE_LOG(ERR, USER1, "Failed to get memory from pool: %p\n", test_data->buf_pool);
 		return -1;
 	}
 
-	/* Allocate inbuffers separately for each op as the result will be written in the same
-	 * location. */
-	if (options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
-		if (options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
-			memcpy(in_buf_data, test_data->sym_params.plaintext.data,
-			       test_data->sym_params.plaintext.len);
-			in_buf[0].frag_len = test_data->sym_params.plaintext.len;
-			in_buf[0].total_len = test_data->sym_params.plaintext.len;
-			is_encrypt = true;
-		} else {
-			memcpy(in_buf_data, test_data->sym_params.ciphertext.data,
-			       test_data->sym_params.ciphertext.len);
-			in_buf[0].frag_len = test_data->sym_params.ciphertext.len;
-			in_buf[0].total_len = test_data->sym_params.ciphertext.len;
-		}
+	for (i = 0; i < test_data->nb_ops; i++) {
+		struct dao_lc_buf *in_buffer = &buf_mem[i]->in_buffer;
+		uint8_t *in_buf_data = buf_mem[i]->in_buf_data;
 
-		in_buf[0].data = in_buf_data;
+		if (options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
+			if (options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
+				memcpy(in_buf_data, test_data->sym_params.plaintext.data,
+				       test_data->sym_params.plaintext.len);
+				in_buffer->frag_len = test_data->sym_params.plaintext.len;
+				in_buffer->total_len = test_data->sym_params.plaintext.len;
+				op[i].encrypt = true;
+			} else {
+				memcpy(in_buf_data, test_data->sym_params.ciphertext.data,
+				       test_data->sym_params.ciphertext.len);
+				in_buffer->frag_len = test_data->sym_params.ciphertext.len;
+				in_buffer->total_len = test_data->sym_params.ciphertext.len;
+				op[i].encrypt = false;
+			}
+			in_buffer->data = in_buf_data;
 
-		for (i = 0; i < test_data->nb_ops; i++) {
-			op[i].encrypt = is_encrypt;
-			op[i].in_buffer = in_buf;
+			op[i].in_buffer = in_buffer;
 			op[i].cipher_offset = 0;
 			op[i].cipher_len = test_data->sym_params.ciphertext.len;
 			op[i].cipher_iv = test_data->sym_params.iv.data;
 			op[i].sess_id = sess_id;
-			op[i].op_cookie = test_data->op_cookie;
+			op[i].op_cookie = (uint64_t)buf_mem[i];
 		}
 	}
 
