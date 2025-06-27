@@ -156,16 +156,20 @@ kernel
 
  ``vfio_platform.reset_required=0`` required only for virtio use case
 
+ ``modprobe.blacklist=pcie_marvell_cnxk_ep`` is required only on cn10k platforms
+
 .. code::
 
  Eg. booting rootfs from mmc card
   setenv bootargs "console=ttyAMA0,115200n8 earlycon=pl011,0x87e028000000 maxcpus=24 rootwait rw \
-	  coherent_pool=16M root=/dev/mmcblk0p2 vfio-pci.enable_sriov=1 rvu_af.kpu_profile=ovs_kpu_cnxk"
+	  coherent_pool=16M root=/dev/mmcblk0p2 vfio-pci.enable_sriov=1 \
+          rvu_af.kpu_profile=ovs_kpu_cnxk modprobe.blacklist=pcie_marvell_cnxk_ep"
 
  Eg. booting rootfs from nfs
   setenv bootargs "console=ttyAMA0,115200n8 earlycon=pl011,0x87e028000000 maxcpus=24 rootwait rw \
 	  coherent_pool=16M root=/dev/nfs nfsroot=<path_to_rootfs_hosted_on_nfs_server> \
-	  vfio-pci.enable_sriov=1 rvu_af.kpu_profile=ovs_kpu_cnxk  vfio_platform.reset_required=0"
+	  vfio-pci.enable_sriov=1 rvu_af.kpu_profile=ovs_kpu_cnxk  vfio_platform.reset_required=0 \
+          modprobe.blacklist=pcie_marvell_cnxk_ep"
 
 Booting Kernel Image
 ====================
