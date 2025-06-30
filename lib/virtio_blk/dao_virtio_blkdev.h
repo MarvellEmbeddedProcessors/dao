@@ -51,6 +51,8 @@ struct dao_virtio_blkdev_conf {
 	bool auto_free_en;
 };
 
+/* End of structure dao_virtio_blkdev_conf. */
+
 /** Virtio blk header for external buffers */
 struct dao_virtio_blk_hdr {
 	/** Array of virtio descriptor data */
