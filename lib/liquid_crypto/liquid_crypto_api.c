@@ -597,7 +597,7 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
-	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, max_seg_size = 0;
+	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
 	struct dao_eth_trs_info trs_info;
 	uint16_t req_resp_hdr_sz = 0;
 	int rc;
@@ -672,7 +672,18 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			asym_seg_sz += params->rsa.msg_len;
 		}
 
+		if (params->rng.rand_len) {
+			if (params->rng.rand_len > LIQUID_CRYPTO_RNG_MAX_LEN) {
+				dao_err("Invalid RNG length. rand_len should be at most %u.",
+					LIQUID_CRYPTO_RNG_MAX_LEN);
+				return 0;
+			}
+
+			rng_seg_size = sizeof(struct __dao_lc_req_sym) + params->rng.rand_len;
+		}
+
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
+		max_seg_size = RTE_MAX(max_seg_size, rng_seg_size);
 	}
 
 	/* Make sure segment size is larger than min supported. */
@@ -2015,6 +2026,26 @@ exit:
 	return 0;
 }
 
+static inline void
+dao_lc_post_process_rng(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+			struct rte_mbuf *mbuf)
+{
+	struct __dao_lc_resp_sym *resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
+	uint32_t out_len;
+
+	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (req->data_out == NULL) {
+		dao_err("Invalid output buffer pointer for RNG operation.");
+		rte_errno = EINVAL;
+		return;
+	}
+#endif
+	/* For RNG, we just copy the data to the output buffer */
+	out_len = rte_pktmbuf_pkt_len(mbuf) - sizeof(struct __dao_lc_resp_sym);
+	dao_lc_buf_copy_from_mem(resp->rptr, req->data_out, out_len);
+}
+
 uint16_t
 dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 				uint16_t nb_res)
@@ -2085,6 +2116,9 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			dao_lc_post_process_asym(req, &res[i], mbuf);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
+			dao_lc_post_process_rng(req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
 		default:
@@ -2408,4 +2442,145 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 	}
 
 	return nb_rx;
+}
+
+int
+dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_random_op *op)
+{
+	struct liquid_crypto_dev *dev;
+	struct __dao_lc_req_sym *req;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	uint32_t req_idx = 0;
+	union cpt_inst_w4 w4;
+	union cpt_inst_w7 w7;
+	uint16_t buf_len;
+	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (op == NULL) {
+		dao_err("Invalid argument. op cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (op->out_buf == NULL) {
+		dao_err("Invalid argument. out_buffer cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (op->rand_len == 0 || op->rand_len > LIQUID_CRYPTO_RNG_MAX_LEN) {
+		dao_err("Invalid argument. rand_len must be between 1 and %u.",
+			LIQUID_CRYPTO_RNG_MAX_LEN);
+		return -EINVAL;
+	}
+#endif
+
+	if (op->type != DAO_LC_RANDOM_TYPE_HW) {
+		dao_err("Invalid argument. Only HW RANDOM type is supported.");
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+
+	qp->req_queue[req_idx].op_cookie = op->op_cookie;
+	qp->req_queue[req_idx].data_out = op->out_buf;
+
+	/* TODO: For now support only HW RANDOM. No input required. */
+	buf_len =
+		RTE_MAX((sizeof(struct __dao_lc_req_sym) + op->rand_len), LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
+	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.u64 = 0;
+	w4.s.param1 = op->rand_len;
+	w4.s.dlen = op->rand_len;
+
+	w4.s.opcode_major = ROC_SE_MAJOR_OP_RANDOM;
+	w4.s.opcode_minor = ROC_SE_MINOR_OP_RANDOM_HW_RANDOM;
+
+	w7.u64 = 0;
+	w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+
+	req->w4 = w4.u64;
+	req->w7 = w7.u64;
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+#endif
+	return rc;
 }

@@ -23,6 +23,8 @@
 #define LIQUID_CRYPTO_RSA_MOD_LEN_MAX     1024
 #define LIQUID_CRYPTO_RSA_MSG_LEN_PADDING 11
 
+#define LIQUID_CRYPTO_RNG_MAX_LEN 32767
+
 /** Liquid crypto device */
 struct liquid_crypto_dev {
 	/** Is created */

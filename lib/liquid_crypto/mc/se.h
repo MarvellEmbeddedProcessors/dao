@@ -15,4 +15,7 @@
 
 #define ROC_SE_OFF_CTRL_LEN 8
 
+#define ROC_SE_MAJOR_OP_RANDOM           0x32ULL
+#define ROC_SE_MINOR_OP_RANDOM_HW_RANDOM 0x0ULL
+
 #endif /* __MC_SE_H__ */

@@ -35,7 +35,7 @@
 struct dao_lc_buf {
 	/** The data buffer */
 	void *data;
-	/**< Total pkt len: sum of all fragments. Need to be set only for the first fragment. */
+	/** Total pkt len: sum of all fragments. Need to be set only for the first fragment. */
 	uint32_t total_len;
 	/** The length of the data buffer */
 	uint32_t frag_len;
@@ -549,6 +549,15 @@ struct dao_lc_feature_params {
 		uint16_t msg_len;
 	} rsa;
 	/**
+	 * Random number generation parameters.
+	 * The parameters are used to calculate the size of the maximum segment size for random
+	 * number generation operations.
+	 */
+	struct {
+		/** Random data length */
+		uint32_t rand_len;
+	} rng;
+	/**
 	 * Specifies whether the size calculation is for the command queue pair.
 	 * If true, the size is calculated specifically for the command queue pair, ignoring
 	 * the symmetric and RSA asymmetric parameters.
@@ -569,6 +578,60 @@ struct dao_lc_sym_ctx {
 	union {
 		/** Flexi Crypto context */
 		struct dao_lc_sym_fc_ctx fc;
+	};
+};
+
+/**
+ * Parameters for random number generation operation.
+ *
+ * This structure encapsulates all parameters required for both hardware RNG and X9.17 (3DES-based)
+ * RNG.
+ *
+ * For hardware RNG:
+ *   - Set type = DAO_LC_RANDOM_TYPE_HW
+ *   - Only out_buf, rand_len, and op_cookie are required.
+ *
+ * For X9.17 RNG:
+ *   - Set type = DAO_LC_RANDOM_TYPE_X9_17
+ *   - key, datetime, seed, out_seed must be provided as specified.
+ */
+enum dao_lc_random_type {
+	/** Use hardware RNG */
+	DAO_LC_RANDOM_TYPE_HW = 0,
+	/** Use X9.17 (3DES-based) RNG */
+	DAO_LC_RANDOM_TYPE_X9_17 = 1
+};
+
+/**
+ * Parameters for X9.17 (3DES-based) RNG.
+ *
+ * This structure contains the parameters required for the X9.17 RNG operation.
+ * The key, datetime, seed, and out_seed fields must be set appropriately.
+ */
+struct dao_lc_random_op_x9_17 {
+	/** The 3DES key (24 bytes) */
+	uint8_t *key;
+	/** The date-time (8 bytes) */
+	uint8_t *datetime;
+	/** The input seed (8 bytes) */
+	uint8_t *seed;
+	/** The output seed (8 bytes) */
+	uint8_t *out_seed;
+};
+
+struct dao_lc_random_op {
+	/** RNG type to use */
+	enum dao_lc_random_type type;
+	/** Output buffer for random data */
+	struct dao_lc_buf *out_buf;
+	/** Number of random bytes to generate */
+	uint32_t rand_len;
+	/** Operation cookie */
+	uint64_t op_cookie;
+
+	union {
+		/** X9.17-specific fields (must be set if type == DAO_LC_RANDOM_TYPE_X9_17) */
+		struct dao_lc_random_op_x9_17 x9_17;
 	};
 };
 
@@ -919,6 +982,28 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uin
 					     uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
 					     uint8_t *qInv, uint8_t *em, uint8_t *msg,
 					     uint64_t op_cookie);
+
+/**
+ * Enqueue request to generate random data.
+ *
+ * Select the RNG type and provide parameters via the op structure.
+ * @see struct dao_lc_random_op for details.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param op
+ *  Pointer to the random operation parameter structure.
+ *
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_random_op *op);
 
 /**
  * Enqueue a burst of requests to perform symmetric crypto operations on the
