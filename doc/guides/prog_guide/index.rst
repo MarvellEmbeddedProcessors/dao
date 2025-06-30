@@ -22,3 +22,4 @@ Programmer's Guide
     virtio_crypto_lib
     virtio_net_lib
     virtio_blk_lib
+    block_device_lib

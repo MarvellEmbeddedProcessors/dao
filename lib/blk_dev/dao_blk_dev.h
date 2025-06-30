@@ -60,6 +60,8 @@ struct dao_blkdev_conf {
 	uint8_t dev_type;
 };
 
+/* End of structure dao_blkdev_conf. */
+
 /** Callback handlers exposed by block device */
 typedef struct {
 	int (*read)(uint16_t devid, uint64_t sector, dao_blk_io_vec_t *iov, size_t len);
