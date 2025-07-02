@@ -24,8 +24,20 @@ struct dao_lc_sym_sess_meta {
 	/** CPT Instruction W7 */
 	uint64_t w7;
 
-	/** IV length */
-	uint16_t iv_len;
+	/**
+	 * Algorithm IV length provided by user.
+	 * For AES-GCM, NIST SP 800-38D allows variable IV lengths, but hardware
+	 * implementations may have specific requirements.
+	 */
+	uint16_t alg_iv_len;
+
+	/**
+	 * Packet IV length after adjusting for hardware processing.
+	 * For AES-GCM with 12-byte IV, this is set to 16 bytes to accommodate
+	 * J0 block formation (IV||0^31||1).
+	 * For other IV lengths, may be adjusted based on hardware requirements.
+	 */
+	uint16_t pkt_iv_len;
 
 	/** Digest length */
 	uint16_t digest_len;

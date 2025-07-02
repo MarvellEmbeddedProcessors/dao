@@ -25,8 +25,10 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 
 	switch (ctx->fc.enc_cipher) {
 	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
-	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
 		iv_len = 16;
+		break;
+	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
+		iv_len = 12;
 		break;
 	default:
 		dao_err("Unsupported encryption cipher.");
@@ -113,12 +115,17 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		if (sym_sess_fc_digest_len_validate(ctx))
 			goto sess_meta_free;
 
-		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM)
-			w4.s.opcode_minor |= (1 << 5);
-
+		sess_meta->alg_iv_len = ctx->iv_len;
+		sess_meta->pkt_iv_len = ctx->iv_len;
 		sess_meta->cipher_type = ctx->fc.enc_cipher;
-		sess_meta->iv_len = ctx->iv_len;
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
+
+		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+			w4.s.opcode_minor |= (1 << 5);
+			/* When IV len is 12, 4B would be added by LC layer and submitted. */
+			if (sess_meta->alg_iv_len == 12)
+				sess_meta->pkt_iv_len = 16;
+		}
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		if (sym_sess_hash_digest_len_validate(ctx))
 			goto sess_meta_free;
