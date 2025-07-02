@@ -124,6 +124,10 @@ VirtIO library uses ``RVU SDP devices`` when platform devices are not present.
 
 .. code-block:: bash
 
+   echo 1 > /sys/bus/pci/devices/0002\:19\:00.0/remove
+   echo 1 > /sys/bus/pci/devices/0002\:18\:00.0/remove
+   echo 1 > /sys/bus/pci/rescan
+
    dpdk-devbind.py -b vfio-pci 0002:18:00.0
    dpdk-devbind.py -b vfio-pci 0002:19:00.0
 
