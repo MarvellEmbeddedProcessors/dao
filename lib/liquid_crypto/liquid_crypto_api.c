@@ -330,13 +330,6 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	/* Align to the next power of 2 to simplify datapath checks */
 	nb_desc = rte_align32pow2(conf->nb_desc);
 
-	/* TODO:
-	 * Hardcoding the segment size to 4k, irrespective of the size specified by the application.
-	 * This is to bypass the MTU configuration issue on Octeon side due to different buffer
-	 * sizes for different queues.
-	 * */
-	conf->max_seg_size = 4096;
-
 	max_seg_size = conf->max_seg_size;
 
 	snprintf(name, sizeof(name), "lc_rx_mp_%hhu_%hu", dev_id, qp_id);
