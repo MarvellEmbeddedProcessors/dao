@@ -184,10 +184,43 @@ lcperf_populate_ops_sym(uint64_t sess_id, const struct lcperf_options *options,
 			op[i].cipher_iv = test_data->sym_params.iv.data;
 			op[i].sess_id = sess_id;
 			op[i].op_cookie = (uint64_t)buf_mem[i];
+		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
+			if (options->auth_op == LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE) {
+				memcpy(in_buf_data, test_data->sym_params.plaintext.data,
+				       test_data->sym_params.plaintext.len);
+				in_buffer->frag_len = test_data->sym_params.plaintext.len;
+				in_buffer->total_len = test_data->sym_params.plaintext.len;
+				memset(buf_mem[i]->digest, 0, test_data->sym_params.digest.len);
+				op[i].auth_gen = true;
+			} else {
+				memcpy(in_buf_data, test_data->sym_params.plaintext.data,
+				       test_data->sym_params.plaintext.len);
+				in_buffer->frag_len = test_data->sym_params.plaintext.len;
+				in_buffer->total_len = test_data->sym_params.plaintext.len;
+				memcpy(buf_mem[i]->digest, test_data->sym_params.digest.data,
+				       test_data->sym_params.digest.len);
+				op[i].auth_gen = false;
+			}
+			in_buffer->data = in_buf_data;
+
+			op[i].in_buffer = in_buffer;
+			op[i].auth_offset = 0;
+			op[i].auth_len = test_data->sym_params.plaintext.len;
+			op[i].sess_id = sess_id;
+			op[i].op_cookie = (uint64_t)buf_mem[i];
+			op[i].digest = buf_mem[i]->digest;
+		} else {
+			RTE_LOG(ERR, USER1, "Unsupported sym operation type: %d\n",
+				options->sym_op);
+			goto put_bulk;
 		}
 	}
 
 	return 0;
+
+put_bulk:
+	rte_mempool_put_bulk(test_data->buf_pool, (void **)buf_mem, test_data->nb_ops);
+	return -1;
 }
 
 static int

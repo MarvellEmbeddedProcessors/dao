@@ -115,11 +115,12 @@ The following are the application-specific command-line options:
 	Adjusting this value can impact performance and resource utilization. Replace ``<n>``
 	with the desired burst size (e.g., 32, 64, 128).
 
-* ``--sym-op <cipher_only>``
+* ``--sym-op <cipher_only|auth_only>``
 
 	Specify the symmetric operation type to use for symmetric cryptographic operations.
-	The only supported operation is ``cipher_only``, which performs encryption or decryption
-	using a symmetric cipher algorithm.
+	Available options are:
+	- ``cipher_only``: Perform only symmetric cipher operations (e.g., AES encryption/decryption).
+	- ``auth_only``: Perform only symmetric authentication operations (e.g., SHA1).
 
 	The default symmetric operation is ``cipher_only``.
 
@@ -147,6 +148,22 @@ The following are the application-specific command-line options:
 	- ``decrypt``: Perform decryption using the specified symmetric cipher algorithm.
 
 	The default operation is ``encrypt``.
+
+* ``--auth-alg <sha1>``
+
+	Specify the symmetric authentication algorithm to use for symmetric cryptographic operations.
+	The only supported algorithm is ``sha1``.
+
+	The default symmetric authentication algorithm is ``sha1``.
+
+* ``--auth-op <generate|verify>``
+
+	Specify the symmetric authentication operation type to use for symmetric cryptographic operations.
+	Available options are:
+	- ``generate``: Generate a symmetric authentication tag using the specified algorithm.
+	- ``verify``: Verify a symmetric authentication tag using the specified algorithm.
+
+	The default symmetric authentication operation is ``generate``.
 
 Examples
 --------

@@ -45,6 +45,7 @@ const char *lcperf_rsa_priv_keytype_strs[] = {
 
 const char *lcperf_crypto_sym_op_type_strs[] = {
 	[LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY] = "cipher-only",
+	[LCPERF_CRYPTO_SYM_OP_AUTH_ONLY] = "auth-only",
 };
 
 const char *lcperf_crypto_sym_cipher_op_type_strs[] = {
@@ -52,8 +53,17 @@ const char *lcperf_crypto_sym_cipher_op_type_strs[] = {
 	[LCPERF_CRYPTO_SYM_CIPHER_OP_DECRYPT] = "decrypt",
 };
 
+const char *lcperf_crypto_sym_auth_op_type_strs[] = {
+	[LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE] = "generate",
+	[LCPERF_CRYPTO_SYM_AUTH_OP_VERIFY] = "verify",
+};
+
 const char *lcperf_crypto_sym_cipher_algo_strs[] = {
 	[DAO_LC_FC_ENC_CIPHER_AES_CBC] = "aes-cbc",
+};
+
+const char *lcperf_crypto_sym_auth_algo_strs[] = {
+	[DAO_LC_FC_HASH_TYPE_SHA1] = "sha1",
 };
 
 const struct lcperf_test lcperf_testmap[] = {

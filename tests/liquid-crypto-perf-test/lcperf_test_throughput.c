@@ -127,20 +127,42 @@ lcperf_validate_single_op(struct lcperf_throughput_ctx *ctx, struct dao_lc_res *
 
 		buf_mem = (struct lcperf_test_buf_mem *)(uintptr_t)res->op_cookie;
 
-		if (ctx->options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
-			diff = memcmp(buf_mem->in_buf_data, tdata->sym_params.ciphertext.data,
-				      tdata->sym_params.ciphertext.len);
-			if (diff != 0) {
-				RTE_LOG(ERR, USER1, "Ciphertext mismatch\n");
-				return -1;
+		if (ctx->options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
+			if (ctx->options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
+				diff = memcmp(buf_mem->in_buf_data,
+					      tdata->sym_params.ciphertext.data,
+					      tdata->sym_params.ciphertext.len);
+				if (diff != 0) {
+					RTE_LOG(ERR, USER1, "Ciphertext mismatch\n");
+					return -1;
+				}
+			} else {
+				diff = memcmp(buf_mem->in_buf_data,
+					      tdata->sym_params.plaintext.data,
+					      tdata->sym_params.plaintext.len);
+				if (diff != 0) {
+					RTE_LOG(ERR, USER1, "Plaintext mismatch\n");
+					return -1;
+				}
+			}
+		} else if (ctx->options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
+			if (ctx->options->auth_op == LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE) {
+				diff = memcmp(buf_mem->digest, tdata->sym_params.digest.data,
+					      tdata->sym_params.digest.len);
+				if (diff != 0) {
+					RTE_LOG(ERR, USER1, "Digest mismatch\n");
+					return -1;
+				}
+			} else if (ctx->options->auth_op == LCPERF_CRYPTO_SYM_AUTH_OP_VERIFY) {
+				if (res->res.cn9k.uc_compcode == DAO_UC_ERR_GC_ICV_MISCOMPARE) {
+					RTE_LOG(ERR, USER1, "Digest verification failed\n");
+					return -1;
+				}
 			}
 		} else {
-			diff = memcmp(buf_mem->in_buf_data, tdata->sym_params.plaintext.data,
-				      tdata->sym_params.plaintext.len);
-			if (diff != 0) {
-				RTE_LOG(ERR, USER1, "Plaintext mismatch\n");
-				return -1;
-			}
+			RTE_LOG(ERR, USER1, "Unsupported sym operation type: %d\n",
+				ctx->options->sym_op);
+			return -1;
 		}
 	}
 

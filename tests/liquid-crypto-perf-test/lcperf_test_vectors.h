@@ -32,11 +32,16 @@ struct lcperf_test_sym_params {
 		const uint8_t *data;
 		uint16_t len;
 	} ciphertext;
+	struct {
+		const uint8_t *data;
+		uint16_t len;
+	} digest;
 };
 
 struct lcperf_test_buf_mem {
 	struct dao_lc_buf in_buffer;
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN];
+	uint8_t digest[DAO_LC_MAX_DIGEST_LEN];
 };
 
 struct lcperf_test_data {

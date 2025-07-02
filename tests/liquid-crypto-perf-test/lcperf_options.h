@@ -24,6 +24,8 @@
 #define LCPERF_SYM_CIPHER_OP     ("cipher-op")
 #define LCPERF_SYM_CIPHER_ALG    ("cipher-algo")
 #define LCPERF_SYM_CIPHER_KEY_SZ ("cipher-key-sz")
+#define LCPERF_SYM_AUTH_OP       ("auth-op")
+#define LCPERF_SYM_AUTH_ALGO     ("auth-algo")
 
 #define MAX_LIST 1
 
@@ -52,11 +54,17 @@ enum lcperf_rsa_priv_keytype {
 
 enum lcperf_crypto_sym_op_type {
 	LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY,
+	LCPERF_CRYPTO_SYM_OP_AUTH_ONLY,
 };
 
 enum lcperf_crypto_sym_cipher_op_type {
 	LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT,
 	LCPERF_CRYPTO_SYM_CIPHER_OP_DECRYPT,
+};
+
+enum lcperf_crypto_sym_auth_op_type {
+	LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE,
+	LCPERF_CRYPTO_SYM_AUTH_OP_VERIFY,
 };
 
 extern const char *lcperf_op_type_strs[];
@@ -65,6 +73,8 @@ extern const char *lcperf_crypto_asym_op_type_strs[];
 extern const char *lcperf_crypto_sym_op_type_strs[];
 extern const char *lcperf_crypto_sym_cipher_op_type_strs[];
 extern const char *lcperf_crypto_sym_cipher_algo_strs[];
+extern const char *lcperf_crypto_sym_auth_op_type_strs[];
+extern const char *lcperf_crypto_sym_auth_algo_strs[];
 
 struct lcperf_options {
 	enum lcperf_perf_test_type test;
@@ -89,6 +99,9 @@ struct lcperf_options {
 	enum lcperf_crypto_sym_op_type sym_op;
 	enum lcperf_crypto_sym_cipher_op_type cipher_op;
 	uint32_t cipher_key_sz;
+
+	enum lcperf_crypto_sym_auth_op_type auth_op;
+	enum dao_lc_fc_hash_type auth_algo;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

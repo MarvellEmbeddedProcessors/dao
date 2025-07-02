@@ -1413,6 +1413,61 @@ static struct lcperf_test_sym_params aes_cbc_256_test_data = {
 	},
 };
 
+static const uint8_t plaintext_hash[] = {
+	"What a lousy earth! He wondered how many people "
+	"were destitute that same night even in his own "
+	"prosperous country, how many homes were "
+	"shanties, how many husbands were drunk and "
+	"wives socked, and how many children were "
+	"bullied, abused, or abandoned. How many "
+	"families hungered for food they could not "
+	"afford to buy? How many hearts were broken? How "
+	"many suicides would take place that same night, "
+	"how many people would go insane? How many "
+	"cockroaches and landlords would triumph? How "
+	"many winners were losers, successes failures, "
+	"and rich men poor men? How many wise guys were "
+	"stupid? How many happy endings were unhappy "
+	"endings? How many honest men were liars, brave "
+	"men cowards, loyal men traitors, how many "
+	"sainted men were corrupt, how many people in "
+	"positions of trust had sold their souls to "
+	"bodyguards, how many had never had souls? How "
+	"many straight-and-narrow paths were crooked "
+	"paths? How many best families were worst "
+	"families and how many good people were bad "
+	"people? When you added them all up and then "
+	"subtracted, you might be left with only the "
+	"children, and perhaps with Albert Einstein and "
+	"an old violinist or sculptor somewhere."
+};
+
+static const uint8_t digest_sha1[] = {
+	0xA2, 0x8D, 0x40, 0x78, 0xDD, 0x9F, 0xBB, 0xD5,
+	0x35, 0x62, 0xFB, 0xFA, 0x93, 0xFD, 0x7D, 0x70,
+	0xA6, 0x7D, 0x45, 0xCA
+};
+
+static struct lcperf_test_sym_params sha1_test_data = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HASH,
+		.fc = {
+			.iv_source = DAO_LC_FC_IV_SRC_OP,
+			.hash_type = DAO_LC_FC_HASH_TYPE_SHA1,
+			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
+			.mac_len = 20,
+		},
+	},
+	.plaintext = {
+		.data = plaintext_hash,
+		.len = 512
+	},
+	.digest = {
+		.data = digest_sha1,
+		.len = 20,
+	}
+};
+
 struct lcperf_test_data *
 lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 {
@@ -1423,26 +1478,42 @@ lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 		return NULL;
 
 	if (options->op_type == LCPERF_OP_SYM) {
-		switch (options->cipher_algo) {
-		case DAO_LC_FC_ENC_CIPHER_AES_CBC:
-			if (options->cipher_key_sz == 16) {
-				memcpy(&test_data->sym_params, &aes_cbc_128_test_data,
-				       sizeof(struct lcperf_test_sym_params));
-			} else if (options->cipher_key_sz == 24) {
-				memcpy(&test_data->sym_params, &aes_cbc_192_test_data,
-				       sizeof(struct lcperf_test_sym_params));
-			} else if (options->cipher_key_sz == 32) {
-				memcpy(&test_data->sym_params, &aes_cbc_256_test_data,
-				       sizeof(struct lcperf_test_sym_params));
-			} else {
-				RTE_LOG(ERR, USER1, "Unsupported key length for AES CBC: %u\n",
-					options->cipher_key_sz);
+		if (options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
+			switch (options->cipher_algo) {
+			case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+				if (options->cipher_key_sz == 16) {
+					memcpy(&test_data->sym_params, &aes_cbc_128_test_data,
+					       sizeof(struct lcperf_test_sym_params));
+				} else if (options->cipher_key_sz == 24) {
+					memcpy(&test_data->sym_params, &aes_cbc_192_test_data,
+					       sizeof(struct lcperf_test_sym_params));
+				} else if (options->cipher_key_sz == 32) {
+					memcpy(&test_data->sym_params, &aes_cbc_256_test_data,
+					       sizeof(struct lcperf_test_sym_params));
+				} else {
+					RTE_LOG(ERR, USER1,
+						"Unsupported key length for AES CBC: %u\n",
+						options->cipher_key_sz);
+					goto free_test_data;
+				}
+				break;
+			default:
+				RTE_LOG(ERR, USER1, "Unsupported cipher algorithm: %u\n",
+					options->cipher_algo);
 				goto free_test_data;
 			}
-			break;
-		default:
-			RTE_LOG(ERR, USER1, "Unsupported cipher algorithm: %u\n",
-				options->cipher_algo);
+		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
+			if (options->auth_algo == DAO_LC_FC_HASH_TYPE_SHA1) {
+				memcpy(&test_data->sym_params, &sha1_test_data,
+				       sizeof(sha1_test_data));
+			} else {
+				RTE_LOG(ERR, USER1, "Unsupported hash algorithm: %u\n",
+					options->auth_algo);
+				goto free_test_data;
+			}
+		} else {
+			RTE_LOG(ERR, USER1, "Unsupported symmetric operation type: %u\n",
+				options->sym_op);
 			goto free_test_data;
 		}
 	}

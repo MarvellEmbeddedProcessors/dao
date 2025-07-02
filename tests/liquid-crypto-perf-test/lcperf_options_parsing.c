@@ -29,10 +29,12 @@ usage(char *progname)
 	       " --rsa-keysize N : set RSA modulus length, supported length are 256, 1024, "
 	       " 2048, 4096 and 8192. default is 1024\n"
 	       " --burst-size N : set burst size for enqueue/dequeue operations\n"
-	       " --sym-op cipher-only : set symmetric operation type\n"
+	       " --sym-op cipher-only / auth-only : set symmetric operation type\n"
 	       " --cipher-alg aes-cbc : set cipher algorithm\n"
 	       " --cipher-key-sz N : set symmetric cipher key size in bytes\n"
 	       " --cipher-op encrypt / decrypt : set symmetric cipher operation type\n"
+	       " --auth-alg sha1 : set symmetric authentication algorithm\n"
+	       " --auth-op generate : set symmetric authentication operation type\n"
 	       " -h: prints this help\n",
 	       progname);
 }
@@ -214,6 +216,8 @@ parse_sym_op(struct lcperf_options *opts, const char *arg)
 	struct name_id_map sym_op_namemap[] = {
 		{lcperf_crypto_sym_op_type_strs[LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY],
 		 LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY},
+		{lcperf_crypto_sym_op_type_strs[LCPERF_CRYPTO_SYM_OP_AUTH_ONLY],
+		 LCPERF_CRYPTO_SYM_OP_AUTH_ONLY},
 	};
 
 	int id = get_str_key_id_mapping(sym_op_namemap, RTE_DIM(sym_op_namemap), arg);
@@ -284,6 +288,48 @@ parse_sym_cipher_key_sz(struct lcperf_options *opts, const char *arg)
 }
 
 static int
+parse_sym_auth_op(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map auth_op_namemap[] = {
+		{lcperf_crypto_sym_auth_op_type_strs[LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE],
+		 LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE},
+		{lcperf_crypto_sym_auth_op_type_strs[LCPERF_CRYPTO_SYM_AUTH_OP_VERIFY],
+		 LCPERF_CRYPTO_SYM_AUTH_OP_VERIFY},
+	};
+
+	int id = get_str_key_id_mapping(auth_op_namemap, RTE_DIM(auth_op_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid SYM auth operation specified\n");
+		return -1;
+	}
+
+	opts->auth_op = (enum lcperf_crypto_sym_auth_op_type)id;
+
+	return 0;
+}
+
+static int
+parse_sym_auth_algo(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map auth_algo_namemap[] = {
+		{lcperf_crypto_sym_auth_algo_strs[DAO_LC_FC_HASH_TYPE_SHA1],
+		 DAO_LC_FC_HASH_TYPE_SHA1},
+	};
+
+	int id = get_str_key_id_mapping(auth_algo_namemap, RTE_DIM(auth_algo_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid SYM auth algorithm specified\n");
+		return -1;
+	}
+
+	opts->auth_algo = (enum dao_lc_fc_hash_type)id;
+
+	return 0;
+}
+
+static int
 parse_burst_size(struct lcperf_options *opts, const char *arg)
 {
 	int ret = parse_uint32_t(&opts->burst_size, arg);
@@ -324,10 +370,14 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->asym_op_type = LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT;
 	opts->rsa_priv_keytype = LCPERF_RSA_KEY_TYPE_MAX;
 	opts->rsa_modlen = 1024;
+
 	opts->sym_op = LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY;
 	opts->cipher_op = LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT;
 	opts->cipher_algo = DAO_LC_FC_ENC_CIPHER_AES_CBC;
 	opts->cipher_key_sz = 16;
+
+	opts->auth_op = LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE;
+	opts->auth_algo = DAO_LC_FC_HASH_TYPE_SHA1;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -349,6 +399,8 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_SYM_CIPHER_OP, required_argument, 0, 0},
 				 {LCPERF_SYM_CIPHER_ALG, required_argument, 0, 0},
 				 {LCPERF_SYM_CIPHER_KEY_SZ, required_argument, 0, 0},
+				 {LCPERF_SYM_AUTH_ALGO, required_argument, 0, 0},
+				 {LCPERF_SYM_AUTH_OP, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -367,6 +419,8 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_SYM_CIPHER_OP, parse_sym_cipher_op},
 		{LCPERF_SYM_CIPHER_ALG, parse_sym_cipher_algo},
 		{LCPERF_SYM_CIPHER_KEY_SZ, parse_sym_cipher_key_sz},
+		{LCPERF_SYM_AUTH_ALGO, parse_sym_auth_algo},
+		{LCPERF_SYM_AUTH_OP, parse_sym_auth_op},
 	};
 	unsigned int i;
 
@@ -448,6 +502,11 @@ lcperf_options_dump(struct lcperf_options *opts)
 			printf("# Symmetric cipher algorithm: %s\n",
 			       lcperf_crypto_sym_cipher_algo_strs[opts->cipher_algo]);
 			printf("# Symmetric cipher key size: %u bytes\n", opts->cipher_key_sz);
+		} else if (opts->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
+			printf("# Symmetric auth algorithm: %s\n",
+			       lcperf_crypto_sym_auth_algo_strs[opts->auth_algo]);
+			printf("# Symmetric auth operation type: %s\n",
+			       lcperf_crypto_sym_auth_op_type_strs[opts->auth_op]);
 		}
 	}
 
@@ -510,6 +569,16 @@ lcperf_options_check(struct lcperf_options *options)
 			default:
 				RTE_LOG(ERR, USER1,
 					"Invalid symmetric cipher algorithm specified\n");
+			}
+		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
+			switch (options->auth_algo) {
+			case DAO_LC_FC_HASH_TYPE_SHA1:
+				/* SHA1 is supported */
+				break;
+			default:
+				RTE_LOG(ERR, USER1,
+					"Invalid symmetric authentication algorithm specified\n");
+				return -EINVAL;
 			}
 		} else {
 			RTE_LOG(ERR, USER1, "Invalid symmetric operation type specified\n");
