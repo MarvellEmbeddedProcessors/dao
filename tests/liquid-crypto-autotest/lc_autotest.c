@@ -13,6 +13,7 @@
 #include "lc_autotest.h"
 #include "lc_test_asym.h"
 #include "lc_test_generic.h"
+#include "lc_test_rng.h"
 #include "lc_test_sym.h"
 #include "test.h"
 
@@ -20,6 +21,7 @@ struct unit_test_suite *test_suites[] = {
 	&lc_testsuite_generic,
 	&lc_testsuite_asym,
 	&lc_testsuite_sym,
+	&lc_testsuite_rng,
 	NULL
 };
 
