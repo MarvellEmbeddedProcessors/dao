@@ -11,11 +11,14 @@
 #include <rte_mempool.h>
 
 #define LIQUID_CRYPTO_BUF_SZ_MIN 64ull
-#define LIQUID_CRYPTO_BUF_SZ_MAX 5120ull
+#define LIQUID_CRYPTO_BUF_SZ_MAX 32768ull
 
 #define LIQUID_CRYPTO_MAX_BURST 128
 
-#define LIQUID_CRYPTO_SEG_SZ_MIN 336ull
+/* TODO: With lower values observed event corruption.
+ * Lower values can be configured, once the issue is resolved.
+ */
+#define LIQUID_CRYPTO_SEG_SZ_MIN 512ull
 
 #define LIQUID_CRYPTO_MAX_NB_QP 64
 

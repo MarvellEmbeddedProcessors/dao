@@ -340,7 +340,8 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	 */
 	pool_sz = 2 * nb_desc - 1;
 
-	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
+	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
+				     max_seg_size + RTE_PKTMBUF_HEADROOM, 0);
 	if (mp == NULL) {
 		dao_err("Could not create Rx mbuf pool.");
 		rc = -ENOMEM;
@@ -687,9 +688,12 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		return 0;
 	}
 
-	max_seg_size = RTE_MAX(max_seg_size, trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM);
+	max_seg_size = RTE_MAX(max_seg_size, trs_info.min_buf_len);
 
-	max_seg_size = RTE_MIN(max_seg_size, LIQUID_CRYPTO_BUF_SZ_MAX);
+	if (max_seg_size > (LIQUID_CRYPTO_BUF_SZ_MAX - RTE_PKTMBUF_HEADROOM)) {
+		dao_err("Paylod length exceeds maximum supported packet size.");
+		return 0;
+	}
 
 	return max_seg_size;
 }
