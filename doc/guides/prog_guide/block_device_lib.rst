@@ -30,104 +30,115 @@ The library supports the following generic features on a block device:
 Library APIs
 ------------
 
-### Control Path API
-
+Control Path API
+~~~~~~~~~~~~~~~~
 The control path API mainly consists of block device creation and deletion, and statistics management.
 
-#### Create a Block Device
+- Create a Block Device
 
-**Block Device Configuration Structure**
+*Block Device Configuration Structure*
 
 .. literalinclude:: ../../../lib/blk_dev/dao_blk_dev.h
    :language: c
    :start-at: struct dao_blkdev_conf
    :end-before: End of structure dao_blkdev_conf.
 
-**Initializes a block device with the given configuration and name.**
+*Initializes a block device with the given configuration and name.*
+
+.. code-block:: c
+
+   int dao_blkdev_create(uint16_t dev_id, struct dao_blkdev_conf *conf, const char *name);
 
 
-```c
-int dao_blkdev_create(uint16_t dev_id, struct dao_blkdev_conf *conf, const char *name);
-```
+- Delete a Block Device
 
-#### Delete a Block Device
+*Cleans up and removes the specified block device.*
 
-**Cleans up and removes the specified block device.**
-```c
-int dao_blkdev_destroy(uint16_t dev_id);
-```
+.. code-block:: c
 
-#### Get Block Device Statistics
+   int dao_blkdev_destroy(uint16_t dev_id);
 
-**Retrieves statistics for the device (read/write ops, bytes, etc.).**
-```c
-void dao_blkdev_get_stats(uint16_t dev_id, dao_blkdev_stats_t *stats);
-```
+- Get Block Device Statistics
 
-#### Clear Block Device Statistics
+*Retrieves statistics for the device (read/write ops, bytes, etc.).*
 
-**Clears the statistics counters for the device.**
-```c
-void dao_blkdev_clear_stats(uint16_t dev_id);
-```
+.. code-block:: c
 
-### Data Path API
+   void dao_blkdev_get_stats(uint16_t dev_id, dao_blkdev_stats_t *stats);
 
+
+- Clear Block Device Statistics
+
+*Clears the statistics counters for the device.*
+
+.. code-block:: c
+
+   void dao_blkdev_clear_stats(uint16_t dev_id);
+
+Data Path API
+~~~~~~~~~~~~~
 Data path operations on the block device and the corresponding API are listed below:
 
-#### Block Device Read
+- Block Device Read
 
-**Reads data from the specified sector(s) into the provided IO vector.**
-```c
-int dao_blkdev_read(uint16_t dev_id, uint64_t sector, blk_io_vec_t *iov, size_t len);
-```
+*Reads data from the specified sector(s) into the provided IO vector.*
 
-#### Block Device Write
+.. code-block:: c
 
-**Writes data to the specified sector(s) from the provided IO vector.**
-```c
-int dao_blkdev_write(uint16_t dev_id, uint64_t sector, blk_io_vec_t *iov, size_t len);
-```
+   int dao_blkdev_read(uint16_t dev_id, uint64_t sector, blk_io_vec_t *iov, size_t len);
 
-#### Block Device Flush
+- Block Device Write
 
-**Flushes any cached data to the device.**
-```c
-int dao_blkdev_flush(uint16_t dev_id);
-```
+*Writes data to the specified sector(s) from the provided IO vector.*
 
-#### Block Device Reset
+.. code-block:: c
 
-**Resets the block device.**
-```c
-int dao_blkdev_reset(uint16_t dev_id);
-```
+   int dao_blkdev_write(uint16_t dev_id, uint64_t sector, blk_io_vec_t *iov, size_t len);
 
-#### Unmap Sectors of a Block Device
+- Block Device Flush
 
-**Unmaps the specified range of sectors.**
-```c
-int dao_blkdev_unmap(uint16_t dev_id, uint64_t sector, size_t len);
-```
+*Flushes any cached data to the device.*
 
-#### Write Zeroes to a Block Device
+.. code-block:: c
 
-**Writes zeroes to the specified range, with optional unmap.**
-```c
-int dao_blkdev_write_zeroes(uint16_t dev_id, uint64_t sector, size_t len, uint8_t unmap);
-```
+   int dao_blkdev_flush(uint16_t dev_id);
 
-#### Get Device Identifier of a Block Device
+- Block Device Reset
 
-**Retrieves the string identifier for the device.**
-```c
-int dao_blkdev_get_id(uint16_t dev_id, char *name, size_t max_len);
-```
+*Resets the block device.*
 
-#### Discard Data
+.. code-block:: c
 
-**Discards data in the specified sector range.**
-```c
-int dao_blkdev_discard(uint16_t dev_id, uint64_t sector, size_t len);
-```
--
+   int dao_blkdev_reset(uint16_t dev_id);
+
+- Unmap Sectors of a Block Device
+
+*Unmaps the specified range of sectors.*
+
+.. code-block:: c
+
+   int dao_blkdev_unmap(uint16_t dev_id, uint64_t sector, size_t len);
+
+- Write Zeroes to a Block Device
+
+*Writes zeroes to the specified range, with optional unmap.*
+
+.. code-block:: c
+
+   int dao_blkdev_write_zeroes(uint16_t dev_id, uint64_t sector, size_t len, uint8_t unmap);
+
+- Get Device Identifier of a Block Device
+
+*Retrieves the string identifier for the device.*
+
+.. code-block:: c
+
+   int dao_blkdev_get_id(uint16_t dev_id, char *name, size_t max_len);
+
+- Discard Data
+
+*Discards data in the specified sector range.*
+
+.. code-block:: c
+
+   int dao_blkdev_discard(uint16_t dev_id, uint64_t sector, size_t len);
