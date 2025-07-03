@@ -72,8 +72,9 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
-			sym = (struct __dao_lc_req_sym *)req;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
 			infl_req->is_hash_only = sym->is_hash_only;
+			sym = (struct __dao_lc_req_sym *)req;
 			inst[i].w4.u64 = sym->w4;
 			inst[i].w5.u64 = (uint64_t)sym->dptr;
 			inst[i].w6.u64 = (uint64_t)sym->dptr; /* INPLACE*/
@@ -130,7 +131,8 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 #ifdef CA_DEBUG_ENABLE
 		if (req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM ||
 		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM ||
-		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC)
+		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC ||
+		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG)
 			cpt_debug_inst_print(&inst[i]);
 #endif
 	}

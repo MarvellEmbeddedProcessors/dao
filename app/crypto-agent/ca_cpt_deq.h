@@ -13,6 +13,7 @@
 #include <dao_liquid_crypto.h>
 #include <liquid_crypto_trs.h>
 #include <mc/ae.h>
+#include <mc/se.h>
 
 #include "ca_crypto_queue.h"
 #include "cpt_debug.h"
@@ -99,6 +100,18 @@ ca_cpt_post_process_sym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *
 #endif
 }
 
+static inline void
+ca_cpt_post_process_random(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
+{
+	struct __dao_lc_resp_sym *resp;
+	struct rte_mbuf *mb;
+
+	mb = infl_req->mbuf;
+	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_sym *);
+
+	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+}
+
 static inline uint16_t
 ca_cpt_deq(struct pending_queue *pq)
 {
@@ -147,6 +160,9 @@ ca_cpt_deq(struct pending_queue *pq)
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
 			ca_cpt_post_process_sym(infl_req, &res);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
+			ca_cpt_post_process_random(infl_req, &res);
 			break;
 		default:
 			break;
