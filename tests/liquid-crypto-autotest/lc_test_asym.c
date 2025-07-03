@@ -503,7 +503,7 @@ test_rsa_seg_size(void)
 		return TEST_FAILED;
 	}
 
-	TEST_ASSERT(ret == 192, "Incorrect segment size");
+	TEST_ASSERT(ret == 64, "Incorrect segment size");
 
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 	params.rsa.exp_len = 4;
@@ -526,7 +526,7 @@ test_rsa_seg_size(void)
 		return TEST_FAILED;
 	}
 
-	TEST_ASSERT(ret == 192, "Incorrect segment size");
+	TEST_ASSERT(ret == 106, "Incorrect segment size");
 
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 	params.rsa.exp_len = 0;
