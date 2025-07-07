@@ -10,6 +10,7 @@
 
 #define ROC_SE_MAJOR_OP_FC         0x33ULL
 #define ROC_SE_MAJOR_OP_HASH       0x34ULL
+#define ROC_SE_MAJOR_OP_HMAC       0x35ULL
 #define ROC_SE_FC_MINOR_OP_ENCRYPT 0x0
 #define ROC_SE_FC_MINOR_OP_DECRYPT 0x1
 

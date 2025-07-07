@@ -17,6 +17,7 @@ enum lc_sym_op_type {
 	LC_SYM_OP_AUTH_ONLY,
 	LC_SYM_OP_CIPHER_AUTH,
 	LC_SYM_OP_AEAD,
+	LC_SYM_OP_HMAC_AUTH_ONLY,
 };
 
 /**
@@ -57,6 +58,12 @@ struct dao_lc_sym_sess_meta {
 
 	/* Operation type */
 	enum lc_sym_op_type op_type;
+
+	/* HMAC authentication key length*/
+	uint8_t auth_key_len;
+
+	/* HMAC authentication key */
+	uint8_t auth_key[DAO_LC_MAX_AUTH_KEY_LEN];
 };
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);

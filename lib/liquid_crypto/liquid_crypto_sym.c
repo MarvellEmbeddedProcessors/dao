@@ -99,11 +99,28 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 	return -EINVAL;
 }
 
+static int
+sym_sess_hmac_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
+{
+	switch (ctx->hash.hmac_hash_type) {
+	case DAO_LC_FC_HMAC_TYPE_SHA1:
+		if (ctx->hash.digest_len == 20)
+			return 0;
+		break;
+	default:
+		dao_err("Unsupported HMAC hash type.");
+		return -ENOTSUP;
+	}
+	dao_err("Invalid digest length for HMAC hash type.");
+	return -EINVAL;
+}
+
 struct dao_lc_sym_sess_meta *
 liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	union cpt_inst_w4 w4 = {0};
+	uint8_t hash_type;
 
 	sess_meta =
 		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
@@ -138,7 +155,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			sess_meta->pkt_iv_len = 16;
 			sess_meta->op_type = LC_SYM_OP_AEAD;
 		}
-
+		sess_meta->digest_len = ctx->fc.mac_len;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		if (sym_sess_hash_digest_len_validate(ctx))
 			goto sess_meta_free;
@@ -149,13 +166,35 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		w4.s.opcode_minor = 0x0;
 		w4.s.param1 = 0;
 		w4.s.param2 = ((uint16_t)ctx->fc.hash_type << 8) | (uint16_t)ctx->fc.mac_len;
+		sess_meta->digest_len = ctx->fc.mac_len;
+	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
+		if (sym_sess_hmac_hash_digest_len_validate(ctx))
+			goto sess_meta_free;
+		switch (ctx->hash.hmac_hash_type) {
+		case DAO_LC_FC_HMAC_TYPE_SHA1:
+			hash_type = DAO_LC_FC_HASH_TYPE_SHA1;
+			break;
+		default:
+			hash_type = DAO_LC_FC_HASH_TYPE_NULL;
+			break;
+		}
+
+		sess_meta->hash_type = ctx->hash.hmac_hash_type;
+		sess_meta->op_type = LC_SYM_OP_HMAC_AUTH_ONLY;
+		sess_meta->auth_key_len = ctx->hash.hmac_key_len;
+		memcpy(sess_meta->auth_key, ctx->hash.hmac_auth_key, ctx->hash.hmac_key_len);
+
+		w4.s.opcode_major = ROC_SE_MAJOR_OP_HMAC;
+		w4.s.opcode_minor = 0x0;
+		w4.s.param1 = ctx->hash.hmac_key_len;
+		w4.s.param2 = (hash_type << 8) | ctx->hash.digest_len;
+		sess_meta->digest_len = ctx->hash.digest_len;
 	} else {
 		dao_err("Unsupported opcode.");
 		goto sess_meta_free;
 	}
 
 	sess_meta->w4 = w4.u64;
-	sess_meta->digest_len = ctx->fc.mac_len;
 
 	return sess_meta;
 
@@ -282,19 +321,42 @@ static int
 sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 {
 	const struct dao_lc_sym_fc_ctx *fc_ctx;
+	const struct dao_lc_hmac_hash_ctx *hash_ctx;
 
 	fc_ctx = &ctx->fc;
+	hash_ctx = &ctx->hash;
 
-	switch (fc_ctx->hash_type) {
-	case DAO_LC_FC_HASH_TYPE_SHA1:
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA224:
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA256:
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA384:
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA512:
-		break;
-	default:
-		dao_err("Unsupported hash type.");
-		return -EINVAL;
+	if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
+		switch (fc_ctx->hash_type) {
+		case DAO_LC_FC_HASH_TYPE_SHA1:
+		case DAO_LC_FC_HASH_TYPE_SHA2_SHA224:
+		case DAO_LC_FC_HASH_TYPE_SHA2_SHA256:
+		case DAO_LC_FC_HASH_TYPE_SHA2_SHA384:
+		case DAO_LC_FC_HASH_TYPE_SHA2_SHA512:
+			break;
+		default:
+			dao_err("Unsupported hash type.");
+			return -EINVAL;
+		}
+	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
+		switch (hash_ctx->hmac_hash_type) {
+		case DAO_LC_FC_HMAC_TYPE_SHA1:
+			break;
+		default:
+			dao_err("Unsupported HMAC hash type.");
+			return -EINVAL;
+		}
+
+		if (hash_ctx->digest_len == 0 || hash_ctx->digest_len > DAO_LC_MAX_DIGEST_LEN) {
+			dao_err("Invalid digest length for HMAC.");
+			return -EINVAL;
+		}
+
+		if (hash_ctx->hmac_key_len == 0 ||
+		    hash_ctx->hmac_key_len > DAO_LC_MAX_AUTH_KEY_LEN) {
+			dao_err("Invalid HMAC key length.");
+			return -EINVAL;
+		}
 	}
 
 	return 0;
@@ -312,6 +374,7 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_SYM_OPCODE_FC:
 		return sym_sess_fc_verify(ctx);
 	case DAO_LC_SYM_OPCODE_HASH:
+	case DAO_LC_SYM_OPCODE_HMAC:
 		return sym_sess_hash_verify(ctx);
 	default:
 		dao_err("Unsupported opcode.");
@@ -507,6 +570,7 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 			return ret;
 		break;
 	case LC_SYM_OP_AUTH_ONLY:
+	case LC_SYM_OP_HMAC_AUTH_ONLY:
 		ret = lc_sym_op_auth_only_validate(op, sess_meta);
 		if (ret)
 			return ret;

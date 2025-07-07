@@ -66,7 +66,8 @@ ca_sess_handle_create(struct rte_mbuf *mb)
 	sess_create = rte_pktmbuf_mtod(mb, struct __dao_lc_req_sess_create *);
 	sess_create_resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_sess_create *);
 
-	if (sess_create->opcode == DAO_LC_SYM_OPCODE_HASH) {
+	if ((sess_create->opcode == DAO_LC_SYM_OPCODE_HASH) ||
+	    (sess_create->opcode == DAO_LC_SYM_OPCODE_HMAC)) {
 		/* No need of context for HASH operation */
 		sess_create_resp->sess_id = DAO_LC_SESS_ID_HASH;
 		rc = 0;

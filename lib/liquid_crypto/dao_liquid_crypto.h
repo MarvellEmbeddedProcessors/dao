@@ -28,6 +28,8 @@
 #define DAO_LC_SESS_ID_HASH 1
 /** Maximum digest length */
 #define DAO_LC_MAX_DIGEST_LEN 64
+/** Maximum authentication key */
+#define DAO_LC_MAX_AUTH_KEY_LEN 64
 
 /**
  * The liquid crypto buffer
@@ -360,6 +362,8 @@ enum dao_lc_sym_opcode {
 	DAO_LC_SYM_OPCODE_FC = 0x33,
 	/** Opcode for HASH */
 	DAO_LC_SYM_OPCODE_HASH = 0x34,
+	/** Opcode for HMAC */
+	DAO_LC_SYM_OPCODE_HMAC = 0x35,
 };
 
 /**
@@ -454,6 +458,9 @@ enum dao_lc_fc_hash_type {
 	DAO_LC_FC_HASH_TYPE_GMAC = 7,
 	/** Flexi Crypto Hash Type = POLY1305 */
 	DAO_LC_FC_HASH_TYPE_POLY1305 = 8,
+	/** HMAC Hash Type SHA1 */
+	DAO_LC_FC_HMAC_TYPE_SHA1 = 9,
+
 };
 
 /**
@@ -587,6 +594,20 @@ struct dao_lc_feature_params {
 };
 
 /**
+ * The liquid crypto HMAC hash context.
+ */
+struct dao_lc_hmac_hash_ctx {
+	/** Hash type */
+	enum dao_lc_fc_hash_type hmac_hash_type;
+	/** Digest length */
+	uint8_t digest_len;
+	/** HMAC key length*/
+	uint16_t hmac_key_len;
+	/** HMAC Authentication Key */
+	uint8_t hmac_auth_key[DAO_LC_MAX_AUTH_KEY_LEN];
+};
+
+/**
  * The liquid crypto symmetric context.
  */
 struct dao_lc_sym_ctx {
@@ -597,6 +618,8 @@ struct dao_lc_sym_ctx {
 	union {
 		/** Flexi Crypto context */
 		struct dao_lc_sym_fc_ctx fc;
+		/** HMAC Hash context */
+		struct dao_lc_hmac_hash_ctx hash;
 	};
 };
 
