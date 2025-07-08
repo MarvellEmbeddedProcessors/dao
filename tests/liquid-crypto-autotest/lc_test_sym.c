@@ -43,7 +43,7 @@ sess_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *ev)
 }
 
 static int
-test_hash_only(const void *data)
+test_hash_only(const void *data, const bool is_auth_gen)
 {
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN] = {0};
 	uint8_t digest[TEST_LC_MAX_DIGEST_LEN] = {0};
@@ -79,10 +79,14 @@ test_hash_only(const void *data)
 	op[0].op_cookie = op_cookie;
 	op[0].sess_id = ev.sess_event.sess_id;
 	op[0].digest = digest;
-	op[0].encrypt = 1;
+	op[0].auth_gen = is_auth_gen;
 
 	for (i = 0; i < max_offset; i++) {
-		memset(digest, 0, sizeof(digest));
+		if (is_auth_gen)
+			memset(digest, 0, sizeof(digest));
+		else
+			memcpy(op[0].digest, params->digest.data, params->digest.len);
+
 		memset(in_buf_data, 0, i);
 		memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
 		in_buf[0].frag_len = params->plaintext.len + i;
@@ -109,15 +113,21 @@ test_hash_only(const void *data)
 		TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD,
 			    "Crypto operation failed");
 		TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS,
-			    "Symmetric operation failed");
+			    "Authentication operation failed");
 
-		ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
-		if (ret != 0) {
-			rte_hexdump(stdout, "RESULT digest: ", op[0].digest, params->digest.len);
-			rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
-				    params->digest.len);
+		if (is_auth_gen) {
+			ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
+			if (ret != 0) {
+				rte_hexdump(stdout, "RESULT digest: ", op[0].digest,
+					    params->digest.len);
+				rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
+					    params->digest.len);
+			}
+			TEST_ASSERT(ret == 0, "Digest genartaion failed for offset %d", i);
+		} else {
+			TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_ERR_GC_ICV_MISCOMPARE,
+				    "Digest verify failed for offset %d", i);
 		}
-		TEST_ASSERT(ret == 0, "Invalid digest for offset %d", i);
 	}
 
 	sess_cookie = rte_rand();
@@ -273,6 +283,18 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 }
 
 static int
+test_hash_gen(const void *data)
+{
+	return test_hash_only(data, true);
+}
+
+static int
+test_hash_verify(const void *data)
+{
+	return test_hash_only(data, false);
+}
+
+static int
 test_block_cipher_only_encrypt(const void *data)
 {
 	return test_block_cipher_only(data, true);
@@ -331,16 +353,20 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_ccm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-CCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_ccm_256_test_data),
-		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown,
-					  test_hash_only, &sha1_test_data),
-		TEST_CASE_NAMED_WITH_DATA("SHA224 Digest Gen", ut_setup, ut_teardown,
-					  test_hash_only, &sha224_test_data),
-		TEST_CASE_NAMED_WITH_DATA("SHA256 Digest Gen", ut_setup, ut_teardown,
-					  test_hash_only, &sha256_test_data),
-		TEST_CASE_NAMED_WITH_DATA("SHA384 Digest Gen", ut_setup, ut_teardown,
-					  test_hash_only, &sha384_test_data),
-		TEST_CASE_NAMED_WITH_DATA("SHA512 Digest Gen", ut_setup, ut_teardown,
-					  test_hash_only, &sha512_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
+					  &sha1_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA224 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
+					  &sha224_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA256 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
+					  &sha256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA384 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
+					  &sha384_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA512 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
+					  &sha512_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &hmac_sha1_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &hmac_sha1_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

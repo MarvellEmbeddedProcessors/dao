@@ -33,7 +33,6 @@ struct test_sym_params {
 		const uint8_t *data;
 		uint16_t len;
 	} digest;
-
 	uint16_t cipher_offset;
 	uint16_t auth_offset;
 };

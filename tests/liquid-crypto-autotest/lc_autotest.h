@@ -38,5 +38,7 @@
 #define TEST_LC_MAX_RANDOM_LEN 1024
 /* Maximum iteration for random test */
 #define TEST_LC_MAX_RANDOM_ITER 1024
+/* Maximum length of auth key */
+#define TEST_LC_MAX_AUTH_KEY_LEN 64
 
 #endif /* __LC_AUTOTEST_H__ */
