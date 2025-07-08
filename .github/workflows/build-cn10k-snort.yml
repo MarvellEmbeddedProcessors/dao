@@ -119,12 +119,12 @@ jobs:
             tar -xzvf libdaq-3.0.15.tar.gz > /dev/null 2>&1
             cd libdaq-3.0.15
             ./bootstrap
-            ./configure
+            ./configure --prefix=/usr/local --libdir=/usr/local/lib/daq
             sudo make -j$(nproc)
             sudo make install
             sudo ldconfig
-            mkdir -p ${BASE_DIR}/snort_src/install/usr/local/lib/
-            sudo cp -a /usr/local/lib/libdaq.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
+            mkdir -p ${BASE_DIR}/snort_src/install/usr/local/lib/daq
+            sudo cp -a /usr/local/lib/daq/libdaq*.so* ${BASE_DIR}/snort_src/install/usr/local/lib/daq/ || true
             sudo cp -a /usr/local/lib/libpcre.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
             sudo cp -a /usr/local/lib/libhs.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
             sudo cp -a /usr/local/lib/libtcmalloc.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
@@ -133,7 +133,9 @@ jobs:
             wget "https://github.com/snort3/snort3/archive/refs/tags/3.2.2.0.tar.gz" -O snort3-3.2.2.0.tar.gz
             tar -xzvf snort3-3.2.2.0.tar.gz > /dev/null 2>&1
             cd snort3-3.2.2.0
-            ./configure_cmake.sh --prefix=${BASE_DIR}/snort_src/install/usr/local --enable-tcmalloc
+            ./configure_cmake.sh --prefix=${BASE_DIR}/snort_src/install/usr/local --enable-tcmalloc  \
+                       --with-daq-includes=/usr/local/include \
+                       --with-daq-libraries=/usr/local/lib/daq
             cd build
             sudo make -j$(nproc)
             sudo make install
