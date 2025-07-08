@@ -1642,6 +1642,40 @@ dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
 }
 
 static inline uint16_t
+dao_lc_sym_copy_iv(struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_sym_op *op, uint8_t *dptr,
+		   uint32_t iv_offset)
+{
+	uint16_t alg_iv_len = sess_meta->alg_iv_len;
+
+	if (sess_meta->pkt_iv_len == alg_iv_len) {
+		/* Pass IV as is to microcode */
+		memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
+	} else {
+		/* Adjust the IV passed to microcode */
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CCM) {
+			/* flag = (15 - IV_length) - 1 */
+			*(dptr + iv_offset) = (uint8_t)(14 - sess_meta->alg_iv_len);
+
+			/* Adjust iv_offset after adding the flag byte */
+			iv_offset += 1;
+
+			memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
+		} else if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+			const uint8_t ctr_blk[4] = {0x00, 0x00, 0x00, 0x01};
+
+			memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
+			memcpy(dptr + iv_offset + alg_iv_len, ctr_blk, 4);
+		}
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		else
+			return -EINVAL;
+#endif
+	}
+
+	return 0;
+}
+
+static inline uint16_t
 dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		       struct rte_mbuf **mbufs, uint32_t *req_idxs, uint16_t nb_ops)
 {
@@ -1649,17 +1683,17 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 	uint32_t dlen, req_idx;
 
 	for (i = 0; i < nb_ops; i++) {
+		uint32_t cipher_offset = 0, auth_offset = 0, iv_offset = 0;
 		uint32_t off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		struct dao_lc_sym_sess_meta *sess_meta;
-		uint16_t alg_iv_len, pkt_iv_len;
-		uint32_t cipher_offset, auth_offset;
 		uint8_t aad_len = 0, digest_len = 0;
-		const uint32_t iv_offset = 0;
+		bool is_auth_only, is_aead_cipher;
+		uint16_t ret = 0, auth_len = 0;
 		struct __dao_lc_req_sym *req;
 		struct dao_lc_sym_op *op;
 		uint64_t *offset_vaddr;
 		union cpt_inst_w4 w4;
-		bool is_auth_only;
+		uint16_t pkt_iv_len;
 		uint8_t *dptr;
 
 		op = &ops[i];
@@ -1677,6 +1711,8 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		qp->req_queue[req_idx].sess_meta = sess_meta;
 
 		is_auth_only = sess_meta->is_auth_only;
+		is_aead_cipher = sess_meta->is_aead_cipher;
+
 		if (is_auth_only) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->digest == NULL) {
@@ -1697,8 +1733,11 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = sess_meta->digest_len;
-		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
+
+		if (is_aead_cipher) {
 			aad_len = op->aad_len;
+			auth_len = op->cipher_len + aad_len;
+		}
 
 		dlen = op->in_buffer->total_len;
 		buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + dlen;
@@ -1738,7 +1777,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		w4.u64 = sess_meta->w4;
 		if (!is_auth_only) {
 			w4.s.param1 = op->cipher_len;
-			w4.s.param2 = op->auth_len;
+			w4.s.param2 = auth_len;
 
 			if (op->encrypt)
 				w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
@@ -1759,9 +1798,6 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		} else {
 			w4.s.dlen = dlen;
 		}
-
-		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM)
-			w4.s.param2 = op->cipher_len + op->aad_len;
 
 		req->is_hash_only = is_auth_only;
 		req->w4 = w4.u64;
@@ -1786,23 +1822,17 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 			dptr += off_ctrl_len;
 		}
 
-		/* Copy IV */
-
-		alg_iv_len = sess_meta->alg_iv_len;
-
-		/* Copy the user provided portion of the IV */
-		memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
-
-		/* Adjust the IV passed to microcode */
-		if (pkt_iv_len != alg_iv_len) {
-			if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
-				const uint8_t ctr_blk[4] = {0x00, 0x00, 0x00, 0x01};
-
-				memcpy(dptr + iv_offset + alg_iv_len, ctr_blk, 4);
-			}
+		ret = dao_lc_sym_copy_iv(sess_meta, op, dptr, iv_offset);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (ret != 0) {
+			dao_err("Unsupported cipher type for IV adjustment.");
+			rte_errno = -ret;
+			return i;
 		}
+#endif
+		RTE_SET_USED(ret);
 
-		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
+		if (is_aead_cipher) {
 			/* Copy AAD */
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->aad == NULL || op->aad_len <= 0) {

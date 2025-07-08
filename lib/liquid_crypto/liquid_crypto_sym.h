@@ -50,6 +50,9 @@ struct dao_lc_sym_sess_meta {
 
 	/** Auth Only */
 	bool is_auth_only;
+
+	/** Is AEAD cipher */
+	bool is_aead_cipher;
 };
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);

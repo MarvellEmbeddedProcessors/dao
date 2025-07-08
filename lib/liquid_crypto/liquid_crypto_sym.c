@@ -21,26 +21,26 @@ static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 static int
 sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 {
-	uint16_t iv_len = 0;
-
 	switch (ctx->fc.enc_cipher) {
 	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
-		iv_len = 16;
+		if (ctx->iv_len == 16)
+			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
-		iv_len = 12;
+		if (ctx->iv_len == 12)
+			return 0;
+		break;
+	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
+		if (ctx->iv_len >= 7 && ctx->iv_len <= 13)
+			return 0;
 		break;
 	default:
 		dao_err("Unsupported encryption cipher.");
 		return -ENOTSUP;
 	}
 
-	if (ctx->iv_len != iv_len) {
-		dao_err("Invalid IV length for encryption cipher.");
-		return -EINVAL;
-	}
-
-	return 0;
+	dao_err("Invalid IV length for encryption cipher.");
+	return -EINVAL;
 }
 
 static int
@@ -51,6 +51,10 @@ sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		return 0;
 	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
 		if (ctx->fc.mac_len == 16)
+			return 0;
+		break;
+	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
+		if (ctx->fc.mac_len == 8)
 			return 0;
 		break;
 	default:
@@ -122,10 +126,17 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 
 		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
 			w4.s.opcode_minor |= (1 << 5);
+			sess_meta->is_aead_cipher = true;
 			/* When IV len is 12, 4B would be added by LC layer and submitted. */
 			if (sess_meta->alg_iv_len == 12)
 				sess_meta->pkt_iv_len = 16;
 		}
+
+		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM) {
+			sess_meta->pkt_iv_len = 16;
+			sess_meta->is_aead_cipher = true;
+		}
+
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		if (sym_sess_hash_digest_len_validate(ctx))
 			goto sess_meta_free;
@@ -230,6 +241,7 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 	switch (fc_ctx->enc_cipher) {
 	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
 	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
+	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
 		is_aes = true;
 		break;
 	default:
