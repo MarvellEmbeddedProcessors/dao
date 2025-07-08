@@ -1679,22 +1679,25 @@ static inline uint16_t
 dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		       struct rte_mbuf **mbufs, uint32_t *req_idxs, uint16_t nb_ops)
 {
-	uint32_t dlen, req_idx;
-	uint16_t i, buf_len;
+	uint32_t dlen, req_idx, cipher_offset, auth_offset, off_ctrl_len;
+	uint16_t i, buf_len, pkt_iv_len, auth_len;
+	struct dao_lc_sym_sess_meta *sess_meta;
+	bool is_auth_only, is_aead_cipher;
+	const uint32_t iv_offset = 0;
+	struct __dao_lc_req_sym *req;
+	uint8_t aad_len, digest_len;
+	struct dao_lc_sym_op *op;
+	uint64_t *offset_vaddr;
+	union cpt_inst_w4 w4;
+	uint8_t *dptr;
 	int ret;
 
 	for (i = 0; i < nb_ops; i++) {
-		uint32_t cipher_offset = 0, auth_offset = 0, iv_offset = 0;
-		uint32_t off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
-		struct dao_lc_sym_sess_meta *sess_meta;
-		uint8_t aad_len = 0, digest_len = 0;
-		bool is_auth_only, is_aead_cipher;
-		uint16_t pkt_iv_len, auth_len = 0;
-		struct __dao_lc_req_sym *req;
-		struct dao_lc_sym_op *op;
-		uint64_t *offset_vaddr;
-		union cpt_inst_w4 w4;
-		uint8_t *dptr;
+		cipher_offset = 0;
+		auth_offset = 0;
+		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+		aad_len = 0;
+		auth_len = 0;
 
 		op = &ops[i];
 		req_idx = req_idxs[i];
