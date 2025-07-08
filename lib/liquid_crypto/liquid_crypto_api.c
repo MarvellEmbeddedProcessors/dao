@@ -1679,8 +1679,9 @@ static inline uint16_t
 dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		       struct rte_mbuf **mbufs, uint32_t *req_idxs, uint16_t nb_ops)
 {
-	uint16_t i, buf_len;
 	uint32_t dlen, req_idx;
+	uint16_t i, buf_len;
+	int ret;
 
 	for (i = 0; i < nb_ops; i++) {
 		uint32_t cipher_offset = 0, auth_offset = 0, iv_offset = 0;
@@ -1688,12 +1689,11 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		struct dao_lc_sym_sess_meta *sess_meta;
 		uint8_t aad_len = 0, digest_len = 0;
 		bool is_auth_only, is_aead_cipher;
-		uint16_t ret = 0, auth_len = 0;
+		uint16_t pkt_iv_len, auth_len = 0;
 		struct __dao_lc_req_sym *req;
 		struct dao_lc_sym_op *op;
 		uint64_t *offset_vaddr;
 		union cpt_inst_w4 w4;
-		uint16_t pkt_iv_len;
 		uint8_t *dptr;
 
 		op = &ops[i];
