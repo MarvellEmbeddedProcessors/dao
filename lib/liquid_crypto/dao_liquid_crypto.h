@@ -46,6 +46,7 @@ struct dao_lc_buf {
 /**
  * The liquid crypto op structure.
  */
+/* Structure dao_lc_sym_op 8< */
 struct dao_lc_sym_op {
 	/**
 	 * The cookie to be associated with the operation. This cookie is returned in the
@@ -66,18 +67,30 @@ struct dao_lc_sym_op {
 	 * completed and dequeued by the application using dao_liquid_crypto_dequeue_burst().
 	 * */
 	struct dao_lc_buf *out_buffer;
-	/** Cipher offset from beginning of buffer */
-	uint32_t cipher_offset;
-	/** Auth offset from beginning of buffer */
-	uint32_t auth_offset;
 	/**
-	 * Cipher length.
+	 * Starting point for cipher processing, specified as number of bytes from start of data in
+	 * the input buffer. The result of the cipher operation will be written back into the
+	 * output buffer starting at this location.
+	 */
+	uint32_t cipher_offset;
+	/**
+	 * Length of data to be ciphered, specified as number of bytes from the cipher_offset
+	 * in the input buffer.
+	 *
 	 * For block ciphers, the cipher length must be aligned with the block size of the
 	 * cipher type. It is the application's responsibility to ensure the cipher length
 	 * meets this alignment requirement.
 	 */
 	uint32_t cipher_len;
-	/** Auth length */
+	/**
+	 * Starting point for auth processing, specified as number of bytes from start of data in
+	 * the input buffer.
+	 */
+	uint32_t auth_offset;
+	/**
+	 * Length of data to be authenticated, specified as number of bytes from the
+	 * auth_offset in the input buffer.
+	 */
 	uint32_t auth_len;
 	/** Cipher IV */
 	uint8_t *cipher_iv;
@@ -89,9 +102,15 @@ struct dao_lc_sym_op {
 	uint16_t aad_len;
 	/** Digest. Ignored for non auth use cases. */
 	uint8_t *digest;
-	/** Operation. Whether the operation is Encrypt or Decrypt */
-	bool encrypt;
+	/** Type of operation */
+	union {
+		/** Is encrypt operation or decrypt operation. */
+		bool encrypt;
+		/** Is auth generate or auth verify. Used in case of auth-only operations. */
+		bool auth_gen;
+	};
 };
+/* >8 End of structure dao_lc_sym_op. */
 
 /**
  * CPT hardware completion codes.

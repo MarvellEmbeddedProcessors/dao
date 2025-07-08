@@ -277,6 +277,174 @@ The following API is used to enqueue symmetric cryptographic operations:
 
 * ``dao_liquid_crypto_sym_enqueue_burst()``: Enqueue a burst of symmetric cryptographic operations.
 
+Buffer Usage
+++++++++++++
+
+DAO Liquid Crypto Library allows the user to provide fragmented buffers for
+cryptographic operations. The user can provide a list of buffers for each operation, and the
+library will handle the fragmentation and reassembly of the buffers internally. This allows for
+efficient memory usage and reduces the overhead of copying data between buffers.
+
+Following represents the dao_lc_sym_op structure that is used to enqueue symmetric
+cryptographic operations:
+
+.. literalinclude:: ../../../lib/liquid_crypto/dao_liquid_crypto.h
+   :language: c
+   :start-after: Structure dao_lc_sym_op 8<
+   :end-before: >8 End of structure dao_lc_sym_op.
+
+**Data Buffers**:
+	Pointers to the input and output data buffers for the operation are specified using
+	``dao_lc_sym_op.in_buffer`` (input buffer) and ``dao_lc_sym_op.out_buffer`` (output buffer).
+	If ``dao_lc_sym_op.out_buffer`` is set to NULL, the operation is performed in-place, and the
+	input buffer is used as both the source and destination.
+
+	Both input and output buffers can be fragmented; the library manages fragmentation and
+	reassembly internally. Cryptographic operations are applied only to the regions of the
+	buffer specified by the cipher and authentication offsets and lengths, not to the entire
+	buffer.
+
+**AEAD Operations**:
+	The ``dao_lc_sym_op`` structure supports AEAD (Authenticated Encryption with Associated Data)
+	operations, such as AES-GCM, which perform encryption and authentication simultaneously.
+	For AEAD operations:
+
+	- ``cipher_offset`` and ``cipher_len`` specify the region of the input buffer to be encrypted
+	  and authenticated.
+	- The ``aad`` field provides additional authenticated data that is not encrypted but is
+	  included in the authentication calculation.
+	- The ``cipher_iv`` field supplies the initialization vector (IV) required for the cipher
+	  operation.
+	- The ``digest`` field is used to store or verify the authentication tag (also known as the
+	  authentication digest). For encryption, the tag is generated and written to ``digest``; for
+	  decryption, the tag in ``digest`` is verified. If ``digest`` is NULL, the authentication tag
+	  is expected to be located immediately after the ciphered data in the buffer.
+
+	The library manages all AEAD-specific processing internally, including handling of fragmented
+	buffers and correct placement of the authentication tag.
+
+	In case of out-of-place operations, the output buffer contains the ciphered data and, if the
+	``digest`` field is NULL, the authentication tag as well. The input buffer remains unchanged.
+	Ciphered data is copied to the output buffer starting from the offset defined by
+	``cipher_offset`` and for a length of ``cipher_len``.
+
+	In case of in-place operations, the input buffer is overwritten with the ciphered data starting
+	at the offset specified by ``cipher_offset`` for a length of ``cipher_len``. If ``digest`` is
+	NULL, the authentication tag (for encrypt operations) is written immediately after the
+	ciphered data in the buffer. For decrypt operations, if the ``digest`` field is NULL, the
+	authentication tag is expected to be located immediately after the ciphered data in the buffer
+	and is used for verification.
+
+	The fields, ``auth_offset``, ``auth_len``, and ``auth_iv``, are ignored for AEAD
+	operations.
+
+**Cipher Only Operations**:
+	The ``dao_lc_sym_op`` structure supports cipher-only operations, such as symmetric
+	ciphering algorithms like AES-CBC. For these operations:
+
+	- ``cipher_offset`` and ``cipher_len`` specify the offset and length of the data within the
+	  input buffer to be encrypted or decrypted.
+	- ``cipher_iv`` provides the initialization vector (IV) required for the cipher operation.
+
+	In case of out-of-place operations, the output buffer contains the ciphered data, while the
+	input buffer remains unchanged. The ciphered data is copied to the output buffer starting at
+	the offset specified by ``cipher_offset`` and for a length of ``cipher_len``.
+
+	In case of in-place operations, the input buffer is overwritten with the ciphered data,
+	starting from the offset specified by ``cipher_offset`` and for a length of ``cipher_len``.
+
+	All authentication-related fields (``auth_offset``, ``auth_len``, ``auth_iv``, ``aad``, and
+	``digest``) are ignored for cipher-only operations.
+
+**Auth Only Operations**:
+	The ``dao_lc_sym_op`` structure supports authentication-only operations, such as hashing
+	algorithms like SHA1. For these operations, the ``auth_offset`` and ``auth_len`` fields
+	specify the offset and length of the data to be authenticated within the input buffer.
+
+	- ``auth_offset`` and ``auth_len`` specify the region of the input buffer to be authenticated.
+	- ``auth_iv`` provides the initialization vector (IV) required for the authentication
+	  operation. This field is optional and should be set only if the authentication algorithm
+	  requires an IV.
+	- ``digest`` is used to store the generated authentication tag (for auth_gen operations)
+	  or to provide the tag to be verified (for auth_verify operations). The ``digest`` field
+	  must always be set (not NULL) for authentication-only operations.
+
+	In authentication-only operations, the ``out_buffer`` field is not used. The input buffer
+	is not modified, and the authentication tag is written to the ``digest`` field.
+
+	All cipher and AEAD-related fields (``cipher_offset``, ``cipher_len``, ``cipher_iv``, and
+	``aad``) are ignored for authentication-only operations.
+
+**Cipher and Auth Operations**:
+	The ``dao_lc_sym_op`` structure supports combined cipher and authentication operations,
+	such as AES-CBC with SHA1-HMAC. These are often called "chained" operations,
+	where both ciphering and authentication are performed on specified regions of the input
+	buffer. The order of operations (encrypt-then-authenticate or authenticate-then-encrypt)
+	is determined by the session configuration. In these operations, both ciphering and
+	authentication are applied to specified regions of the input buffer, as defined by:
+
+	- ``cipher_offset`` and ``cipher_len``: Offset and length of the data to be encrypted or
+	  decrypted.
+	- ``auth_offset`` and ``auth_len``: Offset and length of the data to be authenticated.
+	- ``cipher_iv``: Initialization vector for the cipher operation.
+	- ``auth_iv``: Initialization vector for the authentication operation (if required).
+	- ``digest``: Pointer to the authentication tag (for encrypt/auth_gen) or the tag to be
+	  verified (for decrypt/auth_verify).
+
+	The library manages the sequencing and data flow, ensuring that cipher and authentication
+	steps are performed in the correct order as specified in the session configuration. Both
+	in-place and out-of-place buffer modes are supported. Handling of the authentication tag
+	(``digest``) follows the same rules as described for other operation types.
+
+	If the ``digest`` field is NULL, the authentication tag is expected to be located
+	immediately after the ciphered data in the buffer. If ``digest`` is not NULL, the
+	authentication tag is generated and stored in the ``digest`` field (for encrypt/auth_gen
+	operations) or verified against the ``digest`` field (for decrypt/auth_verify operations),
+	regardless of whether the operation is in-place or out-of-place.
+
+	For out-of-place operations, the output buffer contains the ciphered and/or authenticated
+	data, and, if ``digest`` is NULL, the authentication tag as well. The input buffer remains
+	unchanged. Ciphered data is copied to the output buffer starting at ``cipher_offset`` for
+	``cipher_len`` bytes. Authenticated data is copied to the output buffer starting at
+	``auth_offset`` for ``auth_len`` bytes.
+
+	For in-place operations, the input buffer is overwritten with the ciphered data starting at
+	``cipher_offset`` for ``cipher_len`` bytes, followed by the authentication tag if
+	``digest`` is NULL.
+
+**Summary of Fields**:
+	The following table summarizes the fields in the ``dao_lc_sym_op`` structure and their
+	applicability for different types of operations:
+
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| Field             | Description         | AEAD  | Cipher only | Auth only | Cipher-Auth |
+	+===================+=====================+=======+=============+===========+=============+
+	| ``cipher_offset`` | Cipher Offset       | **R** | **R**       | *NA*      | **R**       |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``cipher_len``    | Cipher Length       | **R** | **R**       | *NA*      | **R**       |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``auth_offset``   | Authentication      | *NA*  | *NA*        | **R**     | **R**       |
+	|                   | Offset              |       |             |           |             |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``auth_len``      | Authentication      | *NA*  | *NA*        | **R**     | **R**       |
+	|                   | Length              |       |             |           |             |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``cipher_iv``     | Cipher IV           | **R** | **R**       | *NA*      | **R**       |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``auth_iv``       | Authentication IV   | *NA*  | *NA*        | O         | O           |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``aad``           | Additional          | O     | *NA*        | *NA*      | *NA*        |
+	|                   | Authentication Data |       |             |           |             |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+	| ``digest``        | Digest              | O     | *NA*        | **R**     | O           |
+	+-------------------+---------------------+-------+-------------+-----------+-------------+
+
+.. note::
+
+	- **R**: Required field for the operation.
+	- **O**: Optional field for the operation.
+	- **NA**: Not applicable for the operation.
+
 Dequeue API
 ~~~~~~~~~~~
 
