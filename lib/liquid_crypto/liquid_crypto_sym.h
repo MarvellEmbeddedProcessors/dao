@@ -71,4 +71,6 @@ int liquid_crypto_sym_sess_meta_lookup(uint64_t sess_opaque);
 
 void liquid_crypto_sym_sess_meta_free(struct dao_lc_sym_sess_meta *sess_meta);
 
+int lc_sym_op_validate(struct dao_lc_sym_op *op);
+
 #endif /* __LIQUID_CRYPTO_SYM_H__ */

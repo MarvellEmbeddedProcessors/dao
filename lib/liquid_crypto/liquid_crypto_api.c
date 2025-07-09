@@ -15,6 +15,7 @@
 #include <dao_log.h>
 
 #include "hw/cpt.h"
+#include "liquid_crypto_debug.h"
 #include "liquid_crypto_priv.h"
 #include "liquid_crypto_sym.h"
 #include "liquid_crypto_trs.h"
@@ -1872,19 +1873,13 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		op = &ops[i];
 		req_idx = req_idxs[i];
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (op == NULL) {
-			dao_err("Invalid operation pointer.");
-			rte_errno = EINVAL;
-			return 0;
+		if (lc_debug_enabled()) {
+			ret = lc_sym_op_validate(op);
+			if (ret) {
+				rte_errno = -ret;
+				return 0;
+			}
 		}
-
-		if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
-			dao_err("Invalid session id. sess_id = %lu", op->sess_id);
-			rte_errno = EINVAL;
-			return 0;
-		}
-#endif
 
 		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
 		qp->req_queue[req_idx].op_cookie = op->op_cookie;

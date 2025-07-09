@@ -320,3 +320,74 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 
 	return 0;
 }
+
+int
+lc_sym_op_validate(struct dao_lc_sym_op *op)
+{
+	uint32_t pkt_len, out_pkt_len;
+	struct dao_lc_buf *buf;
+
+	if (op == NULL) {
+		dao_err("Invalid operation pointer.");
+		return -EINVAL;
+	}
+
+	if (op->in_buffer == NULL) {
+		dao_err("Invalid input buffer pointer.");
+		return -EINVAL;
+	}
+
+	if (liquid_crypto_sym_sess_meta_lookup(op->sess_id) != 0) {
+		dao_err("Invalid session id. sess_id = %lu", op->sess_id);
+		return -EINVAL;
+	}
+
+	if (op->in_buffer->total_len == 0) {
+		dao_err("Invalid input buffer total length.");
+		return -EINVAL;
+	}
+
+	pkt_len = 0;
+	do {
+		buf = op->in_buffer;
+		if (buf->data == NULL) {
+			dao_err("Invalid input buffer fragment data pointer.");
+			return -EINVAL;
+		}
+		if (buf->frag_len == 0) {
+			dao_err("Invalid input buffer fragment length.");
+			return -EINVAL;
+		}
+		pkt_len += buf->frag_len;
+		buf = buf->next;
+	} while (buf != NULL);
+
+	if (pkt_len != op->in_buffer->total_len) {
+		dao_err("Input buffer total length does not match fragment lengths.");
+		return -EINVAL;
+	}
+
+	if (op->out_buffer != NULL) {
+		out_pkt_len = 0;
+		do {
+			buf = op->out_buffer;
+			if (buf->data == NULL) {
+				dao_err("Invalid output buffer fragment data pointer.");
+				return -EINVAL;
+			}
+			if (buf->frag_len == 0) {
+				dao_err("Invalid output buffer fragment length.");
+				return -EINVAL;
+			}
+			out_pkt_len += buf->frag_len;
+			buf = buf->next;
+		} while (buf != NULL);
+
+		if (out_pkt_len != op->out_buffer->total_len) {
+			dao_err("Output buffer total length does not match fragment lengths.");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
