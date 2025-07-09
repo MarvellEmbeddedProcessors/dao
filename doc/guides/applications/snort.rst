@@ -101,4 +101,4 @@ The following is an example to run snort with vectorscan enabled.
 .. code-block:: console
 
   # snort -c  /usr/local/etc/snort/snort.lua --lua 'search_engine.search_method="hyperscan"'
-  -i eth1 --daq-dir /usr/local/lib/daq --daq pcap -r /snort_test/inside.pcap
+  --daq-dir /usr/local/lib/daq --daq pcap -r /snort_test/inside.pcap
