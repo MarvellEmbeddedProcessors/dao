@@ -1681,8 +1681,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 			      const struct dao_lc_sym_sess_meta *sess_meta,
 			      const enum lc_sym_op_type op_type)
 {
-	uint32_t dlen, cipher_offset, auth_offset, off_ctrl_len;
-	uint16_t buf_len, pkt_iv_len, auth_len;
+	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len, off_ctrl_len;
+	uint16_t buf_len, pkt_iv_len;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
 	uint8_t aad_len, digest_len;
@@ -1691,13 +1691,26 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	uint8_t *dptr;
 	int ret;
 
-	cipher_offset = 0;
-	auth_offset = 0;
-	off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
-	aad_len = 0;
-	auth_len = 0;
+	if (op_type == LC_SYM_OP_CIPHER_ONLY) {
+		aad_len = 0;
+		cipher_offset = op->cipher_offset;
+		cipher_len = op->cipher_len;
+		auth_offset = 0;
+		auth_len = 0;
+		pkt_iv_len = sess_meta->pkt_iv_len;
+		digest_len = 0;
+		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+	} else if (op_type == LC_SYM_OP_AUTH_ONLY) {
+		aad_len = 0;
+		cipher_offset = 0;
+		cipher_len = 0;
+		auth_offset = op->auth_offset;
+		auth_len = op->auth_len;
+		pkt_iv_len = 0;
+		digest_len = sess_meta->digest_len;
+		/* No offset control word for auth only */
+		off_ctrl_len = 0;
 
-	if (op_type == LC_SYM_OP_AUTH_ONLY) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (op->digest == NULL) {
 			dao_err("Invalid digest pointer for auth only operation.");
@@ -1706,22 +1719,25 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		}
 #endif
 		qp->req_queue[req_idx].digest = op->digest;
-		/* No offset control word for auth only */
-		off_ctrl_len = 0;
+	} else if (op_type == LC_SYM_OP_AEAD) {
+		aad_len = op->aad_len;
+		cipher_offset = op->cipher_offset;
+		cipher_len = op->cipher_len;
+		auth_offset = cipher_offset;
+		auth_len = cipher_len + aad_len;
+		pkt_iv_len = sess_meta->pkt_iv_len;
+		digest_len = sess_meta->digest_len;
+		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+	} else {
+		dao_err("Invalid operation type: %d", op_type);
+		rte_errno = EINVAL;
+		return 0;
 	}
 
 	if (op->out_buffer != NULL)
 		qp->req_queue[req_idx].data_out = op->out_buffer;
 	else
 		qp->req_queue[req_idx].data_out = op->in_buffer;
-
-	pkt_iv_len = sess_meta->pkt_iv_len;
-	digest_len = sess_meta->digest_len;
-
-	if (op_type == LC_SYM_OP_AEAD) {
-		aad_len = op->aad_len;
-		auth_len = op->cipher_len + aad_len;
-	}
 
 	dlen = op->in_buffer->total_len;
 	buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + dlen;
