@@ -1,8 +1,8 @@
 .. SPDX-License-Identifier: Marvell-MIT
    Copyright (c) 2025 Marvell.
 
-DAO 25.05.0 Release Notes
-=========================
+DAO Release 25.05.0
+===================
 
 .. note::
    DAO (Data Accelerator Offload) provides libraries and reference
@@ -13,12 +13,12 @@ Release Overview
 ----------------
 
 DAO 25.05.0 brings a mix of new features and key enhancements across networking,
- crypto, and system libraries. This release introduces a Kubernetes CNI offload
- application and a user-space Conntrack library, adds advanced flow table handling,
- and improves vDPA device management through new PEM APIs. Updates to VPP add
- support for inline IPsec reassembly and WireGuard async crypto, while the OpenSSL
- engine sees internal restructuring. Build support has also been expanded with
- new static linking options for EP targets.
+crypto, and system libraries. This release introduces a Kubernetes CNI offload
+application and a user-space Conntrack library, adds advanced flow table handling,
+and improves vDPA device management through new PEM APIs. Updates to VPP add
+support for inline IPsec reassembly and WireGuard async crypto, while the OpenSSL
+engine sees internal restructuring. Build support has also been expanded with
+new static linking options for EP targets.
 
 Release Highlights
 ------------------
@@ -49,8 +49,9 @@ Conntrack - Connection Tracking Library
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **Version:** 25.05.0
+
 - **Source repo / patches**:
-    - GitHub: https://github.com/MarvellEmbeddedProcessors/dao/conntrack
+    - `Conntrack Library <https://github.com/MarvellEmbeddedProcessors/dao/tree/dao-25.05/lib/conntrack/>`_
 - **Changes**:
     - Initial release of the 'Conntrack'.
 - **Notes**:
@@ -71,9 +72,11 @@ Flow Library
 ~~~~~~~~~~~~
 
 - **Version:** 25.05.0
+
 - **Dependencies:** DPDK ≥ 25.03.0, CPT ≥ 24.09.0
+
 - **Source repo / patches**:
-    - GitHub: https://github.com/MarvellEmbeddedProcessors/dao/flow
+    - `Flow Library <https://github.com/MarvellEmbeddedProcessors/dao/tree/dao-25.05/lib/flow/>`_
 - **Changes**:
     - Support for multiple flow tables
     - Support multiple flow key extraction profiles
@@ -83,9 +86,11 @@ Kubernetes CNI Offload
 ~~~~~~~~~~~~~~~~~~~~~~
 
 - **Version:** 25.05.0
+
 - **Dependencies:** Cilium ≥ 1.17.0-dev, CPT ≥ 24.09.0, linux kernel ≥ 6.1.67
+
 - **Source repo / patches**:
-    - GitHub: https://github.com/MarvellEmbeddedProcessors/k8s-cni-offload
+    - `Kubernetes CNI Offload Repo <https://github.com/MarvellEmbeddedProcessors/k8s-cni-offload/>`_
 - **Changes**:
     - Initial release of the `k8s-cni-offload`.
 - **Notes**:
@@ -101,9 +106,11 @@ Marvell OpenSSL Engine
 ~~~~~~~~~~~~~~~~~~~~~~
 
 - **Version:** 25.05.0
+
 - **Dependencies:** DPDK ≥ 25.03.0, CPT ≥ 24.09.0
+
 - **Source repo / patches**:
-    - GitHub: https://github.com/MarvellEmbeddedProcessors/marvell-openssl-engine
+    - `Marvell OpenSSL Engine Repo <https://github.com/MarvellEmbeddedProcessors/marvell-openssl-engine/>`_
 - **Changes**:
     - Repurposed code for better code organization. However, no changes from user API perspective
 
@@ -111,8 +118,9 @@ PEM Library
 ~~~~~~~~~~~
 
 - **Version:** 25.05.0
+
 - **Source repo / patches**:
-    - GitHub: https://github.com/MarvellEmbeddedProcessors/lib/pem
+    - `PEM Library <https://github.com/MarvellEmbeddedProcessors/dao/tree/dao-25.05/lib/pem/>`_
 - **Changes**:
     - Introduced new DAO PEM APIs to manage host-facing vDPA devices.
     - Added dao_pem_host_dev_add() API to register a vDPA device.
@@ -122,9 +130,11 @@ VPP
 ~~~
 
 - **Version:** 25.05.0
+
 - **Dependencies:** DPDK ≥ 25.03.0, CPT ≥ 24.09.0
+
 - **Source repo / patches**:
-    - GitHub: https://github.com/MarvellEmbeddedProcessors/vpp
+    - `VPP repo <https://github.com/MarvellEmbeddedProcessors/vpp/tree/dao-25.05/>`_
 - **Changes**:
     - Inline IPsec offload support for OCTEON-10.
     - Inline IPsec inner packet reassembly support for OCTEON-10.

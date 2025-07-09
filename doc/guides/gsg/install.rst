@@ -175,6 +175,8 @@ To check all available release versions of the package, user can run below comma
   Version table:
      25.05.0 500
         500 https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release ./ Packages
+     25.01.0 500
+        500 https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release ./ Packages
 
 By default it will install the latest version of the package. If user wants to
 install a specific version, then user can specify the version as below:
