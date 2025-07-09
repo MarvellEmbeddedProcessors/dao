@@ -1594,7 +1594,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 #endif
 
 	/* Auth only post process involves simply copying the digest data to digest buffer. */
-	if (req->sess_meta->is_auth_only) {
+	if (req->sess_meta->op_type == LC_SYM_OP_AUTH_ONLY) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (req->digest == NULL) {
 			dao_err("Invalid digest pointer.");
@@ -1682,10 +1682,10 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 	uint32_t dlen, req_idx, cipher_offset, auth_offset, off_ctrl_len;
 	uint16_t i, buf_len, pkt_iv_len, auth_len;
 	struct dao_lc_sym_sess_meta *sess_meta;
-	bool is_auth_only, is_aead_cipher;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
 	uint8_t aad_len, digest_len;
+	enum lc_sym_op_type op_type;
 	struct dao_lc_sym_op *op;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
@@ -1713,10 +1713,9 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		qp->req_queue[req_idx].op_cookie = op->op_cookie;
 		qp->req_queue[req_idx].sess_meta = sess_meta;
 
-		is_auth_only = sess_meta->is_auth_only;
-		is_aead_cipher = sess_meta->is_aead_cipher;
+		op_type = sess_meta->op_type;
 
-		if (is_auth_only) {
+		if (op_type == LC_SYM_OP_AUTH_ONLY) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->digest == NULL) {
 				dao_err("Invalid digest pointer for auth only operation.");
@@ -1737,7 +1736,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = sess_meta->digest_len;
 
-		if (is_aead_cipher) {
+		if (op_type == LC_SYM_OP_AEAD) {
 			aad_len = op->aad_len;
 			auth_len = op->cipher_len + aad_len;
 		}
@@ -1778,7 +1777,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 
 		/* Add instruction */
 		w4.u64 = sess_meta->w4;
-		if (!is_auth_only) {
+		if (op_type != LC_SYM_OP_AUTH_ONLY) {
 			w4.s.param1 = op->cipher_len;
 			w4.s.param2 = auth_len;
 
@@ -1786,6 +1785,9 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 				w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
 			else
 				w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_DECRYPT;
+			req->is_hash_only = 0;
+		} else {
+			req->is_hash_only = 1;
 		}
 
 		if (op->encrypt) {
@@ -1802,7 +1804,6 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 			w4.s.dlen = dlen;
 		}
 
-		req->is_hash_only = is_auth_only;
 		req->w4 = w4.u64;
 		req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 
@@ -1835,7 +1836,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 #endif
 		RTE_SET_USED(ret);
 
-		if (is_aead_cipher) {
+		if (op_type == LC_SYM_OP_AEAD) {
 			/* Copy AAD */
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			if (op->aad == NULL || op->aad_len <= 0) {

@@ -12,6 +12,13 @@
 #define DAO_LC_SYM_META_GET_PTR(sess_opaque)                                                       \
 	((struct dao_lc_sym_sess_meta *)((uintptr_t)(sess_opaque)))
 
+enum lc_sym_op_type {
+	LC_SYM_OP_CIPHER_ONLY = 1,
+	LC_SYM_OP_AUTH_ONLY,
+	LC_SYM_OP_CIPHER_AUTH,
+	LC_SYM_OP_AEAD,
+};
+
 /**
  * The liquid crypto symmetric context.
  */
@@ -48,11 +55,8 @@ struct dao_lc_sym_sess_meta {
 	/** Hash type */
 	enum dao_lc_fc_hash_type hash_type;
 
-	/** Auth Only */
-	bool is_auth_only;
-
-	/** Is AEAD cipher */
-	bool is_aead_cipher;
+	/* Operation type */
+	enum lc_sym_op_type op_type;
 };
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);

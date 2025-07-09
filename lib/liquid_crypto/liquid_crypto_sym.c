@@ -112,6 +112,8 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		return NULL;
 	}
 
+	sess_meta->op_type = LC_SYM_OP_CIPHER_ONLY;
+
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_FC) {
 		if (sym_sess_fc_iv_len_validate(ctx))
 			goto sess_meta_free;
@@ -126,7 +128,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 
 		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
 			w4.s.opcode_minor |= (1 << 5);
-			sess_meta->is_aead_cipher = true;
+			sess_meta->op_type = LC_SYM_OP_AEAD;
 			/* When IV len is 12, 4B would be added by LC layer and submitted. */
 			if (sess_meta->alg_iv_len == 12)
 				sess_meta->pkt_iv_len = 16;
@@ -134,7 +136,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 
 		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM) {
 			sess_meta->pkt_iv_len = 16;
-			sess_meta->is_aead_cipher = true;
+			sess_meta->op_type = LC_SYM_OP_AEAD;
 		}
 
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
@@ -142,7 +144,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			goto sess_meta_free;
 
 		sess_meta->hash_type = ctx->fc.hash_type;
-		sess_meta->is_auth_only = true;
+		sess_meta->op_type = LC_SYM_OP_AUTH_ONLY;
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_HASH;
 		w4.s.opcode_minor = 0x0;
 		w4.s.param1 = 0;
