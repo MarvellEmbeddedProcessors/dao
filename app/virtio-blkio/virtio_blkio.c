@@ -915,7 +915,6 @@ process_completed_requests(uint8_t dev_id, uint8_t q_id, struct stash_head *comp
 		TAILQ_FOREACH_SAFE(entry, compl_reqs_stash, link, next_entry) {
 			if (num_compl) {
 				TAILQ_REMOVE(compl_reqs_stash, entry, link);
-				rte_free(entry);
 				num_compl--;
 			} else {
 				break;
@@ -943,7 +942,6 @@ process_pending_requests(uint8_t dev_id, uint8_t q_id, struct stash_head *pend_r
 
 	compl_vbufs[num_compl_vbufs++] = last_inprogress_job->vbuf;
 	TAILQ_REMOVE(pend_reqs_stash, last_inprogress_job, link);
-	rte_free(last_inprogress_job);
 
 	while (!TAILQ_EMPTY(pend_reqs_stash)) {
 		TAILQ_FOREACH_SAFE(entry, pend_reqs_stash, link, next_entry) {
@@ -956,20 +954,13 @@ process_pending_requests(uint8_t dev_id, uint8_t q_id, struct stash_head *pend_r
 
 			TAILQ_REMOVE(pend_reqs_stash, entry, link);
 			compl_vbufs[num_compl_vbufs++] = entry->vbuf;
-			rte_free(entry);
 		}
 
-		num_compl = dao_virtio_blk_process_compl(dev_id, q_id, compl_vbufs,
-							 num_compl_vbufs);
+		num_compl =
+			dao_virtio_blk_process_compl(dev_id, q_id, compl_vbufs, num_compl_vbufs);
 
 		for (int i = num_compl; i < num_compl_vbufs; i++) {
-			struct stash_entry *new_entry =
-				rte_malloc(NULL, sizeof(struct stash_entry), 0);
-			if (unlikely(new_entry == NULL)) {
-				APP_ERR("rte_malloc failed at %s:%d\n", __func__, __LINE__);
-				force_quit = true;
-				return;
-			}
+			struct stash_entry *new_entry = vbuf_to_stash_entry(dev_id, compl_vbufs[i]);
 			new_entry->vbuf = compl_vbufs[i];
 			TAILQ_INSERT_TAIL(compl_reqs_stash, new_entry, link);
 		}
@@ -1007,25 +998,14 @@ process_new_requests(uint8_t dev_id, uint8_t q_id, struct stash_head *pend_reqs_
 
 	/* Park requests which library not able perform completion process */
 	for (int j = num_compl; j < num_compl_vbufs; j++) {
-		new_entry = rte_malloc(NULL, sizeof(struct stash_entry), 0);
-		if (unlikely(new_entry == NULL)) {
-			APP_ERR("rte_malloc failed at %s:%d\n", __func__, __LINE__);
-			force_quit = true;
-			return;
-		}
-
+		new_entry = vbuf_to_stash_entry(dev_id, compl_vbufs[j]);
 		new_entry->vbuf = compl_vbufs[j];
 		TAILQ_INSERT_TAIL(compl_reqs_stash, new_entry, link);
 	}
 
 	/* unlikely case. Park IO requests which are dequeued but not serviced. */
 	for (; i < num_deq; i++) {
-		new_entry = rte_malloc(NULL, sizeof(struct stash_entry), 0);
-		if (unlikely(new_entry == NULL)) {
-			APP_ERR("rte_malloc failed at %s:%d\n", __func__, __LINE__);
-			force_quit = true;
-			return;
-		}
+		new_entry = vbuf_to_stash_entry(dev_id, vbufs[i]);
 		new_entry->vbuf = vbufs[i];
 		TAILQ_INSERT_TAIL(pend_reqs_stash, new_entry, link);
 	}
@@ -1278,12 +1258,33 @@ virtio_blkdev_extbuf_put(uint16_t devid, void *buffs[], uint16_t nb_buffs)
 	return 0;
 }
 
+static uint16_t
+max_seg_size_get(void)
+{
+	uint16_t max_seg_size = 0;
+
+	for (uint8_t devid = 0; devid < DAO_VIRTIO_DEV_MAX; devid++) {
+		if (!is_virtio_dev_enabled(devid))
+			continue;
+
+		if (blkdev_conf[devid].seg_size_max > max_seg_size)
+			max_seg_size = blkdev_conf[devid].seg_size_max;
+	}
+
+	if (!max_seg_size)
+		rte_exit(EXIT_FAILURE, "No valid segment size found for virtio blkdevs\n");
+
+	return max_seg_size;
+}
+
 static int
 init_virtio_mempool(uint16_t devid, uint32_t nb_mbuf)
 {
+	uint16_t data_room_sz;
+	unsigned int obj_sz;
 	uint32_t lcore_id;
-	int rc;
 	char s[64];
+	int rc;
 
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		if (rte_lcore_is_enabled(lcore_id) == 0)
@@ -1291,12 +1292,17 @@ init_virtio_mempool(uint16_t devid, uint32_t nb_mbuf)
 
 		if (v_extmbuf_pool[devid] == NULL) {
 			snprintf(s, sizeof(s), "extmbuf_pool_v%d", devid);
+			if (per_dev_pool)
+				data_room_sz = global_pool_data_room_sz;
+			else
+				data_room_sz = blkdev_conf[devid].seg_size_max;
+
+			/* object memory layout is in below order. */
+			obj_sz = sizeof(struct dao_virtio_blk_hdr) + data_room_sz +
+				 sizeof(struct stash_entry);
 			/* Create a pool with priv size of a cacheline */
-			v_extmbuf_pool[devid] =
-				rte_mempool_create_empty(s, nb_mbuf,
-							 MAX_SEG_SIZE +
-							 sizeof(struct dao_virtio_blk_hdr),
-							 MEMPOOL_CACHE_SIZE, 0, SOCKET_ID_ANY, 0);
+			v_extmbuf_pool[devid] = rte_mempool_create_empty(
+				s, nb_mbuf, obj_sz, MEMPOOL_CACHE_SIZE, 0, SOCKET_ID_ANY, 0);
 			if (v_extmbuf_pool[devid] == NULL)
 				rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
 
@@ -1318,23 +1324,48 @@ init_virtio_mempool(uint16_t devid, uint32_t nb_mbuf)
 	return 0;
 }
 
+static __rte_always_inline void *
+vbuf_to_stash_entry_global_pool(uint8_t dev_id __rte_unused, void *vbuf)
+{
+	return (uint8_t *)vbuf + sizeof(struct dao_virtio_blk_hdr) + global_pool_data_room_sz;
+}
+
+static __rte_always_inline void *
+vbuf_to_stash_entry_per_dev_pool(uint8_t dev_id, void *vbuf)
+{
+	return (uint8_t *)vbuf + sizeof(struct dao_virtio_blk_hdr) +
+	       blkdev_conf[dev_id].seg_size_max;
+}
+
 static void
 setup_mempools(void)
 {
 	uint32_t virtio_devid;
 	int rc;
 
+	if (!per_dev_pool) {
+		global_pool_data_room_sz = max_seg_size_get();
+		/* Create a single mempool for all virtio blkdevs */
+		rc = init_virtio_mempool(0, extmbuf_count);
+		if (rc < 0)
+			rte_exit(EXIT_FAILURE, "init_virtio_mempool() failed\n");
+
+		APP_INFO("Using single mempool with data room size of %u\n",
+			 global_pool_data_room_sz);
+
+		vbuf_to_stash_entry = vbuf_to_stash_entry_global_pool;
+		return;
+	}
+
 	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
 		if (!is_virtio_dev_enabled(virtio_devid))
 			continue;
 
-		if (!per_dev_pool)
-			rc = init_virtio_mempool(0, extmbuf_count);
-		else
-			rc = init_virtio_mempool(virtio_devid, extmbuf_count);
-
+		rc = init_virtio_mempool(virtio_devid, extmbuf_count);
 		if (rc < 0)
 			rte_exit(EXIT_FAILURE, "init_virtio_mempool() failed\n");
+
+		vbuf_to_stash_entry = vbuf_to_stash_entry_per_dev_pool;
 	}
 }
 

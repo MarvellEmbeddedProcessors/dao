@@ -124,4 +124,6 @@ static uint16_t pem_devid;
 /* RCU QSBR variable */
 static struct rte_rcu_qsbr *qs_v;
 
+static void *(*vbuf_to_stash_entry)(uint8_t dev_id, void *vbuf);
+static uint16_t global_pool_data_room_sz;
 #endif
