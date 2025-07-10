@@ -393,9 +393,6 @@ mark_io_desc_compl(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2d
 	uint64_t used;
 	uint16_t end;
 
-	if (flags & VIRTIO_BLK_DESC_MANAGE_NOINORDER)
-		return mark_deq_compl_no_inorder(q, mem2dev, start, nb_desc);
-
 	if (unlikely(!q->auto_free)) {
 		if (flags & VIRTIO_BLK_DESC_MANAGE_EXTBUF)
 			free_extbufs(q, DESC_OFF(start), q_sz, nb_desc,
@@ -404,6 +401,9 @@ mark_io_desc_compl(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2d
 			free_mbufs(q, q->mbuf_arr, DESC_OFF(start), q_sz,
 				   nb_desc, flags);
 	}
+
+	if (flags & VIRTIO_BLK_DESC_MANAGE_NOINORDER)
+		return mark_deq_compl_no_inorder(q, mem2dev, start, nb_desc);
 
 	end = desc_off_add(start, nb_desc - 1, q_sz);
 	/* Overwrite buffer id in first descriptor second word */

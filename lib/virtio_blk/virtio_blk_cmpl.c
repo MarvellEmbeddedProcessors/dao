@@ -65,9 +65,17 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 			extbuf_arr[off] = (void *)((uintptr_t)hdr);
 
 			/* Prepare DMA src/dst of mbuf transfer */
-			if (is_wr)
+			if (is_wr) {
 				dao_dma_enq_x1(mem2dev, (uintptr_t)&(hdr->hdr_data), cur_len,
 					       *DESC_PTR_OFF(sd_desc_base, off, 0), cur_len);
+			} else {
+				/*
+				 * Auto free happens only for buffers submitted
+				 * to DPI HW, so do explicit SW free.
+				 */
+				if (likely(q->auto_free))
+					rte_mempool_put(q->mp, extbuf_arr[off]);
+			}
 
 			off = (off + 1) & (q_sz - 1);
 			used++;

@@ -331,8 +331,11 @@ dao_virtio_blkdev_init(uint16_t devid, struct dao_virtio_blkdev_conf *conf)
 	blkdev->auto_free_en = conf->auto_free_en;
 	blkdev->num_queues = 0;
 
-	if (conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF)
-		blkdev->dataroom_size = conf->dataroom_size;
+	if ((conf->flags & DAO_VIRTIO_BLKDEV_EXTBUF) & blkdev->auto_free_en) {
+		dao_err("auto free is not supported with externally managed "
+			"buffer pool\n");
+		return -EINVAL;
+	}
 
 	if (conf->max_virt_queues)
 		dev->max_virtio_queues_limit = conf->max_virt_queues;
