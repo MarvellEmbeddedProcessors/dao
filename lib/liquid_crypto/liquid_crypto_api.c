@@ -1688,10 +1688,9 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 			      const enum lc_sym_op_type op_type)
 {
 	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len, off_ctrl_len;
-	uint16_t buf_len, pkt_iv_len;
+	uint16_t buf_len, pkt_iv_len, aad_len, digest_len;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
-	uint8_t aad_len, digest_len;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
@@ -1834,19 +1833,14 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	if (op_type == LC_SYM_OP_AEAD) {
 		/* Copy AAD */
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (op->aad == NULL || op->aad_len <= 0) {
-			dao_err("Invalid AAD.");
-			rte_errno = EINVAL;
-			return 0;
-		}
-
 		if ((iv_offset + pkt_iv_len + aad_len) > buf_len) {
 			dao_err("Buffer Length is too small to fit AAD. buf_len = %u", buf_len);
 			rte_errno = ENOMEM;
 			return 0;
 		}
 #endif
-		memcpy(dptr + iv_offset + pkt_iv_len, op->aad, op->aad_len);
+		if (op->aad_len != 0)
+			memcpy(dptr + iv_offset + pkt_iv_len, op->aad, op->aad_len);
 	}
 
 	dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + aad_len + pkt_iv_len, dlen);

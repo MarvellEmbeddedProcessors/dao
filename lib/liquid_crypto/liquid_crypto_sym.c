@@ -321,6 +321,22 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 	return 0;
 }
 
+static int
+lc_sym_op_aead_validate(const struct dao_lc_sym_op *op)
+{
+	if (op->aad == NULL && op->aad_len != 0) {
+		dao_err("Invalid AAD.");
+		return -EINVAL;
+	}
+
+	if (op->aad_len > 1024) {
+		dao_err("AAD too long. aad_len = %u", op->aad_len);
+		return -ENOTSUP;
+	}
+
+	return 0;
+}
+
 int
 lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
@@ -328,6 +344,7 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 	uint32_t pkt_len, out_pkt_len;
 	enum lc_sym_op_type op_type;
 	struct dao_lc_buf *buf;
+	int ret;
 
 	if (op == NULL) {
 		dao_err("Invalid operation pointer.");
@@ -398,7 +415,11 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 	case LC_SYM_OP_CIPHER_ONLY:
 	case LC_SYM_OP_AUTH_ONLY:
 	case LC_SYM_OP_CIPHER_AUTH:
+		break;
 	case LC_SYM_OP_AEAD:
+		ret = lc_sym_op_aead_validate(op);
+		if (ret)
+			return ret;
 		break;
 	default:
 		dao_err("Invalid operation type: %d", op_type);

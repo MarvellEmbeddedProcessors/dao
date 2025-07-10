@@ -86,7 +86,7 @@ struct dao_lc_sym_op {
 	/** AAD. Ignored for non-AEAD operations. */
 	uint8_t *aad;
 	/** AAD length. Ignored for non-AEAD operations. */
-	uint8_t aad_len;
+	uint16_t aad_len;
 	/** Digest. Ignored for non auth use cases. */
 	uint8_t *digest;
 	/** Operation. Whether the operation is Encrypt or Decrypt */
