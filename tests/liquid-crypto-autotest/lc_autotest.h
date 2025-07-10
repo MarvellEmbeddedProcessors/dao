@@ -25,7 +25,7 @@
 /* Maximum length of IV */
 #define TEST_LC_MAX_IV_LEN 16
 /* Maximum length of AAD */
-#define TEST_LC_MAX_AAD_LEN 32
+#define TEST_LC_MAX_AAD_LEN 1024
 /* Maximum length of digest */
 #define TEST_LC_MAX_DIGEST_LEN 64
 /* Minimum length of RSA sign modulus */

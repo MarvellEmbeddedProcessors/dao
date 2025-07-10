@@ -172,8 +172,15 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 
 	if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
 	    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM)) {
+		if (params->aad.len > TEST_LC_MAX_AAD_LEN) {
+			TEST_LC_ERR("AAD length (%u) out of bounds [0, %u]", params->aad.len,
+				    TEST_LC_MAX_AAD_LEN);
+			return -1;
+		}
+
 		op[0].aad = aad_buf_data;
-		memcpy(op[0].aad, params->aad.data, params->aad.len);
+		if ((params->aad.data != NULL) && (params->aad.len > 0))
+			memcpy(op[0].aad, params->aad.data, params->aad.len);
 		op[0].aad_len = params->aad.len;
 
 		if (is_encrypt) {
@@ -314,6 +321,12 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_ccm_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_ccm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Long AAD Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt,
+					  &aes_ccm_128_long_aad_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Long AAD Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt,
+					  &aes_ccm_128_long_aad_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-CCM Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_ccm_192_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-CCM Decrypt", ut_setup, ut_teardown,
