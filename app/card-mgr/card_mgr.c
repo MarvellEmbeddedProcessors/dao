@@ -46,6 +46,7 @@ typedef enum dao_card_mgr_instance {
 typedef struct {
 	int argc;
 	char **argv;
+	char *line;
 } cli_args;
 
 static struct dao_card_grpc_ctx *card_ctx;
@@ -105,7 +106,10 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	/* Wait for the response */
 	recv(cli_fd, &resp, sizeof(int), 0);
 	if (resp) {
-		dao_err("Received error for the command");
+		if (resp == ENOTSUP)
+			dao_err("Command is not supported");
+		else
+			dao_err("Received error for the command: %d", resp);
 		return;
 	}
 
@@ -337,8 +341,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
 		rc = dao_card_stats_get(card_ctx, &card_stats);
 	} else {
-		syslog(LOG_ERR, "Unsupported command");
-		rc = -1;
+		rc = -ENOTSUP;
 	}
 
 	send(cli_fd, &rc, sizeof(rc), 0);
@@ -353,20 +356,27 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 static void
 dao_card_mgr_parse_args(const char *line, cli_args *cmd_args)
 {
+	char *line_copy = strdup(line);
 	char *token;
 
+	if (line_copy == NULL)
+		return;
+
+	cmd_args->line = line_copy;
 	cmd_args->argc = 0;
 	cmd_args->argv = NULL;
 
-	token = strtok(strdup(line), " \t\n");
+	token = strtok(line_copy, " \t\n");
 	while (token != NULL) {
 		cmd_args->argv = realloc(cmd_args->argv, sizeof(char *) * (cmd_args->argc + 1));
 		cmd_args->argv[cmd_args->argc++] = token;
 		token = strtok(NULL, " \t\n");
 	}
 
-	if (cmd_args->argc == 0)
+	if (cmd_args->argc == 0) {
+		free(cmd_args->line);
 		free(cmd_args->argv);
+	}
 }
 
 static void
@@ -376,23 +386,22 @@ dao_card_mgr_listen(int cli_socket)
 	ssize_t recv_len;
 
 	while (!force_quit) {
-		char buffer[1024];
+		char buffer[BUFFER_SIZE];
 
-		recv_len = recv(cli_socket, buffer, sizeof(buffer), 0);
+		recv_len = recv(cli_socket, buffer, sizeof(buffer) - 1, 0);
 		if (recv_len <= 0) {
-			syslog(LOG_INFO, "Client closed the connection");
+			if (recv_len == 0)
+				syslog(LOG_INFO, "Client closed the connection");
+			else
+				syslog(LOG_ERR, "Could not receive command from client");
 			break;
-		}
-
-		if (recv_len < 0) {
-			dao_err("Could not receive command from client");
-			continue;
 		}
 
 		buffer[recv_len] = '\0';
 		dao_card_mgr_parse_args(buffer, &cmd_args);
 		dao_card_mgr_process_cmd(cli_socket, &cmd_args);
 
+		free(cmd_args.line);
 		free(cmd_args.argv);
 	}
 }
