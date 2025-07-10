@@ -1900,15 +1900,8 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 			ret = dao_lc_sym_prepare_ops_single(qp, op, mbufs[i], req_idx, sess_meta,
 							    LC_SYM_OP_CIPHER_AUTH);
 			break;
-		case LC_SYM_OP_AEAD:
 		default:
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-			if (op_type != LC_SYM_OP_AEAD) {
-				dao_err("Unsupported operation type: %d", op_type);
-				rte_errno = EINVAL;
-				return i;
-			}
-#endif
+			/* LC_SYM_OP_AEAD */
 			ret = dao_lc_sym_prepare_ops_single(qp, op, mbufs[i], req_idx, sess_meta,
 							    LC_SYM_OP_AEAD);
 			break;

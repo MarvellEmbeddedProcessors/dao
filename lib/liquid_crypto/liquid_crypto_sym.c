@@ -324,7 +324,9 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 int
 lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
+	struct dao_lc_sym_sess_meta *sess_meta;
 	uint32_t pkt_len, out_pkt_len;
+	enum lc_sym_op_type op_type;
 	struct dao_lc_buf *buf;
 
 	if (op == NULL) {
@@ -387,6 +389,20 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 			dao_err("Output buffer total length does not match fragment lengths.");
 			return -EINVAL;
 		}
+	}
+
+	sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
+	op_type = sess_meta->op_type;
+
+	switch (op_type) {
+	case LC_SYM_OP_CIPHER_ONLY:
+	case LC_SYM_OP_AUTH_ONLY:
+	case LC_SYM_OP_CIPHER_AUTH:
+	case LC_SYM_OP_AEAD:
+		break;
+	default:
+		dao_err("Invalid operation type: %d", op_type);
+		return -EINVAL;
 	}
 
 	return 0;
