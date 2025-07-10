@@ -23,7 +23,8 @@
 #include <dao_card_grpc_client.h>
 #include <dao_log.h>
 
-#define DAO_CARD_NB_DESC         1024
+#define DAO_CARD_CFG_NB_DESC 1024
+
 #define DAO_CARD_MGR_PORT        50055
 #define DAO_CARD_GRPC_PORT       50051
 #define DAO_CARD_MGR_MAX_CLIENTS 10
@@ -75,14 +76,57 @@ dao_card_cmd_usage_print(void)
 {
 	fprintf(stderr, "Supported commands:\n");
 	fprintf(stderr, " help: Display the usage\n");
-	fprintf(stderr,
-		" card_init [--nb_desc <number of descriptors>] [EAL args]:  Initializes the DAO card\n");
+	fprintf(stderr, " card_init [--nb_desc <number of descriptors>] [EAL args]:"
+			"Initializes the DAO card\n");
 	fprintf(stderr, " card_fini: Frees any allocated resources and stops the DAO card\n");
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
 	fprintf(stderr,
 		" card_app_update [absolute path of file]: Update the given file on to the card\n");
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
 	fprintf(stderr, " quit: Exit the application\n");
+}
+
+static int
+split_path_filename(const char *input, char **out_path, char **out_file)
+{
+	char *last_slash = strrchr(input, '/');
+	*out_path = NULL;
+	*out_file = NULL;
+
+	if (last_slash != NULL) {
+		size_t path_len = last_slash - input;
+
+		*out_path = (char *)malloc(path_len + 1);
+		if (!*out_path)
+			return -ENOMEM;
+		if (path_len > 0) {
+			strncpy(*out_path, input, path_len);
+			(*out_path)[path_len] = '\0';
+		} else {
+			(*out_path)[0] = '\0';
+		}
+		*out_file = strdup(last_slash + 1);
+		if (!*out_file) {
+			free(*out_path);
+			*out_path = NULL;
+			return -ENOMEM;
+		}
+	} else {
+		char cwd[1024];
+
+		if (getcwd(cwd, sizeof(cwd)) == NULL)
+			return -EFAULT;
+		*out_path = strdup(cwd);
+		if (!*out_path)
+			return -ENOMEM;
+		*out_file = strdup(input);
+		if (!*out_file) {
+			free(*out_path);
+			*out_path = NULL;
+			return -ENOMEM;
+		}
+	}
+	return 0;
 }
 
 static void
@@ -243,8 +287,8 @@ editline_fini:
 static void
 dao_card_mgr_usage_print(void)
 {
-	fprintf(stderr,
-		"Usage: dao_card_mgr [--help] [--client] [--server --ip <IP address>] [--server_cli]\n");
+	fprintf(stderr, "Usage: dao_card_mgr [--help] [--client] [--server --ip <IP address>]"
+			" [--server_cli]\n");
 	fprintf(stderr, "-h, --help Display the usage\n");
 	fprintf(stderr, "-c, --client Run the manager as client mode\n");
 	fprintf(stderr, "-s, --server Run the manager as server mode\n");
@@ -255,7 +299,6 @@ static int
 dao_card_mgr_app_update(cli_args *cmd)
 {
 	struct dao_card_app_update_req update_req;
-	char *last_slash;
 	int rc = 0;
 
 	if (cmd->argc < 2) {
@@ -266,45 +309,90 @@ dao_card_mgr_app_update(cli_args *cmd)
 	update_req.filename = NULL;
 	update_req.filepath = NULL;
 
-	last_slash = strrchr(cmd->argv[1], '/');
-	if (last_slash != NULL) {
-		update_req.filepath =
-			(char *)malloc((last_slash - cmd->argv[1] + 1) * sizeof(char));
-		if (update_req.filepath == NULL)
-			return -ENOMEM;
-
-		if (last_slash - cmd->argv[1] > 0) {
-			strncpy(update_req.filepath, cmd->argv[1], last_slash - cmd->argv[1]);
-			/* Null-terminate the file path */
-			update_req.filepath[last_slash - cmd->argv[1]] = '\0';
-		} else {
-			/* Empty Path */
-			update_req.filepath[0] = '\0';
-		}
-
-		update_req.filename = strdup(last_slash + 1);
-		if (update_req.filename == NULL)
-			goto free_file_path;
-	} else {
-		char cwd[1024];
-
-		if (getcwd(cwd, sizeof(cwd)) == NULL)
-			return -EFAULT;
-		update_req.filepath = strdup(cwd);
-		if (update_req.filepath == NULL)
-			return -ENOMEM;
-
-		update_req.filename = strdup(cmd->argv[1]);
-		if (update_req.filename == NULL)
-			goto free_file_path;
+	rc = split_path_filename(cmd->argv[1], &update_req.filepath, &update_req.filename);
+	if (rc != 0) {
+		syslog(LOG_ERR, "Failed to split path/filename for app update: %s", strerror(-rc));
+		return rc;
 	}
 
 	rc = dao_card_app_update(card_ctx, &update_req);
 
 	free(update_req.filename);
-free_file_path:
 	free(update_req.filepath);
 	return rc;
+}
+
+static int
+dao_card_mgr_update_init_args(cli_args *cmd, const char **new_argv, unsigned long *nb_desc)
+{
+	const char *app_name = "dao-crypto-agent";
+	int has_c = 0, has_l = 0;
+	int insert_index = -1;
+	int eal_end, j = 1;
+	int i;
+
+	/* Prepend the application name */
+	new_argv[0] = app_name;
+
+	eal_end = cmd->argc;
+	for (i = 1; i < cmd->argc; i++) {
+		if (strcmp(cmd->argv[i], "--") == 0) {
+			eal_end = i;
+			break;
+		}
+	}
+
+	/* Copy the original argv elements skipping the first argument and "nb_desc" */
+	for (i = 1; i < cmd->argc; i++) {
+		if (i < eal_end) {
+			if (strcmp(cmd->argv[i], "--nb-desc") == 0) {
+				if (i + 1 < cmd->argc) {
+					char *endptr;
+
+					errno = 0;
+					unsigned long val = strtoul(cmd->argv[i + 1], &endptr, 0);
+
+					if (errno == ERANGE || *endptr != '\0')
+						return -EINVAL;
+
+					*nb_desc = val;
+					i++;
+				}
+				continue;
+			}
+
+			if (strcmp(cmd->argv[i], "-c") == 0)
+				has_c = 1;
+
+			if (strcmp(cmd->argv[i], "-l") == 0)
+				has_l = 1;
+		}
+
+		if (strcmp(cmd->argv[i], "--") == 0 && insert_index == -1)
+			insert_index = j;
+
+		new_argv[j++] = cmd->argv[i];
+	}
+
+	/* Append "-c 0xffffff" if neither -c nor -l is present */
+	if (!has_c && !has_l) {
+		/* Append to the end if there are no application arguments */
+		if (insert_index == -1) {
+			new_argv[j++] = "-c";
+			new_argv[j++] = "0xffffff";
+		} else {
+			/* Shift elements to the right to make space for "-c 0xffffff" */
+			for (int i = j - 1; i >= insert_index; i--)
+				new_argv[i + 2] = new_argv[i];
+
+			new_argv[insert_index] = "-c";
+			new_argv[insert_index + 1] = "0xffffff";
+			j += 2;
+		}
+	}
+
+	new_argv[j] = NULL;
+	return j;
 }
 
 static void
@@ -316,22 +404,23 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	int rc = 0;
 
 	if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INIT) == 0) {
-		int skip_args = 1;
+		const char **new_argv = malloc((cmd->argc + 2) * sizeof(char *));
+		unsigned long nb_desc = 0;
 
-		card_cfg.crypto_nb_desc = DAO_CARD_NB_DESC;
-
-		if ((cmd->argc > 1) && (strcmp(cmd->argv[1], "--nb_desc") == 0)) {
-			card_cfg.crypto_nb_desc = atoi(cmd->argv[2]);
-			skip_args += 2;
+		if (new_argv == NULL) {
+			rc = -ENOMEM;
+			goto send_resp;
 		}
 
-		card_cfg.argc = cmd->argc - skip_args;
-		if (card_cfg.argc)
-			card_cfg.argv = cmd->argv + skip_args;
-		else
-			card_cfg.argv = NULL;
-
-		rc = dao_card_init(card_ctx, &card_cfg);
+		card_cfg.crypto_nb_desc = DAO_CARD_CFG_NB_DESC;
+		rc = dao_card_mgr_update_init_args(cmd, new_argv, &nb_desc);
+		if (rc > 0) {
+			card_cfg.crypto_nb_desc = nb_desc;
+			card_cfg.argc = rc;
+			card_cfg.argv = (char **)new_argv;
+			rc = dao_card_init(card_ctx, &card_cfg);
+		}
+		free(new_argv);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_FINI) == 0) {
 		dao_card_fini(card_ctx);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0) {
@@ -344,6 +433,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = -ENOTSUP;
 	}
 
+send_resp:
 	send(cli_fd, &rc, sizeof(rc), 0);
 
 	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0)
@@ -368,7 +458,19 @@ dao_card_mgr_parse_args(const char *line, cli_args *cmd_args)
 
 	token = strtok(line_copy, " \t\n");
 	while (token != NULL) {
-		cmd_args->argv = realloc(cmd_args->argv, sizeof(char *) * (cmd_args->argc + 1));
+		char **new_argv = realloc(cmd_args->argv, sizeof(char *) * (cmd_args->argc + 1));
+
+		if (!new_argv) {
+			syslog(LOG_ERR, "realloc failed in parse_args");
+			free(cmd_args->argv);
+			free(cmd_args->line);
+			cmd_args->argv = NULL;
+			cmd_args->line = NULL;
+			cmd_args->argc = 0;
+			return;
+		}
+		cmd_args->argv = new_argv;
+
 		cmd_args->argv[cmd_args->argc++] = token;
 		token = strtok(NULL, " \t\n");
 	}
