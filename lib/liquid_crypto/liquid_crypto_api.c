@@ -1642,7 +1642,7 @@ dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
 	return copied;
 }
 
-static inline uint16_t
+static inline void
 dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_sym_op *op,
 		   uint8_t *dptr, uint32_t iv_offset)
 {
@@ -1667,13 +1667,7 @@ dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_s
 			memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
 			memcpy(dptr + iv_offset + alg_iv_len, ctr_blk, 4);
 		}
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		else
-			return -EINVAL;
-#endif
 	}
-
-	return 0;
 }
 
 static inline uint16_t
@@ -1690,7 +1684,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
-	int ret;
 
 	if (op_type == LC_SYM_OP_CIPHER_ONLY) {
 		aad_len = 0;
@@ -1825,15 +1818,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		dptr += off_ctrl_len;
 	}
 
-	ret = dao_lc_sym_copy_iv(sess_meta, op, dptr, iv_offset);
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (ret != 0) {
-		dao_err("Unsupported cipher type for IV adjustment.");
-		rte_errno = -ret;
-		return 0;
-	}
-#endif
-	RTE_SET_USED(ret);
+	dao_lc_sym_copy_iv(sess_meta, op, dptr, iv_offset);
 
 	if (op_type == LC_SYM_OP_AEAD) {
 		/* Copy AAD */

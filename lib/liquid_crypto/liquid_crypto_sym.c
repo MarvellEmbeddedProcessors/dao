@@ -405,5 +405,16 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		return -EINVAL;
 	}
 
+	if (sess_meta->alg_iv_len != sess_meta->pkt_iv_len) {
+		switch (sess_meta->cipher_type) {
+		case DAO_LC_FC_ENC_CIPHER_AES_GCM:
+		case DAO_LC_FC_ENC_CIPHER_AES_CCM:
+			break;
+		default:
+			dao_err("Invalid IV length for cipher type: %d", sess_meta->cipher_type);
+			return -EINVAL;
+		}
+	}
+
 	return 0;
 }
