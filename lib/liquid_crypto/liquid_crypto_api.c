@@ -243,10 +243,10 @@ int
 dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_conf *conf)
 {
 	struct dao_eth_trs_queue_config trs_queue_conf;
+	uint16_t nb_desc, max_seg_size, desc_watermark;
 	struct dao_lc_eth_qconf card_qp_conf;
 	struct dao_eth_trs_info trs_info;
 	char name[RTE_MEMZONE_NAMESIZE];
-	uint16_t nb_desc, max_seg_size;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct rte_mempool *mp;
@@ -385,7 +385,9 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto req_queue_free;
 	}
 
-	bm_mem_size = rte_bitmap_get_memory_footprint(nb_desc);
+	/* Configure inflight request bitmap to prevent exceeding SDP watermark threshold */
+	desc_watermark = nb_desc / 8;
+	bm_mem_size = rte_bitmap_get_memory_footprint(nb_desc - desc_watermark);
 	if (bm_mem_size == 0) {
 		dao_err("Could not get memory footprint for bitmap.");
 		rc = -EINVAL;
@@ -400,7 +402,8 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto req_queue_free;
 	}
 
-	qp->req_bm = rte_bitmap_init_with_all_set(nb_desc, qp->req_bm_mem, bm_mem_size);
+	qp->req_bm =
+		rte_bitmap_init_with_all_set(nb_desc - desc_watermark, qp->req_bm_mem, bm_mem_size);
 	if (qp->req_bm == NULL) {
 		dao_err("Could not initialize bitmap.");
 		rc = -EINVAL;
@@ -416,8 +419,8 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 			goto bitmap_free;
 		}
 
-		qp->cmd_req_bm =
-			rte_bitmap_init_with_all_set(nb_desc, qp->cmd_req_bm_mem, bm_mem_size);
+		qp->cmd_req_bm = rte_bitmap_init_with_all_set(nb_desc - desc_watermark,
+							      qp->cmd_req_bm_mem, bm_mem_size);
 		if (qp->cmd_req_bm == NULL) {
 			dao_err("Could not initialize command queue bitmap.");
 			rc = -EINVAL;
