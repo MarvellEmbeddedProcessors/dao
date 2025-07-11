@@ -62,7 +62,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 	uint16_t buf_len = q->buf_len;
 	uint16_t q_sz = q->q_sz;
 	uint16_t used = 0, off;
-	void **extbuf_arr;
+	void **mbuf_arr;
 	uint32_t nb_bufs;
 	int last_idx = 0;
 
@@ -92,7 +92,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 
 	off = DESC_OFF(sd_mbuf_off);
 	rte_prefetch0(DESC_PTR_OFF(desc_base, off, 0));
-	extbuf_arr = q->extbuf_arr;
+	mbuf_arr = q->mbuf_arr;
 
 	/* Flush to get minimum space */
 	if (!dao_dma_flush(dev2mem, 1))
@@ -100,7 +100,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 
 	/* Start DMA of buf data */
 	while (i < nb_bufs) {
-		buf = (struct dao_virtio_blk_hdr *)extbuf_arr[off];
+		buf = (struct dao_virtio_blk_hdr *)mbuf_arr[off];
 
 		d_flags = *DESC_PTR_OFF(desc_base, off, 8);
 		slen = d_flags & (RTE_BIT64(32) - 1);
@@ -148,7 +148,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		buf0->tot_bufs = 1;
 
 		while (unlikely(pend)) {
-			blkdev_user_cbs.extbuf_get(q->blkdev_id, (void **)&n_buf, 1);
+			rte_mempool_get(q->mp, (void **)&n_buf);
 			dlen = pend;
 			if (unlikely(dlen > buf_len))
 				dlen = buf_len;
@@ -201,7 +201,7 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, u
 
 	RTE_SET_USED(flags);
 
-	buf_arr = q->extbuf_arr;
+	buf_arr = q->mbuf_arr;
 
 	while ((i < total_desc) && (num_io_reqs < nb_bufs)) {
 		rte_prefetch0((uint8_t *)buf_arr[pend_compl_off + 1]);

@@ -21,7 +21,7 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 	uint64_t *sd_desc_base = q->sd_desc_base;
 	uint16_t off = DESC_OFF(q->last_off);
 	uint32_t buf_len, cur_len, n_segs;
-	void **extbuf_arr = q->extbuf_arr;
+	void **mbuf_arr = q->mbuf_arr;
 	struct dao_virtio_blk_hdr *hdr;
 	uint16_t used = 0, i = 0;
 	uint16_t q_sz = q->q_sz;
@@ -62,7 +62,7 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 			*DESC_PTR_OFF(sd_desc_base, off, 8) = (avail << 55 | avail << 63 | d_flags
 							      | (cur_len & (RTE_BIT64(32) - 1)));
 
-			extbuf_arr[off] = (void *)((uintptr_t)hdr);
+			mbuf_arr[off] = (void *)((uintptr_t)hdr);
 
 			/* Prepare DMA src/dst of mbuf transfer */
 			if (is_wr) {
@@ -74,7 +74,7 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 				 * to DPI HW, so do explicit SW free.
 				 */
 				if (likely(q->auto_free))
-					rte_mempool_put(q->mp, extbuf_arr[off]);
+					rte_mempool_put(q->mp, mbuf_arr[off]);
 			}
 
 			off = (off + 1) & (q_sz - 1);
