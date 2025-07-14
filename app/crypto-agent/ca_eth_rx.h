@@ -218,7 +218,7 @@ ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
 #ifdef CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT
 		process_pkts_reflect(mb, &nb_rx, port_id, 0);
 		if (nb_rx == 0)
-			continue;
+			return 0;
 #endif /* CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT */
 		process_pkts(mb, nb_rx, pq, cpt_qptr);
 	}
