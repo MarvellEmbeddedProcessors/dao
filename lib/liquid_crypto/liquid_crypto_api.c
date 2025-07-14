@@ -1756,14 +1756,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		rte_errno = ENOMEM;
 		return 0;
 	}
-
-	if (op->cipher_len & 0xf) {
-		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
-			dao_err("Invalid cipher length. cipher_len = %u", op->cipher_len);
-			rte_errno = EINVAL;
-			return 0;
-		}
-	}
 #endif
 	/* Input length starting from memory pointed by DPTR */
 	dlen += off_ctrl_len + pkt_iv_len;

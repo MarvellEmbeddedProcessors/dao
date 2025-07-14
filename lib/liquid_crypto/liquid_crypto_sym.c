@@ -322,8 +322,86 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 }
 
 static int
-lc_sym_op_aead_validate(const struct dao_lc_sym_op *op)
+lc_sym_op_cipher_only_validate(const struct dao_lc_sym_op *op,
+			       const struct dao_lc_sym_sess_meta *sess_meta)
 {
+	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
+		dao_err("Invalid cipher IV pointer for cipher only operation.");
+		return -EINVAL;
+	}
+
+	if (op->cipher_len == 0) {
+		dao_err("Invalid cipher length for cipher only operation.");
+		return -EINVAL;
+	}
+
+	if (op->cipher_offset + op->cipher_len > op->in_buffer->total_len) {
+		dao_err("Cipher offset and length exceed input buffer total length.");
+		return -EINVAL;
+	}
+
+	if (op->cipher_len & 0xf) {
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
+			dao_err("Invalid cipher length. cipher_len = %u", op->cipher_len);
+			return -EINVAL;
+		}
+	}
+
+	if (op->out_buffer != NULL) {
+		if (op->out_buffer->total_len < op->cipher_len + op->cipher_offset) {
+			dao_err("Output buffer total length is less than cipher length.");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+static int
+lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
+			     const struct dao_lc_sym_sess_meta *sess_meta)
+{
+	if (op->auth_offset + op->auth_len > op->in_buffer->total_len) {
+		dao_err("Auth offset and length exceed input buffer total length.");
+		return -EINVAL;
+	}
+
+	if (op->auth_len == 0) {
+		dao_err("Invalid auth length for auth only operation.");
+		return -EINVAL;
+	}
+
+	if (op->digest == NULL) {
+		dao_err("Invalid digest pointer for auth only operation.");
+		return -EINVAL;
+	}
+
+	RTE_SET_USED(sess_meta);
+
+	return 0;
+}
+
+static int
+lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
+			const struct dao_lc_sym_sess_meta *sess_meta)
+{
+	uint16_t digest_len_in_pkt = 0;
+
+	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
+		dao_err("Invalid cipher IV pointer for AEAD operation.");
+		return -EINVAL;
+	}
+
+	if (op->cipher_len == 0) {
+		dao_err("Invalid cipher length for AEAD operation.");
+		return -EINVAL;
+	}
+
+	if (op->cipher_offset + op->cipher_len > op->in_buffer->total_len) {
+		dao_err("Cipher offset and length exceed input buffer total length.");
+		return -EINVAL;
+	}
+
 	if (op->aad == NULL && op->aad_len != 0) {
 		dao_err("Invalid AAD.");
 		return -EINVAL;
@@ -332,6 +410,17 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op)
 	if (op->aad_len > 1024) {
 		dao_err("AAD too long. aad_len = %u", op->aad_len);
 		return -ENOTSUP;
+	}
+
+	if ((sess_meta->digest_len != 0) && (op->digest == NULL))
+		digest_len_in_pkt = sess_meta->digest_len;
+
+	if (op->out_buffer != NULL) {
+		if (op->out_buffer->total_len <
+		    op->cipher_offset + op->cipher_len + digest_len_in_pkt) {
+			dao_err("Output buffer total length is less than cipher length.");
+			return -EINVAL;
+		}
 	}
 
 	return 0;
@@ -413,11 +502,19 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 
 	switch (op_type) {
 	case LC_SYM_OP_CIPHER_ONLY:
+		ret = lc_sym_op_cipher_only_validate(op, sess_meta);
+		if (ret)
+			return ret;
+		break;
 	case LC_SYM_OP_AUTH_ONLY:
+		ret = lc_sym_op_auth_only_validate(op, sess_meta);
+		if (ret)
+			return ret;
+		break;
 	case LC_SYM_OP_CIPHER_AUTH:
 		break;
 	case LC_SYM_OP_AEAD:
-		ret = lc_sym_op_aead_validate(op);
+		ret = lc_sym_op_aead_validate(op, sess_meta);
 		if (ret)
 			return ret;
 		break;
