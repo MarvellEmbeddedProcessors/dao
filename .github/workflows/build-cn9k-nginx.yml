@@ -127,6 +127,17 @@ jobs:
             ./configure --with-pcre=${PCRE_PATH} --with-http_ssl_module --without-http_gzip_module --with-cc-opt="-DNGX_SECURE_MEM -I/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/include -Wno-error=deprecated-declarations -Wno-error=implicit-function-declaration" --with-threads  --with-file-aio    --with-ld-opt="-Wl,-rpath=/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib -L/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib -lssl -lcrypto" --add-dynamic-module=modules/nginx_cpt_module/
             until make; do make clean;echo "Building NGINX failed, retrying"; done
             DESTDIR=${PWD}/install/ make install
+            mkdir -p "${PWD}/certs/"
+            openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+                -keyout ${PWD}/certs/server.key.pem -out ${PWD}/certs/server.crt.pem \
+                -subj "/CN=marvell.com"
+            openssl req -x509 -newkey rsa:2048 -days 365 -nodes \
+                -keyout ${PWD}/certs/rootca.key.pem -out ${PWD}/certs/rootca.crt.pem \
+                -subj "/CN=MarvellRootCA"
+            mkdir -p "${PWD}/install/etc/nginx/certs/"
+            cp "${PWD}/certs/server.crt.pem" "${PWD}/install/etc/nginx/certs/"
+            cp "${PWD}/certs/server.key.pem" "${PWD}/install/etc/nginx/certs/"
+            cp "${PWD}/certs/rootca.crt.pem" "${PWD}/install/etc/nginx/certs/"
             mkdir -p "${PWD}/install/DEBIAN"
             mkdir -p "${PWD}/install/debian"
             cd "${PWD}/install"
