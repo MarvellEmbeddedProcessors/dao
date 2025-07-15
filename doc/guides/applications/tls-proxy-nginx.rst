@@ -113,6 +113,23 @@ Enabling CPT device
     ~# echo 1 > /sys/bus/pci/devices/0002\:20\:00.0/sriov_numvfs
     ~# dpdk-devbind.py -b vfio-pci 0002:20:00.1
 
+Run the below script (once after every reboot) to create CPT VFs and bind to vfio-pci:
+--------------------------------------------------------------------------------------
+
+For CN9K board:
+^^^^^^^^^^^^^^^
+
+.. code-block:: console
+
+    sh /usr/share/openssl-engine-dpdk/openssl-engine-dpdk-otx2.sh /bin/dpdk-devbind.py
+
+For CN10K board:
+^^^^^^^^^^^^^^^^
+
+.. code-block:: console
+
+    sh /usr/share/openssl-engine-dpdk/openssl-engine-dpdk-cn10k.sh /bin/dpdk-devbind.py
+
 NGINX configuration
 -------------------
 
