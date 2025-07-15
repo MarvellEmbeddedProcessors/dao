@@ -264,6 +264,24 @@ rlen_set:
 	mb->data_len = pkt_len;
 }
 
+static inline void
+ca_cpt_post_process_pqc(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
+{
+	struct __dao_lc_resp_pqc *resp;
+	struct rte_mbuf *mb;
+	uint16_t pkt_len;
+
+	mb = infl_req->mbuf;
+	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_pqc *);
+
+	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+	/* Set the length of the response buffer */
+	pkt_len = sizeof(struct __dao_lc_resp_pqc) + res->pqc.data_out_len;
+	pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
+	mb->pkt_len = pkt_len;
+	mb->data_len = pkt_len;
+}
+
 /* Common post-processing function based on operation type */
 static inline void
 ca_cpt_post_process(struct cpt_inflight_req *req, union dao_cpt_res_s *res)
@@ -287,6 +305,9 @@ ca_cpt_post_process(struct cpt_inflight_req *req, union dao_cpt_res_s *res)
 		break;
 	case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
 		ca_cpt_post_process_oaep_dec(req, res);
+		break;
+	case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
+		ca_cpt_post_process_pqc(req, res);
 		break;
 	default:
 		break;

@@ -9,3 +9,4 @@ endif
 subdir('grpc')
 subdir('libnl')
 subdir('libpcap')
+subdir('liboqs')

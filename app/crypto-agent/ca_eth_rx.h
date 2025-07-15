@@ -16,6 +16,9 @@
 
 #include "ca_asym.h"
 #include "ca_crypto_queue.h"
+#ifdef DAO_LIBOQS_DEP
+#include "ca_pqc.h"
+#endif
 #include "ca_sess_mgr.h"
 #include "cpt_debug.h"
 #include "crypto_agent.h"
@@ -153,6 +156,20 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			infl_req->stage = 0;
 			infl_req->max_stage = 2;
 			infl_req->ooo_done = 0;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
+			infl_req->res.pqc.compcode = DAO_PQC_COMP_NOT_DONE;
+#ifdef DAO_LIBOQS_DEP
+			rc = ca_pqc_process(rx_pkts[pkt_id], &infl_req->res);
+			if (rc != 0)
+				CA_INFO("Could not process PQC operation");
+			else
+				infl_req->res.pqc.compcode = DAO_PQC_COMP_GOOD;
+#else
+			CA_INFO("PQC support not available - liboqs not found");
+			infl_req->res.pqc.compcode = DAO_PQC_COMP_LIB_ERROR_LIBOQS;
+#endif
+			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
 			rc = ca_sess_handle_create(rx_pkts[pkt_id]);

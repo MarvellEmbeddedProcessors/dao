@@ -30,6 +30,8 @@ DAO_EXT_DEPS_LIBPCAP = []
 # OpenSSL
 DAO_EXT_DEPS_OPENSSL = []
 
+# LIBOQS
+DAO_EXT_DEPS_LIBOQS = []
 # DAO static libraries
 DAO_STATIC_LIBS = []
 # Enabled/disabled static dao applicaitons/libraries/tests
