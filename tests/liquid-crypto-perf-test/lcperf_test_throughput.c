@@ -30,25 +30,6 @@ struct lcperf_throughput_ctx {
 	struct rte_mempool *buf_pool;
 };
 
-static void
-lcperf_throughput_test_free(struct lcperf_throughput_ctx *ctx)
-{
-	if (ctx == NULL)
-		return;
-
-	if (ctx->sess_id != 0) {
-		if (ctx->op_fns != NULL && ctx->op_fns->sess_destroy != NULL)
-			ctx->op_fns->sess_destroy(ctx->dev_id, ctx->sess_id);
-	}
-
-	if (ctx->buf_pool != NULL) {
-		rte_mempool_free(ctx->buf_pool);
-		ctx->buf_pool = NULL;
-	}
-
-	rte_free(ctx);
-}
-
 void *
 lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 				   const struct lcperf_options *options,
@@ -74,7 +55,7 @@ lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 	tdata = lcperf_test_vector_get_dummy(options);
 	if (tdata == NULL) {
 		RTE_LOG(ERR, USER1, "Failed to get test data\n");
-		goto test_free;
+		goto ctx_free;
 	}
 	ctx->tdata = tdata;
 
@@ -93,20 +74,30 @@ lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 		RTE_LOG(INFO, USER1, "Buffer pool %s created for device %u, queue %u\n", pool_name,
 			dev_id, qp_id);
 
+		if (op_fns->sess_create == NULL) {
+			RTE_LOG(ERR, USER1, "Session creation function is NULL\n");
+			goto mempool_free;
+		}
 		ctx->sess_id = op_fns->sess_create(dev_id, &tdata->sym_params);
 		if (ctx->sess_id == DAO_LC_SESS_ID_INVALID) {
 			RTE_LOG(ERR, USER1, "Could not create session\n");
-			goto test_vector_free;
+			goto mempool_free;
 		}
 	}
 
 	return ctx;
 
+mempool_free:
+	if (ctx->buf_pool != NULL) {
+		rte_mempool_free(ctx->buf_pool);
+		ctx->buf_pool = NULL;
+	}
 test_vector_free:
 	lcperf_test_vector_free(ctx->tdata);
+	ctx->tdata = NULL;
 
-test_free:
-	lcperf_throughput_test_free(ctx);
+ctx_free:
+	rte_free(ctx);
 	return NULL;
 }
 
@@ -285,6 +276,23 @@ lcperf_throughput_test_destructor(void *arg)
 	if (ctx == NULL)
 		return;
 
-	lcperf_test_vector_free(ctx->tdata);
-	lcperf_throughput_test_free(ctx);
+	if (ctx->options->op_type == LCPERF_OP_SYM) {
+		if (ctx->sess_id != DAO_LC_SESS_ID_INVALID && ctx->op_fns != NULL &&
+		    ctx->op_fns->sess_destroy != NULL) {
+			ctx->op_fns->sess_destroy(ctx->dev_id, ctx->sess_id);
+			ctx->sess_id = DAO_LC_SESS_ID_INVALID;
+		}
+
+		if (ctx->buf_pool != NULL) {
+			rte_mempool_free(ctx->buf_pool);
+			ctx->buf_pool = NULL;
+		}
+	}
+
+	if (ctx->tdata != NULL) {
+		lcperf_test_vector_free(ctx->tdata);
+		ctx->tdata = NULL;
+	}
+
+	rte_free(ctx);
 }
