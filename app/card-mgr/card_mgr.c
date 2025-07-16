@@ -17,6 +17,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -31,12 +32,13 @@
 #define BUFFER_SIZE              1024
 #define CA_MAX_WORKER_CORES      23
 
-#define DAO_CARD_MGR_CARD_INIT  "card_init"
-#define DAO_CARD_MGR_CARD_FINI  "card_fini"
-#define DAO_CARD_MGR_CARD_INFO  "card_info"
-#define DAO_CARD_MGR_APP_UPDATE "card_app_update"
-#define DAO_CARD_MGR_CARD_STATS "card_stats"
-#define DAO_CARD_MGR_FW_UPDATE  "card_fw_update"
+#define DAO_CARD_MGR_CARD_INIT   "card_init"
+#define DAO_CARD_MGR_CARD_FINI   "card_fini"
+#define DAO_CARD_MGR_CARD_INFO   "card_info"
+#define DAO_CARD_MGR_APP_UPDATE  "card_app_update"
+#define DAO_CARD_MGR_CARD_STATS  "card_stats"
+#define DAO_CARD_MGR_FW_UPDATE   "card_fw_update"
+#define DAO_CARD_MGR_BOOT_SOURCE "card_boot_source"
 
 typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER,
@@ -86,6 +88,8 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
 	fprintf(stderr,
 		" card_fw_update: [absolute path of file]: Update the image on to the DAO card.\n");
+	fprintf(stderr, " card_boot_source <main|failsafe> <path-to-mrvl-oct-boot>: Boot from main"
+			"(mmc) or failsafe (spi) using the specified binary\n");
 	fprintf(stderr, " quit: Exit the application\n");
 }
 
@@ -363,6 +367,66 @@ dao_card_mgr_fw_update(cli_args *cmd)
 }
 
 static int
+dao_card_mgr_boot(cli_args *cmd)
+{
+	int rc = 0;
+
+	if (cmd->argc < 3) {
+		syslog(LOG_ERR, "card_boot command requires arguments: <main|failsafe>"
+				" <path-to-mrvl-oct-boot>");
+		return -EINVAL;
+	}
+
+	const char *boot_path = cmd->argv[2];
+	const char *arg = cmd->argv[1];
+	const char *boot_arg = NULL;
+
+	if (strcmp(arg, "main") == 0) {
+		boot_arg = "mmc";
+	} else if (strcmp(arg, "failsafe") == 0) {
+		boot_arg = "spi";
+	} else {
+		syslog(LOG_ERR, "Invalid argument to card_boot: %s", arg);
+		return -EINVAL;
+	}
+
+	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
+		syslog(LOG_ERR, "Invalid characters in boot binary path");
+		return -EINVAL;
+	}
+
+	if (access(boot_path, X_OK) != 0) {
+		syslog(LOG_ERR, "Boot binary not found or not executable: %s", boot_path);
+		return -ENOENT;
+	}
+
+	pid_t pid = fork();
+
+	if (pid == 0) {
+		execlp(boot_path, boot_path, boot_arg, (char *)NULL);
+		_exit(127);
+	} else if (pid > 0) {
+		int status = 0;
+
+		if (waitpid(pid, &status, 0) == -1) {
+			rc = -errno;
+		} else if (!WIFEXITED(status)) {
+			syslog(LOG_ERR, "Boot process terminated abnormally");
+			rc = -EPROTO;
+		} else if (WEXITSTATUS(status) != 0) {
+			syslog(LOG_ERR, "Boot process failed with exit code: %d",
+			       WEXITSTATUS(status));
+			rc = -EREMOTEIO;
+		} else {
+			rc = 0;
+		}
+	} else {
+		rc = -EFAULT;
+	}
+	return rc;
+}
+
+static int
 dao_card_mgr_update_init_args(cli_args *cmd, const char **new_argv, unsigned long *nb_desc)
 {
 	const char *app_name = "dao-crypto-agent";
@@ -471,6 +535,8 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = dao_card_stats_get(card_ctx, &card_stats);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
 		rc = dao_card_mgr_fw_update(cmd);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_BOOT_SOURCE) == 0) {
+		rc = dao_card_mgr_boot(cmd);
 	} else {
 		rc = -ENOTSUP;
 	}
