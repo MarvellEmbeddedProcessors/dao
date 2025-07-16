@@ -10,6 +10,8 @@
 #include <rte_common.h>
 #include <rte_mempool.h>
 
+#include <liquid_crypto_sym.h>
+
 #define LIQUID_CRYPTO_BUF_SZ_MIN 64ull
 #define LIQUID_CRYPTO_BUF_SZ_MAX 32768ull
 
@@ -77,8 +79,22 @@ struct liquid_crypto_inflight_req {
 	uint64_t op_cookie;
 	/** Output buffer given for a crypto operation. */
 	void *data_out;
+
 	/** Digest location */
 	void *digest;
+
+	/** Digest length */
+	uint16_t digest_len;
+
+	/** Cipher Offset */
+	uint32_t cipher_offset;
+
+	/** Cipher length */
+	uint16_t cipher_len;
+
+	/* Operation type */
+	enum lc_sym_op_type op_type;
+
 	union {
 		/** Pointer to metadata for the symmetric session creation request */
 		struct dao_lc_sym_sess_meta *sess_meta;

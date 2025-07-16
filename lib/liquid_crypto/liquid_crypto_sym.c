@@ -439,7 +439,10 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	RTE_SET_USED(sess_meta);
+	if (sess_meta->digest_len == 0 || sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
+		dao_err("Invalid digest length. digest_len: %d.", sess_meta->digest_len);
+		return -EINVAL;
+	}
 
 	return 0;
 }
@@ -448,7 +451,7 @@ static int
 lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 			const struct dao_lc_sym_sess_meta *sess_meta)
 {
-	uint16_t digest_len_in_pkt = 0;
+	uint16_t digest_len_in_pkt = 0, total_len_reqd = 0;
 
 	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
 		dao_err("Invalid cipher IV pointer for AEAD operation.");
@@ -478,10 +481,16 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 	if ((sess_meta->digest_len != 0) && (op->digest == NULL))
 		digest_len_in_pkt = sess_meta->digest_len;
 
+	total_len_reqd = op->cipher_offset + op->cipher_len + digest_len_in_pkt;
+
 	if (op->out_buffer != NULL) {
-		if (op->out_buffer->total_len <
-		    op->cipher_offset + op->cipher_len + digest_len_in_pkt) {
+		if (op->out_buffer->total_len < total_len_reqd) {
 			dao_err("Output buffer total length is less than cipher length.");
+			return -EINVAL;
+		}
+	} else {
+		if (op->in_buffer->total_len < total_len_reqd) {
+			dao_err("Input buffer total length is less than cipher length.");
 			return -EINVAL;
 		}
 	}

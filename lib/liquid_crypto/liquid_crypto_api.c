@@ -1594,43 +1594,24 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
 	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (req->sess_meta == NULL) {
-		dao_err("Invalid session metadata pointer.");
-		rte_errno = EINVAL;
-		return;
-	}
-#endif
-
 	/* Auth only post process involves simply copying the digest data to digest buffer. */
 	if ((req->sess_meta->op_type == LC_SYM_OP_AUTH_ONLY) ||
 	    (req->sess_meta->op_type == LC_SYM_OP_HMAC_AUTH_ONLY)) {
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (req->digest == NULL) {
-			dao_err("Invalid digest pointer.");
-			rte_errno = EINVAL;
-			return;
-		}
-
-		if (req->sess_meta->digest_len == 0 ||
-		    req->sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
-			dao_err("Invalid digest length. digest_len: %d.",
-				req->sess_meta->digest_len);
-			rte_errno = EINVAL;
-			return;
-		}
-#endif
-
-		memcpy(req->digest, resp->rptr, req->sess_meta->digest_len);
+		memcpy(req->digest, resp->rptr, req->digest_len);
 	} else {
-		result_offset = req->sess_meta->pkt_iv_len;
+		result_offset = req->cipher_offset;
 
-		/* OFFSET_CTRL_WORD len needs to be adjusted here */
-		result_len =
-			rte_pktmbuf_pkt_len(mbuf) -
-			(ROC_SE_OFF_CTRL_LEN + sizeof(struct __dao_lc_resp_sym) + result_offset);
-
-		dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out, result_len);
+		if (req->digest == NULL) {
+			result_len = req->cipher_len + req->digest_len;
+			dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out,
+						 result_len);
+		} else {
+			result_len = req->cipher_len;
+			dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out,
+						 result_len);
+			memcpy(req->digest, resp->rptr + result_offset + result_len,
+			       req->digest_len);
+		}
 	}
 }
 
@@ -1714,15 +1695,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		digest_len = sess_meta->digest_len;
 		/* No offset control word for auth only */
 		off_ctrl_len = 0;
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (op->digest == NULL) {
-			dao_err("Invalid digest pointer for auth only operation.");
-			rte_errno = EINVAL;
-			return 0;
-		}
-#endif
 		qp->req_queue[req_idx].digest = op->digest;
+		qp->req_queue[req_idx].digest_len = digest_len;
 	} else if (op_type == LC_SYM_OP_AEAD) {
 		aad_len = op->aad_len;
 		cipher_offset = op->cipher_offset;
@@ -1732,6 +1706,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = sess_meta->digest_len;
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+		qp->req_queue[req_idx].digest = op->digest;
+		qp->req_queue[req_idx].digest_len = digest_len;
 	} else if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) {
 		aad_len = 0;
 		cipher_offset = 0;
@@ -1745,11 +1721,14 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		/* No offset control word for auth only */
 		off_ctrl_len = 0;
 		qp->req_queue[req_idx].digest = op->digest;
+		qp->req_queue[req_idx].digest_len = digest_len;
 	} else {
 		dao_err("Invalid operation type: %d", op_type);
 		rte_errno = EINVAL;
 		return 0;
 	}
+
+	qp->req_queue[req_idx].op_type = op_type;
 
 	if (op->out_buffer != NULL)
 		qp->req_queue[req_idx].data_out = op->out_buffer;
@@ -1820,6 +1799,9 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 
 	cipher_offset = iv_offset + pkt_iv_len + aad_len + op->cipher_offset;
 	auth_offset = iv_offset + pkt_iv_len + op->auth_offset;
+
+	qp->req_queue[req_idx].cipher_offset = cipher_offset;
+	qp->req_queue[req_idx].cipher_len = cipher_len;
 
 	if (off_ctrl_len != 0) {
 		offset_vaddr = (uint64_t *)dptr;
