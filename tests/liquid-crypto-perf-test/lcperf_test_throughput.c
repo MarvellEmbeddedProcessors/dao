@@ -102,12 +102,60 @@ ctx_free:
 }
 
 static int
+lcperf_validate_single_op(struct lcperf_throughput_ctx *ctx, struct dao_lc_res *res,
+			  struct lcperf_test_data *tdata)
+{
+	if (ctx->options->op_type == LCPERF_OP_SYM) {
+		struct lcperf_test_buf_mem *buf_mem = NULL;
+		int diff = 0;
+
+		if (res->op_cookie == 0) {
+			RTE_LOG(ERR, USER1, "Operation cookie is NULL\n");
+			return -1;
+		}
+
+		if (res->res.cn9k.compcode != DAO_CPT_COMP_GOOD) {
+			RTE_LOG(ERR, USER1, "Operation failed with compcode: %u\n",
+				res->res.cn9k.compcode);
+			return -1;
+		}
+
+		if (res->op_cookie != tdata->ops[0].op_cookie) {
+			RTE_LOG(ERR, USER1, "Operation cookie mismatch: expected %lu, got %lu\n",
+				tdata->ops[0].op_cookie, res->op_cookie);
+			return -1;
+		}
+
+		buf_mem = (struct lcperf_test_buf_mem *)(uintptr_t)res->op_cookie;
+
+		if (ctx->options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
+			diff = memcmp(buf_mem->in_buf_data, tdata->sym_params.ciphertext.data,
+				      tdata->sym_params.ciphertext.len);
+			if (diff != 0) {
+				RTE_LOG(ERR, USER1, "Ciphertext mismatch\n");
+				return -1;
+			}
+		} else {
+			diff = memcmp(buf_mem->in_buf_data, tdata->sym_params.plaintext.data,
+				      tdata->sym_params.plaintext.len);
+			if (diff != 0) {
+				RTE_LOG(ERR, USER1, "Plaintext mismatch\n");
+				return -1;
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int
 lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_data *tdata)
 {
 	uint64_t tsc_start = 0;
 	struct dao_lc_res res;
-	int ret = 0;
+	int ret = 0, rc = 0;
 
+	tdata->nb_ops = 1;
 	ret = ctx->populate_ops(ctx->sess_id, ctx->options, tdata);
 	if (ret < 0) {
 		RTE_LOG(ERR, USER1, "Could not populate operation\n");
@@ -115,9 +163,10 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 	}
 
 	ret = ctx->enqueue_ops(ctx->dev_id, ctx->qp_id, tdata, ctx->options);
-	if (ret < 0) {
+	if (ret != 1) {
 		RTE_LOG(ERR, USER1, "Could not enqueue operation\n");
-		return -1;
+		rc = -1;
+		goto op_buf_free;
 	}
 
 	tsc_start = rte_rdtsc_precise();
@@ -125,17 +174,26 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 		ret = dao_liquid_crypto_dequeue_burst(ctx->dev_id, ctx->qp_id, &res, 1);
 
 		if (ret == 1) {
-			if (res.op_cookie != 0)
-				rte_mempool_put(ctx->buf_pool, (void *)(uintptr_t)res.op_cookie);
-			return 1;
+			rc = lcperf_validate_single_op(ctx, &res, tdata);
+			break;
 		}
 
 		/* Check if 1 second timeout has been reached */
 		if ((rte_rdtsc_precise() - tsc_start) > rte_get_tsc_hz()) {
 			RTE_LOG(ERR, USER1, "Dequeue operation timed out.\n");
-			return -1;
+			rc = -1;
+			break;
 		}
 	}
+
+op_buf_free:
+	if (tdata->ops[0].op_cookie != 0) {
+		/* Free op buf memory. */
+		rte_mempool_put(ctx->buf_pool, (void *)(tdata->ops[0].op_cookie));
+		tdata->ops[0].op_cookie = 0;
+	}
+
+	return rc;
 }
 
 int
@@ -165,7 +223,6 @@ lcperf_throughput_test_runner(void *test_ctx)
 	}
 
 	tdata->op_cookie = 0;
-	tdata->nb_ops = 1;
 	tdata->buf_pool = ctx->buf_pool;
 
 	if (lcperf_check_single_op(ctx, tdata) < 0) {
