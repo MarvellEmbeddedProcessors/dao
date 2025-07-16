@@ -175,3 +175,41 @@ dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 	return 0;
 }
 
+int
+dao_card_fw_update(struct dao_card_grpc_ctx *ctx, struct dao_card_fw_update_req *update_req)
+{
+	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
+		return -EINVAL;
+
+	std::string full_path = std::string(update_req->filepath) + "/" + std::string(update_req->filename);
+	std::ifstream file(full_path, std::ios::binary);
+	if (!file.is_open()) {
+		fprintf(stderr, "Failed to open file: %s\n", update_req->filename);
+		return -ENOENT;
+	}
+
+	const size_t chunk_size = 3 * 1024 * 1024;
+	std::vector<char> buffer(chunk_size);
+
+	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
+		grpc::ClientContext context;
+		grpc::Status status;
+		UpdateReq req;
+		CardResponse resp;
+
+		req.set_file_name(update_req->filename);
+		req.set_file_content(buffer.data(), file.gcount());
+		req.set_is_last_chunk(file.eof());
+
+		status = ctx->stub->FwUpdate(&context, req, &resp);
+		if (!status.ok()) {
+			fprintf(stderr, "Failed to upload chunk: %s\n", status.error_message().c_str());
+			file.close();
+			return -EIO;
+		}
+	}
+
+	file.close();
+	return 0;
+}
+

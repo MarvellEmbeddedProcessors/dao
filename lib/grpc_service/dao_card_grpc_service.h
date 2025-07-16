@@ -58,6 +58,14 @@ struct dao_card_stats {
 	uint64_t tx_packets[CA_MAX_WORKER_CORES];
 };
 
+/**
+ * Request structure for DAO MMC update.
+ */
+struct dao_card_fw_update_req {
+	char *filename;
+	char *filepath;
+};
+
 #ifdef __cplusplus
 }
 #endif

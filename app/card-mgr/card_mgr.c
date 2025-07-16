@@ -36,6 +36,7 @@
 #define DAO_CARD_MGR_CARD_INFO  "card_info"
 #define DAO_CARD_MGR_APP_UPDATE "card_app_update"
 #define DAO_CARD_MGR_CARD_STATS "card_stats"
+#define DAO_CARD_MGR_FW_UPDATE  "card_fw_update"
 
 typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER,
@@ -83,6 +84,8 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr,
 		" card_app_update [absolute path of file]: Update the given file on to the card\n");
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
+	fprintf(stderr,
+		" card_fw_update: [absolute path of file]: Update the image on to the DAO card.\n");
 	fprintf(stderr, " quit: Exit the application\n");
 }
 
@@ -323,6 +326,43 @@ dao_card_mgr_app_update(cli_args *cmd)
 }
 
 static int
+dao_card_mgr_fw_update(cli_args *cmd)
+{
+	struct dao_card_fw_update_req update_req;
+	char fullpath[PATH_MAX];
+	int rc = 0;
+
+	if (cmd->argc < 2) {
+		syslog(LOG_ERR, "card_fw_update command requires file to update");
+		return -EINVAL;
+	}
+
+	update_req.filename = NULL;
+	update_req.filepath = NULL;
+
+	rc = split_path_filename(cmd->argv[1], &update_req.filepath, &update_req.filename);
+	if (rc != 0) {
+		syslog(LOG_ERR, "Failed to split path/filename for app update: %s", strerror(-rc));
+		return rc;
+	}
+
+	snprintf(fullpath, PATH_MAX, "%s/%s", update_req.filepath, update_req.filename);
+	if (access(fullpath, F_OK | R_OK) != 0) {
+		rc = -errno;
+		syslog(LOG_ERR, "Firmware update file '%s' does not exist or is not accessible: %s",
+		       fullpath, strerror(errno));
+		free(update_req.filename);
+		free(update_req.filepath);
+		return rc;
+	}
+	rc = dao_card_fw_update(card_ctx, &update_req);
+
+	free(update_req.filename);
+	free(update_req.filepath);
+	return rc;
+}
+
+static int
 dao_card_mgr_update_init_args(cli_args *cmd, const char **new_argv, unsigned long *nb_desc)
 {
 	const char *app_name = "dao-crypto-agent";
@@ -429,6 +469,8 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = dao_card_mgr_app_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
 		rc = dao_card_stats_get(card_ctx, &card_stats);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
+		rc = dao_card_mgr_fw_update(cmd);
 	} else {
 		rc = -ENOTSUP;
 	}

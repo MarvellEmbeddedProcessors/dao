@@ -99,6 +99,18 @@ int dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_updat
  */
 int dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats);
 
+/**
+ * Update the firmware image in liquid crypto card.
+ *
+ * This function need to be called from management daemon.
+ * It will update the firmware, rootfs kernel image and application on the liquid crypto card.
+ *
+ * @param ctx: gRPC client context
+ * @param req: Request with file details
+ * @return: 0 on success, negative value on failure
+ */
+int dao_card_fw_update(struct dao_card_grpc_ctx *ctx, struct dao_card_fw_update_req *req);
+
 #ifdef __cplusplus
 }
 #endif
