@@ -121,24 +121,44 @@ static int
 lcperf_enqueue_ops_sym(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
 		       const struct lcperf_options *options __rte_unused)
 {
-	return dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, &tdata->ops[0], tdata->nb_ops);
+	uint16_t ops_enqd = tdata->ops_enqd, ops_unused = tdata->ops_unused;
+	uint16_t ops_needed = tdata->nb_ops - ops_unused;
+
+	/**
+	 * When ops_needed is smaller than ops_enqd, the unused ops need to be moved
+	 * to the front for next round use.
+	 */
+	if (unlikely(ops_enqd > ops_needed)) {
+		size_t nb_b_to_mv = ops_unused * sizeof(struct dao_lc_sym_op);
+
+		memmove(&tdata->ops[ops_needed], &tdata->ops[ops_enqd], nb_b_to_mv);
+	}
+
+	ops_enqd =
+		dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, &tdata->ops[0], tdata->nb_ops);
+
+	tdata->ops_unused = tdata->nb_ops - ops_enqd;
+	tdata->ops_enqd = ops_enqd;
+
+	return ops_enqd;
 }
 
 static int
 lcperf_populate_ops_sym(uint64_t sess_id, const struct lcperf_options *options,
 			struct lcperf_test_data *test_data)
 {
-	struct lcperf_test_buf_mem *buf_mem[test_data->nb_ops];
+	uint16_t ops_needed = test_data->nb_ops - test_data->ops_unused;
+	struct lcperf_test_buf_mem *buf_mem[ops_needed];
 	struct dao_lc_sym_op *op = test_data->ops;
 	int i, ret;
 
-	ret = rte_mempool_get_bulk(test_data->buf_pool, (void **)buf_mem, test_data->nb_ops);
+	ret = rte_mempool_get_bulk(test_data->buf_pool, (void **)buf_mem, ops_needed);
 	if (ret < 0) {
 		RTE_LOG(ERR, USER1, "Failed to get memory from pool: %p\n", test_data->buf_pool);
 		return -1;
 	}
 
-	for (i = 0; i < test_data->nb_ops; i++) {
+	for (i = 0; i < ops_needed; i++) {
 		struct dao_lc_buf *in_buffer = &buf_mem[i]->in_buffer;
 		uint8_t *in_buf_data = buf_mem[i]->in_buf_data;
 

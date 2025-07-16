@@ -42,6 +42,8 @@ struct lcperf_test_buf_mem {
 struct lcperf_test_data {
 	uint64_t op_cookie;
 	uint16_t nb_ops;
+	uint16_t ops_unused;
+	uint16_t ops_enqd;
 	struct dao_lc_sym_op ops[TEST_LC_MAX_BURST_SIZE];
 	struct lcperf_test_sym_params sym_params;
 	struct rte_mempool *buf_pool;

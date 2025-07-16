@@ -224,6 +224,8 @@ lcperf_throughput_test_runner(void *test_ctx)
 
 	tdata->op_cookie = 0;
 	tdata->buf_pool = ctx->buf_pool;
+	tdata->ops_unused = 0;
+	tdata->ops_enqd = 0;
 
 	if (lcperf_check_single_op(ctx, tdata) < 0) {
 		RTE_LOG(ERR, USER1, "Single operation check failed\n");
@@ -271,9 +273,11 @@ lcperf_throughput_test_runner(void *test_ctx)
 			ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
 			if (ret == 1) {
 				ops_deqd++;
-				if (res.op_cookie != 0)
+				if (res.op_cookie != 0) {
 					rte_mempool_put(ctx->buf_pool,
 							(void *)(uintptr_t)res.op_cookie);
+					res.op_cookie = 0;
+				}
 			} else {
 				ops_deqd_failed++;
 				break;
@@ -288,8 +292,10 @@ lcperf_throughput_test_runner(void *test_ctx)
 		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
 		if (ret > 0) {
 			ops_deqd_total++;
-			if (res.op_cookie != 0)
+			if (res.op_cookie != 0) {
 				rte_mempool_put(ctx->buf_pool, (void *)(uintptr_t)res.op_cookie);
+				res.op_cookie = 0;
+			}
 		} else if (ret < 0) {
 			ops_deqd_failed++;
 		}
