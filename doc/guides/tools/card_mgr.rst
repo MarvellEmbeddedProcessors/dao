@@ -88,6 +88,13 @@ available:
    and configuration. It provides essential details that help users understand the current state
    of the card.
 
+* ``card_boot_source <main|failsafe> <path-to-mrvl-oct-boot>``
+
+   This command configures the DAO card to boot from either the 'main' or 'failsafe' image on the
+   next reboot. The first argument selects the boot mode: ``main`` for the standard image,
+   ``failsafe`` for the recovery image. The second argument specifies the full path to binary
+   ``mrvl-oct-boot`` which configures the DAO card.
+
 * ``card_fini``
 
    This command finalizes the DAO card, cleaning up resources and preparing it for shutdown.
@@ -95,7 +102,19 @@ available:
    resources are properly released. No commands can be run on the card after this command
    is executed. Card reboot is required to reinitialize the card.
 
-Above options are supported on all DAO cards.
+.. _diagnostics:
+
+Diagnostics
+~~~~~~~~~~~
+
+DAO Card Manager provides diagnostic commands to help users monitor and troubleshoot DAO cards. The
+following commands are available for diagnostics:
+
+* ``card_stats``
+
+   This command retrieves statistics from the DAO card, including per LC-core packet counts and
+   other operational metrics. It helps users monitor the card's performance and diagnose issues
+   such as packet drops or uneven load distribution.
 
 .. _firmware_management:
 
@@ -117,6 +136,21 @@ available for managing firmware:
    command will not work and will return an error.
 
    This command is supported on LiquidCrypto (LC) cards.
+
+* ``card_fw_update <filename>``
+
+   This command updates the complete DAO card firmware. The ``<filename>`` argument specifies the
+   full path to the firmware file to upload. Use this command to update all firmware partitions,
+   including the application and system partitions (i.e: kernel and root filesystem).
+
+   Note that this command is only supported when the card is booted with 'failsafe' image and is
+   initialized with ``card_init`` command. The card must be restarted with 'main' image to apply
+   the changes.
+   If the card is booted with 'main' image, this command will not work and will return an error.
+
+   This command is supported on LiquidCrypto (LC) cards.
+
+Above options are supported on all DAO cards.
 
 For more details on partition layout of LiquidCrypto (LC) cards, see
 :ref:`LiquidCrypto Partitioning <liquidcrypto_partitioning>`.
