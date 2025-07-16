@@ -4,6 +4,23 @@
 
 CONFIG_FILE="/etc/fw_mmc_env.config"
 
+delete_rcvd_file() {
+    file=$1
+    rm -rf /tmp/$file
+}
+
+cleanup_app_mount() {
+    umount /mnt/new_app
+    if [ $? -ne 0 ]; then
+        echo "Failed to unmount new_app"
+        exit 1
+    fi
+    rm -rf /mnt/new_app
+
+    delete_rcvd_file $1
+}
+
+
 update_app() {
     app_file=$1
 
@@ -36,6 +53,7 @@ update_app() {
     mount /dev/$new_partition /mnt/new_app
     if [ $? -ne 0 ]; then
         echo "Failed to mount partition" "$new_partition"
+        delete_rcvd_file $1
         exit 1
     fi
 
@@ -43,32 +61,26 @@ update_app() {
     rm -rf /mnt/new_app/lc_service
     if [ $? -ne 0 ]; then
         echo "Failed to remove folder lc_service"
+        cleanup_app_mount $1
         exit 1
     fi
 
-    tar -xf /tmp/$app_file -C /mnt/new_app
+    tar --touch -xf /tmp/$app_file -C /mnt/new_app
     if [ $? -ne 0 ]; then
         echo "Failed to untar file $app_file"
+        cleanup_app_mount $1
         exit 1
     fi
-
-    # Unmount the partition and remove the folder
-    umount /mnt/new_app
-    if [ $? -ne 0 ]; then
-        echo "Failed to unmount new_app"
-        exit 1
-    fi
-    rm -rf /mnt/new_app
-
-    # Remove the received file
-    rm -rf /tmp/$app_file
 
     # Update the uboot env with the new app env
     fw_setenv -c $CONFIG_FILE "app_env" "$new_env"
     if [ $? -ne 0 ]; then
         echo "Failed to set $var"
+        cleanup_app_mount $1
         exit 1
     fi
+
+    cleanup_app_mount $1
     exit 0
 }
 
