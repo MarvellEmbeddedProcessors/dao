@@ -917,13 +917,26 @@ cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *
 	return 0;
 }
 
+static inline void
+cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len)
+{
+	uint16_t i;
+
+	for (i = 0; i < *len; ++i) {
+		if ((*data)[i] != 0)
+			break;
+	}
+
+	*data += i;
+	*len -= i;
+}
+
 int
 dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 				     enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
 				     uint16_t exp_len, uint16_t msg_len, uint8_t *mod, uint8_t *exp,
 				     uint8_t *msg, uint8_t *em, uint64_t op_cookie)
 {
-	uint32_t dlen = mod_len + exp_len + msg_len;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
@@ -931,6 +944,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	union cpt_inst_w4 w4;
 	uint32_t req_idx = 0;
 	uint16_t buf_len;
+	uint32_t dlen;
 	uint8_t *dptr;
 	int rc;
 
@@ -942,6 +956,13 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
+
+	/* Normalize RSA params */
+	buf_len = mod_len;
+	cpt_ae_modex_param_normalize(&mod, &buf_len);
+	buf_len = exp_len;
+	cpt_ae_modex_param_normalize(&exp, &buf_len);
+	dlen = mod_len + exp_len + msg_len;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1089,7 +1110,6 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 				     uint16_t exp_len, uint8_t *mod, uint8_t *exp, uint8_t *em,
 				     uint8_t *msg, uint64_t op_cookie)
 {
-	uint32_t dlen = mod_len * 2 + exp_len;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
@@ -1097,6 +1117,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	union cpt_inst_w4 w4;
 	uint32_t req_idx = 0;
 	uint16_t buf_len;
+	uint32_t dlen;
 	uint8_t *dptr;
 	int rc;
 
@@ -1108,6 +1129,13 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
+
+	/* Normalize RSA params */
+	buf_len = mod_len;
+	cpt_ae_modex_param_normalize(&mod, &buf_len);
+	buf_len = exp_len;
+	cpt_ae_modex_param_normalize(&exp, &buf_len);
+	dlen = mod_len * 2 + exp_len;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1255,7 +1283,6 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 					 uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
 					 uint64_t op_cookie)
 {
-	uint32_t dlen = (mod_len / 2) * 5 + msg_len;
 	uint16_t comp_len = mod_len / 2;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
@@ -1264,6 +1291,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	union cpt_inst_w4 w4;
 	uint32_t req_idx = 0;
 	uint16_t buf_len;
+	uint32_t dlen;
 	uint8_t *dptr;
 	int rc;
 
@@ -1275,6 +1303,21 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
+
+	/* Normalize RSA CRT params. Each param should be of length mod_len / 2.
+	 * We just need to normalize the pointers to skip leading zeros.
+	 */
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&q, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&dQ, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&p, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&dP, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&qInv, &buf_len);
+	dlen = comp_len * 5 + msg_len;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
@@ -1412,7 +1455,6 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 					 uint8_t *qInv, uint8_t *em, uint8_t *msg,
 					 uint64_t op_cookie)
 {
-	uint32_t dlen = (mod_len / 2) * 5 + mod_len;
 	uint16_t comp_len = mod_len / 2;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
@@ -1421,6 +1463,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	union cpt_inst_w4 w4;
 	uint32_t req_idx = 0;
 	uint16_t buf_len;
+	uint32_t dlen;
 	uint8_t *dptr;
 	int rc;
 
@@ -1442,6 +1485,21 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 #endif
 
 	dev = &liquid_crypto_devs[dev_id];
+
+	/* Normalize RSA CRT params. Each param should be of length mod_len / 2.
+	 * We just need to normalize the pointers to skip leading zeros.
+	 */
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&q, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&dQ, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&p, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&dP, &buf_len);
+	buf_len = comp_len;
+	cpt_ae_modex_param_normalize(&qInv, &buf_len);
+	dlen = comp_len * 5 + mod_len;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
