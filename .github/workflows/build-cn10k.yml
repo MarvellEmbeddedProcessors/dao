@@ -91,6 +91,7 @@ jobs:
             echo "Description: Data Accelerator offload for Marvell Octeon 10" >> DEBIAN/control
             rm -rf debian
             cd -
+            rm -rf "${PWD}/install/~" "${PWD}/install/home"
             mv "${PWD}/install" "${PWD}/dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             cp "dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.

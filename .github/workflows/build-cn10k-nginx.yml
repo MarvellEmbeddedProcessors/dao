@@ -97,6 +97,7 @@ jobs:
             echo "Provides: libssl.so.1.1, libcrypto.so.1.1" >> DEBIAN/control
             rm -rf debian
             cd ..
+            rm -rf "${PWD}/install/~" "${PWD}/install/home"
             mv "${PWD}/install" "${PWD}/openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             cp -r "openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
@@ -151,6 +152,7 @@ jobs:
             echo "Description: Asynchronous NGINX for Marvell Octeon 10" >> DEBIAN/control
             rm -rf debian
             cd ..
+            rm -rf "${PWD}/install/~" "${PWD}/install/home"
             mv "${PWD}/install" "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             cp "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.

@@ -95,6 +95,7 @@ jobs:
             echo "Description: Open vSwitch (OVS) for Marvell Octeon 10" | sudo tee -a DEBIAN/control
             sudo rm -rf debian
             cd -
+            rm -rf "${PWD}/install/~" "${PWD}/install/home"
             sudo mv "${PWD}/install" "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             sudo dpkg --build "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             sudo cp "${PWD}/ovs-${OVS_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
