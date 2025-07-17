@@ -136,9 +136,7 @@ static int
 test_block_cipher_only(const void *data, bool is_encrypt)
 {
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN] = {0};
-	uint8_t aad_buf_data[TEST_LC_MAX_AAD_LEN] = {0};
 	const struct test_sym_params *params = data;
-	uint8_t cipher_iv[TEST_LC_MAX_IV_LEN] = {0};
 	struct dao_lc_sym_ctx ctx = params->ctx;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
@@ -178,17 +176,12 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 			return -1;
 		}
 
-		op[0].aad = aad_buf_data;
-		if ((params->aad.data != NULL) && (params->aad.len > 0))
-			memcpy(op[0].aad, params->aad.data, params->aad.len);
+		op[0].aad = (uint8_t *)params->aad.data;
 		op[0].aad_len = params->aad.len;
 
-		if (is_encrypt) {
-			op[0].digest = &(in_buf_data[params->aad.len + params->plaintext.len]);
-		} else {
-			op[0].digest = &(in_buf_data[params->plaintext.len]);
+		op[0].digest = &(in_buf_data[params->plaintext.len]);
+		if (!is_encrypt)
 			memcpy(op[0].digest, params->digest.data, params->digest.len);
-		}
 	}
 
 	if (is_encrypt) {
@@ -207,9 +200,7 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	op[0].in_buffer = in_buf;
 	op[0].cipher_offset = params->cipher_offset;
 	op[0].cipher_len = params->ciphertext.len;
-
-	memcpy(cipher_iv, params->iv.data, ctx.iv_len);
-	op[0].cipher_iv = cipher_iv;
+	op[0].cipher_iv = (uint8_t *)params->iv.data;
 
 	ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
 	if (ret != 1) {
@@ -228,11 +219,9 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Symmetric operation failed");
 
 	if (is_encrypt) {
-		ret = memcmp(in_buf_data + params->aad.len, params->ciphertext.data,
-			     params->ciphertext.len);
+		ret = memcmp(in_buf_data, params->ciphertext.data, params->ciphertext.len);
 		if (ret != 0) {
-			rte_hexdump(stdout, "RESULT: ", in_buf_data + params->aad.len,
-				    params->ciphertext.len + 32);
+			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->ciphertext.len);
 			rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
 				    params->ciphertext.len);
 		}
@@ -247,8 +236,7 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 		TEST_ASSERT(ret == 0, "Invalid result");
 
 	} else {
-		ret = memcmp(in_buf_data + params->aad.len, params->plaintext.data,
-			     params->plaintext.len);
+		ret = memcmp(in_buf_data, params->plaintext.data, params->plaintext.len);
 		if (ret != 0) {
 			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->plaintext.len);
 			rte_hexdump(stdout, "EXPECTED: ", params->plaintext.data,
