@@ -1427,13 +1427,13 @@ lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 		case DAO_LC_FC_ENC_CIPHER_AES_CBC:
 			if (options->cipher_key_sz == 16) {
 				memcpy(&test_data->sym_params, &aes_cbc_128_test_data,
-				       sizeof(aes_cbc_128_test_data));
+				       sizeof(struct lcperf_test_sym_params));
 			} else if (options->cipher_key_sz == 24) {
 				memcpy(&test_data->sym_params, &aes_cbc_192_test_data,
-				       sizeof(aes_cbc_128_test_data));
+				       sizeof(struct lcperf_test_sym_params));
 			} else if (options->cipher_key_sz == 32) {
 				memcpy(&test_data->sym_params, &aes_cbc_256_test_data,
-				       sizeof(aes_cbc_128_test_data));
+				       sizeof(struct lcperf_test_sym_params));
 			} else {
 				RTE_LOG(ERR, USER1, "Unsupported key length for AES CBC: %u\n",
 					options->cipher_key_sz);
