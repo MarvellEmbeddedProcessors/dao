@@ -22,9 +22,9 @@ jobs:
       - name: Generate cache keys
         id: get_ref_keys
         run: |
-          echo 'ccache=ccache-'$(date -u +%Y-m%M) >> $GITHUB_OUTPUT
+          echo 'ccache=ccache-'$(date -u +%Y-%m) >> $GITHUB_OUTPUT
       - name: Retrieve ccache cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.3
         with:
           path: ~/.ccache
           key: ${{ steps.get_ref_keys.outputs.ccache }}-${{ github.ref }}
@@ -34,7 +34,6 @@ jobs:
         id: version
         run: |
             set -x
-            mkdir -p "${PWD}/artifacts"
             git tag --points-at HEAD > /tmp/tags
             [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
             PKG_VERSION_NAME=`cat VERSION`
@@ -55,7 +54,6 @@ jobs:
             DISTRO=ubuntu-`lsb_release -rs`
             echo "DISTRO=${DISTRO}" >> ${PWD}/artifacts/env
             export CC='ccache gcc-14'
-            echo "cache_dir = ~/.ccache" > ~/.ccache/ccache.conf
             ccache -p
             pkg-config --list-all
             BASE_DIR=${PWD}
@@ -154,7 +152,7 @@ jobs:
             echo "Description: Snort 3 with Vectorscan for Marvell Octeon 10" >> DEBIAN/control
             cd ..
             rm -rf "${PWD}/install/~" "${PWD}/install/home"
-            mv install "snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+            mv "${PWD}/install" "${PWD}/snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             cp -r "snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
       - name: Export version name

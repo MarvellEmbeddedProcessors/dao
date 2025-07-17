@@ -22,9 +22,9 @@ jobs:
       - name: Generate cache keys
         id: get_ref_keys
         run: |
-          echo 'ccache=ccache-'$(date -u +%Y-m%M) >> $GITHUB_OUTPUT
+          echo 'ccache=ccache-'$(date -u +%Y-%m) >> $GITHUB_OUTPUT
       - name: Retrieve ccache cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.3
         with:
           path: ~/.ccache
           key: ${{ steps.get_ref_keys.outputs.ccache }}-${{ github.ref }}
@@ -46,7 +46,7 @@ jobs:
       - name: Build OVS and generate package
         id: build
         run: |
-            mkdir -p ~/.ccache
+            set -x
             sudo apt-get update -q -y
             sudo apt-get install -y apt-utils python3-sphinx-rtd-theme python3-pip
             sudo apt-get install -y python3-pyelftools python3-setuptools python3-wheel
@@ -66,7 +66,6 @@ jobs:
             wget "https://github.com/MarvellEmbeddedProcessors/marvell-dpdk/releases/download/dpdk-cn10k-${DPDK_BASE_PKG_VERSION}_${DPDK_PKG_VERSION}-${DISTRO}-${DPDK_PKG_VERSION}/dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
             sudo apt-get install -y ./"dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
             export CC='ccache gcc-14'
-            echo "cache_dir = ~/.ccache" > ~/.ccache/ccache.conf
             ccache -p
             pkg-config --list-all
             OVS_PATCH_VERSION=$(ls patches/ovs | head -n 1)

@@ -22,9 +22,9 @@ jobs:
       - name: Generate cache keys
         id: get_ref_keys
         run: |
-          echo 'ccache=ccache-'$(date -u +%Y-m%M) >> $GITHUB_OUTPUT
+          echo 'ccache=ccache-'$(date -u +%Y-%m) >> $GITHUB_OUTPUT
       - name: Retrieve ccache cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.2.3
         with:
           path: ~/.ccache
           key: ${{ steps.get_ref_keys.outputs.ccache }}-${{ github.ref }}
@@ -41,7 +41,7 @@ jobs:
       - name: Build NGINX and generate package
         id: build
         run: |
-            mkdir -p ~/.ccache
+            set -x
             sudo apt-get update -q -y
             sudo apt-get install -y apt-utils python3-sphinx-rtd-theme python3-pip
             sudo apt-get install -y python3-pyelftools python3-setuptools python3-wheel
@@ -59,8 +59,7 @@ jobs:
             source "${PWD}/artifacts/env"
             echo "DISTRO=${DISTRO}" >> ${PWD}/artifacts/env
             export CC='ccache gcc-14 -mcpu=neoverse-n2+sve2+crypto'
-            echo "cache_dir = ~/.ccache" > ~/.ccache/ccache.conf
-            ccache -p
+            ccache --show-config
             pkg-config --list-all
             BASE_DIR=${PWD}
             OPENSSL_PATCH_VERSION=$(ls patches/nginx/deps/openssl/ | head -n 1)
