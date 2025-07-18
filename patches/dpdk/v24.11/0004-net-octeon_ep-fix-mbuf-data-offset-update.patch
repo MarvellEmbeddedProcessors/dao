@@ -1,0 +1,63 @@
+From 26a5edf1306220d90cdd0ea5d89258e3826edb71 Mon Sep 17 00:00:00 2001
+From: Vamsi Attunuru <vattunuru@marvell.com>
+Date: Tue, 6 May 2025 17:57:45 +0530
+Subject: [PATCH 4/5] net/octeon_ep: fix mbuf data offset update
+
+Buffer refill routine uses mempool API instead of pktmbuf
+alloc to avoid mbuf reset. Patch uses rearm to update the
+mbuf fields. Also it removes redundant refill count update.
+
+Fixes: 35dee56cee00 ("net/octeon_ep: add new fastpath routines")
+Cc: stable@dpdk.org
+
+Signed-off-by: Vamsi Attunuru <vattunuru@marvell.com>
+---
+ drivers/net/octeon_ep/cnxk_ep_rx.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/net/octeon_ep/cnxk_ep_rx.c b/drivers/net/octeon_ep/cnxk_ep_rx.c
+index 7465e0a017..a10e9c536e 100644
+--- a/drivers/net/octeon_ep/cnxk_ep_rx.c
++++ b/drivers/net/octeon_ep/cnxk_ep_rx.c
+@@ -10,7 +10,6 @@ cnxk_ep_process_pkts_scalar_mseg(struct rte_mbuf **rx_pkts, struct otx_ep_droq *
+ {
+ 	struct rte_mbuf **recv_buf_list = droq->recv_buf_list;
+ 	uint32_t total_pkt_len, bytes_rsvd = 0;
+-	uint16_t port_id = droq->otx_ep_dev->port_id;
+ 	uint16_t nb_desc = droq->nb_desc;
+ 	uint16_t pkts;
+ 
+@@ -22,7 +21,7 @@ cnxk_ep_process_pkts_scalar_mseg(struct rte_mbuf **rx_pkts, struct otx_ep_droq *
+ 		uint32_t pkt_len = 0;
+ 
+ 		mbuf = recv_buf_list[droq->read_idx];
+-		info = rte_pktmbuf_mtod(mbuf, struct otx_ep_droq_info *);
++		info = cnxk_pktmbuf_mtod(mbuf, struct otx_ep_droq_info *);
+ 
+ 		total_pkt_len = rte_bswap16(info->length >> 48) + OTX_EP_INFO_SIZE;
+ 
+@@ -37,7 +36,7 @@ cnxk_ep_process_pkts_scalar_mseg(struct rte_mbuf **rx_pkts, struct otx_ep_droq *
+ 			if (!pkt_len) {
+ 				/* Note the first seg */
+ 				first_buf = mbuf;
+-				mbuf->data_off += OTX_EP_INFO_SIZE;
++				*(uint64_t *)&mbuf->rearm_data = droq->rearm_data;
+ 				mbuf->pkt_len = cpy_len - OTX_EP_INFO_SIZE;
+ 				mbuf->data_len = cpy_len - OTX_EP_INFO_SIZE;
+ 			} else {
+@@ -57,12 +56,10 @@ cnxk_ep_process_pkts_scalar_mseg(struct rte_mbuf **rx_pkts, struct otx_ep_droq *
+ 			droq->refill_count++;
+ 		}
+ 		mbuf = first_buf;
+-		mbuf->port = port_id;
+ 		rx_pkts[pkts] = mbuf;
+ 		bytes_rsvd += pkt_len;
+ 	}
+ 
+-	droq->refill_count += new_pkts;
+ 	droq->pkts_pending -= pkts;
+ 	/* Stats */
+ 	droq->stats.pkts_received += pkts;
+-- 
+2.34.1
+

@@ -1,0 +1,36 @@
+From f7db6807e6c85f53fe4bc62950ca55dea2d62cbb Mon Sep 17 00:00:00 2001
+From: Vidya Sagar Velumuri <vvelumuri@marvell.com>
+Date: Fri, 21 Mar 2025 07:06:16 -0700
+Subject: [PATCH 2/5] net/octeon_ep: fix buffer refill failure
+
+Fix the buffer refill for SDP output queue
+Fixes: ab09499e809c ("net/octeon_ep: add SSE Rx")
+
+Signed-off-by: Vidya Sagar Velumuri <vvelumuri@marvell.com>
+Acked-by: Vamsi Krishna Attunuru <vattunuru@marvell.com>
+---
+ drivers/net/octeon_ep/cnxk_ep_rx.h | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/octeon_ep/cnxk_ep_rx.h b/drivers/net/octeon_ep/cnxk_ep_rx.h
+index 83677e1c6f..5db32c4448 100644
+--- a/drivers/net/octeon_ep/cnxk_ep_rx.h
++++ b/drivers/net/octeon_ep/cnxk_ep_rx.h
+@@ -72,11 +72,10 @@ cnxk_ep_rx_refill(struct otx_ep_droq *droq)
+ 		desc_refilled = count;
+ 		count = droq->read_idx;
+ 		rc = cnxk_ep_rx_refill_mbuf(droq, count);
+-		if (unlikely(rc)) {
++		if (unlikely(rc))
+ 			droq->stats.rx_alloc_failure++;
+-			return;
+-		}
+-		desc_refilled += count;
++		else
++			desc_refilled += count;
+ 	}
+ 
+ 	/* Flush the droq descriptor data to memory to be sure
+-- 
+2.34.1
+

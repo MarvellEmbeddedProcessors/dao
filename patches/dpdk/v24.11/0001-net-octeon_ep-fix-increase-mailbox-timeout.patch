@@ -1,0 +1,48 @@
+From 144f4d4b7431a0a4942c2faf087466c401e72b3f Mon Sep 17 00:00:00 2001
+From: Mohamed Feroz Abdul Majeeth <mabdulmajeet@marvell.com>
+Date: Fri, 27 Jun 2025 15:48:53 +0530
+Subject: [PATCH 1/5] net/octeon_ep: fix increase mailbox timeout
+
+Extend the mailbox timeout to 2500 ms in the driver
+to ensure firmware responses are received, preventing premature
+timeouts in mailbox request handling. This improves reliability
+of control network APIs, addressing issues where the previous
+timeout was too short for consistent operation.
+
+Fixes: c836a7ba33ee ("net/octeon_ep: support mailbox between VF and PF")
+Cc: stable@dpdk.org
+
+Signed-off-by: Mohamed Feroz Abdul Majeeth <mabdulmajeet@marvell.com>
+---
+ .mailmap                            | 1 +
+ drivers/net/octeon_ep/otx_ep_mbox.h | 2 +-
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/.mailmap b/.mailmap
+index 818798273f..522dffa005 100644
+--- a/.mailmap
++++ b/.mailmap
+@@ -1042,6 +1042,7 @@ Miroslaw Walukiewicz <miroslaw.walukiewicz@intel.com>
+ Mitch Williams <mitch.a.williams@intel.com>
+ Mit Matelske <mit@pt.net>
+ Mohamad Noor Alim Hussin <mohamad.noor.alim.hussin@intel.com>
++Mohamed Feroz Abdul Majeeth <mabdulmajeet@marvell.com>
+ Mohammad Abdul Awal <mohammad.abdul.awal@intel.com>
+ Mohammad Iqbal Ahmad <mahmad@marvell.com>
+ Mohammed Gamal <mgamal@redhat.com>
+diff --git a/drivers/net/octeon_ep/otx_ep_mbox.h b/drivers/net/octeon_ep/otx_ep_mbox.h
+index ec96e4edc5..c5841b59a6 100644
+--- a/drivers/net/octeon_ep/otx_ep_mbox.h
++++ b/drivers/net/octeon_ep/otx_ep_mbox.h
+@@ -69,7 +69,7 @@ enum otx_ep_link_autoneg {
+ 	OTX_EP_LINK_AUTONEG,
+ };
+ 
+-#define OTX_EP_MBOX_TIMEOUT_MS     1200
++#define OTX_EP_MBOX_TIMEOUT_MS     2500
+ #define OTX_EP_MBOX_MAX_RETRIES    2
+ #define OTX_EP_MBOX_MAX_DATA_SIZE  6
+ #define OTX_EP_MBOX_MAX_DATA_BUF_SIZE 256
+-- 
+2.34.1
+
