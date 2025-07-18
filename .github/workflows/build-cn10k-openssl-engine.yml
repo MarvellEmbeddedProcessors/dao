@@ -102,12 +102,23 @@ jobs:
             cp -r "${PWD}/scripts/"* "${PWD}/install/usr/share/openssl-engine-dpdk/"
             mkdir -p "${PWD}/install/usr/local/lib/engines-1.1/doc/"
             cp -r "${PWD}/doc/"* "${PWD}/install/usr/local/lib/engines-1.1/doc/."
+            version_range() {
+              local var="$1"
+              local full="${!var}"
+              local year=$(echo "$full" | cut -d. -f1)
+              local month=$(echo "$full" | cut -d. -f2)
+              local base="${year}.${month}.0"
+              local upper="${year}.$((10#$month + 1)).0"
+              export "${var}_BASE"="${base}"
+              export "${var}_UPPER"="${upper}"
+            }
+            version_range PKG_VERSION_NAME
             mkdir -p "${PWD}/install/DEBIAN"
             cd "${PWD}/install"
             echo 'Package: openssl-engine-'${ENGINE_VERSION}'-cn10k'${PKG_POSTFIX} >> DEBIAN/control
             echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
-            echo 'Depends: cpt-firmware-cn10k'${FW_PKG_POSTFIX}' (= '$CPT_PKG_VERSION'), dpdk-'$DPDK_BASE_PKG_VERSION'-cn10k (= '$DPDK_PKG_VERSION'), openssl-'$OPENSSL_VERSION'-cn10k'$PKG_POSTFIX' (= '$PKG_VERSION_NAME')' >> DEBIAN/control
+            echo 'Depends: cpt-firmware-cn10k'${FW_PKG_POSTFIX}' (= '$CPT_PKG_VERSION'), dpdk-'$DPDK_BASE_PKG_VERSION'-cn10k (= '$DPDK_PKG_VERSION'), openssl-'$OPENSSL_VERSION'-cn10k'$PKG_POSTFIX' (>= '$PKG_VERSION_NAME_BASE'), openssl-'$OPENSSL_VERSION'-cn10k'$PKG_POSTFIX' (<< '$PKG_VERSION_NAME_UPPER')' >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: DPDK based OpenSSL Engine for Marvell Octeon 10" >> DEBIAN/control
             cd ..
