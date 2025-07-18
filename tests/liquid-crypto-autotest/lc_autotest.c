@@ -14,6 +14,7 @@
 #include "lc_autotest.h"
 #include "lc_test_asym.h"
 #include "lc_test_generic.h"
+#include "lc_test_pqc.h"
 #include "lc_test_rng.h"
 #include "lc_test_sym.h"
 #include "test.h"
@@ -23,6 +24,7 @@ struct unit_test_suite *test_suites[] = {
 	&lc_testsuite_asym,
 	&lc_testsuite_sym,
 	&lc_testsuite_rng,
+	&lc_testsuite_pqc,
 	NULL
 };
 
@@ -84,6 +86,7 @@ main(int argc, char **argv)
 	uint32_t max_seg_size = 0, cmd_seg_sz = 0;
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_qp_conf qp_conf;
+	struct dao_lc_dev_caps caps;
 	struct dao_lc_info *info;
 	uint16_t qp_id;
 	uint8_t dev_id;
@@ -209,6 +212,12 @@ main(int argc, char **argv)
 		feature_params.rsa_oaep.exp_len = 0;
 		feature_params.rsa_oaep.label_len = TEST_LC_RSA_OAEP_MAX_LABEL_LEN;
 		feature_params.rsa_oaep.hash_type = DAO_LC_HASH_TYPE_SHA1;
+
+		ret = dao_liquid_crypto_dev_caps_get(&caps);
+		if (ret < 0)
+			TEST_LC_INFO("Could not get device capabilities for device %u", dev_id);
+		else if (caps.pqc_en)
+			feature_params.pqc.is_pqc_enabled = true;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {

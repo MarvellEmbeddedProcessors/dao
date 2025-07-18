@@ -7,6 +7,7 @@ sources = files(
 	'lc_test_asym.c',
 	'lc_test_sym.c',
 	'lc_test_rng.c',
+	'lc_test_pqc.c',
 	'test.c'
 )
 
