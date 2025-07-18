@@ -16,7 +16,7 @@
 /* Maximum length of plaintext */
 #define TEST_LC_MAX_PLAINTEXT_LEN 1024
 /* Maximum burst size */
-#define TEST_LC_MAX_BURST_SIZE 128
+#define TEST_LC_MAX_BURST_SIZE 8192
 
 struct lcperf_test_sym_params {
 	struct dao_lc_sym_ctx ctx;

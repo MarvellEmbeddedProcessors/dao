@@ -75,7 +75,7 @@ parse_uint32_t(uint32_t *value, const char *arg)
 	char *end = NULL;
 	unsigned long n = strtoul(arg, &end, 10);
 
-	if ((optarg[0] == '\0') || (end == NULL) || (*end != '\0'))
+	if ((arg[0] == '\0') || (end == NULL) || (*end != '\0'))
 		return -1;
 
 	if (n > UINT32_MAX)
@@ -298,6 +298,12 @@ parse_burst_size(struct lcperf_options *opts, const char *arg)
 		return -1;
 	}
 
+	if (opts->burst_size > TEST_LC_MAX_BURST_SIZE) {
+		RTE_LOG(ERR, USER1, "Burst size %u exceeds maximum limit of %u\n", opts->burst_size,
+			TEST_LC_MAX_BURST_SIZE);
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -311,7 +317,7 @@ lcperf_options_default(struct lcperf_options *opts)
 
 	opts->buffer_size_list[0] = 64;
 	opts->buffer_size_count = 1;
-	opts->burst_size = 2048;
+	opts->burst_size = 128;
 
 	opts->op_type = LCPERF_OP_PASSTHROUGH;
 
@@ -509,6 +515,11 @@ lcperf_options_check(struct lcperf_options *options)
 			RTE_LOG(ERR, USER1, "Invalid symmetric operation type specified\n");
 			return -EINVAL;
 		}
+	}
+
+	if (options->burst_size > options->nb_descriptors) {
+		RTE_LOG(ERR, USER1, "Burst size cannot be greater than number of descriptors\n");
+		return -EINVAL;
 	}
 
 	return 0;
