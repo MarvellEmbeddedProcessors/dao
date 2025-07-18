@@ -61,10 +61,9 @@ lcperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 
 	if (options->op_type == LCPERF_OP_SYM) {
 		snprintf(pool_name, sizeof(pool_name), "buf_pool_cdev_%u_qp_%u", dev_id, qp_id);
-		data_buf_pool =
-			rte_mempool_create(pool_name, options->nb_descriptors * RTE_MAX_LCORE,
-					   sizeof(struct lcperf_test_buf_mem), 512, 0, NULL, NULL,
-					   NULL, NULL, SOCKET_ID_ANY, 0);
+		data_buf_pool = rte_mempool_create(pool_name, options->nb_descriptors * 2,
+						   sizeof(struct lcperf_test_buf_mem), 512, 0, NULL,
+						   NULL, NULL, NULL, SOCKET_ID_ANY, 0);
 
 		if (data_buf_pool == NULL) {
 			RTE_LOG(ERR, USER1, "Failed to create operation pool\n");
