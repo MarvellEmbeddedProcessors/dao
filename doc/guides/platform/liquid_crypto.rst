@@ -140,6 +140,9 @@ compatible.
     # Checkout the specific version
     git checkout v24.11
 
+    # Apply the DPDK patches present in the DAO repository, below gRPC section has the repository details. These DPDK patches will be obsolete once they are merged into v24.11 stable branch
+    git am dao/patches/dpdk/v24.11/*
+
     # Set up the build directory with the specified installation path. Below command will configure 'build' directory. To run meson with new options, it is recommended to clear this directory completely.
     meson setup build -Dmax_numa_nodes=1 --prefix=<PATH_TO_INSTALL_DIR>/dpdk
 
