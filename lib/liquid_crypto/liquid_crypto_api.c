@@ -1619,6 +1619,38 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 }
 
 static inline uint16_t
+dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t offset,
+				   uint32_t len)
+{
+	struct dao_lc_buf *tmp = src;
+	uint16_t copied = 0;
+	uint16_t to_copy;
+
+	/* Skip to the offset */
+	while (tmp && offset >= tmp->frag_len) {
+		offset -= tmp->frag_len;
+		tmp = tmp->next;
+	}
+
+	if (!tmp) {
+		dao_err("Offset exceeds buffer length");
+		return 0;
+	}
+
+	do {
+		to_copy = RTE_MIN(tmp->frag_len - offset, len - copied);
+
+		memcpy(dst + copied, (uint8_t *)tmp->data + offset, to_copy);
+		copied += to_copy;
+		tmp = tmp->next;
+		/* Reset offset for subsequent fragments */
+		offset = 0;
+	} while (tmp && copied < len);
+
+	return copied;
+}
+
+static inline uint16_t
 dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
 {
 	struct dao_lc_buf *tmp = src;
@@ -1664,6 +1696,64 @@ dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_s
 }
 
 static inline uint16_t
+dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
+					struct rte_mbuf *mbuf, uint32_t req_idx,
+					const struct dao_lc_sym_sess_meta *sess_meta,
+					const enum lc_sym_op_type op_type)
+{
+	uint32_t auth_offset, auth_len, buf_len;
+	struct __dao_lc_req_sym *req;
+	union cpt_inst_w4 w4;
+
+	if (op_type == LC_SYM_OP_AUTH_ONLY) {
+		auth_offset = op->auth_offset;
+		auth_len = op->auth_len;
+		qp->req_queue[req_idx].digest = op->digest;
+		qp->req_queue[req_idx].digest_len = sess_meta->digest_len;
+	} else {
+		dao_err("Invalid operation type: %d", op_type);
+		rte_errno = EINVAL;
+		return 0;
+	}
+
+	qp->req_queue[req_idx].op_type = op_type;
+
+	buf_len = sizeof(struct __dao_lc_req_sym) + auth_len;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rte_errno = ENOMEM;
+		return 0;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data too large. buf_len = %u", buf_len);
+		rte_errno = ENOMEM;
+		return 0;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+	req->is_hash_only = 1;
+
+	w4.u64 = sess_meta->w4;
+	w4.s.dlen = auth_len;
+	req->w4 = w4.u64;
+	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
+
+	/* Add data */
+	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, req->dptr, auth_offset, auth_len);
+
+	return 1;
+}
+
+static inline uint16_t
 dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
 			      struct rte_mbuf *mbuf, uint32_t req_idx,
 			      const struct dao_lc_sym_sess_meta *sess_meta,
@@ -1688,18 +1778,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = 0;
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
-	} else if (op_type == LC_SYM_OP_AUTH_ONLY) {
-		aad_len = 0;
-		cipher_offset = 0;
-		cipher_len = 0;
-		auth_offset = op->auth_offset;
-		auth_len = op->auth_len;
-		pkt_iv_len = 0;
-		digest_len = sess_meta->digest_len;
-		/* No offset control word for auth only */
-		off_ctrl_len = 0;
-		qp->req_queue[req_idx].digest = op->digest;
-		qp->req_queue[req_idx].digest_len = digest_len;
 	} else if (op_type == LC_SYM_OP_AEAD) {
 		aad_len = op->aad_len;
 		cipher_offset = op->cipher_offset;
@@ -1767,7 +1845,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 
 	/* Add instruction */
 	w4.u64 = sess_meta->w4;
-	if ((op_type != LC_SYM_OP_AUTH_ONLY) && (op_type != LC_SYM_OP_HMAC_AUTH_ONLY)) {
+	if (op_type != LC_SYM_OP_HMAC_AUTH_ONLY) {
 		w4.s.param1 = op->cipher_len;
 		w4.s.param2 = auth_len;
 
@@ -1878,8 +1956,8 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 							    LC_SYM_OP_CIPHER_ONLY);
 			break;
 		case LC_SYM_OP_AUTH_ONLY:
-			ret = dao_lc_sym_prepare_ops_single(qp, op, mbufs[i], req_idx, sess_meta,
-							    LC_SYM_OP_AUTH_ONLY);
+			ret = dao_lc_sym_prepare_ops_single_auth_only(
+				qp, op, mbufs[i], req_idx, sess_meta, LC_SYM_OP_AUTH_ONLY);
 			break;
 		case LC_SYM_OP_CIPHER_AUTH:
 			ret = dao_lc_sym_prepare_ops_single(qp, op, mbufs[i], req_idx, sess_meta,
