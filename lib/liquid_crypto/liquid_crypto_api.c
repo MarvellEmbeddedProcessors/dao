@@ -1570,6 +1570,40 @@ dao_lc_post_process_asym(struct liquid_crypto_inflight_req *req, struct dao_lc_r
 }
 
 static inline uint16_t
+dao_lc_buf_copy_to_offset_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint16_t offset,
+				   uint32_t len)
+{
+	struct dao_lc_buf *tmp = dst;
+	uint16_t copied = 0;
+	uint16_t to_copy;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (offset >= dst->total_len) {
+		dao_err("Offset (%u) exceeds buffer total length (%u)", offset, dst->total_len);
+		return 0;
+	}
+#endif
+
+	/* Skip to the offset */
+	while (tmp && offset >= tmp->frag_len) {
+		offset -= tmp->frag_len;
+		tmp = tmp->next;
+	}
+
+	do {
+		to_copy = RTE_MIN(tmp->frag_len - offset, len - copied);
+
+		memcpy((uint8_t *)tmp->data + offset, src + copied, to_copy);
+		copied += to_copy;
+		tmp = tmp->next;
+		/* Reset offset for subsequent fragments */
+		offset = 0;
+	} while (tmp && copied < len);
+
+	return copied;
+}
+
+static inline uint16_t
 dao_lc_buf_copy_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint32_t len)
 {
 	struct dao_lc_buf *tmp = dst;
@@ -1591,7 +1625,7 @@ static inline void
 dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
 			struct rte_mbuf *mbuf)
 {
-	uint16_t result_offset, result_len;
+	uint16_t result_offset, result_len, lc_buf_offset, copied;
 	struct __dao_lc_resp_sym *resp;
 
 	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
@@ -1610,23 +1644,37 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 				res->res.cn9k.uc_compcode = DAO_UC_ERR_GC_ICV_MISCOMPARE;
 		}
 	} else {
-		result_offset = req->cipher_offset;
+		result_offset = req->result_offset;
+		lc_buf_offset = req->lc_buf_offset;
 
 		if (req->digest == NULL) {
 			result_len = req->cipher_len + req->digest_len;
-			dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out,
-						 result_len);
+			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
+								    req->data_out, lc_buf_offset,
+								    result_len);
 		} else {
 			result_len = req->cipher_len;
-			dao_lc_buf_copy_from_mem(resp->rptr + result_offset, req->data_out,
-						 result_len);
+			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
+								    req->data_out, lc_buf_offset,
+								    result_len);
 			memcpy(req->digest, resp->rptr + result_offset + result_len,
 			       req->digest_len);
 		}
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (copied != result_len) {
+			dao_err("Failed to copy all data from response. "
+				"Copied %u bytes, expected %u bytes.",
+				copied, result_len);
+			rte_errno = EIO;
+			return;
+		}
+#else
+		RTE_SET_USED(copied);
+#endif
 	}
 }
 
-static inline uint16_t
+static inline uint32_t
 dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t offset,
 				   uint32_t len)
 {
@@ -1783,24 +1831,21 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	uint16_t buf_len, pkt_iv_len, aad_len, digest_len;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
+	uint32_t lc_buf_offset = 0;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
 
 	if (op_type == LC_SYM_OP_CIPHER_ONLY) {
 		aad_len = 0;
-		cipher_offset = op->cipher_offset;
 		cipher_len = op->cipher_len;
-		auth_offset = 0;
 		auth_len = 0;
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = 0;
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 	} else if (op_type == LC_SYM_OP_AEAD) {
 		aad_len = op->aad_len;
-		cipher_offset = op->cipher_offset;
 		cipher_len = op->cipher_len;
-		auth_offset = cipher_offset;
 		auth_len = cipher_len + aad_len;
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = sess_meta->digest_len;
@@ -1820,8 +1865,9 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	else
 		qp->req_queue[req_idx].data_out = op->in_buffer;
 
-	dlen = op->in_buffer->total_len;
-	buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + dlen;
+	lc_buf_offset = op->cipher_offset;
+	dlen = op->in_buffer->total_len - lc_buf_offset;
+	buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + aad_len + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1881,11 +1927,13 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	/* Add data */
 	dptr = req->dptr;
 
-	cipher_offset = iv_offset + pkt_iv_len + aad_len + op->cipher_offset;
-	auth_offset = iv_offset + pkt_iv_len + op->auth_offset;
-
-	qp->req_queue[req_idx].cipher_offset = cipher_offset;
+	qp->req_queue[req_idx].lc_buf_offset = lc_buf_offset;
 	qp->req_queue[req_idx].cipher_len = cipher_len;
+
+	cipher_offset = iv_offset + pkt_iv_len + aad_len;
+	auth_offset = iv_offset + pkt_iv_len;
+
+	qp->req_queue[req_idx].result_offset = cipher_offset;
 
 	if (off_ctrl_len != 0) {
 		offset_vaddr = (uint64_t *)dptr;
@@ -1915,7 +1963,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 			memcpy(dptr + iv_offset + pkt_iv_len, op->aad, op->aad_len);
 	}
 
-	dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + aad_len + pkt_iv_len, dlen);
+	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr + iv_offset + aad_len + pkt_iv_len,
+					   lc_buf_offset, op->in_buffer->total_len - lc_buf_offset);
 
 	return 1;
 }

@@ -86,11 +86,14 @@ struct liquid_crypto_inflight_req {
 	/** Digest length */
 	uint16_t digest_len;
 
-	/** Cipher Offset */
-	uint32_t cipher_offset;
+	/** Liquid Crypto Buffer Offset */
+	uint32_t lc_buf_offset;
 
 	/** Cipher length */
 	uint16_t cipher_len;
+
+	/** Result offset */
+	uint16_t result_offset;
 
 	/* Operation type */
 	enum lc_sym_op_type op_type;
