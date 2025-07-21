@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <histedit.h>
+#include <limits.h>
 #include <netinet/in.h>
 #include <signal.h>
 #include <stdio.h>
@@ -153,12 +154,19 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 
 	/* Send command to server */
 	if (send(cli_fd, line, strlen(line), 0) == -1) {
-		dao_err("sending cmd to server failed");
+		dao_err("sending cmd to server failed (server may have exited)");
+		force_quit = true;
 		return;
 	}
 
 	/* Wait for the response */
-	recv(cli_fd, &resp, sizeof(int), 0);
+	ssize_t n = recv(cli_fd, &resp, sizeof(int), 0);
+
+	if (n <= 0) {
+		dao_err("Server closed the connection. Exiting client.");
+		force_quit = true;
+		return;
+	}
 	if (resp) {
 		if (resp == ENOTSUP)
 			dao_err("Command is not supported");
@@ -253,6 +261,15 @@ dao_card_mgr_editline_fini(History *hist, EditLine *el)
 	el_end(el);
 }
 
+static char *
+dao_card_mgr_prompt(EditLine *el)
+{
+	static char prompt[] = "> ";
+	(void)el;
+
+	return prompt;
+}
+
 static void
 dao_card_mgr_client(void)
 {
@@ -266,6 +283,8 @@ dao_card_mgr_client(void)
 		dao_err("Editline initialization failed");
 		return;
 	}
+
+	el_set(el, EL_PROMPT, dao_card_mgr_prompt);
 
 	cli_fd = dao_card_mgr_client_init();
 	if (cli_fd < 0) {
@@ -285,6 +304,10 @@ dao_card_mgr_client(void)
 			/* Add line to history */
 			history(hist, &ev, H_ENTER, line);
 			dao_card_mgr_send_to_server(cli_fd, line);
+			if (force_quit) {
+				printf("\nClient exiting due to server disconnect.\n");
+				break;
+			}
 		}
 	}
 
@@ -605,43 +628,24 @@ dao_card_mgr_parse_args(const char *line, cli_args *cmd_args)
 	}
 }
 
-static void
-dao_card_mgr_listen(int cli_socket)
-{
-	cli_args cmd_args;
-	ssize_t recv_len;
-
-	while (!force_quit) {
-		char buffer[BUFFER_SIZE];
-
-		recv_len = recv(cli_socket, buffer, sizeof(buffer) - 1, 0);
-		if (recv_len <= 0) {
-			if (recv_len == 0)
-				syslog(LOG_INFO, "Client closed the connection");
-			else
-				syslog(LOG_ERR, "Could not receive command from client");
-			break;
-		}
-
-		buffer[recv_len] = '\0';
-		dao_card_mgr_parse_args(buffer, &cmd_args);
-		dao_card_mgr_process_cmd(cli_socket, &cmd_args);
-
-		free(cmd_args.line);
-		free(cmd_args.argv);
-	}
-}
-
 static int
 dao_card_mgr_server_init(const char *ip_str)
 {
 	struct sockaddr_in sock_addr;
+	int optval = 1;
 	int rc = -1;
 	int srv_fd;
 
 	srv_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (srv_fd == 0) {
 		syslog(LOG_ERR, "Could not create server socket");
+		return -1;
+	}
+
+	/* Allow address reuse for immediate restart */
+	if (setsockopt(srv_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
+		syslog(LOG_ERR, "setsockopt SO_REUSEADDR failed");
+		close(srv_fd);
 		return -1;
 	}
 
@@ -679,10 +683,18 @@ srv_fini:
 static void
 dao_card_mgr_server(const char *ip_str)
 {
+	int client_fds[DAO_CARD_MGR_MAX_CLIENTS];
 	int addrlen = sizeof(struct sockaddr_in);
 	struct sockaddr_in sock_addr;
-	int srv_fd, cli_fd;
-	int flags;
+	char buffer[BUFFER_SIZE];
+	int srv_fd, flags;
+	ssize_t recv_len;
+	fd_set readfds;
+	int max_fd;
+	int i;
+
+	for (i = 0; i < DAO_CARD_MGR_MAX_CLIENTS; i++)
+		client_fds[i] = -1;
 
 	srv_fd = dao_card_mgr_server_init(ip_str);
 	if (srv_fd < 0) {
@@ -693,14 +705,81 @@ dao_card_mgr_server(const char *ip_str)
 	fcntl(srv_fd, F_SETFL, flags | O_NONBLOCK);
 
 	while (!force_quit) {
-		cli_fd = accept(srv_fd, (struct sockaddr *)&sock_addr, (socklen_t *)&addrlen);
-		if (cli_fd < 0)
-			continue;
+		FD_ZERO(&readfds);
+		FD_SET(srv_fd, &readfds);
+		max_fd = srv_fd;
+		for (i = 0; i < DAO_CARD_MGR_MAX_CLIENTS; i++) {
+			if (client_fds[i] > 0) {
+				FD_SET(client_fds[i], &readfds);
+				if (client_fds[i] > max_fd)
+					max_fd = client_fds[i];
+			}
+		}
 
-		dao_card_mgr_listen(cli_fd);
-		close(cli_fd);
+		int activity = select(max_fd + 1, &readfds, NULL, NULL, NULL);
+
+		if (activity < 0 && errno != EINTR) {
+			dao_err("select error");
+			break;
+		}
+		if (force_quit)
+			break;
+
+		/* New connection */
+		if (FD_ISSET(srv_fd, &readfds)) {
+			int new_fd = accept(srv_fd, (struct sockaddr *)&sock_addr,
+					    (socklen_t *)&addrlen);
+
+			if (new_fd >= 0) {
+				for (i = 0; i < DAO_CARD_MGR_MAX_CLIENTS; i++) {
+					if (client_fds[i] < 0) {
+						client_fds[i] = new_fd;
+						break;
+					}
+				}
+				if (i == DAO_CARD_MGR_MAX_CLIENTS) {
+					dao_err("Too many clients, rejecting connection");
+					close(new_fd);
+				}
+			}
+		}
+
+		/* Check all clients for data */
+		for (i = 0; i < DAO_CARD_MGR_MAX_CLIENTS; i++) {
+			int fd = client_fds[i];
+
+			if (fd > 0 && FD_ISSET(fd, &readfds)) {
+				recv_len = recv(fd, buffer, sizeof(buffer) - 1, 0);
+				if (recv_len <= 0) {
+					if (recv_len == 0)
+						syslog(LOG_INFO, "Client %d closed the connection",
+						       fd);
+					else
+						syslog(LOG_ERR,
+						       "Could not receive command from client %d",
+						       fd);
+					close(fd);
+					client_fds[i] = -1;
+					continue;
+				}
+				buffer[recv_len] = '\0';
+
+				cli_args cmd_args;
+
+				dao_card_mgr_parse_args(buffer, &cmd_args);
+				dao_card_mgr_process_cmd(fd, &cmd_args);
+				free(cmd_args.line);
+				free(cmd_args.argv);
+			}
+		}
 	}
 
+	for (i = 0; i < DAO_CARD_MGR_MAX_CLIENTS; i++) {
+		if (client_fds[i] > 0) {
+			close(client_fds[i]);
+			client_fds[i] = -1;
+		}
+	}
 	dao_card_grpc_client_fini(card_ctx);
 	close(srv_fd);
 }
