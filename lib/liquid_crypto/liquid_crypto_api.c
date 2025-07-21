@@ -1709,25 +1709,30 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 					const struct dao_lc_sym_sess_meta *sess_meta,
 					const enum lc_sym_op_type op_type)
 {
-	uint32_t auth_offset, auth_len, buf_len;
+	uint32_t buf_len, auth_len, auth_offset = 0;
+	uint16_t hmac_aligned_key_len = 0, dlen;
 	struct __dao_lc_req_sym *req;
+	uint16_t hmac_key_len = 0;
 	union cpt_inst_w4 w4;
+	uint8_t *dptr;
 
-	if (op_type == LC_SYM_OP_AUTH_ONLY) {
-		auth_offset = op->auth_offset;
-		auth_len = op->auth_len;
-		qp->req_queue[req_idx].digest = op->digest;
-		qp->req_queue[req_idx].digest_len = sess_meta->digest_len;
+	auth_len = op->auth_len;
+	auth_offset = op->auth_offset;
+
+	if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) {
+		hmac_key_len = sess_meta->auth_key_len;
+		hmac_aligned_key_len = RTE_ALIGN_CEIL(hmac_key_len, 8);
+		dlen = auth_len + hmac_aligned_key_len;
 	} else {
-		dao_err("Invalid operation type: %d", op_type);
-		rte_errno = EINVAL;
-		return 0;
+		dlen = auth_len;
 	}
 
+	qp->req_queue[req_idx].digest = op->digest;
+	qp->req_queue[req_idx].digest_len = sess_meta->digest_len;
 	qp->req_queue[req_idx].op_type = op_type;
 	qp->req_queue[req_idx].is_auth_gen = op->auth_gen;
 
-	buf_len = sizeof(struct __dao_lc_req_sym) + auth_len;
+	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1750,14 +1755,20 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
 	req->is_hash_only = 1;
+	dptr = req->dptr;
 
 	w4.u64 = sess_meta->w4;
-	w4.s.dlen = auth_len;
+	w4.s.dlen = dlen;
 	req->w4 = w4.u64;
 	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 
+	/* Add HMAC Authentication Key for HMAC ops */
+	if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY)
+		memcpy(dptr, sess_meta->auth_key, hmac_key_len);
+
 	/* Add data */
-	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, req->dptr, auth_offset, auth_len);
+	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr + hmac_aligned_key_len, auth_offset,
+					   auth_len);
 
 	return 1;
 }
@@ -1770,10 +1781,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 {
 	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len, off_ctrl_len;
 	uint16_t buf_len, pkt_iv_len, aad_len, digest_len;
-	uint16_t hmac_aligned_key_len = 0;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
-	uint16_t hmac_key_len = 0;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
@@ -1798,20 +1807,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		qp->req_queue[req_idx].digest = op->digest;
 		qp->req_queue[req_idx].digest_len = digest_len;
-	} else if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) {
-		aad_len = 0;
-		cipher_offset = 0;
-		cipher_len = 0;
-		auth_offset = 0;
-		auth_len = 0;
-		pkt_iv_len = 0;
-		hmac_key_len = sess_meta->auth_key_len;
-		hmac_aligned_key_len = RTE_ALIGN_CEIL(hmac_key_len, 8);
-		digest_len = sess_meta->digest_len;
-		/* No offset control word for auth only */
-		off_ctrl_len = 0;
-		qp->req_queue[req_idx].digest = op->digest;
-		qp->req_queue[req_idx].digest_len = digest_len;
 	} else {
 		dao_err("Invalid operation type: %d", op_type);
 		rte_errno = EINVAL;
@@ -1826,8 +1821,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		qp->req_queue[req_idx].data_out = op->in_buffer;
 
 	dlen = op->in_buffer->total_len;
-	buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + dlen +
-		  hmac_aligned_key_len;
+	buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1844,7 +1838,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	}
 #endif
 	/* Input length starting from memory pointed by DPTR */
-	dlen += off_ctrl_len + pkt_iv_len + hmac_aligned_key_len;
+	dlen += off_ctrl_len + pkt_iv_len;
 
 	/* Append transport header to mbuf */
 	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);
@@ -1919,13 +1913,9 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 #endif
 		if (op->aad_len != 0)
 			memcpy(dptr + iv_offset + pkt_iv_len, op->aad, op->aad_len);
-	} else if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) {
-		memcpy(dptr, sess_meta->auth_key, hmac_key_len);
 	}
 
-	dao_lc_buf_copy_to_mem(op->in_buffer,
-			       dptr + iv_offset + aad_len + pkt_iv_len + hmac_aligned_key_len,
-			       dlen);
+	dao_lc_buf_copy_to_mem(op->in_buffer, dptr + iv_offset + aad_len + pkt_iv_len, dlen);
 
 	return 1;
 }
@@ -1973,8 +1963,8 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 							    LC_SYM_OP_CIPHER_AUTH);
 			break;
 		case LC_SYM_OP_HMAC_AUTH_ONLY:
-			ret = dao_lc_sym_prepare_ops_single(qp, op, mbufs[i], req_idx, sess_meta,
-							    LC_SYM_OP_HMAC_AUTH_ONLY);
+			ret = dao_lc_sym_prepare_ops_single_auth_only(
+				qp, op, mbufs[i], req_idx, sess_meta, LC_SYM_OP_HMAC_AUTH_ONLY);
 			break;
 		default:
 			/* LC_SYM_OP_AEAD */
