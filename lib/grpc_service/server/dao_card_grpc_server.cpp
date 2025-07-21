@@ -24,6 +24,7 @@
 #define APP_BASE_DIR "/tmp"
 #define FW_BASE_DIR "/mnt/new_root"
 #define APP_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_app_update.sh"
+#define APP_FALLBACK_SCRIPT "/root/lc_service/scripts/lc_app_fallback.sh"
 #define FW_UPDATE_SCRIPT "/root/lc_service/scripts/lc_fw_update.sh"
 #define FW_MOUNT_SCRIPT "/root/lc_service/scripts/lc_fw_mount.sh"
 #define LC_IP_ADDRESS_ENV_VAR "LC_IP_ADDRESS"
@@ -105,8 +106,8 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		response->set_max_sessions(info.max_sessions);
 
 		std::cout << "Card Info: version: " << response->version()
-		          << ", nb_devs: " << response->nb_devs()
-		          << ", max_sessions: " << response->max_sessions() << std::endl;
+			  << ", nb_devs: " << response->nb_devs()
+			  << ", max_sessions: " << response->max_sessions() << std::endl;
 
 		return Status::OK;
 	}
@@ -168,22 +169,31 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 				}
 			}
 
-			pid_t pid = fork();
-			if (pid == 0) {
-				execl(APP_UPDATE_SCRIPT, APP_UPDATE_SCRIPT, file_name.c_str(), NULL);
-				exit(1);
-			} else if (pid > 0) {
-				int status;
-				waitpid(pid, &status, 0);
-				if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-					std::cerr << "Failed to execute lc_app_update.sh"<< std::endl;
-					std::remove(file_full_path.c_str());
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
+			std::string command = std::string(". ") + APP_UPDATE_SCRIPT + " " +
+					      file_name;
+			if (system(command.c_str()) != 0) {
+				std::cerr << "Failed to execute lc_app_update.sh" << std::endl;
+				std::remove(file_full_path.c_str());
+				response->set_err(1);
+				return grpc::Status::CANCELLED;
 			}
 		}
 
+		return Status::OK;
+	}
+
+	Status AppFallback(ServerContext *context, const Emp *empty, CardResponse *response) override
+	{
+		(void)(context);
+		(void)(empty);
+
+		std::string command = std::string(". ") + APP_FALLBACK_SCRIPT;
+		if (system(command.c_str()) != 0) {
+			std::cerr << "AppFallback: Script failed" << std::endl;
+			response->set_err(1);
+			return Status(StatusCode::INTERNAL, "Script failed");
+		}
+		response->set_err(0);
 		return Status::OK;
 	}
 
@@ -238,19 +248,13 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 				}
 			}
 
-			pid_t pid = fork();
-			if (pid == 0) {
-				execl(FW_UPDATE_SCRIPT, FW_UPDATE_SCRIPT, file_name.c_str(), NULL);
-				exit(1);
-			} else if (pid > 0) {
-				int status;
-				waitpid(pid, &status, 0);
-				if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-					std::cerr << "Failed to update firmware"<< std::endl;
-					std::remove(file_full_path.c_str());
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
+			std::string command = std::string(". ") + FW_UPDATE_SCRIPT + " " +
+					      file_name;
+			if (system(command.c_str()) != 0) {
+				std::cerr << "Failed to update firmware" << std::endl;
+				std::remove(file_full_path.c_str());
+				response->set_err(1);
+				return grpc::Status::CANCELLED;
 			}
 
 			is_mounted = false;

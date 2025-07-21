@@ -88,6 +88,18 @@ int dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 int dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *req);
 
 /**
+ * Fallback the application to working one or older one.
+ *
+ * This function should be called to switch the application older or working one when updated
+ * application fails to start.
+ * Card should be booted in failsafe mode for this command to work.
+ *
+ * @param ctx: gRPC client context
+ * @return: 0 on success, negative value on failure
+ */
+int dao_card_app_fallback(struct dao_card_grpc_ctx *ctx);
+
+/**
  * Get the card stats.
  *
  * It will get the card stats like packets received or sent by each active core on liquid crypto

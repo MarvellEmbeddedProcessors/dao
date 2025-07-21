@@ -13,6 +13,7 @@ service DaoCardService {
 	rpc AppUpdate(UpdateReq) returns (CardResponse) {}
 	rpc Stats(Emp) returns (CardStats) {}
 	rpc FwUpdate(UpdateReq) returns (CardResponse) {}
+	rpc AppFallback(Emp) returns (CardResponse) {}
 }
 
 message CardConfig {

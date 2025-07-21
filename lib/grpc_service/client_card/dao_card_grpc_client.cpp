@@ -152,6 +152,23 @@ dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_re
 }
 
 int
+dao_card_app_fallback(struct dao_card_grpc_ctx *ctx)
+{
+	if (ctx == NULL)
+		return -EINVAL;
+
+	grpc::ClientContext context;
+	Emp empty;
+	CardResponse resp;
+	grpc::Status status = ctx->stub->AppFallback(&context, empty, &resp);
+	if (!status.ok()) {
+		fprintf(stderr, "Failed to perform app fallback: %s\n", status.error_message().c_str());
+		return resp.err();
+	}
+	return 0;
+}
+
+int
 dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 {
 	ClientContext context;

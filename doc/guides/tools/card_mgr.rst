@@ -137,6 +137,15 @@ available for managing firmware:
 
    This command is supported on LiquidCrypto (LC) cards.
 
+* ``card_app_fallback``
+
+   This command switches the application images used by the 'main' image on LiquidCrypto card.
+   This command is useful for recovery scenarios when an application image updated using
+   ``card-app_update`` fails to start.
+   The command is only supported when the card is booted from the 'failsafe' image.
+
+   If the card is not in SPI boot mode, the command will return an error.
+
 * ``card_fw_update <filename>``
 
    This command updates the complete DAO card firmware. The ``<filename>`` argument specifies the

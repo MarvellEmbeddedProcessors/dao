@@ -32,13 +32,14 @@
 #define BUFFER_SIZE              1024
 #define CA_MAX_WORKER_CORES      23
 
-#define DAO_CARD_MGR_CARD_INIT   "card_init"
-#define DAO_CARD_MGR_CARD_FINI   "card_fini"
-#define DAO_CARD_MGR_CARD_INFO   "card_info"
-#define DAO_CARD_MGR_APP_UPDATE  "card_app_update"
-#define DAO_CARD_MGR_CARD_STATS  "card_stats"
-#define DAO_CARD_MGR_FW_UPDATE   "card_fw_update"
-#define DAO_CARD_MGR_BOOT_SOURCE "card_boot_source"
+#define DAO_CARD_MGR_CARD_INIT    "card_init"
+#define DAO_CARD_MGR_CARD_FINI    "card_fini"
+#define DAO_CARD_MGR_CARD_INFO    "card_info"
+#define DAO_CARD_MGR_APP_UPDATE   "card_app_update"
+#define DAO_CARD_MGR_APP_FALLBACK "card_app_fallback"
+#define DAO_CARD_MGR_CARD_STATS   "card_stats"
+#define DAO_CARD_MGR_FW_UPDATE    "card_fw_update"
+#define DAO_CARD_MGR_BOOT_SOURCE  "card_boot_source"
 
 typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER,
@@ -85,6 +86,8 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
 	fprintf(stderr,
 		" card_app_update [absolute path of file]: Update the given file on to the card\n");
+	fprintf(stderr,
+		" card_app_fallback: Config the card to fallback to the working app when updated app fails\n");
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
 	fprintf(stderr,
 		" card_fw_update: [absolute path of file]: Update the image on to the DAO card.\n");
@@ -300,6 +303,17 @@ dao_card_mgr_usage_print(void)
 	fprintf(stderr, "-c, --client Run the manager as client mode\n");
 	fprintf(stderr, "-s, --server Run the manager as server mode\n");
 	fprintf(stderr, "-f, --server_cli Run the manager as server in cli mode\n");
+}
+
+static int
+dao_card_mgr_app_fallback(void)
+{
+	int rc = 0;
+
+	rc = dao_card_app_fallback(card_ctx);
+	if (rc < 0)
+		syslog(LOG_ERR, "gRPC error in card_app_fallback: %d", rc);
+	return rc;
 }
 
 static int
@@ -531,6 +545,8 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = dao_card_info_get(card_ctx, &card_info);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_UPDATE) == 0) {
 		rc = dao_card_mgr_app_update(cmd);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_FALLBACK) == 0) {
+		rc = dao_card_mgr_app_fallback();
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
 		rc = dao_card_stats_get(card_ctx, &card_stats);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
