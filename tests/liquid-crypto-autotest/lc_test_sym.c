@@ -184,19 +184,21 @@ test_hash_verify(const void *data)
 static int
 test_block_cipher_only(const void *data, bool is_encrypt)
 {
-	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN] = {0};
+	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+			    TEST_LC_MAX_OFFSET] = {0};
+	int ret, i, max_offset = TEST_LC_MAX_OFFSET;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
-	uint64_t sess_cookie = rte_rand();
 	struct dao_lc_buf in_buf[1] = {0};
 	struct dao_lc_sym_op op[1] = {0};
+	uint64_t sess_cookie, op_cookie;
 	struct dao_lc_cmd_event ev;
 	struct dao_lc_res res[1];
-	int ret;
 
 	ctx.iv_len = params->iv.len;
+	sess_cookie = rte_rand();
 	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not create session");
@@ -214,86 +216,104 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
 
 	/* Perform crypto operation */
-	op[0].op_cookie = sess_cookie;
 	op[0].sess_id = ev.sess_event.sess_id;
 
-	if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
-	    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM)) {
-		if (params->aad.len > TEST_LC_MAX_AAD_LEN) {
-			TEST_LC_ERR("AAD length (%u) out of bounds [0, %u]", params->aad.len,
-				    TEST_LC_MAX_AAD_LEN);
+	for (i = 0; i < max_offset; i++) {
+		if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
+		    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM)) {
+			if (params->aad.len > TEST_LC_MAX_AAD_LEN) {
+				TEST_LC_ERR("AAD length (%u) out of bounds [0, %u]",
+					    params->aad.len, TEST_LC_MAX_AAD_LEN);
+				return -1;
+			}
+
+			op[0].aad = (uint8_t *)params->aad.data;
+			op[0].aad_len = params->aad.len;
+
+			op[0].digest = &(in_buf_data[params->plaintext.len + i]);
+			if (!is_encrypt)
+				memcpy(op[0].digest, params->digest.data, params->digest.len);
+		}
+
+		if (is_encrypt) {
+			memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
+			in_buf[0].frag_len =
+				params->aad.len + params->plaintext.len + params->digest.len + i;
+			in_buf[0].total_len =
+				params->aad.len + params->plaintext.len + params->digest.len + i;
+			op[0].encrypt = 1;
+		} else {
+			memcpy(in_buf_data + i, params->ciphertext.data, params->ciphertext.len);
+			in_buf[0].frag_len =
+				params->aad.len + params->ciphertext.len + params->digest.len + i;
+			in_buf[0].total_len =
+				params->aad.len + params->ciphertext.len + params->digest.len + i;
+			op[0].encrypt = 0;
+		}
+
+		in_buf[0].data = in_buf_data;
+		op[0].in_buffer = in_buf;
+		op[0].cipher_offset = params->cipher_offset + i;
+		op[0].cipher_len = params->ciphertext.len;
+		op[0].cipher_iv = (uint8_t *)params->iv.data;
+		op_cookie = rte_rand();
+		op[0].op_cookie = op_cookie;
+
+		ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
+		if (ret != 1) {
+			TEST_LC_ERR("Could not enqueue symmetric crypto operation");
 			return -1;
 		}
 
-		op[0].aad = (uint8_t *)params->aad.data;
-		op[0].aad_len = params->aad.len;
-
-		op[0].digest = &(in_buf_data[params->plaintext.len]);
-		if (!is_encrypt)
-			memcpy(op[0].digest, params->digest.data, params->digest.len);
-	}
-
-	if (is_encrypt) {
-		memcpy(in_buf_data, params->plaintext.data, params->plaintext.len);
-		in_buf[0].frag_len = params->aad.len + params->plaintext.len + params->digest.len;
-		in_buf[0].total_len = params->aad.len + params->plaintext.len + params->digest.len;
-		op[0].encrypt = 1;
-	} else {
-		memcpy(in_buf_data, params->ciphertext.data, params->ciphertext.len);
-		in_buf[0].frag_len = params->aad.len + params->ciphertext.len + params->digest.len;
-		in_buf[0].total_len = params->aad.len + params->ciphertext.len + params->digest.len;
-		op[0].encrypt = 0;
-	}
-
-	in_buf[0].data = in_buf_data;
-	op[0].in_buffer = in_buf;
-	op[0].cipher_offset = params->cipher_offset;
-	op[0].cipher_len = params->ciphertext.len;
-	op[0].cipher_iv = (uint8_t *)params->iv.data;
-
-	ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
-	if (ret != 1) {
-		TEST_LC_ERR("Could not enqueue symmetric crypto operation");
-		return -1;
-	}
-
-	ret = op_dequeue(dev_id, qp_id, res);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not dequeue symmetric crypto operation");
-		return -1;
-	}
-
-	TEST_ASSERT(res[0].op_cookie == sess_cookie, "Invalid operation cookie");
-	TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
-	TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Symmetric operation failed");
-
-	if (is_encrypt) {
-		ret = memcmp(in_buf_data, params->ciphertext.data, params->ciphertext.len);
-		if (ret != 0) {
-			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->ciphertext.len);
-			rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
-				    params->ciphertext.len);
+		ret = op_dequeue(dev_id, qp_id, res);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not dequeue symmetric crypto operation");
+			return -1;
 		}
-		TEST_ASSERT(ret == 0, "Invalid result");
 
-		ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
-		if (ret != 0) {
-			rte_hexdump(stdout, "RESULT digest: ", op[0].digest, params->digest.len);
-			rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
-				    params->digest.len);
-		}
-		TEST_ASSERT(ret == 0, "Invalid result");
+		TEST_ASSERT(res[0].op_cookie == op_cookie, "Invalid operation cookie");
+		TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+			    "Crypto operation failed");
+		TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS,
+			    "Symmetric operation failed");
 
-	} else {
-		ret = memcmp(in_buf_data, params->plaintext.data, params->plaintext.len);
-		if (ret != 0) {
-			rte_hexdump(stdout, "RESULT: ", in_buf_data, params->plaintext.len);
-			rte_hexdump(stdout, "EXPECTED: ", params->plaintext.data,
-				    params->plaintext.len);
+		if (is_encrypt) {
+			ret = memcmp(in_buf_data + i, params->ciphertext.data,
+				     params->ciphertext.len);
+			if (ret != 0) {
+				TEST_LC_ERR("Invalid result for offset %d", i);
+				rte_hexdump(stdout, "RESULT: ", in_buf_data + i,
+					    params->ciphertext.len);
+				rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
+					    params->ciphertext.len);
+				return -1;
+			}
+
+			ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
+			if (ret != 0) {
+				TEST_LC_ERR("Invalid digest for offset %d", i);
+				rte_hexdump(stdout, "RESULT digest: ", op[0].digest,
+					    params->digest.len);
+				rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
+					    params->digest.len);
+				return -1;
+			}
+
+		} else {
+			ret = memcmp(in_buf_data + i, params->plaintext.data,
+				     params->plaintext.len);
+			if (ret != 0) {
+				TEST_LC_ERR("Invalid result for offset %d", i);
+				rte_hexdump(stdout, "RESULT: ", in_buf_data + i,
+					    params->plaintext.len);
+				rte_hexdump(stdout, "EXPECTED: ", params->plaintext.data,
+					    params->plaintext.len);
+				return -1;
+			}
 		}
-		TEST_ASSERT(ret == 0, "Invalid result");
 	}
 
+	sess_cookie = rte_rand();
 	ret = dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id,
 						 sess_cookie);
 	if (ret < 0) {
