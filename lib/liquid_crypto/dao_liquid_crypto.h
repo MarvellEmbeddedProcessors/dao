@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 /** The version of the liquid crypto library */
-#define DAO_LC_VERSION "25.06.3"
+#define DAO_LC_VERSION "25.07.0"
 /** The maximum length of the version string. */
 #define DAO_CRYPTO_VERSION_LEN 32
 /** The maximum number of devices supported by the liquid crypto library. */
