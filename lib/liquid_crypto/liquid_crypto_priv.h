@@ -99,6 +99,9 @@ struct liquid_crypto_inflight_req {
 		/** Pointer to metadata for the symmetric session creation request */
 		struct dao_lc_sym_sess_meta *sess_meta;
 	};
+
+	/* Is auth generate operation */
+	bool is_auth_gen;
 };
 
 static inline uint32_t

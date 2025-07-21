@@ -1600,7 +1600,15 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	/* Auth only post process involves simply copying the digest data to digest buffer. */
 	if ((req->sess_meta->op_type == LC_SYM_OP_AUTH_ONLY) ||
 	    (req->sess_meta->op_type == LC_SYM_OP_HMAC_AUTH_ONLY)) {
-		memcpy(req->digest, resp->rptr, req->digest_len);
+		if (req->is_auth_gen) {
+			memcpy(req->digest, resp->rptr, req->digest_len);
+		} else {
+			int diff = 0;
+
+			diff = memcmp(req->digest, resp->rptr, req->digest_len);
+			if (res->res.cn9k.uc_compcode == DAO_UC_SUCCESS && diff != 0)
+				res->res.cn9k.uc_compcode = DAO_UC_ERR_GC_ICV_MISCOMPARE;
+		}
 	} else {
 		result_offset = req->cipher_offset;
 
@@ -1717,6 +1725,7 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	}
 
 	qp->req_queue[req_idx].op_type = op_type;
+	qp->req_queue[req_idx].is_auth_gen = op->auth_gen;
 
 	buf_len = sizeof(struct __dao_lc_req_sym) + auth_len;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
