@@ -97,6 +97,11 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		op[0].auth_offset = params->auth_offset + i;
 		op[0].auth_len = params->plaintext.len;
 
+		if (is_auth_gen)
+			memset(op[0].digest, 0, params->digest.len);
+		else
+			memcpy(op[0].digest, params->digest.data, params->digest.len);
+
 		ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
 		if (ret != 1) {
 			TEST_LC_ERR("Could not enqueue symmetric crypto operation");
@@ -112,21 +117,35 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		TEST_ASSERT(res[0].op_cookie == op_cookie, "Invalid operation cookie");
 		TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD,
 			    "Crypto operation failed");
-		TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS,
-			    "Authentication operation failed");
 
 		if (is_auth_gen) {
+			if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
+				TEST_LC_ERR("Auth gen failed with uc_compcode %u for offset %d",
+					    res[0].res.cn9k.uc_compcode, i);
+				return -1;
+			}
+
 			ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
 			if (ret != 0) {
+				TEST_LC_ERR("Digest Gen failed for offset %d", i);
 				rte_hexdump(stdout, "RESULT digest: ", op[0].digest,
 					    params->digest.len);
 				rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
 					    params->digest.len);
+				return -1;
 			}
-			TEST_ASSERT(ret == 0, "Digest genartaion failed for offset %d", i);
 		} else {
-			TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_ERR_GC_ICV_MISCOMPARE,
-				    "Digest verify failed for offset %d", i);
+			if (res[0].res.cn9k.uc_compcode == DAO_UC_ERR_GC_ICV_MISCOMPARE) {
+				TEST_LC_ERR("Expected digest verification to succeed for offset %d",
+					    i);
+				rte_hexdump(stdout, "PROVIDED digest: ", op[0].digest,
+					    params->digest.len);
+				return -1;
+			} else if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
+				TEST_LC_ERR("Auth verify failed with uc_compcode %u for offset %d",
+					    res[0].res.cn9k.uc_compcode, i);
+				return -1;
+			}
 		}
 	}
 
@@ -148,6 +167,18 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
 
 	return 0;
+}
+
+static int
+test_hash_gen(const void *data)
+{
+	return test_hash_only(data, true);
+}
+
+static int
+test_hash_verify(const void *data)
+{
+	return test_hash_only(data, false);
 }
 
 static int
@@ -283,18 +314,6 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 }
 
 static int
-test_hash_gen(const void *data)
-{
-	return test_hash_only(data, true);
-}
-
-static int
-test_hash_verify(const void *data)
-{
-	return test_hash_only(data, false);
-}
-
-static int
 test_block_cipher_only_encrypt(const void *data)
 {
 	return test_block_cipher_only(data, true);
@@ -355,14 +374,24 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_decrypt, &aes_ccm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
 					  &sha1_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &sha1_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA224 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
 					  &sha224_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA224 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &sha224_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA256 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
 					  &sha256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA256 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &sha256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA384 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
 					  &sha384_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA384 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &sha384_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA512 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
 					  &sha512_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHA512 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &sha512_test_data),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Gen", ut_setup, ut_teardown,
 					  test_hash_gen, &hmac_sha1_test_data),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Verify", ut_setup, ut_teardown,
