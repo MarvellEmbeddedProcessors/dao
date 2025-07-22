@@ -1868,8 +1868,9 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		qp->req_queue[req_idx].data_out = op->in_buffer;
 
 	lc_buf_offset = op->cipher_offset;
-	dlen = op->in_buffer->total_len - lc_buf_offset;
-	buf_len = sizeof(struct __dao_lc_req_sym) + off_ctrl_len + pkt_iv_len + aad_len + dlen;
+	/* Input length starting from memory pointed by DPTR */
+	dlen = off_ctrl_len + pkt_iv_len + aad_len + op->in_buffer->total_len - lc_buf_offset;
+	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -1885,8 +1886,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		return 0;
 	}
 #endif
-	/* Input length starting from memory pointed by DPTR */
-	dlen += off_ctrl_len + pkt_iv_len;
 
 	/* Append transport header to mbuf */
 	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);

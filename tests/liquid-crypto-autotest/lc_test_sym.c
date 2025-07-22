@@ -226,7 +226,10 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 					    params->aad.len, TEST_LC_MAX_AAD_LEN);
 				return -1;
 			}
-
+			if (params->aad.data == NULL) {
+				TEST_LC_ERR("Invalid AAD data");
+				return -1;
+			}
 			op[0].aad = (uint8_t *)params->aad.data;
 			op[0].aad_len = params->aad.len;
 
@@ -237,17 +240,13 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 
 		if (is_encrypt) {
 			memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
-			in_buf[0].frag_len =
-				params->aad.len + params->plaintext.len + params->digest.len + i;
-			in_buf[0].total_len =
-				params->aad.len + params->plaintext.len + params->digest.len + i;
+			in_buf[0].frag_len = params->plaintext.len + params->digest.len + i;
+			in_buf[0].total_len = params->plaintext.len + params->digest.len + i;
 			op[0].encrypt = 1;
 		} else {
 			memcpy(in_buf_data + i, params->ciphertext.data, params->ciphertext.len);
-			in_buf[0].frag_len =
-				params->aad.len + params->ciphertext.len + params->digest.len + i;
-			in_buf[0].total_len =
-				params->aad.len + params->ciphertext.len + params->digest.len + i;
+			in_buf[0].frag_len = params->ciphertext.len + params->digest.len + i;
+			in_buf[0].total_len = params->ciphertext.len + params->digest.len + i;
 			op[0].encrypt = 0;
 		}
 
@@ -255,7 +254,13 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 		op[0].in_buffer = in_buf;
 		op[0].cipher_offset = params->cipher_offset + i;
 		op[0].cipher_len = params->ciphertext.len;
+
+		if (params->iv.data == NULL || params->iv.len == 0) {
+			TEST_LC_ERR("Invalid IV data or length");
+			return -1;
+		}
 		op[0].cipher_iv = (uint8_t *)params->iv.data;
+
 		op_cookie = rte_rand();
 		op[0].op_cookie = op_cookie;
 
