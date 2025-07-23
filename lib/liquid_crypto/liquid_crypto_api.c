@@ -1927,7 +1927,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 
 	lc_buf_offset = op->cipher_offset;
 	/* Input length starting from memory pointed by DPTR */
-	dlen = off_ctrl_len + pkt_iv_len + aad_len + op->in_buffer->total_len - lc_buf_offset;
+	dlen = off_ctrl_len + pkt_iv_len + aad_len + op->in_buffer->total_len + digest_len -
+	       lc_buf_offset;
 	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
@@ -1950,21 +1951,17 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
+	req->is_hash_only = 0;
 
 	/* Add instruction */
 	w4.u64 = sess_meta->w4;
-	if (op_type != LC_SYM_OP_HMAC_AUTH_ONLY) {
-		w4.s.param1 = op->cipher_len;
-		w4.s.param2 = auth_len;
+	w4.s.param1 = op->cipher_len;
+	w4.s.param2 = auth_len;
 
-		if (op->encrypt)
-			w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
-		else
-			w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_DECRYPT;
-		req->is_hash_only = 0;
-	} else {
-		req->is_hash_only = 1;
-	}
+	if (op->encrypt)
+		w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
+	else
+		w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_DECRYPT;
 
 	if (op->encrypt) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -2024,6 +2021,11 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 
 	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr + iv_offset + aad_len + pkt_iv_len,
 					   lc_buf_offset, op->in_buffer->total_len - lc_buf_offset);
+
+	if (digest_len != 0)
+		memcpy(dptr + iv_offset + pkt_iv_len + aad_len + op->in_buffer->total_len -
+			       lc_buf_offset,
+		       op->digest, digest_len);
 
 	return 1;
 }

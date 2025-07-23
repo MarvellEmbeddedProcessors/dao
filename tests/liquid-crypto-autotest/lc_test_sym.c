@@ -240,13 +240,13 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 
 		if (is_encrypt) {
 			memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
-			in_buf[0].frag_len = params->plaintext.len + params->digest.len + i;
-			in_buf[0].total_len = params->plaintext.len + params->digest.len + i;
+			in_buf[0].frag_len = params->plaintext.len + i;
+			in_buf[0].total_len = params->plaintext.len + i;
 			op[0].encrypt = 1;
 		} else {
 			memcpy(in_buf_data + i, params->ciphertext.data, params->ciphertext.len);
-			in_buf[0].frag_len = params->ciphertext.len + params->digest.len + i;
-			in_buf[0].total_len = params->ciphertext.len + params->digest.len + i;
+			in_buf[0].frag_len = params->ciphertext.len + i;
+			in_buf[0].total_len = params->ciphertext.len + i;
 			op[0].encrypt = 0;
 		}
 
