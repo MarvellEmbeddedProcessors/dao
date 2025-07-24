@@ -12,8 +12,9 @@
 
 #include <liquid_crypto_sym.h>
 
-#define LIQUID_CRYPTO_BUF_SZ_MIN 64ull
-#define LIQUID_CRYPTO_BUF_SZ_MAX 32768ull
+#define LIQUID_CRYPTO_BUF_SZ_MIN          64ull
+#define LIQUID_CRYPTO_BUF_SZ_MAX          32768ull
+#define LIQUID_CRYPTO_BUF_SDP_DATA_LEN_SZ 8ull
 
 #define LIQUID_CRYPTO_MAX_BURST 128
 
