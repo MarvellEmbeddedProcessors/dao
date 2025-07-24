@@ -10,6 +10,7 @@
 #include <grpcpp/client_context.h>
 #include <grpcpp/create_channel.h>
 #include <grpcpp/security/credentials.h>
+#include <openssl/evp.h>
 
 #include "dao_card_grpc_client.h"
 #include "dao_card.grpc.pb.h"
@@ -221,6 +222,99 @@ dao_card_fw_update(struct dao_card_grpc_ctx *ctx, struct dao_card_fw_update_req 
 		status = ctx->stub->FwUpdate(&context, req, &resp);
 		if (!status.ok()) {
 			fprintf(stderr, "Failed to upload chunk: %s\n", status.error_message().c_str());
+			file.close();
+			return -EIO;
+		}
+	}
+
+	file.close();
+	return 0;
+}
+
+int
+dao_card_failsafe_update(struct dao_card_grpc_ctx *ctx, struct dao_card_failsafe_update_req *update_req)
+{
+	const size_t chunk_size = 3 * 1024 * 1024;
+	unsigned int hash_len = 0;
+	unsigned char hash[32];
+
+	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
+		return -EINVAL;
+
+	std::string full_path = std::string(update_req->filepath) + "/" +
+				std::string(update_req->filename);
+	std::ifstream file(full_path, std::ios::binary);
+	if (!file.is_open()) {
+		fprintf(stderr, "Failed to open file: %s\n", update_req->filename);
+		return -ENOENT;
+	}
+
+	file.seekg(0, std::ios::end);
+	std::streamsize file_size = file.tellg();
+	file.seekg(0, std::ios::beg);
+	std::vector<char> file_data(file_size);
+	if (!file.read(file_data.data(), file_size)) {
+		fprintf(stderr, "Failed to read file for checksum: %s\n", update_req->filename);
+		file.close();
+		return -EIO;
+	}
+	file.clear();
+	file.seekg(0, std::ios::beg);
+
+	EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+	if (mdctx == NULL) {
+		file.close();
+		return -ENOMEM;
+	}
+
+	if (EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) != 1) {
+		EVP_MD_CTX_free(mdctx);
+		file.close();
+		return -EIO;
+	}
+
+	std::vector<char> buffer(chunk_size);
+	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
+		if (EVP_DigestUpdate(mdctx, buffer.data(), file.gcount()) != 1) {
+			EVP_MD_CTX_free(mdctx);
+			file.close();
+			return -EIO;
+		}
+	}
+
+	if (EVP_DigestFinal_ex(mdctx, hash, &hash_len) != 1) {
+		EVP_MD_CTX_free(mdctx);
+		file.close();
+		return -EIO;
+	}
+
+	EVP_MD_CTX_free(mdctx);
+	file.clear();
+	file.seekg(0, std::ios::beg);
+
+	std::string checksum_str;
+	checksum_str.reserve(64);
+	for (int i = 0; i < 32; ++i) {
+		char hex[3];
+		snprintf(hex, sizeof(hex), "%02x", hash[i]);
+		checksum_str.append(hex);
+	}
+
+	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
+		grpc::ClientContext context;
+		grpc::Status status;
+		UpdateReq req;
+		CardResponse resp;
+
+		req.set_file_name(update_req->filename);
+		req.set_file_content(buffer.data(), file.gcount());
+		req.set_is_last_chunk(file.eof());
+		req.set_checksum(checksum_str);
+
+		status = ctx->stub->FailsafeUpdate(&context, req, &resp);
+		if (!status.ok()) {
+			fprintf(stderr, "Failed to upload failsafe chunk: %s\n",
+				status.error_message().c_str());
 			file.close();
 			return -EIO;
 		}

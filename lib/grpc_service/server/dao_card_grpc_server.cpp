@@ -27,6 +27,7 @@
 #define APP_FALLBACK_SCRIPT "/root/lc_service/scripts/lc_app_fallback.sh"
 #define FW_UPDATE_SCRIPT "/root/lc_service/scripts/lc_fw_update.sh"
 #define FW_MOUNT_SCRIPT "/root/lc_service/scripts/lc_fw_mount.sh"
+#define FAILSAFE_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_failsafe_update.sh"
 #define LC_IP_ADDRESS_ENV_VAR "LC_IP_ADDRESS"
 #define LC_DEFAULT_PORT 50051
 #define LC_DEFAULT_IP_ADDRESS "192.168.1.1"
@@ -126,7 +127,6 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 		return Status::OK;
 	}
-
 
 	Status AppUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
 	{
@@ -258,6 +258,61 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			}
 
 			is_mounted = false;
+		}
+		return Status::OK;
+	}
+
+	Status FailsafeUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
+	{
+		(void)(context);
+
+		std::string base_dir = APP_BASE_DIR;
+		std::string file_full_path = base_dir + '/' + req->file_name();
+
+		static std::unordered_map<std::string, std::ofstream> file_map;
+		auto it = file_map.find(file_full_path);
+		if (it == file_map.end()) {
+			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
+			if (!output_file.is_open()) {
+				std::cerr << "Failed to open the failsafe file"<< std::endl;
+				response->set_err(1);
+				return grpc::Status::CANCELLED;
+			}
+			file_map[file_full_path] = std::move(output_file);
+		}
+
+		std::ofstream& output_file = file_map[file_full_path];
+		output_file.write(req->file_content().data(), req->file_content().size());
+		if (output_file.fail()) {
+			std::cerr << "Failed to write to failsafe file" << std::endl;
+			response->set_err(1);
+			return grpc::Status::CANCELLED;
+		}
+
+		if (req->is_last_chunk()) {
+			std::cerr << "last chunk received for failsafe" << std::endl;
+			output_file.close();
+			file_map.erase(file_full_path);
+
+			std::string file_name = req->file_name();
+			for (char c : file_name) {
+				if (!std::isalnum(c) && c != '.' && c != '-' && c != '_') {
+					std::cerr << "Invalid character in failsafe filename"
+						  << std::endl;
+					response->set_err(1);
+					return grpc::Status::CANCELLED;
+				}
+			}
+
+			std::string checksum = req->checksum();
+			std::string command = std::string(". ") + FAILSAFE_UPDATE_SCRIPT + " " +
+						file_name + " " + checksum;
+			if (system(command.c_str()) != 0) {
+				std::cerr << "Failed to update failsafe image" << std::endl;
+				std::remove(file_full_path.c_str());
+				response->set_err(1);
+				return grpc::Status::CANCELLED;
+			}
 		}
 		return Status::OK;
 	}

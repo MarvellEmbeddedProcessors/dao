@@ -27,6 +27,9 @@ DAO_EXT_DEPS_GRPC = []
 DAO_EXT_DEPS_LIBEDIT = []
 # LIBPCAP
 DAO_EXT_DEPS_LIBPCAP = []
+# OpenSSL
+DAO_EXT_DEPS_OPENSSL = []
+
 # DAO static libraries
 DAO_STATIC_LIBS = []
 # Enabled/disabled static dao applicaitons/libraries/tests

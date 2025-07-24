@@ -159,6 +159,19 @@ available for managing firmware:
 
    This command is supported on LiquidCrypto (LC) cards.
 
+* ``card_failsafe_update <filename>``
+
+   This command updates the failsafe image on the DAO card. The ``<filename>`` argument specifies the
+   full path to the failsafe image file to upload.
+
+   Note that this command is only supported when the card is booted with 'main' image and is
+   initialized with ``card_init`` command. If the card is booted with 'failsafe' image, this command
+   will not work and will return an error.
+
+   The command verifies the integrity of the uploaded image using a checksum before flashing.
+
+   This command is supported on LiquidCrypto (LC) cards.
+
 Above options are supported on all DAO cards.
 
 For more details on partition layout of LiquidCrypto (LC) cards, see

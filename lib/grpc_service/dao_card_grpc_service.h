@@ -66,6 +66,14 @@ struct dao_card_fw_update_req {
 	char *filepath;
 };
 
+/**
+ * Request structure for DAO Failsafe update.
+ */
+struct dao_card_failsafe_update_req {
+	char *filename;
+	char *filepath;
+};
+
 #ifdef __cplusplus
 }
 #endif
