@@ -182,19 +182,26 @@ test_hash_verify(const void *data)
 }
 
 static int
-test_block_cipher_only(const void *data, bool is_encrypt)
+test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 {
+	uint8_t out_buf_data[TEST_LC_MAX_CIPHERTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+			     TEST_LC_MAX_OFFSET] = {0};
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
 			    TEST_LC_MAX_OFFSET] = {0};
 	int ret, i, max_offset = TEST_LC_MAX_OFFSET;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
 	uint8_t dev_id = glb_params.dev_id;
+	struct dao_lc_buf out_buf[1] = {0};
+	uint32_t in_data_len, out_data_len;
 	uint16_t qp_id = glb_params.qp_id;
 	struct dao_lc_buf in_buf[1] = {0};
 	struct dao_lc_sym_op op[1] = {0};
 	uint64_t sess_cookie, op_cookie;
+	uint8_t *result_buffer = NULL;
 	struct dao_lc_cmd_event ev;
+	struct dao_lc_buf *dst_buf;
+	size_t max_len, total_len;
 	struct dao_lc_res res[1];
 
 	ctx.iv_len = params->iv.len;
@@ -219,6 +226,40 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	op[0].sess_id = ev.sess_event.sess_id;
 
 	for (i = 0; i < max_offset; i++) {
+		/* Clearing buffers for each iteration */
+		memset(in_buf_data, 0, sizeof(in_buf_data));
+		memset(out_buf_data, 0, sizeof(out_buf_data));
+		if (is_encrypt)
+			in_data_len = params->plaintext.len;
+		else
+			in_data_len = params->ciphertext.len;
+
+		if (in_data_len + i > TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_OFFSET) {
+			TEST_LC_ERR("Input buffer size exceeded for offset %d", i);
+			goto exit;
+		}
+
+		in_buf[0].data = in_buf_data;
+		in_buf[0].frag_len = in_data_len + i;
+		in_buf[0].total_len = in_buf[0].frag_len;
+
+		if (is_oop) {
+			dst_buf = out_buf;
+			if (is_encrypt)
+				out_data_len = params->ciphertext.len;
+			else
+				out_data_len = params->plaintext.len;
+			dst_buf[0].data = out_buf_data;
+			dst_buf[0].frag_len = out_data_len + i;
+			dst_buf[0].total_len = dst_buf[0].frag_len;
+			op[0].out_buffer = out_buf;
+		} else {
+			dst_buf = in_buf;
+			op[0].out_buffer = NULL;
+		}
+
+		op[0].in_buffer = in_buf;
+
 		if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
 		    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM)) {
 			if (params->aad.len > TEST_LC_MAX_AAD_LEN) {
@@ -233,25 +274,65 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 			op[0].aad = (uint8_t *)params->aad.data;
 			op[0].aad_len = params->aad.len;
 
-			op[0].digest = &(in_buf_data[params->plaintext.len + i]);
-			if (!is_encrypt)
-				memcpy(op[0].digest, params->digest.data, params->digest.len);
-		}
+			if (is_encrypt) {
+				memcpy(in_buf_data + i, params->plaintext.data,
+				       params->plaintext.len);
+				op[0].encrypt = true;
+				/*
+				 * As, in-place digest is stored in in_buf_data[] and in OOP it is
+				 * stored in out_buf_data[] and each buffer has different capacity
+				 * different limit checks are used.
+				 */
+				if (is_oop)
+					max_len = TEST_LC_MAX_CIPHERTEXT_LEN +
+						  TEST_LC_MAX_DIGEST_LEN + TEST_LC_MAX_OFFSET;
+				else
+					max_len = TEST_LC_MAX_PLAINTEXT_LEN +
+						  TEST_LC_MAX_DIGEST_LEN + TEST_LC_MAX_OFFSET;
 
-		if (is_encrypt) {
-			memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
-			in_buf[0].frag_len = params->plaintext.len + i;
-			in_buf[0].total_len = params->plaintext.len + i;
-			op[0].encrypt = 1;
+				total_len = params->plaintext.len + params->digest.len + i;
+				if (total_len <= max_len) {
+					op[0].digest = (uint8_t *)dst_buf[0].data +
+						       params->plaintext.len + i;
+				} else {
+					TEST_LC_ERR("Digest buffer too small for offset %d", i);
+					goto exit;
+				}
+			} else {
+				memcpy(in_buf_data + i, params->ciphertext.data,
+				       params->ciphertext.len);
+				op[0].encrypt = false;
+				if (params->ciphertext.len + params->digest.len + i <=
+				    TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+					    TEST_LC_MAX_OFFSET) {
+					memcpy(in_buf_data + params->ciphertext.len + i,
+					       params->digest.data, params->digest.len);
+					op[0].digest = &(in_buf_data[params->ciphertext.len + i]);
+					/*
+					 * During decryption digest should be present in input
+					 * buffer for  both in-place and out-of-place operations,
+					 * as APIs require digest to be present in the input
+					 * buffer for decryption.
+					 * TODO: Address this limitation in the LC API.
+					 */
+				} else {
+					TEST_LC_ERR("Buffer too small for digest for offset %d", i);
+					goto exit;
+				}
+			}
 		} else {
-			memcpy(in_buf_data + i, params->ciphertext.data, params->ciphertext.len);
-			in_buf[0].frag_len = params->ciphertext.len + i;
-			in_buf[0].total_len = params->ciphertext.len + i;
-			op[0].encrypt = 0;
+			/* For non-GCM/CCM modes */
+			if (is_encrypt) {
+				memcpy(in_buf_data + i, params->plaintext.data,
+				       params->plaintext.len);
+				op[0].encrypt = true;
+			} else {
+				memcpy(in_buf_data + i, params->ciphertext.data,
+				       params->ciphertext.len);
+				op[0].encrypt = false;
+			}
 		}
 
-		in_buf[0].data = in_buf_data;
-		op[0].in_buffer = in_buf;
 		op[0].cipher_offset = params->cipher_offset + i;
 		op[0].cipher_len = params->ciphertext.len;
 
@@ -282,12 +363,13 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 		TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS,
 			    "Symmetric operation failed");
 
+		result_buffer = (uint8_t *)dst_buf[0].data + i;
 		if (is_encrypt) {
-			ret = memcmp(in_buf_data + i, params->ciphertext.data,
+			ret = memcmp(result_buffer, params->ciphertext.data,
 				     params->ciphertext.len);
 			if (ret != 0) {
 				TEST_LC_ERR("Invalid result for offset %d", i);
-				rte_hexdump(stdout, "RESULT: ", in_buf_data + i,
+				rte_hexdump(stdout, "RESULT: ", result_buffer,
 					    params->ciphertext.len);
 				rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
 					    params->ciphertext.len);
@@ -303,13 +385,11 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 					    params->digest.len);
 				return -1;
 			}
-
 		} else {
-			ret = memcmp(in_buf_data + i, params->plaintext.data,
-				     params->plaintext.len);
+			ret = memcmp(result_buffer, params->plaintext.data, params->plaintext.len);
 			if (ret != 0) {
 				TEST_LC_ERR("Invalid result for offset %d", i);
-				rte_hexdump(stdout, "RESULT: ", in_buf_data + i,
+				rte_hexdump(stdout, "RESULT: ", result_buffer,
 					    params->plaintext.len);
 				rte_hexdump(stdout, "EXPECTED: ", params->plaintext.data,
 					    params->plaintext.len);
@@ -336,18 +416,36 @@ test_block_cipher_only(const void *data, bool is_encrypt)
 	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
 
 	return 0;
+
+exit:
+	/* clean-up path in case of early error */
+	dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id, sess_cookie);
+	sess_event_dequeue(dev_id, &ev);
+	return -1;
 }
 
 static int
 test_block_cipher_only_encrypt(const void *data)
 {
-	return test_block_cipher_only(data, true);
+	return test_block_cipher_only(data, true, false);
 }
 
 static int
 test_block_cipher_only_decrypt(const void *data)
 {
-	return test_block_cipher_only(data, false);
+	return test_block_cipher_only(data, false, false);
+}
+
+static int
+test_block_cipher_only_encrypt_oop(const void *data)
+{
+	return test_block_cipher_only(data, true, true);
+}
+
+static int
+test_block_cipher_only_decrypt_oop(const void *data)
+{
+	return test_block_cipher_only(data, false, true);
 }
 
 struct unit_test_suite lc_testsuite_sym = {
@@ -359,26 +457,62 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_cbc_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_cbc_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Encrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt_oop,
+					  &aes_cbc_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-CBC Decrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt_oop,
+					  &aes_cbc_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-CBC Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_cbc_192_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-CBC Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_cbc_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-CBC Encrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt_oop,
+					  &aes_cbc_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-CBC Decrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt_oop,
+					  &aes_cbc_192_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_cbc_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_cbc_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Encrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt_oop,
+					  &aes_cbc_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-CBC Decrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt_oop,
+					  &aes_cbc_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_gcm_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_gcm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Encrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt_oop,
+					  &aes_gcm_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-GCM Decrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt_oop,
+					  &aes_gcm_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-GCM Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_gcm_192_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-GCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_gcm_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-GCM Encrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt_oop,
+					  &aes_gcm_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-GCM Decrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt_oop,
+					  &aes_gcm_192_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_gcm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Encrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt_oop,
+					  &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt OOP", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt_oop,
+					  &aes_gcm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_ccm_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Decrypt", ut_setup, ut_teardown,
