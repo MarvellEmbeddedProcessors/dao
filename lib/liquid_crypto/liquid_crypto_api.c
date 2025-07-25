@@ -1888,10 +1888,10 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 			      const enum lc_sym_op_type op_type)
 {
 	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len, off_ctrl_len;
-	uint16_t buf_len, pkt_iv_len, aad_len, digest_len;
+	uint16_t pkt_iv_len, aad_len, digest_len;
+	uint32_t buf_len, lc_buf_offset = 0;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
-	uint32_t lc_buf_offset = 0;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
