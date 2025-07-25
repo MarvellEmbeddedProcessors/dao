@@ -24,6 +24,7 @@ update_failsafe() {
 
     if [ "$expected_chksum" != "$actual_chksum" ]; then
         echo "Checksum mismatch."
+        rm /tmp/$img_file
         exit 1
     else
         echo "Checksum matched."
@@ -33,8 +34,11 @@ update_failsafe() {
     # Backup complete U-Boot environment
     fw_printenv -c /etc/fw_mmc_env.config > /tmp/mmc_env_backup.txt
 
+    file_size=$(stat -c %s "/tmp/$img_file")
 
-    dd if=/tmp/$img_file bs=1M count=160 of=/dev/mtd0
+    mtd_debug erase /dev/mtd0 0 $file_size
+    mtd_debug write /dev/mtd0 0  $file_size "/tmp/$img_file"
+
 
     # Restore complete U-Boot environment
     fw_setenv -c /etc/fw_mmc_env.config -s /tmp/mmc_env_backup.txt
