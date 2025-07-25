@@ -88,12 +88,19 @@ available:
    and configuration. It provides essential details that help users understand the current state
    of the card.
 
-* ``card_boot_source <main|failsafe> <path-to-mrvl-oct-boot>``
+* ``card_boot_source <main|failsafe> <file_path>/mrvl-oct-boot``
 
    This command configures the DAO card to boot from either the 'main' or 'failsafe' image on the
    next reboot. The first argument selects the boot mode: ``main`` for the standard image,
    ``failsafe`` for the recovery image. The second argument specifies the full path to binary
    ``mrvl-oct-boot`` which configures the DAO card.
+
+**Example:**
+   .. code-block:: console
+
+      card_boot_source main /tmp/mrvl-oct-boot
+      card_boot_source failsafe /tmp/mrvl-oct-boot
+
 
 * ``card_fini``
 
@@ -124,16 +131,20 @@ Firmware Management
 DAO Card Manager also supports firmware management for DAO cards. The following commands are
 available for managing firmware:
 
-* ``card_app_update <filename>``
+* ``card_app_update <file_path>/app.tar``
 
    This command updates only the application partition of the DAO card firmware. The ``<filename>``
    argument specifies the full path to the file to upload. Use this command to update DAO
    applications in the firmware without updating the complete firmware. The card must be restarted
    after the update to apply the changes.
 
-   Note that this command is only supported when the card is booted with 'main' image and is
-   initialized  with ``card_init`` command. If the card is booted with 'failsafe' image, this
-   command will not work and will return an error.
+**Example:**
+   .. code-block:: console
+
+      card_app_update /tmp/app.tar
+
+   Note that this command is only supported when the card is booted with 'main' image. If the card
+   is booted with 'failsafe' image, this command will not work and will return an error.
 
    This command is supported on LiquidCrypto (LC) cards.
 
@@ -146,27 +157,36 @@ available for managing firmware:
 
    If the card is not in SPI boot mode, the command will return an error.
 
-* ``card_fw_update <filename>``
+* ``card_fw_update <file_path>/main_fw.tar``
 
    This command updates the complete DAO card firmware. The ``<filename>`` argument specifies the
    full path to the firmware file to upload. Use this command to update all firmware partitions,
    including the application and system partitions (i.e: kernel and root filesystem).
 
-   Note that this command is only supported when the card is booted with 'failsafe' image and is
-   initialized with ``card_init`` command. The card must be restarted with 'main' image to apply
-   the changes.
+**Example:**
+   .. code-block:: console
+
+      card_fw_update /tmp/main_fw.tar
+
+   Note that this command is only supported when the card is booted with 'failsafe' image. The card
+   must be restarted with 'main' image to apply the changes.
    If the card is booted with 'main' image, this command will not work and will return an error.
 
    This command is supported on LiquidCrypto (LC) cards.
 
-* ``card_failsafe_update <filename>``
+* ``card_failsafe_update <file_path>/failsafe_fw.img``
 
-   This command updates the failsafe image on the DAO card. The ``<filename>`` argument specifies the
-   full path to the failsafe image file to upload.
+   This command updates the failsafe image on the DAO card. The ``<filename>`` argument specifies
+   the full path to the failsafe image file to upload.
 
-   Note that this command is only supported when the card is booted with 'main' image and is
-   initialized with ``card_init`` command. If the card is booted with 'failsafe' image, this command
-   will not work and will return an error.
+  **Example:**
+   .. code-block:: console
+
+      card_failsafe_update /tmp/failsafe_fw.img
+
+   Note that this command is only supported when the card is booted with 'main' image. If the card
+   is booted with 'failsafe' image, this command will not work and will return an error.
+   The command will take approximately 4 to 5 mins to update the failsafe image.
 
    The command verifies the integrity of the uploaded image using a checksum before flashing.
 
