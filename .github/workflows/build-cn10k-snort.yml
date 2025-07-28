@@ -34,12 +34,12 @@ jobs:
         id: version
         run: |
             set -x
+            mkdir -p "${PWD}/artifacts"
             git tag --points-at HEAD > /tmp/tags
             [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
             PKG_VERSION_NAME=`cat VERSION`
             echo "PKG_VERSION_NAME=`cat VERSION`" >> "${PWD}/artifacts/env"
             echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
-            mkdir -p ~/.ccache
             sudo apt-get update  -q -y
             sudo apt-get install -y build-essential ccache git software-properties-common lsb-release
             sudo apt-get install -y  python3-pip gcc-14 lsb-release libstdc++-13-dev apt-utils

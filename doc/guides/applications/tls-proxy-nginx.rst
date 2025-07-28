@@ -105,14 +105,6 @@ Compiling from Sources
 Environment Setup
 =================
 
-Enabling CPT device
--------------------
-
-.. code-block:: console
-
-    ~# echo 1 > /sys/bus/pci/devices/0002\:20\:00.0/sriov_numvfs
-    ~# dpdk-devbind.py -b vfio-pci 0002:20:00.1
-
 Run the below script (once after every reboot) to create CPT VFs and bind to vfio-pci:
 --------------------------------------------------------------------------------------
 
@@ -130,12 +122,18 @@ For CN10K board:
 
     sh /usr/share/openssl-engine-dpdk/openssl-engine-dpdk-cn10k.sh /bin/dpdk-devbind.py
 
+.. note::
+   For proper OpenSSL acceleration with NGINX, it is necessary to bind CPT virtual functions (VFs) to the `vfio-pci` driver with the number of VFs equal to the system’s logical CPU count.
+   This is because the OpenSSL engine maps each VF to a CPU core’s CPUID, and NGINX worker threads can run on any core.
+   The provided setup scripts dynamically create and bind the appropriate number of CPT VFs based on the logical CPU count (commonly 24), ensuring each worker core has access to a dedicated VF.
+   If manual control over worker core to VF mapping is needed, it can be configured via the `cptvf_queues` parameter in the `openssl.cnf` file.
+
 NGINX configuration
 -------------------
 
 .. code-block:: console
 
-    ~# cat /conf/nginx.conf
+    ~# cat <path-to-conffile>/<nginx-config-file>.conf
 
 NGINX as HTTPS Server
 ^^^^^^^^^^^^^^^^^^^^^
@@ -442,3 +440,17 @@ Application running demo
 
 .. raw:: html
   :file: ../_static/demo/nginx.html
+
+.. note::
+
+    For OpenSSL engine usage with NGINX, 'init' parameter should be set to 0 as shown below, in the openssl.cnf file.
+
+    .. code-block:: console
+
+        init = 0
+
+    For other applications such as OpenSSL speed, s_server, s_client, 'init' parameter should be set to 1, as shown below in the openssl.cnf file.
+
+    .. code-block:: console
+
+        init = 1
