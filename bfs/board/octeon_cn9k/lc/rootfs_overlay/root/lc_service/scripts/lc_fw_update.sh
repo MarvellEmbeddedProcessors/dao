@@ -23,6 +23,47 @@ cleanup_root() {
     unmount_root
 }
 
+update_partition() {
+    # Recreate extended and logical partitions.
+    # Delete all extended partitions (p4 and above) one by one
+    partnums=$(fdisk -l /dev/mmcblk0 | awk '/mmcblk0p[4-9]|mmcblk0p[1-9][0-9]+/ {match($1, /p([0-9]+)$/ , a); if (a[1] >= 4) print a[1]}' | sort -nr)
+    fdisk_cmds=""
+    for num in $partnums; do
+        fdisk_cmds="$fdisk_cmds d\n$num\n"
+    done
+
+    fdisk /dev/mmcblk0 <<EOF
+$(echo -e "$fdisk_cmds")
+w
+EOF
+    partprobe
+
+    echo "Deleted all extended partitions"
+    # Get the end sector of p3 and calculate the start sector for p4
+    # fdisk -l output: ... StartLBA EndLBA Sectors ...
+    # We want the next sector after p3's end
+    p3_end=$(fdisk -l /dev/mmcblk0 | awk '/mmcblk0p3/ {print $5}')
+    p4_start=$((p3_end + 1))
+
+    fdisk /dev/mmcblk0 <<EOF
+n
+e
+$p4_start
+
+n
+
++512M
+n
+
++3G
+w
+EOF
+
+    partprobe /dev/mmcblk0
+    mkfs.ext4 /dev/mmcblk0p5
+    mkfs.ext4 /dev/mmcblk0p6
+}
+
 update_fw() {
     img_file=$1
     img_dir="${img_file%.tar}"
@@ -63,6 +104,8 @@ update_fw() {
     # unmount the app1 and remove the mount point.
     umount $app1_mount
     rm -rf $app1_mount
+
+    update_partition
 
     # Update the application in the app2 partition
     mkdir $app2_mount
