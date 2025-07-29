@@ -49,6 +49,9 @@ update_app() {
     # Mount the new app partition
     new_partition="mmcblk0$new_env"
 
+    # Format the partition before using.
+    mkfs.ext4 -t ext4 /dev/$new_partition
+
     mkdir /mnt/new_app
     mount /dev/$new_partition /mnt/new_app
     if [ $? -ne 0 ]; then
