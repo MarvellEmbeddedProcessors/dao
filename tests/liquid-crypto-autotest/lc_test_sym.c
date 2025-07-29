@@ -48,6 +48,7 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN] = {0};
 	uint8_t digest[TEST_LC_MAX_DIGEST_LEN] = {0};
 	const struct test_sym_params *params = data;
+	struct dao_lc_sym_ctx ctx = params->ctx;
 	uint8_t dev_id = glb_params.dev_id;
 	uint16_t qp_id = glb_params.qp_id;
 	uint64_t sess_cookie = rte_rand();
@@ -58,7 +59,8 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	struct dao_lc_res res[1];
 	uint64_t op_cookie;
 
-	ret = dao_liquid_crypto_sym_sess_create(dev_id, &params->ctx, sess_cookie);
+	ctx.iv_len = params->iv.len;
+	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not create session");
 		return -1;
@@ -96,6 +98,9 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		op[0].in_buffer = in_buf;
 		op[0].auth_offset = params->auth_offset + i;
 		op[0].auth_len = params->plaintext.len;
+
+		if (params->ctx.fc.hash_type == DAO_LC_FC_HASH_TYPE_GMAC)
+			op[0].cipher_iv = (uint8_t *)params->iv.data;
 
 		if (is_auth_gen)
 			memset(op[0].digest, 0, params->digest.len);
@@ -513,6 +518,12 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt OOP", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt_oop,
 					  &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-GMAC Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &aes_gmac_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-GMAC Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &aes_gmac_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-GMAC Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &aes_gmac_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Encrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_encrypt, &aes_ccm_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Decrypt", ut_setup, ut_teardown,
