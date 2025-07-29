@@ -173,6 +173,8 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	if (resp) {
 		if (resp == ENOTSUP)
 			dao_err("Command is not supported");
+		else if (resp < 0)
+			dao_err("Received error for the command: %d (%s)", resp, strerror(-resp));
 		else
 			dao_err("Received error for the command: %d", resp);
 		return;
@@ -587,7 +589,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	int rc = 0;
 
 	if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INIT) == 0) {
-		const char **new_argv = malloc((cmd->argc + 2) * sizeof(char *));
+		const char **new_argv = malloc((cmd->argc + 4) * sizeof(char *));
 		unsigned long nb_desc = 0;
 
 		if (new_argv == NULL) {
@@ -653,12 +655,8 @@ dao_card_mgr_parse_args(const char *line, cli_args *cmd_args)
 
 		if (!new_argv) {
 			syslog(LOG_ERR, "realloc failed in parse_args");
-			free(cmd_args->argv);
-			free(cmd_args->line);
-			cmd_args->argv = NULL;
-			cmd_args->line = NULL;
 			cmd_args->argc = 0;
-			return;
+			goto free_line;
 		}
 		cmd_args->argv = new_argv;
 
@@ -666,9 +664,12 @@ dao_card_mgr_parse_args(const char *line, cli_args *cmd_args)
 		token = strtok(NULL, " \t\n");
 	}
 
+free_line:
 	if (cmd_args->argc == 0) {
-		free(cmd_args->line);
 		free(cmd_args->argv);
+		cmd_args->argv = NULL;
+		free(cmd_args->line);
+		cmd_args->line = NULL;
 	}
 }
 
@@ -812,8 +813,10 @@ dao_card_mgr_server(const char *ip_str)
 
 				dao_card_mgr_parse_args(buffer, &cmd_args);
 				dao_card_mgr_process_cmd(fd, &cmd_args);
-				free(cmd_args.line);
-				free(cmd_args.argv);
+				if (cmd_args.argv != NULL)
+					free(cmd_args.argv);
+				if (cmd_args.line != NULL)
+					free(cmd_args.line);
 			}
 		}
 	}
