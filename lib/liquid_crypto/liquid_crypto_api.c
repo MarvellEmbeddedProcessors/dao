@@ -1785,28 +1785,24 @@ dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
 
 static inline void
 dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_sym_op *op,
-		   uint8_t *dptr, uint32_t iv_offset)
+		   uint8_t *dptr)
 {
 	uint16_t alg_iv_len = sess_meta->alg_iv_len;
 
 	if (sess_meta->pkt_iv_len == alg_iv_len) {
 		/* Pass IV as is to microcode */
-		memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
+		memcpy(dptr, op->cipher_iv, alg_iv_len);
 	} else {
 		/* Adjust the IV passed to microcode */
 		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CCM) {
 			/* flag = (15 - IV_length) - 1 */
-			*(dptr + iv_offset) = (uint8_t)(14 - sess_meta->alg_iv_len);
-
-			/* Adjust iv_offset after adding the flag byte */
-			iv_offset += 1;
-
-			memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
+			*dptr = (uint8_t)(14 - sess_meta->alg_iv_len);
+			memcpy(dptr + 1, op->cipher_iv, alg_iv_len);
 		} else if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
 			const uint8_t ctr_blk[4] = {0x00, 0x00, 0x00, 0x01};
 
-			memcpy(dptr + iv_offset, op->cipher_iv, alg_iv_len);
-			memcpy(dptr + iv_offset + alg_iv_len, ctr_blk, 4);
+			memcpy(dptr, op->cipher_iv, alg_iv_len);
+			memcpy(dptr + alg_iv_len, ctr_blk, 4);
 		}
 	}
 }
@@ -2003,8 +1999,10 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 					 ((uint64_t)iv_offset << 8) | ((uint64_t)auth_offset));
 		dptr += off_ctrl_len;
 	}
+	dptr += iv_offset;
 
-	dao_lc_sym_copy_iv(sess_meta, op, dptr, iv_offset);
+	dao_lc_sym_copy_iv(sess_meta, op, dptr);
+	dptr += pkt_iv_len;
 
 	if (op_type == LC_SYM_OP_AEAD) {
 		/* Copy AAD */
@@ -2015,17 +2013,16 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 			return 0;
 		}
 #endif
-		if (op->aad_len != 0)
-			memcpy(dptr + iv_offset + pkt_iv_len, op->aad, op->aad_len);
+		if (aad_len != 0)
+			memcpy(dptr, op->aad, aad_len);
+		dptr += aad_len;
 	}
 
-	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr + iv_offset + aad_len + pkt_iv_len,
-					   lc_buf_offset, op->in_buffer->total_len - lc_buf_offset);
+	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
+					   op->in_buffer->total_len - lc_buf_offset);
 
 	if (digest_len != 0)
-		memcpy(dptr + iv_offset + pkt_iv_len + aad_len + op->in_buffer->total_len -
-			       lc_buf_offset,
-		       op->digest, digest_len);
+		memcpy(dptr + op->in_buffer->total_len - lc_buf_offset, op->digest, digest_len);
 
 	return 1;
 }
