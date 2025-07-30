@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
+CONFIG_FILE="/etc/fw_mmc_env.config"
 mmc_root="/dev/mmcblk0p2"
 root_mount="/mnt/new_root"
 mmc_app1="/dev/mmcblk0p3"
@@ -124,6 +125,9 @@ update_fw() {
     rm -rf $app2_mount
 
     cleanup_root $img_file $img_dir
+
+    # Set p3 as the default for application
+    fw_setenv -c $CONFIG_FILE "app_env" "p3"
 }
 
 update_fw $1
