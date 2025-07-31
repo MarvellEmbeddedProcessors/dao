@@ -37,6 +37,14 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 		if (ctx->iv_len >= 7 && ctx->iv_len <= 13)
 			return 0;
 		break;
+	case DAO_LC_FC_ENC_CIPHER_CHACHA:
+		if (ctx->fc.hash_type != DAO_LC_HASH_TYPE_POLY1305) {
+			dao_err("Unsupported hash type for ChaCha cipher.");
+			return -ENOTSUP;
+		}
+		if (ctx->iv_len == 12)
+			return 0;
+		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
 		if (ctx->fc.hash_type != DAO_LC_HASH_TYPE_GMAC) {
 			dao_err("Unsupported hash type for NULL cipher.");
@@ -66,6 +74,14 @@ sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		break;
 	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
 		if (ctx->fc.mac_len == 8)
+			return 0;
+		break;
+	case DAO_LC_FC_ENC_CIPHER_CHACHA:
+		if (ctx->fc.hash_type != DAO_LC_HASH_TYPE_POLY1305) {
+			dao_err("Unsupported hash type for ChaCha cipher.");
+			return -ENOTSUP;
+		}
+		if (ctx->fc.mac_len == 16)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
@@ -169,7 +185,8 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 				sess_meta->pkt_iv_len = 16;
 		}
 
-		if (ctx->fc.hash_type == DAO_LC_HASH_TYPE_GMAC) {
+		if ((ctx->fc.hash_type == DAO_LC_HASH_TYPE_GMAC) ||
+		    (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA)) {
 			sess_meta->hash_type = ctx->fc.hash_type;
 			w4.s.opcode_minor |= DAO_LC_OPCODE_IV_LENGTH_MASK;
 			sess_meta->op_type = LC_SYM_OP_AEAD;
@@ -181,6 +198,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			sess_meta->pkt_iv_len = 16;
 			sess_meta->op_type = LC_SYM_OP_AEAD;
 		}
+
 		sess_meta->digest_len = ctx->fc.mac_len;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		if (sym_sess_hash_digest_len_validate(ctx))
@@ -303,6 +321,12 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
 		is_aes = true;
 		break;
+	case DAO_LC_FC_ENC_CIPHER_CHACHA:
+		if (fc_ctx->hash_type != DAO_LC_HASH_TYPE_POLY1305) {
+			dao_err("Unsupported hash type for ChaCha cipher.");
+			return -ENOTSUP;
+		}
+		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
 		if (fc_ctx->hash_type != DAO_LC_HASH_TYPE_GMAC) {
 			dao_err("Unsupported hash type for NULL cipher.");
@@ -333,7 +357,18 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 
 	switch (fc_ctx->hash_type) {
 	case DAO_LC_HASH_TYPE_NULL:
+		break;
 	case DAO_LC_HASH_TYPE_GMAC:
+		if (fc_ctx->enc_cipher != DAO_LC_FC_ENC_CIPHER_NULL) {
+			dao_err("Unsupported cipher type for GMAC.");
+			return -ENOTSUP;
+		}
+		break;
+	case DAO_LC_HASH_TYPE_POLY1305:
+		if (fc_ctx->enc_cipher != DAO_LC_FC_ENC_CIPHER_CHACHA) {
+			dao_err("Unsupported cipher type for Poly1305.");
+			return -ENOTSUP;
+		}
 		break;
 	default:
 		dao_err("Unsupported hash type.");
@@ -625,6 +660,12 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		case DAO_LC_FC_ENC_CIPHER_NULL:
 			if (sess_meta->hash_type != DAO_LC_HASH_TYPE_GMAC) {
 				dao_err("Unsupported hash type for NULL cipher.");
+				return -ENOTSUP;
+			}
+			break;
+		case DAO_LC_FC_ENC_CIPHER_CHACHA:
+			if (sess_meta->hash_type != DAO_LC_HASH_TYPE_POLY1305) {
+				dao_err("Unsupported hash type for ChaCha cipher.");
 				return -ENOTSUP;
 			}
 			break;

@@ -1804,7 +1804,8 @@ dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_s
 			*dptr = (uint8_t)(14 - sess_meta->alg_iv_len);
 			memcpy(dptr + 1, op->cipher_iv, alg_iv_len);
 		} else if ((sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
-			   (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC)) {
+			   (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) ||
+			   (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_CHACHA)) {
 			const uint8_t ctr_blk[4] = {0x00, 0x00, 0x00, 0x01};
 
 			memcpy(dptr, op->cipher_iv, alg_iv_len);
@@ -2033,7 +2034,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
 					   op->in_buffer->total_len - lc_buf_offset);
 
-	if (digest_len != 0)
+	if ((!op->encrypt) && (op->digest != NULL && digest_len != 0))
 		memcpy(dptr + op->in_buffer->total_len - lc_buf_offset, op->digest, digest_len);
 
 	return 1;
