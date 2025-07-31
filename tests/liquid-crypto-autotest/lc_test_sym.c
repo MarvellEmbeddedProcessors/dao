@@ -266,7 +266,9 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 		op[0].in_buffer = in_buf;
 
 		if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
-		    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM)) {
+		    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM) ||
+		    ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA) &&
+			(params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_POLY1305))) {
 			if (params->aad.len > TEST_LC_MAX_AAD_LEN) {
 				TEST_LC_ERR("AAD length (%u) out of bounds [0, %u]",
 					    params->aad.len, TEST_LC_MAX_AAD_LEN);
@@ -542,6 +544,10 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_block_cipher_only_encrypt, &aes_ccm_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-CCM Decrypt", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt, &aes_ccm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("ChaCha-Poly Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_encrypt, &chacha_poly_test_data),
+		TEST_CASE_NAMED_WITH_DATA("ChaCha-Poly Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_only_decrypt, &chacha_poly_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Gen", ut_setup, ut_teardown, test_hash_gen,
 					  &sha1_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA1 Digest Verify", ut_setup, ut_teardown,
