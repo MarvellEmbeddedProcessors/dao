@@ -14,7 +14,7 @@
 /* Maximum length of IV */
 #define TEST_LC_MAX_IV_LEN 16
 /* Maximum length of plaintext */
-#define TEST_LC_MAX_PLAINTEXT_LEN 1024
+#define TEST_LC_MAX_PLAINTEXT_LEN 2048
 /* Maximum burst size */
 #define TEST_LC_MAX_BURST_SIZE 8192
 
@@ -52,6 +52,20 @@ struct lcperf_test_data {
 	struct dao_lc_sym_op ops[TEST_LC_MAX_BURST_SIZE];
 	struct lcperf_test_sym_params sym_params;
 	struct rte_mempool *buf_pool;
+	enum lcperf_crypto_sym_cipher_op_type cipher_op;
+	enum lcperf_crypto_sym_auth_op_type auth_op;
+	struct {
+		uint8_t data[TEST_LC_MAX_PLAINTEXT_LEN];
+		uint16_t len;
+	} plaintext;
+	struct {
+		uint8_t data[TEST_LC_MAX_PLAINTEXT_LEN];
+		uint16_t len;
+	} ciphertext;
+	struct {
+		uint8_t data[DAO_LC_MAX_DIGEST_LEN];
+		uint16_t len;
+	} digest;
 };
 
 struct lcperf_rsa_test_data {

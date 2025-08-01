@@ -26,6 +26,7 @@
 #define LCPERF_SYM_CIPHER_KEY_SZ ("cipher-key-sz")
 #define LCPERF_SYM_AUTH_OP       ("auth-op")
 #define LCPERF_SYM_AUTH_ALGO     ("auth-algo")
+#define LCPERF_BUFFER_SIZE       ("buffer-size")
 
 #define MAX_LIST 1
 
@@ -86,9 +87,6 @@ struct lcperf_options {
 	enum lcperf_op_type op_type;
 	enum lcperf_crypto_asym_op_type asym_op_type;
 	enum lcperf_rsa_priv_keytype rsa_priv_keytype;
-
-	uint32_t buffer_size_list[MAX_LIST];
-	uint8_t buffer_size_count;
 
 	uint32_t burst_size;
 

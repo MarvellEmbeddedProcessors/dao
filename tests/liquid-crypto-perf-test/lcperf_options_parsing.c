@@ -9,6 +9,8 @@
 #include "lcperf_options.h"
 #include "lcperf_test_vectors.h"
 
+#define AES_BLOCK_SIZE 16
+
 struct name_id_map {
 	const char *name;
 	uint32_t id;
@@ -35,8 +37,10 @@ usage(char *progname)
 	       " --cipher-op encrypt / decrypt : set symmetric cipher operation type\n"
 	       " --auth-alg sha1 : set symmetric authentication algorithm\n"
 	       " --auth-op generate : set symmetric authentication operation type\n"
+	       " --buffer-size N : set buffer size for operations (1-%u bytes, AES requires"
+	       " multiple of %u bytes)\n"
 	       " -h: prints this help\n",
-	       progname);
+	       progname, TEST_LC_MAX_PLAINTEXT_LEN, AES_BLOCK_SIZE);
 }
 
 static int
@@ -353,6 +357,30 @@ parse_burst_size(struct lcperf_options *opts, const char *arg)
 	return 0;
 }
 
+static int
+parse_buffer_size(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->test_buffer_size, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse buffer size\n");
+		return -1;
+	}
+
+	if (opts->test_buffer_size == 0) {
+		RTE_LOG(ERR, USER1, "Invalid buffer size specified\n");
+		return -1;
+	}
+
+	if (opts->test_buffer_size > TEST_LC_MAX_PLAINTEXT_LEN) {
+		RTE_LOG(ERR, USER1, "Buffer size %u exceeds maximum limit of %u\n",
+			opts->test_buffer_size, TEST_LC_MAX_PLAINTEXT_LEN);
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -361,8 +389,7 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->total_ops = 10000000;
 	opts->nb_descriptors = 2048;
 
-	opts->buffer_size_list[0] = 64;
-	opts->buffer_size_count = 1;
+	opts->test_buffer_size = 64;
 	opts->burst_size = 128;
 
 	opts->op_type = LCPERF_OP_PASSTHROUGH;
@@ -401,6 +428,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_SYM_CIPHER_KEY_SZ, required_argument, 0, 0},
 				 {LCPERF_SYM_AUTH_ALGO, required_argument, 0, 0},
 				 {LCPERF_SYM_AUTH_OP, required_argument, 0, 0},
+				 {LCPERF_BUFFER_SIZE, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -421,6 +449,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_SYM_CIPHER_KEY_SZ, parse_sym_cipher_key_sz},
 		{LCPERF_SYM_AUTH_ALGO, parse_sym_auth_algo},
 		{LCPERF_SYM_AUTH_OP, parse_sym_auth_op},
+		{LCPERF_BUFFER_SIZE, parse_buffer_size},
 	};
 	unsigned int i;
 
@@ -464,8 +493,6 @@ lcperf_options_parse(struct lcperf_options *options, int argc, char **argv)
 void
 lcperf_options_dump(struct lcperf_options *opts)
 {
-	uint8_t size_idx;
-
 	printf("# Liquid Crypto Performance Application Options:\n");
 	printf("#\n");
 	printf("# lcperf test: %s\n", lcperf_test_type_strs[opts->test]);
@@ -473,9 +500,7 @@ lcperf_options_dump(struct lcperf_options *opts)
 	printf("# total number of ops: %u\n", opts->total_ops);
 	printf("#\n");
 
-	printf("# buffer sizes: ");
-	for (size_idx = 0; size_idx < opts->buffer_size_count; size_idx++)
-		printf("%u ", opts->buffer_size_list[size_idx]);
+	printf("# buffer size: %u bytes\n", opts->test_buffer_size);
 	printf("\n");
 	printf("# burst size: %u\n", opts->burst_size);
 	printf("\n");
@@ -511,6 +536,21 @@ lcperf_options_dump(struct lcperf_options *opts)
 	}
 
 	printf("#\n");
+}
+
+static int
+check_cipher_buffer_length(struct lcperf_options *options)
+{
+	if (options->cipher_algo == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
+		if (options->test_buffer_size % AES_BLOCK_SIZE != 0) {
+			RTE_LOG(ERR, USER1,
+				"Test buffer size must be a multiple of %d for AES CBC cipher\n",
+				AES_BLOCK_SIZE);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
 }
 
 int
@@ -569,7 +609,11 @@ lcperf_options_check(struct lcperf_options *options)
 			default:
 				RTE_LOG(ERR, USER1,
 					"Invalid symmetric cipher algorithm specified\n");
+				return -EINVAL;
 			}
+
+			if (check_cipher_buffer_length(options) < 0)
+				return -EINVAL;
 		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
 			switch (options->auth_algo) {
 			case DAO_LC_FC_HASH_TYPE_SHA1:

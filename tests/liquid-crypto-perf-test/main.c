@@ -303,8 +303,6 @@ main(int argc, char **argv)
 		i++;
 	}
 
-	opts.test_buffer_size = opts.buffer_size_list[0];
-
 	i = 0;
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{

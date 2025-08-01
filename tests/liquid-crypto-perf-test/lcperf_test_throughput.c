@@ -102,7 +102,7 @@ ctx_free:
 
 static int
 lcperf_validate_single_op(struct lcperf_throughput_ctx *ctx, struct dao_lc_res *res,
-			  struct lcperf_test_data *tdata)
+			  struct lcperf_test_data *tdata, bool update_test_vect)
 {
 	if (ctx->options->op_type == LCPERF_OP_SYM) {
 		struct lcperf_test_buf_mem *buf_mem = NULL;
@@ -128,27 +128,36 @@ lcperf_validate_single_op(struct lcperf_throughput_ctx *ctx, struct dao_lc_res *
 		buf_mem = (struct lcperf_test_buf_mem *)(uintptr_t)res->op_cookie;
 
 		if (ctx->options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
+			if (update_test_vect) {
+				memcpy(tdata->ciphertext.data, buf_mem->in_buf_data,
+				       tdata->ciphertext.len);
+				return 0;
+			}
+
 			if (ctx->options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
-				diff = memcmp(buf_mem->in_buf_data,
-					      tdata->sym_params.ciphertext.data,
-					      tdata->sym_params.ciphertext.len);
+				diff = memcmp(buf_mem->in_buf_data, tdata->ciphertext.data,
+					      tdata->ciphertext.len);
 				if (diff != 0) {
 					RTE_LOG(ERR, USER1, "Ciphertext mismatch\n");
 					return -1;
 				}
 			} else {
-				diff = memcmp(buf_mem->in_buf_data,
-					      tdata->sym_params.plaintext.data,
-					      tdata->sym_params.plaintext.len);
+				diff = memcmp(buf_mem->in_buf_data, tdata->plaintext.data,
+					      tdata->plaintext.len);
 				if (diff != 0) {
 					RTE_LOG(ERR, USER1, "Plaintext mismatch\n");
 					return -1;
 				}
 			}
 		} else if (ctx->options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
+			if (update_test_vect) {
+				memcpy(tdata->digest.data, buf_mem->digest, tdata->digest.len);
+				return 0;
+			}
+
 			if (ctx->options->auth_op == LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE) {
-				diff = memcmp(buf_mem->digest, tdata->sym_params.digest.data,
-					      tdata->sym_params.digest.len);
+				diff = memcmp(buf_mem->digest, tdata->digest.data,
+					      tdata->digest.len);
 				if (diff != 0) {
 					RTE_LOG(ERR, USER1, "Digest mismatch\n");
 					return -1;
@@ -170,7 +179,8 @@ lcperf_validate_single_op(struct lcperf_throughput_ctx *ctx, struct dao_lc_res *
 }
 
 static int
-lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_data *tdata)
+lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_data *tdata,
+		       bool update_test_vect)
 {
 	uint64_t tsc_start = 0;
 	struct dao_lc_res res;
@@ -195,7 +205,7 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 		ret = dao_liquid_crypto_dequeue_burst(ctx->dev_id, ctx->qp_id, &res, 1);
 
 		if (ret == 1) {
-			rc = lcperf_validate_single_op(ctx, &res, tdata);
+			rc = lcperf_validate_single_op(ctx, &res, tdata, update_test_vect);
 			break;
 		}
 
@@ -213,6 +223,38 @@ op_buf_free:
 		rte_mempool_put(ctx->buf_pool, (void *)(tdata->ops[0].op_cookie));
 		tdata->ops[0].op_cookie = 0;
 	}
+
+	return rc;
+}
+
+static int
+lcperf_check_update_test_vec_single_op(struct lcperf_throughput_ctx *ctx,
+				       struct lcperf_test_data *tdata)
+{
+	int rc = 0;
+
+	if (tdata->sym_params.plaintext.len != ctx->options->test_buffer_size) {
+		tdata->plaintext.len = ctx->options->test_buffer_size;
+		tdata->ciphertext.len = ctx->options->test_buffer_size;
+
+		/* For test vector generation perform encrypt / auth generation. */
+		if (ctx->options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY)
+			tdata->cipher_op = LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT;
+		else if (ctx->options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY)
+			tdata->auth_op = LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE;
+
+		rc = lcperf_check_single_op(ctx, tdata, true);
+		if (rc < 0) {
+			RTE_LOG(ERR, USER1, "Single operation test vector update failed\n");
+			return rc;
+		}
+
+		/* Restore original cipher and auth operations */
+		tdata->auth_op = ctx->options->auth_op;
+		tdata->cipher_op = ctx->options->cipher_op;
+	}
+
+	rc = lcperf_check_single_op(ctx, tdata, false);
 
 	return rc;
 }
@@ -247,8 +289,10 @@ lcperf_throughput_test_runner(void *test_ctx)
 	tdata->buf_pool = ctx->buf_pool;
 	tdata->ops_unused = 0;
 	tdata->ops_enqd = 0;
+	tdata->cipher_op = ctx->options->cipher_op;
+	tdata->auth_op = ctx->options->auth_op;
 
-	if (lcperf_check_single_op(ctx, tdata) < 0) {
+	if (lcperf_check_update_test_vec_single_op(ctx, tdata) < 0) {
 		RTE_LOG(ERR, USER1, "Single operation check failed\n");
 		return -1;
 	}

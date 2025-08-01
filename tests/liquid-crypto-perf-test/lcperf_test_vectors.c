@@ -1502,6 +1502,13 @@ lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 					options->cipher_algo);
 				goto free_test_data;
 			}
+
+			memcpy(test_data->plaintext.data, test_data->sym_params.plaintext.data,
+			       test_data->sym_params.plaintext.len);
+			test_data->plaintext.len = test_data->sym_params.plaintext.len;
+			memcpy(test_data->ciphertext.data, test_data->sym_params.ciphertext.data,
+			       test_data->sym_params.ciphertext.len);
+			test_data->ciphertext.len = test_data->sym_params.ciphertext.len;
 		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
 			if (options->auth_algo == DAO_LC_FC_HASH_TYPE_SHA1) {
 				memcpy(&test_data->sym_params, &sha1_test_data,
@@ -1511,6 +1518,13 @@ lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 					options->auth_algo);
 				goto free_test_data;
 			}
+
+			memcpy(test_data->plaintext.data, test_data->sym_params.plaintext.data,
+			       test_data->sym_params.plaintext.len);
+			test_data->plaintext.len = test_data->sym_params.plaintext.len;
+			memcpy(test_data->digest.data, test_data->sym_params.digest.data,
+			       test_data->sym_params.digest.len);
+			test_data->digest.len = test_data->sym_params.digest.len;
 		} else {
 			RTE_LOG(ERR, USER1, "Unsupported symmetric operation type: %u\n",
 				options->sym_op);

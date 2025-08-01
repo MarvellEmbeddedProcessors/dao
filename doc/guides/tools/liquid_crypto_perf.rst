@@ -165,6 +165,15 @@ The following are the application-specific command-line options:
 
 	The default symmetric authentication operation is ``generate``.
 
+* ``--buffer-size <n>``
+
+	Specify the size of the data buffer in bytes for symmetric cryptographic operations.
+	Replace ``<n>`` with the desired buffer size (e.g., 64, 128, 256). This option determines
+	the amount of data processed in each operation. The buffer size should be a multiple of the block size
+	of the symmetric cipher algorithm being used.
+
+	The default buffer size is 64 bytes.
+
 Examples
 --------
 

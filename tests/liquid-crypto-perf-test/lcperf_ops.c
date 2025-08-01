@@ -147,7 +147,9 @@ static int
 lcperf_populate_ops_sym(uint64_t sess_id, const struct lcperf_options *options,
 			struct lcperf_test_data *test_data)
 {
+	enum lcperf_crypto_sym_cipher_op_type cipher_op = test_data->cipher_op;
 	uint16_t ops_needed = test_data->nb_ops - test_data->ops_unused;
+	enum lcperf_crypto_sym_auth_op_type auth_op = test_data->auth_op;
 	struct lcperf_test_buf_mem *buf_mem[ops_needed];
 	struct dao_lc_sym_op *op = test_data->ops;
 	int i, ret;
@@ -163,49 +165,45 @@ lcperf_populate_ops_sym(uint64_t sess_id, const struct lcperf_options *options,
 		uint8_t *in_buf_data = buf_mem[i]->in_buf_data;
 
 		if (options->sym_op == LCPERF_CRYPTO_SYM_OP_CIPHER_ONLY) {
-			if (options->cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
-				memcpy(in_buf_data, test_data->sym_params.plaintext.data,
-				       test_data->sym_params.plaintext.len);
-				in_buffer->frag_len = test_data->sym_params.plaintext.len;
-				in_buffer->total_len = test_data->sym_params.plaintext.len;
+			if (cipher_op == LCPERF_CRYPTO_SYM_CIPHER_OP_ENCRYPT) {
+				memcpy(in_buf_data, test_data->plaintext.data,
+				       test_data->plaintext.len);
+				in_buffer->frag_len = test_data->plaintext.len;
+				in_buffer->total_len = test_data->plaintext.len;
 				op[i].encrypt = true;
 			} else {
-				memcpy(in_buf_data, test_data->sym_params.ciphertext.data,
-				       test_data->sym_params.ciphertext.len);
-				in_buffer->frag_len = test_data->sym_params.ciphertext.len;
-				in_buffer->total_len = test_data->sym_params.ciphertext.len;
+				memcpy(in_buf_data, test_data->ciphertext.data,
+				       test_data->ciphertext.len);
+				in_buffer->frag_len = test_data->ciphertext.len;
+				in_buffer->total_len = test_data->ciphertext.len;
 				op[i].encrypt = false;
 			}
 			in_buffer->data = in_buf_data;
 
 			op[i].in_buffer = in_buffer;
 			op[i].cipher_offset = 0;
-			op[i].cipher_len = test_data->sym_params.ciphertext.len;
+			op[i].cipher_len = test_data->ciphertext.len;
 			op[i].cipher_iv = test_data->sym_params.iv.data;
 			op[i].sess_id = sess_id;
 			op[i].op_cookie = (uint64_t)buf_mem[i];
 		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
-			if (options->auth_op == LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE) {
-				memcpy(in_buf_data, test_data->sym_params.plaintext.data,
-				       test_data->sym_params.plaintext.len);
-				in_buffer->frag_len = test_data->sym_params.plaintext.len;
-				in_buffer->total_len = test_data->sym_params.plaintext.len;
-				memset(buf_mem[i]->digest, 0, test_data->sym_params.digest.len);
+			memcpy(in_buf_data, test_data->plaintext.data, test_data->plaintext.len);
+			in_buffer->frag_len = test_data->plaintext.len;
+			in_buffer->total_len = test_data->plaintext.len;
+			in_buffer->data = in_buf_data;
+
+			if (auth_op == LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE) {
+				memset(buf_mem[i]->digest, 0, test_data->digest.len);
 				op[i].auth_gen = true;
 			} else {
-				memcpy(in_buf_data, test_data->sym_params.plaintext.data,
-				       test_data->sym_params.plaintext.len);
-				in_buffer->frag_len = test_data->sym_params.plaintext.len;
-				in_buffer->total_len = test_data->sym_params.plaintext.len;
-				memcpy(buf_mem[i]->digest, test_data->sym_params.digest.data,
-				       test_data->sym_params.digest.len);
+				memcpy(buf_mem[i]->digest, test_data->digest.data,
+				       test_data->digest.len);
 				op[i].auth_gen = false;
 			}
-			in_buffer->data = in_buf_data;
 
 			op[i].in_buffer = in_buffer;
 			op[i].auth_offset = 0;
-			op[i].auth_len = test_data->sym_params.plaintext.len;
+			op[i].auth_len = test_data->plaintext.len;
 			op[i].sess_id = sess_id;
 			op[i].op_cookie = (uint64_t)buf_mem[i];
 			op[i].digest = buf_mem[i]->digest;
