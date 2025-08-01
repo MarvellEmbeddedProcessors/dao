@@ -11,10 +11,12 @@ sources = files(
 	'virtio_blk_io_deq_ext.c',
 	'virtio_blk_cmpl_ext.c',
 	'virtio_blk_cmpl.c',
+	'virtio_blk_trace_register.c',
 )
 
 headers = files(
 	'dao_virtio_blkdev.h',
+	'virtio_blk_trace.h',
 )
 
 deps += ['virtio']
