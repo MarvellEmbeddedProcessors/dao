@@ -16,6 +16,7 @@
 
 #include "hw/cpt.h"
 #include "liquid_crypto_debug.h"
+#include "liquid_crypto_op_defines.h"
 #include "liquid_crypto_priv.h"
 #include "liquid_crypto_sym.h"
 #include "liquid_crypto_trs.h"
@@ -1065,6 +1066,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_RSA_ENCRYPT;
 
 	/* Add instruction */
 	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
@@ -1234,6 +1236,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_RSA_DECRYPT;
 
 	/* Add instruction */
 	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
@@ -1404,6 +1407,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_RSA_ENCRYPT;
 
 	/* Add instruction */
 	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
@@ -1572,6 +1576,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_RSA_DECRYPT;
 
 	/* Add instruction */
 	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
@@ -1812,7 +1817,7 @@ static inline uint16_t
 dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
 					struct rte_mbuf *mbuf, uint32_t req_idx,
 					const struct dao_lc_sym_sess_meta *sess_meta,
-					const enum lc_sym_op_type op_type)
+					const enum lc_crypto_op_type op_type)
 {
 	uint32_t buf_len, auth_len, auth_offset = 0;
 	uint16_t hmac_aligned_key_len = 0, dlen;
@@ -1859,7 +1864,7 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
-	req->is_hash_only = 1;
+	req->op_type = LC_SYM_OP_AUTH_ONLY;
 	dptr = req->dptr;
 
 	w4.u64 = sess_meta->w4;
@@ -1882,7 +1887,7 @@ static inline uint16_t
 dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
 			      struct rte_mbuf *mbuf, uint32_t req_idx,
 			      const struct dao_lc_sym_sess_meta *sess_meta,
-			      const enum lc_sym_op_type op_type)
+			      const enum lc_crypto_op_type op_type)
 {
 	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len, off_ctrl_len;
 	uint16_t pkt_iv_len, aad_len, digest_len;
@@ -1954,7 +1959,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
-	req->is_hash_only = 0;
+	req->op_type = op_type;
 
 	/* Add instruction */
 	w4.u64 = sess_meta->w4;
@@ -2039,7 +2044,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		       struct rte_mbuf **mbufs, uint32_t *req_idxs, uint16_t nb_ops)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
-	enum lc_sym_op_type op_type;
+	enum lc_crypto_op_type op_type;
 	struct dao_lc_sym_op *op;
 	uint32_t req_idx;
 	uint16_t i;

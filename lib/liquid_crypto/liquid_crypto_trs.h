@@ -11,6 +11,8 @@
 #include <dao_liquid_crypto.h>
 #include <dao_util.h>
 
+#include <liquid_crypto_op_defines.h>
+
 struct __rte_packed __dao_lc_hdr {
 	struct dao_eth_trs_hdr trs_hdr;
 	uint32_t req_idx;
@@ -22,8 +24,8 @@ struct __rte_packed __dao_lc_req_sym {
 	struct __dao_lc_hdr hdr;
 	uint64_t w4;
 	uint64_t w7;
-	uint64_t is_hash_only : 1;
-	uint64_t rsvd_align : 63;
+	enum lc_crypto_op_type op_type;
+	uint64_t rsvd_align : 32;
 	uint8_t dptr[];
 };
 
@@ -38,7 +40,7 @@ DAO_STATIC_ASSERT(sizeof(struct __dao_lc_req_sym) == sizeof(struct __dao_lc_resp
 
 struct __rte_packed __dao_lc_req_asym {
 	struct __dao_lc_hdr hdr;
-	uint32_t rsvd_align;
+	enum lc_crypto_op_type op_type;
 	uint64_t w4;
 	uint8_t dptr[];
 };

@@ -74,7 +74,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
 			sym = (struct __dao_lc_req_sym *)req;
-			infl_req->is_hash_only = sym->is_hash_only;
+			infl_req->op_type = sym->op_type;
 			inst[i].w4.u64 = sym->w4;
 			inst[i].w5.u64 = (uint64_t)sym->dptr;
 			inst[i].w6.u64 = (uint64_t)sym->dptr; /* INPLACE*/
@@ -89,14 +89,13 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w6.u64 = (uint64_t)asym_resp->rptr;
 			inst[i].w7.u64 = 0;
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
+			infl_req->op_type = asym->op_type;
 
 			if (w4.s.opcode_major == ROC_AE_MAJOR_OP_MODEX) {
 				infl_req->rsa_mod_len = w4.s.param1;
-				infl_req->rsa_is_decrypt = 0;
 
 				if (w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC_CRT ||
 				    w4.s.opcode_minor == ROC_AE_MINOR_OP_PKCS_DEC) {
-					infl_req->rsa_is_decrypt = 1;
 					/* Reserve two bytes for output length */
 					inst[i].rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
 				}

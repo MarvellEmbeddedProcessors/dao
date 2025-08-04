@@ -7,18 +7,11 @@
 
 #include <rte_tailq.h>
 
+#include "liquid_crypto_op_defines.h"
 #include <dao_liquid_crypto.h>
 
 #define DAO_LC_SYM_META_GET_PTR(sess_opaque)                                                       \
 	((struct dao_lc_sym_sess_meta *)((uintptr_t)(sess_opaque)))
-
-enum lc_sym_op_type {
-	LC_SYM_OP_CIPHER_ONLY = 1,
-	LC_SYM_OP_AUTH_ONLY,
-	LC_SYM_OP_CIPHER_AUTH,
-	LC_SYM_OP_AEAD,
-	LC_SYM_OP_HMAC_AUTH_ONLY,
-};
 
 /**
  * The liquid crypto symmetric context.
@@ -57,7 +50,7 @@ struct dao_lc_sym_sess_meta {
 	enum dao_lc_fc_hash_type hash_type;
 
 	/* Operation type */
-	enum lc_sym_op_type op_type;
+	enum lc_crypto_op_type op_type;
 
 	/* HMAC authentication key length*/
 	uint8_t auth_key_len;

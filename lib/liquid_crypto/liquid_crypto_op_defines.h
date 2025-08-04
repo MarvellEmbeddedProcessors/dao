@@ -1,0 +1,18 @@
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright (c) 2025 Marvell.
+ */
+
+#ifndef __LIQUID_CRYPTO_OP_DEFINES_H__
+#define __LIQUID_CRYPTO_OP_DEFINES_H__
+
+enum lc_crypto_op_type {
+	LC_SYM_OP_CIPHER_ONLY = 1,
+	LC_SYM_OP_AUTH_ONLY,
+	LC_SYM_OP_CIPHER_AUTH,
+	LC_SYM_OP_AEAD,
+	LC_SYM_OP_HMAC_AUTH_ONLY,
+	LC_ASYM_RSA_ENCRYPT,
+	LC_ASYM_RSA_DECRYPT,
+};
+
+#endif /* __LIQUID_CRYPTO_OP_DEFINES_H__ */

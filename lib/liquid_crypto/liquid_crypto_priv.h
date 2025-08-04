@@ -97,7 +97,7 @@ struct liquid_crypto_inflight_req {
 	uint16_t result_offset;
 
 	/* Operation type */
-	enum lc_sym_op_type op_type;
+	enum lc_crypto_op_type op_type;
 
 	union {
 		/** Pointer to metadata for the symmetric session creation request */

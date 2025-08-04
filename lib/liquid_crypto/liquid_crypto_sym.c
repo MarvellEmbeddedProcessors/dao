@@ -10,6 +10,7 @@
 #include <dao_liquid_crypto.h>
 #include <dao_log.h>
 
+#include "liquid_crypto_op_defines.h"
 #include "liquid_crypto_sym.h"
 
 #include "hw/cpt.h"
@@ -532,7 +533,7 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	uint32_t pkt_len, out_pkt_len;
-	enum lc_sym_op_type op_type;
+	enum lc_crypto_op_type op_type;
 	struct dao_lc_buf *buf;
 	int ret;
 

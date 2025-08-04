@@ -38,17 +38,23 @@ ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s 
 	}
 
 	rptr = resp->rptr;
-	if (infl_req->rsa_is_decrypt) {
+	switch (infl_req->op_type) {
+	case LC_ASYM_RSA_ENCRYPT:
+		/* For RSA operations, the length of the modulus is used as the length of
+		 * the output data.
+		 */
+		rlen = infl_req->rsa_mod_len;
+		break;
+	case LC_ASYM_RSA_DECRYPT:
 		/* For decryption operations, the dequeue API in the host library needs the
 		 * length of the decrypted data to copy the data from the inflight request to the
 		 * response buffer.
 		 */
 		rlen = rte_cpu_to_be_16(*((uint16_t *)RTE_PTR_SUB(rptr, 2)));
-	} else {
-		/* For encryption operations, the length of the encrypted data is already
-		 * present in the response buffer.
-		 */
-		rlen = infl_req->rsa_mod_len;
+		break;
+	default:
+		rlen = 0;
+		break;
 	}
 
 rlen_set:
@@ -59,9 +65,8 @@ rlen_set:
 
 	/* Set the length of the response buffer */
 	pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
-	resp->hdr.trs_hdr.op_len = pkt_len;
-
 	pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
+	resp->hdr.trs_hdr.op_len = pkt_len;
 
 #ifdef CA_DEBUG_ENABLE
 	if (unlikely(pkt_len > mb->buf_len)) {
@@ -88,11 +93,16 @@ ca_cpt_post_process_sym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *
 	/* Host to trim the packet start to get the final result of crypto operation */
 	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
 
-	if (infl_req->is_hash_only) {
+	switch (infl_req->op_type) {
+	case LC_SYM_OP_AUTH_ONLY:
+	case LC_SYM_OP_HMAC_AUTH_ONLY:
 		pkt_len = sizeof(struct __dao_lc_resp_sym) + DAO_LC_MAX_DIGEST_LEN;
 		pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
 		mb->pkt_len = pkt_len;
 		mb->data_len = pkt_len;
+		break;
+	default:
+		break;
 	}
 
 #ifdef CA_DEBUG_ENABLE
