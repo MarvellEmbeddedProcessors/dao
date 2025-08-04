@@ -441,6 +441,7 @@ virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start, uint16_t co
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	struct virtio_dev *dev = &blkdev->dev;
 	uint16_t q_sz = q->q_sz, off;
+	uint16_t off_mask = q_sz - 1;
 	uint64_t flags;
 	int i;
 
@@ -453,13 +454,13 @@ virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start, uint16_t co
 			continue;
 		}
 
-		flags = *DESC_PTR_OFF(sd_desc_base, off, 8);
+		flags = *DESC_PTR_OFF(sd_desc_base, off & off_mask, 8);
 		if ((!!(flags & VIRT_PACKED_RING_DESC_F_AVAIL) != !!(off & RTE_BIT64(15))) ||
 		    (flags == 0)) {
 			dao_err("[dev %u] queue[%u]: avail does not match wrap bit,"
 				" flags=%016lx addr=%p off=%08x",
 				dev->dev_id, q->qid, flags,
-				(void *)*DESC_PTR_OFF(sd_desc_base, off, 0), off);
+				(void *)*DESC_PTR_OFF(sd_desc_base, off & off_mask, 0), off);
 			abort();
 		}
 
@@ -468,7 +469,7 @@ virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start, uint16_t co
 		    used) {
 			dao_err("[dev %u] queue[%u]: used not set, flags=%016lx addr=%p off=%08x",
 				dev->dev_id, q->qid, flags,
-				(void *)*DESC_PTR_OFF(sd_desc_base, off, 0), off);
+				(void *)*DESC_PTR_OFF(sd_desc_base, off & off_mask, 0), off);
 			abort();
 		}
 
@@ -477,7 +478,7 @@ virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start, uint16_t co
 		    !used) {
 			dao_err("[dev %u] queue[%u]: used not clear, flags=%016lx addr=%p off=%08x",
 				dev->dev_id, q->qid, flags,
-				(void *)*DESC_PTR_OFF(sd_desc_base, off, 0), off);
+				(void *)*DESC_PTR_OFF(sd_desc_base, off & off_mask, 0), off);
 			abort();
 		}
 	}
