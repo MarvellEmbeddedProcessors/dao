@@ -99,6 +99,9 @@ struct liquid_crypto_inflight_req {
 	/** Digest length */
 	uint16_t digest_len;
 
+	/** Wrap/unwrap key length */
+	uint16_t wrap_unwrap_key_len;
+
 	/** Liquid Crypto Buffer Offset */
 	uint32_t lc_buf_offset;
 

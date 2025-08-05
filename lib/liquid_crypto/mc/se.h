@@ -23,4 +23,6 @@
 #define ROC_SE_MINOR_OP_OAEP_ENCODE        0x0ULL
 #define ROC_SE_MINOR_OP_OAEP_DECODE        0x1ULL
 
+#define ROC_SE_MAJOR_OP_AES_KEY_WRAP 0x1DULL
+
 #endif /* __MC_SE_H__ */

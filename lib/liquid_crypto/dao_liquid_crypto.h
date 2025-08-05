@@ -32,6 +32,12 @@
 #define DAO_LC_MAX_DIGEST_LEN 255
 /** Maximum authentication key */
 #define DAO_LC_MAX_AUTH_KEY_LEN 1024
+/** Maximum key data supported for key wrap */
+#define DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN 3072
+/** Maximum size of key encryption key for AES Key Wrap */
+#define DAO_LC_AES_MAX_KEY_ENC_KEY_LEN 32
+/** AES Key Wrap IV length */
+#define DAO_LC_AES_KEY_WRAP_IV_LEN 8
 
 /**
  * The liquid crypto buffer
@@ -63,13 +69,13 @@ struct dao_lc_sym_op {
 	 * Data buffer input for the operation. The memory pointed to by in_buffer must remain
 	 * valid until the operation is completed and dequeued by the application using
 	 * dao_liquid_crypto_dequeue_burst().
-	 * */
+	 */
 	struct dao_lc_buf *in_buffer;
 	/**
 	 * Data buffer output for the operation. NULL value means in-place operation.
 	 * The memory pointed to by out_buffer must remain valid until the operation is
 	 * completed and dequeued by the application using dao_liquid_crypto_dequeue_burst().
-	 * */
+	 */
 	struct dao_lc_buf *out_buffer;
 	/**
 	 * Starting point for cipher processing, specified as number of bytes from start of data in
@@ -106,12 +112,24 @@ struct dao_lc_sym_op {
 	uint16_t aad_len;
 	/** Digest. Ignored for non auth use cases. */
 	uint8_t *digest;
+	/**
+	 * Length of the key data to be wrapped or unwrapped in bytes.
+	 * For AES Key Wrap operations:
+	 * - Must be a multiple of 8 bytes for standard AES-KW
+	 * - Can be any length for AES-KWP (with padding)
+	 * - Must not be zero length bytes
+	 * - Must not exceed DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN
+	 * Ignored for non-key wrap operations.
+	 */
+	uint32_t wrap_unwrap_key_len;
 	/** Type of operation */
 	union {
 		/** Is encrypt operation or decrypt operation. */
 		bool encrypt;
 		/** Is auth generate or auth verify. Used in case of auth-only operations. */
 		bool auth_gen;
+		/** Is key wrap or unwrap operation. */
+		bool is_wrap;
 	};
 };
 /* >8 End of structure dao_lc_sym_op. */
@@ -185,7 +203,7 @@ enum dao_uc_comp_code {
 	DAO_UC_ERR_GC_ICV_MISCOMPARE = 0x4c,
 	/** Encrypt length unaligned when MAC_Select is valid. */
 	DAO_UC_ERR_GC_DATA_UNALIGNED = 0x4d,
-	/** Invalid HMAC key length; only for HMAC_only. */
+	/** Invalid key length; Applicable for HMAC and AES-KW and AES-KWP */
 	DAO_UC_ERR_GC_KEY_LEN_INVALID = 0x4e
 };
 
@@ -387,6 +405,8 @@ enum dao_lc_sym_opcode {
 	DAO_LC_SYM_OPCODE_HASH = 0x34,
 	/** Opcode for HMAC */
 	DAO_LC_SYM_OPCODE_HMAC = 0x35,
+	/** Opcode for AES Key Wrap */
+	DAO_LC_SYM_OPCODE_AES_KEY_WRAP = 0x1D,
 };
 
 /**
@@ -604,6 +624,7 @@ struct dao_lc_feature_params {
 		 * - Auth only: length of data to be authenticated.
 		 * - Cipher and auth: length of data with possible overlap.
 		 * - AEAD: length of data for authenticated encryption.
+		 * - Key wrap: length of key data to be wrapped.
 		 */
 		uint16_t cipher_auth_payload_len;
 		/** IV length */
@@ -612,6 +633,10 @@ struct dao_lc_feature_params {
 		uint16_t aad_len;
 		/** Digest length */
 		uint16_t digest_len;
+		/** Key wrap length */
+		uint16_t key_wrap_len;
+		/** KEK length */
+		uint16_t kek_len;
 	} sym;
 	/**
 	 * RSA asymmetric parameters. The parameters are used to calculate the size of the maximum
@@ -695,6 +720,22 @@ struct dao_lc_hmac_hash_ctx {
 };
 
 /**
+ * The liquid crypto AES key wrap context.
+ * This structure is used to store the context for AES key wrap operations.
+ * It contains the key length and the key encryption key (KEK).
+ */
+struct dao_lc_aes_key_wrap_ctx {
+	/** Set to true for key wrap operation, false for unwrap operation. */
+	bool is_wrap;
+	/** The AES key type (128, 192, or 256 bits) */
+	enum dao_lc_fc_aes_key_len aes_kek_type;
+	/** Length of the Key Encryption Key in bytes (must be 16, 24, or 32) */
+	uint16_t kek_len;
+	/** The key encryption key (KEK) */
+	uint8_t kek[DAO_LC_AES_MAX_KEY_ENC_KEY_LEN];
+};
+
+/**
  * The liquid crypto symmetric context.
  */
 struct dao_lc_sym_ctx {
@@ -707,6 +748,8 @@ struct dao_lc_sym_ctx {
 		struct dao_lc_sym_fc_ctx fc;
 		/** HMAC Hash context */
 		struct dao_lc_hmac_hash_ctx hash;
+		/** AES Key Wrap context */
+		struct dao_lc_aes_key_wrap_ctx aes_key_wrap;
 	};
 };
 
@@ -762,6 +805,18 @@ struct dao_lc_random_op {
 		/** X9.17-specific fields (must be set if type == DAO_LC_RANDOM_TYPE_X9_17) */
 		struct dao_lc_random_op_x9_17 x9_17;
 	};
+};
+
+/**
+ * The liquid crypto AES key length in bytes.
+ */
+enum dao_lc_aes_key_len_bytes {
+	/** AES key length = 16 bytes */
+	DAO_LC_AES_KEY_LEN_16_BYTES = 16,
+	/** AES key length = 24 bytes */
+	DAO_LC_AES_KEY_LEN_24_BYTES = 24,
+	/** AES key length = 32 bytes */
+	DAO_LC_AES_KEY_LEN_32_BYTES = 32
 };
 
 /**

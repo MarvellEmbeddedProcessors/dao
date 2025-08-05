@@ -689,6 +689,22 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			sym_seg_sz += RTE_ALIGN(params->sym.cipher_auth_payload_len, 16);
 			/* Digest */
 			sym_seg_sz += params->sym.digest_len;
+
+			if (params->sym.key_wrap_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {
+				dao_err("Invalid key wrap length. key_wrap_len should be at most %u.",
+					DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
+				return 0;
+			}
+			/* Key wrap length */
+			sym_seg_sz += params->sym.key_wrap_len;
+
+			if (params->sym.kek_len > DAO_LC_AES_MAX_KEY_ENC_KEY_LEN) {
+				dao_err("Invalid AES KEK length. kek_len should be at most %u.",
+					DAO_LC_AES_MAX_KEY_ENC_KEY_LEN);
+				return 0;
+			}
+			/* AES KEK length */
+			sym_seg_sz += params->sym.kek_len;
 		}
 
 		if (params->rsa.mod_len) {
@@ -833,6 +849,8 @@ lc_inflight_req_reset(struct liquid_crypto_inflight_req *req)
 {
 	req->digest = NULL;
 	req->digest_len = 0;
+	req->cipher_len = 0;
+	req->wrap_unwrap_key_len = 0;
 }
 
 int
@@ -1720,7 +1738,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 
 		if (req->digest == NULL) {
 			/* Case: Append Digest into the output buffer */
-			result_len = req->cipher_len + req->digest_len;
+			result_len = req->cipher_len + req->digest_len + req->wrap_unwrap_key_len;
 			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
 								    req->data_out, lc_buf_offset,
 								    result_len);
@@ -2055,6 +2073,80 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 }
 
 static inline uint16_t
+dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
+				      struct rte_mbuf *mbuf, uint32_t req_idx,
+				      const struct dao_lc_sym_sess_meta *sess_meta,
+				      const enum lc_crypto_op_type op_type)
+{
+	uint32_t buf_len, dlen, kek_len, key_len;
+	struct __dao_lc_req_sym *req;
+	uint32_t lc_buf_offset = 0;
+	union cpt_inst_w4 w4;
+	uint8_t *dptr;
+
+	kek_len = sess_meta->kek_len;
+	lc_buf_offset = op->cipher_offset;
+	key_len = op->wrap_unwrap_key_len;
+	dlen = key_len + kek_len;
+
+	if (op->out_buffer != NULL)
+		qp->req_queue[req_idx].data_out = op->out_buffer;
+	else
+		qp->req_queue[req_idx].data_out = op->in_buffer;
+
+	qp->req_queue[req_idx].op_type = op_type;
+	qp->req_queue[req_idx].lc_buf_offset = lc_buf_offset;
+	qp->req_queue[req_idx].result_offset = 0;
+
+	if (op->is_wrap)
+		qp->req_queue[req_idx].wrap_unwrap_key_len = key_len + DAO_LC_AES_KEY_WRAP_IV_LEN;
+	else
+		qp->req_queue[req_idx].wrap_unwrap_key_len = key_len - DAO_LC_AES_KEY_WRAP_IV_LEN;
+
+	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rte_errno = ENOMEM;
+		return 0;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data is too large. buf_len = %u", buf_len);
+		rte_errno = ENOMEM;
+		return 0;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+	req->op_type = LC_SYM_OP_KEY_WRAP_UNWRAP;
+
+	/* Add instruction */
+	w4.u64 = sess_meta->w4;
+	w4.s.param1 = key_len;
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
+
+	/* Add KEK */
+	dptr = req->dptr;
+	memcpy(dptr, sess_meta->kek, kek_len);
+	dptr += kek_len;
+
+	/* Add data */
+	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
+					   op->in_buffer->total_len - lc_buf_offset, false);
+
+	return 1;
+}
+
+static inline uint16_t
 dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		       struct rte_mbuf **mbufs, uint32_t *req_idxs, uint16_t nb_ops)
 {
@@ -2100,6 +2192,10 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		case LC_SYM_OP_HMAC_AUTH_ONLY:
 			ret = dao_lc_sym_prepare_ops_single_auth_only(
 				qp, op, mbufs[i], req_idx, sess_meta, LC_SYM_OP_HMAC_AUTH_ONLY);
+			break;
+		case LC_SYM_OP_KEY_WRAP_UNWRAP:
+			ret = dao_lc_sym_prepare_ops_single_keywrap(
+				qp, op, mbufs[i], req_idx, sess_meta, LC_SYM_OP_KEY_WRAP_UNWRAP);
 			break;
 		default:
 			/* LC_SYM_OP_AEAD */

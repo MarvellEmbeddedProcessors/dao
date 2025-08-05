@@ -281,6 +281,15 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		w4.s.param1 = ctx->hash.hmac_key_len;
 		w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
 		sess_meta->digest_len = ctx->hash.digest_len;
+	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_AES_KEY_WRAP) {
+		sess_meta->op_type = LC_SYM_OP_KEY_WRAP_UNWRAP;
+		sess_meta->kek_len = ctx->aes_key_wrap.kek_len;
+		memcpy(sess_meta->kek, ctx->aes_key_wrap.kek, ctx->aes_key_wrap.kek_len);
+
+		w4.s.opcode_major = DAO_LC_SYM_OPCODE_AES_KEY_WRAP;
+		w4.s.opcode_minor = ((ctx->aes_key_wrap.aes_kek_type & 0x03) << 2) |
+				    ((!ctx->aes_key_wrap.is_wrap) << 1);
+		w4.s.param2 = 0;
 	} else {
 		dao_err("Unsupported opcode.");
 		goto sess_meta_free;
@@ -498,6 +507,33 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 	return 0;
 }
 
+static int
+sym_sess_kek_verify(const struct dao_lc_sym_ctx *ctx)
+{
+	const struct dao_lc_aes_key_wrap_ctx *kek_ctx;
+
+	kek_ctx = &ctx->aes_key_wrap;
+
+	if (kek_ctx->kek_len == 0) {
+		dao_err("Invalid KEK length.");
+		return -EINVAL;
+	}
+
+	if (kek_ctx->kek == NULL) {
+		dao_err("KEK pointer is NULL.");
+		return -EINVAL;
+	}
+
+	if (kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_16_BYTES &&
+	    kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_24_BYTES &&
+	    kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_32_BYTES) {
+		dao_err("Invalid KEK length. Must be 16, 24, or 32 bytes.");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int
 liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 {
@@ -512,6 +548,8 @@ liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_SYM_OPCODE_HASH:
 	case DAO_LC_SYM_OPCODE_HMAC:
 		return sym_sess_hash_verify(ctx);
+	case DAO_LC_SYM_OPCODE_AES_KEY_WRAP:
+		return sym_sess_kek_verify(ctx);
 	default:
 		dao_err("Unsupported opcode.");
 		return -EINVAL;
@@ -646,6 +684,74 @@ lc_sym_op_is_auth_only(enum lc_crypto_op_type op_type)
 }
 
 int
+lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
+				   const struct dao_lc_sym_sess_meta *sess_meta)
+{
+	uint32_t output_len_required = 0;
+	uint16_t kek_len, key_len;
+
+	kek_len = sess_meta->kek_len;
+	key_len = op->wrap_unwrap_key_len;
+
+	if (kek_len == 0) {
+		dao_err("Key encryption key (KEK) length cannot be zero.");
+		return -EINVAL;
+	}
+
+	if (kek_len < DAO_LC_AES_KEY_LEN_16_BYTES) {
+		dao_err("Invalid KEK length (%u). KEK length must be at least 16 bytes.", kek_len);
+		return -EINVAL;
+	}
+
+	if (kek_len != DAO_LC_AES_KEY_LEN_16_BYTES && kek_len != DAO_LC_AES_KEY_LEN_24_BYTES &&
+	    kek_len != DAO_LC_AES_KEY_LEN_32_BYTES) {
+		dao_err("Invalid KEK length (%u). KEK length must be 16, 24, or 32 bytes.",
+			kek_len);
+		return -EINVAL;
+	}
+
+	if (key_len == 0) {
+		dao_err("Key length cannot be zero.");
+		return -EINVAL;
+	}
+
+	if (key_len < 16 || key_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {
+		dao_err("Invalid key length (%u). Key length must be between 16 and %u bytes.",
+			key_len, DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
+		return -EINVAL;
+	}
+
+	if (key_len % 8 != 0) {
+		dao_err("Invalid key length (%u). Key length must be a multiple of 8 bytes.",
+			key_len);
+		return -EINVAL;
+	}
+
+	/* For wrap operations, check output buffer size */
+	if (op->is_wrap) {
+		/* AES Key Wrap adds 8 bytes of authentication data */
+		output_len_required = key_len + 8;
+
+		if (op->out_buffer != NULL) {
+			if (op->out_buffer->total_len < output_len_required) {
+				dao_err("Output buffer too small for wrapped key. Needs %u bytes.",
+					output_len_required);
+				return -EINVAL;
+			}
+		} else {
+			/* For in-place operation */
+			if (op->in_buffer->total_len < output_len_required) {
+				dao_err("In-place buffer too small for wrapped key. Needs %u bytes.",
+					output_len_required);
+				return -EINVAL;
+			}
+		}
+	}
+
+	return 0;
+}
+
+int
 lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
@@ -695,6 +801,11 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		break;
 	case LC_SYM_OP_AEAD:
 		ret = lc_sym_op_aead_validate(op, sess_meta);
+		if (ret)
+			return ret;
+		break;
+	case LC_SYM_OP_KEY_WRAP_UNWRAP:
+		ret = lc_sym_aes_key_wrap_param_validate(op, sess_meta);
 		if (ret)
 			return ret;
 		break;

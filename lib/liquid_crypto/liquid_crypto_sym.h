@@ -57,6 +57,12 @@ struct dao_lc_sym_sess_meta {
 
 	/* HMAC authentication key */
 	uint8_t auth_key[DAO_LC_MAX_AUTH_KEY_LEN];
+
+	/* Key encryption key length */
+	uint16_t kek_len;
+
+	/* Key encryption key for AES Key wrap */
+	uint8_t kek[DAO_LC_AES_MAX_KEY_ENC_KEY_LEN];
 };
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);
@@ -72,5 +78,8 @@ int liquid_crypto_sym_sess_meta_lookup(uint64_t sess_opaque);
 void liquid_crypto_sym_sess_meta_free(struct dao_lc_sym_sess_meta *sess_meta);
 
 int lc_sym_op_validate(struct dao_lc_sym_op *op);
+
+int lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
+				       const struct dao_lc_sym_sess_meta *sess_meta);
 
 #endif /* __LIQUID_CRYPTO_SYM_H__ */
