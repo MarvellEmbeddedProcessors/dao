@@ -11,6 +11,7 @@
 #include "lc_autotest.h"
 #include "lc_test_generic.h"
 #include "lc_test_sym_aes.h"
+#include "lc_test_sym_aes_keywrap.h"
 #include "lc_test_sym_hash.h"
 #include "test.h"
 
@@ -193,6 +194,217 @@ is_aead_algo(const struct test_sym_params *params)
 		(params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM) ||
 		((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA) &&
 		 (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_POLY1305)));
+}
+
+static int
+test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop)
+{
+	uint8_t key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
+				TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
+	uint8_t wrap_key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET] = {0};
+	const struct test_sym_params *params = data;
+	struct dao_lc_sym_ctx ctx = params->ctx;
+	uint32_t key_data_len, wrap_key_len;
+	uint8_t dev_id = glb_params.dev_id;
+	struct dao_lc_buf out_buf[1] = {0};
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t sess_cookie = rte_rand();
+	struct dao_lc_buf in_buf[1] = {0};
+	struct dao_lc_sym_op op[1] = {0};
+	struct dao_lc_res res[1] = {0};
+	struct dao_lc_buf iv_buf = {0};
+	uint8_t *result_buffer = NULL;
+	struct dao_lc_buf *dst_buf;
+	struct dao_lc_cmd_event ev;
+	int max_offset = 32;
+	uint64_t op_cookie;
+	int ret, i;
+
+	ctx.aes_key_wrap.is_wrap = is_wrap;
+	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not create session");
+		return -1;
+	}
+
+	ret = sess_event_dequeue(dev_id, &ev);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue session event");
+		return -1;
+	}
+
+	TEST_ASSERT(ev.event_type == DAO_LC_CMD_EVENT_SESS_CREATE, "Invalid event type");
+	TEST_ASSERT(ev.sess_event.sess_id != DAO_LC_SESS_ID_INVALID, "Invalid session ID");
+	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
+
+	/* Perform crypto operation */
+	op[0].sess_id = ev.sess_event.sess_id;
+	op[0].is_wrap = is_wrap;
+
+	for (i = 0; i < max_offset; i++) {
+		/* Clearing buffers for each iteration */
+		memset(key_data, 0, sizeof(key_data));
+
+		if (is_wrap) {
+			key_data_len = params->plaintext.len;
+			memcpy(key_data + i, params->plaintext.data, params->plaintext.len);
+		} else {
+			key_data_len = params->wrap_key.len;
+			memcpy(key_data + i, params->wrap_key.data, params->wrap_key.len);
+		}
+
+		if (key_data_len + i > TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET) {
+			TEST_LC_ERR("Key data length is exceeded for offset %d", i);
+			goto exit;
+		}
+		in_buf[0].data = key_data;
+		in_buf[0].frag_len = key_data_len + i;
+		in_buf[0].total_len = in_buf[0].frag_len;
+
+		op[0].is_wrap = is_wrap;
+		op[0].cipher_offset = params->cipher_offset + i;
+
+		if (is_wrap) {
+			wrap_key_len = params->wrap_key.len;
+			op[0].wrap_unwrap_key_len = params->plaintext.len;
+		} else {
+			wrap_key_len = params->plaintext.len;
+			op[0].wrap_unwrap_key_len = params->wrap_key.len;
+		}
+
+		if (is_oop) {
+			dst_buf = out_buf;
+			dst_buf[0].data = wrap_key_data;
+			dst_buf[0].frag_len = wrap_key_len + i;
+			dst_buf[0].total_len = dst_buf[0].frag_len;
+			op[0].out_buffer = out_buf;
+		} else {
+			/* In in-place operation, output is written back to input buffer */
+			op[0].out_buffer = NULL;
+			if (is_wrap) {
+				/* Append space for IV at the end of input buffer */
+				iv_buf.data = key_data + key_data_len + i;
+				iv_buf.frag_len = TEST_LC_AES_KEY_WRAP_IV_LEN;
+				iv_buf.total_len = iv_buf.frag_len;
+				in_buf[0].next = &iv_buf;
+			}
+			in_buf[0].total_len = in_buf[0].frag_len + iv_buf.frag_len;
+			dst_buf = in_buf;
+		}
+
+		op[0].in_buffer = in_buf;
+
+		op_cookie = rte_rand();
+		op[0].op_cookie = op_cookie;
+
+		ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
+		if (ret != 1) {
+			TEST_LC_ERR("Could not enqueue symmetric crypto operation");
+			return -1;
+		}
+
+		ret = op_dequeue(dev_id, qp_id, res);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not dequeue symmetric crypto operation");
+			return -1;
+		}
+
+		TEST_ASSERT(res[0].op_cookie == op_cookie, "Invalid operation cookie");
+		TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+			    "Crypto operation failed");
+
+		result_buffer = (uint8_t *)dst_buf[0].data + i;
+		if (is_wrap) {
+			if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
+				TEST_LC_ERR("Key wrap failed with uc_compcode %u",
+					    res[0].res.cn9k.uc_compcode);
+				goto exit;
+			}
+
+			if (memcmp(result_buffer, params->wrap_key.data, params->wrap_key.len) !=
+			    0) {
+				TEST_LC_ERR(
+					"Key wrap failed. Expected key does not match wrapped key");
+				rte_hexdump(stdout, "WRAPPED KEY: ", result_buffer,
+					    params->wrap_key.len);
+				rte_hexdump(stdout, "EXPECTED WRAPPED KEY: ", params->wrap_key.data,
+					    params->wrap_key.len);
+				goto exit;
+			}
+		} else {
+			if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
+				TEST_LC_ERR(
+					"Expected key unwrap verification is failed with uc_compcode %u",
+					res[0].res.cn9k.uc_compcode);
+				rte_hexdump(stdout, "UNWRAPPED KEY: ", result_buffer,
+					    params->plaintext.len);
+				rte_hexdump(stdout,
+					    "EXPECTED UNWRAPPED KEY: ", params->plaintext.data,
+					    params->plaintext.len);
+				goto exit;
+			}
+			if (memcmp(result_buffer, params->plaintext.data, params->plaintext.len) !=
+			    0) {
+				TEST_LC_ERR(
+					"Key unwrap failed. Expected unwrap key does not match unwrapped key");
+				rte_hexdump(stdout, "UNWRAPPED KEY: ", result_buffer,
+					    params->plaintext.len);
+				rte_hexdump(stdout,
+					    "EXPECTED UNWRAPPED KEY: ", params->plaintext.data,
+					    params->plaintext.len);
+				goto exit;
+			}
+		}
+	}
+
+	sess_cookie = rte_rand();
+	ret = dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id,
+						 sess_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not destroy session");
+		return -1;
+	}
+
+	ret = sess_event_dequeue(dev_id, &ev);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue session event");
+		return -1;
+	}
+
+	TEST_ASSERT(ev.event_type == DAO_LC_CMD_EVENT_SESS_DESTROY, "Invalid event type");
+	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
+
+	return 0;
+
+exit:
+	/* clean-up path in case of early error */
+	dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id, sess_cookie);
+	sess_event_dequeue(dev_id, &ev);
+	return -1;
+}
+
+static int
+test_aes_key_wrap(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, true, false);
+}
+
+static int
+test_aes_key_unwrap(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, false, false);
+}
+
+static int
+test_aes_key_wrap_oop(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, true, true);
+}
+
+static int
+test_aes_key_unwrap_oop(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, false, true);
 }
 
 static int
@@ -812,6 +1024,96 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_hash_gen, &shake256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHAKE256 Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &shake256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 128 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_128B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 128 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_128B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_192B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_192B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_256B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_256B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 192 bit key data with 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_192B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 192 bit key data and 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_192B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 192 bit key data with 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_256B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 192 bit key data and 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_256B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 256 bit key data with 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_256B_kek_256B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 256 bit key data and 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_256B_kek_256B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 3072 bytes key data with 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_256B_kek_3072B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 3064 bytes key data with 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_256B_kek_3064B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 3064 bytes key data with 256 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_256B_kek_3064B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 128 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_128B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 128 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_128B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_192B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_192B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_256B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_256B_kek_128B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 192 bit key data with 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_192B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 192 bit key data and 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_192B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 192 bit key data with 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_256B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 192 bit key data and 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_256B_kek_192B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 256 bit key data with 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_256B_kek_256B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 256 bit key data and 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_256B_kek_256B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 3072 bytes key data with 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_256B_kek_3072B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 3064 bytes key data with 256 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_256B_kek_3064B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 3064 bytes key data with 256 bit KEK OOP",
+					  ut_setup, ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_256B_kek_3064B_key),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

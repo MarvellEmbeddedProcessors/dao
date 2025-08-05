@@ -50,5 +50,11 @@
 #define TEST_LC_MAX_ECC_DIGEST_LEN 66
 /* Maximum nonce length */
 #define TEST_LC_MAX_NONCE_LEN 66
+/* Maximum length of AES key wrap key data */
+#define TEST_LC_MAX_KEY_DATA_LEN 3072
+/* AES Key Wrap IV length */
+#define TEST_LC_AES_KEY_WRAP_IV_LEN 8
+/* Maximum KEK length */
+#define TEST_LC_MAX_KEK_LEN 32
 
 #endif /* __LC_AUTOTEST_H__ */
