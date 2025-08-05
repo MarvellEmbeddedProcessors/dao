@@ -28,6 +28,8 @@
 #define DAO_LC_SESS_ID_INVALID 0
 /** Session ID returned as response if the session create is for HASH operation */
 #define DAO_LC_SESS_ID_HASH 1
+/** Session ID returned as response if the session create is for AES Key Wrap operation */
+#define DAO_LC_SESS_ID_AES_KEY_WRAP 2
 /** Maximum digest length */
 #define DAO_LC_MAX_DIGEST_LEN 255
 /** Maximum authentication key */

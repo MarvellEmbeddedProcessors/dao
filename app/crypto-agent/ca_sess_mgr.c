@@ -75,8 +75,13 @@ ca_sess_handle_create(struct rte_mbuf *mb)
 
 	if ((sess_create->opcode == DAO_LC_SYM_OPCODE_HASH) ||
 	    (sess_create->opcode == DAO_LC_SYM_OPCODE_HMAC)) {
-		/* No need of context for HASH operation */
+		/* No need of context for HASH/HMAC operations */
 		sess_create_resp->sess_id = DAO_LC_SESS_ID_HASH;
+		rc = 0;
+		goto exit;
+	} else if (sess_create->opcode == DAO_LC_SYM_OPCODE_AES_KEY_WRAP) {
+		/* No need of context for AES Key Wrap operations */
+		sess_create_resp->sess_id = DAO_LC_SESS_ID_AES_KEY_WRAP;
 		rc = 0;
 		goto exit;
 	}
@@ -135,8 +140,9 @@ ca_sess_handle_destroy(struct rte_mbuf *mb)
 
 	sess_destroy = rte_pktmbuf_mtod(mb, struct __dao_lc_req_resp_sess_destroy *);
 
-	if (sess_destroy->sess_id == DAO_LC_SESS_ID_HASH) {
-		/* There is no context associated with HASH operation to free! */
+	if ((sess_destroy->sess_id == DAO_LC_SESS_ID_HASH) ||
+	    (sess_destroy->sess_id == DAO_LC_SESS_ID_AES_KEY_WRAP)) {
+		/* There is no context associated with HASH/keywrap operation to free! */
 		rc = 0;
 		goto exit;
 	}
