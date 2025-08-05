@@ -30,6 +30,17 @@ dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[VIRTIO_NET_DEQ_OFFLOAD_LAST << 1]
 	(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV6 | RTE_MBUF_F_TX_TCP_CKSUM |                   \
 	 RTE_MBUF_F_TX_TCP_SEG)
 
+static __rte_always_inline void
+free_mbuf_seg_chain(struct rte_mbuf *mbuf)
+{
+	struct rte_mbuf *mb = mbuf, *mb_next;
+
+	while (mb) {
+		mb_next = mb->next;
+		rte_pktmbuf_free_seg(mb);
+		mb = mb_next;
+	}
+}
 void
 virtio_net_flush_deq(struct virtio_net_queue *q)
 {
@@ -528,7 +539,17 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 		mbuf0 = mbuf;
 		while (unlikely(pend)) {
 			/* allocate new mbuf and attach it */
-			rte_mempool_get(q->mp, (void **)&mbuf1);
+			if (rte_mempool_get(q->mp, (void **)&mbuf1)) {
+				/* remove desc/mbuf from DMA src/dst */
+				dev2mem->src_i -= 1;
+				dev2mem->dst_i -= mbuf0->nb_segs;
+				/* Keep allocated mbuf as it is to retry in next iteration */
+				free_mbuf_seg_chain(mbuf0->next);
+				mbuf0->next = NULL;
+				/* Update nb_segs. pkt/data len gets updated in retry */
+				mbuf0->nb_segs = 1;
+				goto exit;
+			}
 			*((uint64_t *)&mbuf1->rearm_data) = rearm_data;
 			dlen = pend;
 			if (unlikely(dlen > buf_len))
