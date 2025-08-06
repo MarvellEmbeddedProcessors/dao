@@ -358,10 +358,11 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 		op[0].cipher_offset = params->cipher_offset + i;
 		op[0].cipher_len = params->ciphertext.len;
 
-		if (params->iv.data == NULL || params->iv.len == 0) {
+		if (params->iv.len == 0) {
 			TEST_LC_ERR("Invalid IV data or length");
 			return -1;
 		}
+
 		op[0].cipher_iv = (uint8_t *)params->iv.data;
 
 		op_cookie = rte_rand();

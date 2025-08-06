@@ -122,9 +122,9 @@ lcperf_check_single_op(struct lcperf_latency_ctx *ctx, struct lcperf_test_data *
 int
 lcperf_latency_test_runner(void *test_ctx)
 {
-	uint64_t ops_enqd = 0, ops_enqd_total = 0, ops_enqd_failed = 0;
 	uint64_t ops_deqd = 0, ops_deqd_total = 0, ops_deqd_failed = 0;
 	uint64_t tsc_max = 0, tsc_min = ~0UL, tsc_tot = 0;
+	uint64_t ops_enqd = 0, ops_enqd_total = 0;
 	uint64_t tsc_enq_idx = 0, tsc_deq_idx = 0;
 	struct lcperf_latency_ctx *ctx = test_ctx;
 	uint64_t enqd_max = 0, enqd_min = ~0UL;
@@ -161,7 +161,6 @@ lcperf_latency_test_runner(void *test_ctx)
 
 		ops_enqd = 0;
 		ops_deqd = 0;
-		ops_enqd_failed = 0;
 
 		tsc_start = rte_rdtsc_precise();
 		tdata.op_cookie = tsc_start;
@@ -171,9 +170,6 @@ lcperf_latency_test_runner(void *test_ctx)
 		if (ret == 0) {
 			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata, ctx->options);
 			ops_enqd += ret;
-			ops_enqd_failed += curr_burst_sz - ret;
-		} else {
-			ops_enqd_failed += curr_burst_sz;
 		}
 
 		for (j = 0; j < curr_burst_sz; j++) {
