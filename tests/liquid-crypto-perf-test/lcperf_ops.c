@@ -219,7 +219,7 @@ lcperf_populate_ops_sym(uint64_t sess_id, const struct lcperf_options *options,
 	return 0;
 
 put_bulk:
-	rte_mempool_put_bulk(test_data->buf_pool, (void **)buf_mem, test_data->nb_ops);
+	rte_mempool_put_bulk(test_data->buf_pool, (void **)buf_mem, ops_needed);
 	return -1;
 }
 
