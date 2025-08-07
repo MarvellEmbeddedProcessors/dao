@@ -99,7 +99,7 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		op[0].auth_offset = params->auth_offset + i;
 		op[0].auth_len = params->plaintext.len;
 
-		if (params->ctx.fc.hash_type == DAO_LC_FC_HASH_TYPE_GMAC)
+		if (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_GMAC)
 			op[0].cipher_iv = (uint8_t *)params->iv.data;
 
 		if (is_auth_gen)

@@ -48,7 +48,7 @@ sha1_test_data = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
 		.fc = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_FC_HASH_TYPE_SHA1,
+			.hash_type = DAO_LC_HASH_TYPE_SHA1,
 			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
 			.mac_len = 20,
 		},
@@ -76,7 +76,7 @@ sha224_test_data = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
 		.fc = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_FC_HASH_TYPE_SHA2_SHA224,
+			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA224,
 			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
 			.mac_len = 28,
 		},
@@ -104,7 +104,7 @@ sha256_test_data = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
 		.fc = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_FC_HASH_TYPE_SHA2_SHA256,
+			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
 			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
 			.mac_len = 32,
 		},
@@ -134,7 +134,7 @@ sha384_test_data = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
 		.fc = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_FC_HASH_TYPE_SHA2_SHA384,
+			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
 			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
 			.mac_len = 48,
 		},
@@ -166,7 +166,7 @@ sha512_test_data = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
 		.fc = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_FC_HASH_TYPE_SHA2_SHA512,
+			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512,
 			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
 			.mac_len = 64,
 		},
@@ -193,7 +193,7 @@ static const struct test_sym_params hmac_sha1_test_data = {
 		.hash = {
 			.digest_len = 20,
 			.hmac_key_len = 20,
-			.hmac_hash_type = DAO_LC_FC_HMAC_TYPE_SHA1,
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA1,
 			.hmac_auth_key = {
 				0xF8, 0x2A, 0xC7, 0x54, 0xDB, 0x96, 0x18, 0xAA,
 				0xC3, 0xA1, 0x53, 0xF6, 0x1F, 0x17, 0x60, 0xBD,

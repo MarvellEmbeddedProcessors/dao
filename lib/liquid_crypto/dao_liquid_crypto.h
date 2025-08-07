@@ -437,30 +437,41 @@ enum dao_lc_fc_auth_key_src {
 };
 
 /**
- * The liquid crypto flexi crypto hash type.
+ * The liquid crypto hash type.
  */
-enum dao_lc_fc_hash_type {
-	/** Flexi Crypto Hash Type = NULL */
-	DAO_LC_FC_HASH_TYPE_NULL = 0,
-	/** Flexi Crypto Hash Type = MD5 */
-	DAO_LC_FC_HASH_TYPE_MD5 = 1,
-	/** Flexi Crypto Hash Type = SHA1 */
-	DAO_LC_FC_HASH_TYPE_SHA1 = 2,
-	/** Flexi Crypto Hash Type = SHA2-SHA224 */
-	DAO_LC_FC_HASH_TYPE_SHA2_SHA224 = 3,
-	/** Flexi Crypto Hash Type = SHA2-SHA256 */
-	DAO_LC_FC_HASH_TYPE_SHA2_SHA256 = 4,
-	/** Flexi Crypto Hash Type = SHA2-SHA384 */
-	DAO_LC_FC_HASH_TYPE_SHA2_SHA384 = 5,
-	/** Flexi Crypto Hash Type = SHA2-SHA512 */
-	DAO_LC_FC_HASH_TYPE_SHA2_SHA512 = 6,
-	/** Flexi Crypto Hash Type = GMAC */
-	DAO_LC_FC_HASH_TYPE_GMAC = 7,
-	/** Flexi Crypto Hash Type = POLY1305 */
-	DAO_LC_FC_HASH_TYPE_POLY1305 = 8,
-	/** HMAC Hash Type SHA1 */
-	DAO_LC_FC_HMAC_TYPE_SHA1 = 9,
-
+enum dao_lc_hash_type {
+	/** Hash Type = NULL */
+	DAO_LC_HASH_TYPE_NULL = 0,
+	/** Hash Type = MD5 */
+	DAO_LC_HASH_TYPE_MD5 = 1,
+	/** Hash Type = SHA1 */
+	DAO_LC_HASH_TYPE_SHA1 = 2,
+	/** Hash Type = SHA2-SHA224 */
+	DAO_LC_HASH_TYPE_SHA2_SHA224 = 3,
+	/** Hash Type = SHA2-SHA256 */
+	DAO_LC_HASH_TYPE_SHA2_SHA256 = 4,
+	/** Hash Type = SHA2-SHA384 */
+	DAO_LC_HASH_TYPE_SHA2_SHA384 = 5,
+	/** Hash Type = SHA2-SHA512 */
+	DAO_LC_HASH_TYPE_SHA2_SHA512 = 6,
+	/** Hash Type = GMAC */
+	DAO_LC_HASH_TYPE_GMAC = 7,
+	/** Hash Type = POLY1305 */
+	DAO_LC_HASH_TYPE_POLY1305 = 8,
+	/** Hash Type = SM3 */
+	DAO_LC_HASH_TYPE_SM3 = 9,
+	/** Hash Type = SHA3-SHA224 */
+	DAO_LC_HASH_TYPE_SHA3_SHA224 = 10,
+	/** Hash Type = SHA3-SHA256 */
+	DAO_LC_HASH_TYPE_SHA3_SHA256 = 11,
+	/** Hash Type = SHA3-SHA384 */
+	DAO_LC_HASH_TYPE_SHA3_SHA384 = 12,
+	/** Hash Type = SHA3-SHA512 */
+	DAO_LC_HASH_TYPE_SHA3_SHA512 = 13,
+	/** Hash Type = SHA3-SHAKE128 */
+	DAO_LC_HASH_TYPE_SHA3_SHAKE128 = 14,
+	/** Hash Type = SHA3-SHAKE256 */
+	DAO_LC_HASH_TYPE_SHA3_SHAKE256 = 15,
 };
 
 /**
@@ -504,7 +515,7 @@ struct dao_lc_sym_fc_ctx {
 	uint64_t rsvd_50_51 : 2;
 	/**
 	 * MAC_Select: Authentication algorithm
-	 * @see enum dao_lc_fc_hash_type
+	 * @see enum dao_lc_hash_type
 	 */
 	uint64_t hash_type : 4;
 	/** MAC_Len (MAC_Len ranges from 1 to MAC length of the respective MAC algorithm) */
@@ -598,7 +609,7 @@ struct dao_lc_feature_params {
  */
 struct dao_lc_hmac_hash_ctx {
 	/** Hash type */
-	enum dao_lc_fc_hash_type hmac_hash_type;
+	enum dao_lc_hash_type hmac_hash_type;
 	/** Digest length */
 	uint8_t digest_len;
 	/** HMAC key length*/

@@ -38,7 +38,7 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
-		if (ctx->fc.hash_type != DAO_LC_FC_HASH_TYPE_GMAC) {
+		if (ctx->fc.hash_type != DAO_LC_HASH_TYPE_GMAC) {
 			dao_err("Unsupported hash type for NULL cipher.");
 			return -ENOTSUP;
 		}
@@ -69,7 +69,7 @@ sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
-		if (ctx->fc.hash_type != DAO_LC_FC_HASH_TYPE_GMAC) {
+		if (ctx->fc.hash_type != DAO_LC_HASH_TYPE_GMAC) {
 			dao_err("Unsupported hash type for NULL cipher.");
 			return -ENOTSUP;
 		}
@@ -89,23 +89,23 @@ static int
 sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 {
 	switch (ctx->fc.hash_type) {
-	case DAO_LC_FC_HASH_TYPE_SHA1:
+	case DAO_LC_HASH_TYPE_SHA1:
 		if (ctx->fc.mac_len == 20)
 			return 0;
 		break;
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA224:
+	case DAO_LC_HASH_TYPE_SHA2_SHA224:
 		if (ctx->fc.mac_len == 28)
 			return 0;
 		break;
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA256:
+	case DAO_LC_HASH_TYPE_SHA2_SHA256:
 		if (ctx->fc.mac_len == 32)
 			return 0;
 		break;
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA384:
+	case DAO_LC_HASH_TYPE_SHA2_SHA384:
 		if (ctx->fc.mac_len == 48)
 			return 0;
 		break;
-	case DAO_LC_FC_HASH_TYPE_SHA2_SHA512:
+	case DAO_LC_HASH_TYPE_SHA2_SHA512:
 		if (ctx->fc.mac_len == 64)
 			return 0;
 		break;
@@ -122,7 +122,7 @@ static int
 sym_sess_hmac_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 {
 	switch (ctx->hash.hmac_hash_type) {
-	case DAO_LC_FC_HMAC_TYPE_SHA1:
+	case DAO_LC_HASH_TYPE_SHA1:
 		if (ctx->hash.digest_len == 20)
 			return 0;
 		break;
@@ -139,7 +139,6 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	union cpt_inst_w4 w4 = {0};
-	uint8_t hash_type;
 
 	sess_meta =
 		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
@@ -170,7 +169,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 				sess_meta->pkt_iv_len = 16;
 		}
 
-		if (ctx->fc.hash_type == DAO_LC_FC_HASH_TYPE_GMAC) {
+		if (ctx->fc.hash_type == DAO_LC_HASH_TYPE_GMAC) {
 			sess_meta->hash_type = ctx->fc.hash_type;
 			w4.s.opcode_minor |= DAO_LC_OPCODE_IV_LENGTH_MASK;
 			sess_meta->op_type = LC_SYM_OP_AEAD;
@@ -197,14 +196,6 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
 		if (sym_sess_hmac_hash_digest_len_validate(ctx))
 			goto sess_meta_free;
-		switch (ctx->hash.hmac_hash_type) {
-		case DAO_LC_FC_HMAC_TYPE_SHA1:
-			hash_type = DAO_LC_FC_HASH_TYPE_SHA1;
-			break;
-		default:
-			hash_type = DAO_LC_FC_HASH_TYPE_NULL;
-			break;
-		}
 
 		sess_meta->hash_type = ctx->hash.hmac_hash_type;
 		sess_meta->op_type = LC_SYM_OP_HMAC_AUTH_ONLY;
@@ -214,7 +205,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_HMAC;
 		w4.s.opcode_minor = 0x0;
 		w4.s.param1 = ctx->hash.hmac_key_len;
-		w4.s.param2 = (hash_type << 8) | ctx->hash.digest_len;
+		w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
 		sess_meta->digest_len = ctx->hash.digest_len;
 	} else {
 		dao_err("Unsupported opcode.");
@@ -313,7 +304,7 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 		is_aes = true;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
-		if (fc_ctx->hash_type != DAO_LC_FC_HASH_TYPE_GMAC) {
+		if (fc_ctx->hash_type != DAO_LC_HASH_TYPE_GMAC) {
 			dao_err("Unsupported hash type for NULL cipher.");
 			return -ENOTSUP;
 		}
@@ -341,8 +332,8 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 	}
 
 	switch (fc_ctx->hash_type) {
-	case DAO_LC_FC_HASH_TYPE_NULL:
-	case DAO_LC_FC_HASH_TYPE_GMAC:
+	case DAO_LC_HASH_TYPE_NULL:
+	case DAO_LC_HASH_TYPE_GMAC:
 		break;
 	default:
 		dao_err("Unsupported hash type.");
@@ -363,11 +354,11 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		switch (fc_ctx->hash_type) {
-		case DAO_LC_FC_HASH_TYPE_SHA1:
-		case DAO_LC_FC_HASH_TYPE_SHA2_SHA224:
-		case DAO_LC_FC_HASH_TYPE_SHA2_SHA256:
-		case DAO_LC_FC_HASH_TYPE_SHA2_SHA384:
-		case DAO_LC_FC_HASH_TYPE_SHA2_SHA512:
+		case DAO_LC_HASH_TYPE_SHA1:
+		case DAO_LC_HASH_TYPE_SHA2_SHA224:
+		case DAO_LC_HASH_TYPE_SHA2_SHA256:
+		case DAO_LC_HASH_TYPE_SHA2_SHA384:
+		case DAO_LC_HASH_TYPE_SHA2_SHA512:
 			break;
 		default:
 			dao_err("Unsupported hash type.");
@@ -375,7 +366,7 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		}
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
 		switch (hash_ctx->hmac_hash_type) {
-		case DAO_LC_FC_HMAC_TYPE_SHA1:
+		case DAO_LC_HASH_TYPE_SHA1:
 			break;
 		default:
 			dao_err("Unsupported HMAC hash type.");
@@ -488,7 +479,7 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (op->cipher_len == 0 && sess_meta->hash_type != DAO_LC_FC_HASH_TYPE_GMAC) {
+	if (op->cipher_len == 0 && sess_meta->hash_type != DAO_LC_HASH_TYPE_GMAC) {
 		dao_err("Invalid cipher length for AEAD operation.");
 		return -EINVAL;
 	}
@@ -632,7 +623,7 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		case DAO_LC_FC_ENC_CIPHER_AES_CCM:
 			break;
 		case DAO_LC_FC_ENC_CIPHER_NULL:
-			if (sess_meta->hash_type != DAO_LC_FC_HASH_TYPE_GMAC) {
+			if (sess_meta->hash_type != DAO_LC_HASH_TYPE_GMAC) {
 				dao_err("Unsupported hash type for NULL cipher.");
 				return -ENOTSUP;
 			}

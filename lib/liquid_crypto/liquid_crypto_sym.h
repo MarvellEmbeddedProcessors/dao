@@ -47,7 +47,7 @@ struct dao_lc_sym_sess_meta {
 	enum dao_lc_fc_enc_cipher cipher_type;
 
 	/** Hash type */
-	enum dao_lc_fc_hash_type hash_type;
+	enum dao_lc_hash_type hash_type;
 
 	/* Operation type */
 	enum lc_crypto_op_type op_type;

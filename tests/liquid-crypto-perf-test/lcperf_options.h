@@ -102,7 +102,7 @@ struct lcperf_options {
 	uint32_t cipher_key_sz;
 
 	enum lcperf_crypto_sym_auth_op_type auth_op;
-	enum dao_lc_fc_hash_type auth_algo;
+	enum dao_lc_hash_type auth_algo;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

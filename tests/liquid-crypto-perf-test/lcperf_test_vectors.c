@@ -1453,7 +1453,7 @@ static struct lcperf_test_sym_params sha1_test_data = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
 		.fc = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_FC_HASH_TYPE_SHA1,
+			.hash_type = DAO_LC_HASH_TYPE_SHA1,
 			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
 			.mac_len = 20,
 		},
@@ -1510,7 +1510,7 @@ lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 			       test_data->sym_params.ciphertext.len);
 			test_data->ciphertext.len = test_data->sym_params.ciphertext.len;
 		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
-			if (options->auth_algo == DAO_LC_FC_HASH_TYPE_SHA1) {
+			if (options->auth_algo == DAO_LC_HASH_TYPE_SHA1) {
 				memcpy(&test_data->sym_params, &sha1_test_data,
 				       sizeof(sha1_test_data));
 			} else {

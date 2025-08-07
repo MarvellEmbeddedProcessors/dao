@@ -537,7 +537,7 @@ static struct test_sym_params aes_gmac_128_test_data = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
 			.aes_key_len = DAO_LC_FC_AES_KEY_LEN_128,
 			.enc_cipher = DAO_LC_FC_ENC_CIPHER_NULL,
-			.hash_type = DAO_LC_FC_HASH_TYPE_GMAC,
+			.hash_type = DAO_LC_HASH_TYPE_GMAC,
 			.mac_len = 16,
 			.encr_key = {
 				0xfe, 0xff, 0xe9, 0x92, 0x86, 0x65, 0x73, 0x1c,
@@ -575,7 +575,7 @@ static struct test_sym_params aes_gmac_192_test_data = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
 			.aes_key_len = DAO_LC_FC_AES_KEY_LEN_192,
 			.enc_cipher = DAO_LC_FC_ENC_CIPHER_NULL,
-			.hash_type = DAO_LC_FC_HASH_TYPE_GMAC,
+			.hash_type = DAO_LC_HASH_TYPE_GMAC,
 			.mac_len = 16,
 			.encr_key = {
 				0xfe, 0xff, 0xe9, 0x92, 0x86, 0x65, 0x73, 0x1c,
@@ -614,7 +614,7 @@ static struct test_sym_params aes_gmac_256_test_data = {
 			.iv_source = DAO_LC_FC_IV_SRC_OP,
 			.aes_key_len = DAO_LC_FC_AES_KEY_LEN_256,
 			.enc_cipher = DAO_LC_FC_ENC_CIPHER_NULL,
-			.hash_type = DAO_LC_FC_HASH_TYPE_GMAC,
+			.hash_type = DAO_LC_HASH_TYPE_GMAC,
 			.mac_len = 16,
 			.encr_key = {
 				0xfe, 0xff, 0xe9, 0x92, 0x86, 0x65, 0x73, 0x1c,

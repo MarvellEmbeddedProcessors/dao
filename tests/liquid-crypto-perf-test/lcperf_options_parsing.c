@@ -318,8 +318,7 @@ static int
 parse_sym_auth_algo(struct lcperf_options *opts, const char *arg)
 {
 	struct name_id_map auth_algo_namemap[] = {
-		{lcperf_crypto_sym_auth_algo_strs[DAO_LC_FC_HASH_TYPE_SHA1],
-		 DAO_LC_FC_HASH_TYPE_SHA1},
+		{lcperf_crypto_sym_auth_algo_strs[DAO_LC_HASH_TYPE_SHA1], DAO_LC_HASH_TYPE_SHA1},
 	};
 
 	int id = get_str_key_id_mapping(auth_algo_namemap, RTE_DIM(auth_algo_namemap), arg);
@@ -329,7 +328,7 @@ parse_sym_auth_algo(struct lcperf_options *opts, const char *arg)
 		return -1;
 	}
 
-	opts->auth_algo = (enum dao_lc_fc_hash_type)id;
+	opts->auth_algo = (enum dao_lc_hash_type)id;
 
 	return 0;
 }
@@ -405,7 +404,7 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->cipher_key_sz = 16;
 
 	opts->auth_op = LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE;
-	opts->auth_algo = DAO_LC_FC_HASH_TYPE_SHA1;
+	opts->auth_algo = DAO_LC_HASH_TYPE_SHA1;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -617,7 +616,7 @@ lcperf_options_check(struct lcperf_options *options)
 				return -EINVAL;
 		} else if (options->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
 			switch (options->auth_algo) {
-			case DAO_LC_FC_HASH_TYPE_SHA1:
+			case DAO_LC_HASH_TYPE_SHA1:
 				/* SHA1 is supported */
 				break;
 			default:
