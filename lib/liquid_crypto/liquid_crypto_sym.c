@@ -159,6 +159,22 @@ sym_sess_hmac_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		if (ctx->hash.digest_len == 20)
 			return 0;
 		break;
+	case DAO_LC_HASH_TYPE_SHA2_SHA224:
+		if (ctx->hash.digest_len == 28)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA2_SHA256:
+		if (ctx->hash.digest_len == 32)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA2_SHA384:
+		if (ctx->hash.digest_len == 48)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA2_SHA512:
+		if (ctx->hash.digest_len == 64)
+			return 0;
+		break;
 	default:
 		dao_err("Unsupported HMAC hash type.");
 		return -ENOTSUP;
@@ -423,6 +439,10 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
 		switch (hash_ctx->hmac_hash_type) {
 		case DAO_LC_HASH_TYPE_SHA1:
+		case DAO_LC_HASH_TYPE_SHA2_SHA224:
+		case DAO_LC_HASH_TYPE_SHA2_SHA256:
+		case DAO_LC_HASH_TYPE_SHA2_SHA384:
+		case DAO_LC_HASH_TYPE_SHA2_SHA512:
 			break;
 		default:
 			dao_err("Unsupported HMAC hash type.");
