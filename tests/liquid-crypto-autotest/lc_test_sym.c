@@ -686,6 +686,22 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_hash_gen, &hmac_sha1_test_data),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &hmac_sha1_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA224 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &hmac_sha224_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA224 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &hmac_sha224_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA256 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &hmac_sha256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA256 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &hmac_sha256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA384 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &hmac_sha384_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA384 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &hmac_sha384_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA512 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &hmac_sha512_test_data),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA512 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &hmac_sha512_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
