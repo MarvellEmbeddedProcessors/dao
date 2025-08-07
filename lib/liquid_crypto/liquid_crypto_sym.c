@@ -125,6 +125,22 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		if (ctx->fc.mac_len == 64)
 			return 0;
 		break;
+	case DAO_LC_HASH_TYPE_SHA3_SHA224:
+		if (ctx->fc.mac_len == 28)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_SHA256:
+		if (ctx->fc.mac_len == 32)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_SHA384:
+		if (ctx->fc.mac_len == 48)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_SHA512:
+		if (ctx->fc.mac_len == 64)
+			return 0;
+		break;
 	default:
 		dao_err("Unsupported hash type.");
 		return -ENOTSUP;
@@ -394,6 +410,10 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		case DAO_LC_HASH_TYPE_SHA2_SHA256:
 		case DAO_LC_HASH_TYPE_SHA2_SHA384:
 		case DAO_LC_HASH_TYPE_SHA2_SHA512:
+		case DAO_LC_HASH_TYPE_SHA3_SHA224:
+		case DAO_LC_HASH_TYPE_SHA3_SHA256:
+		case DAO_LC_HASH_TYPE_SHA3_SHA384:
+		case DAO_LC_HASH_TYPE_SHA3_SHA512:
 			break;
 		default:
 			dao_err("Unsupported hash type.");
