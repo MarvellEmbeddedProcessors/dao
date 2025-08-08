@@ -51,15 +51,17 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		const uint16_t flags)
 {
 	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
-	struct rte_dma_sge *src = NULL, *dst = NULL;
 	struct dao_virtio_blk_hdr *buf, *n_buf, *buf0;
+	struct rte_dma_sge *src = NULL, *dst = NULL;
 	uint16_t pend_sd_mbuf = q->pend_sd_mbuf;
 	uint32_t i = 0, slen, dlen, pend = 0;
-	uint64_t d_flags, avail, is_rd = 0;
+	struct vring_packed_desc *vio_desc;
 	uint16_t sd_desc_off, sd_mbuf_off;
 	uint16_t buf_len = q->buf_len;
+	uint64_t avail, is_rd = 0;
 	uint16_t q_sz = q->q_sz;
 	uint16_t used = 0, off;
+	uint64x2_t desc_data;
 	void **extbuf_arr;
 	uint32_t nb_bufs;
 	int last_idx = 0;
@@ -99,12 +101,14 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 	/* Start DMA of buf data */
 	while (i < nb_bufs) {
 		buf = (struct dao_virtio_blk_hdr *)extbuf_arr[off];
-
-		d_flags = *DESC_PTR_OFF(desc_base, off, 8);
-		slen = d_flags & (RTE_BIT64(32) - 1);
+		vio_desc = &buf->vio_desc;
+		desc_data = vld1q_u64(DESC_PTR_OFF(desc_base, off, 0));
+		vst1q_u64(buf->desc_data, desc_data);
+		slen = vio_desc->len;
 		dlen = slen;
+
 		/* read-only buffer(blk write reqs) for device */
-		is_rd = !(d_flags & ((unsigned long) VRING_DESC_F_WRITE << 48));
+		is_rd = !(vio_desc->flags & VRING_DESC_F_WRITE);
 
 		/* Limit data to buffer length */
 		if (unlikely(slen > buf_len)) {
@@ -129,7 +133,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		if (is_rd) {
 			src = dao_dma_sge_src(dev2mem);
 			dst = dao_dma_sge_dst(dev2mem);
-			src[0].addr = *DESC_PTR_OFF(desc_base, off, 0);
+			src[0].addr = vio_desc->addr;
 			src[0].length = slen;
 			dst[0].addr = (uintptr_t)(buf->hdr_data);
 			dst[0].length = dlen;
@@ -138,21 +142,22 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		}
 
 		/* update buffer length */
-		buf->desc_data[0] = 0x0;
-		buf->desc_data[1] = dlen | (d_flags & 0xFFFF000000000000);
 		buf0 = buf;
-		buf0->tot_len = slen;
+		buf0->cur_len = dlen;
 		buf0->tot_segs = 1;
 		buf0->tot_bufs = 1;
+		buf0->next = NULL;
 
 		while (unlikely(pend)) {
 			blkdev_user_cbs.extbuf_get(q->blkdev_id, (void **)&n_buf, 1);
 			dlen = pend;
 			if (unlikely(dlen > buf_len))
 				dlen = buf_len;
-			n_buf->desc_data[0] = 0x0;
-			n_buf->desc_data[1] = dlen;
-			buf->desc_data[0] = (uintptr_t)n_buf;
+
+			desc_data = vdupq_n_u64(0ULL);
+			vst1q_u64(n_buf->desc_data, desc_data);
+			n_buf->next = NULL;
+			buf->next = n_buf;
 
 			/* Enqueue only destination pointers as source length is big */
 			if (is_rd)
@@ -191,7 +196,7 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, u
 	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
 	uint16_t pend_compl_off = DESC_OFF(q->pend_compl_off), off;
 	struct dao_virtio_blk_hdr *buf0, *buf1, *buf2;
-	uint16_t q_sz = q->q_sz, segs = 0;
+	uint16_t off_mask = q->q_sz - 1, segs = 0;
 	uint16_t total_desc = *nb_desc;
 	int i = 0, num_io_reqs = 0;
 	uint64_t dflags;
@@ -211,25 +216,25 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, u
 		off = pend_compl_off;
 
 		/* Calculate additional segments required for buf-chain */
-		while (unlikely(dflags)) {
-			off = (off + 1) & (q_sz - 1);
+		while (dflags) {
+			off = (off + 1) & off_mask;
 			dflags = (*DESC_PTR_OFF(desc_base, off, 8) >> 48) & VRING_DESC_F_NEXT;
 			segs++;
 		}
 
 		buf0->tot_segs += segs;
 		/* Create buf chain from descriptors */
-		while (unlikely(segs)) {
+		while (segs) {
 			/* Internal bufs can also have chain based on descriptor length vs
 			 * buf length variation.
 			 */
 
-			while (buf1->desc_data[0])
-				buf1 = (struct dao_virtio_blk_hdr *)buf1->desc_data[0];
+			while (unlikely(buf1->next))
+				buf1 = buf1->next;
 
-			pend_compl_off = (pend_compl_off + 1) & (q_sz - 1);
+			pend_compl_off = (pend_compl_off + 1) & off_mask;
 			buf2 = buf_arr[pend_compl_off];
-			buf1->desc_data[0] = (uint64_t)buf2;
+			buf1->next = buf2;
 			buf1 = buf2;
 			i++;
 			segs--;
@@ -241,7 +246,7 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, u
 		    first buffer */
 		buf0->status = buf2->hdr_data;
 
-		pend_compl_off = (pend_compl_off + 1) & (q_sz - 1);
+		pend_compl_off = (pend_compl_off + 1) & off_mask;
 		i++;
 	}
 	/* Return consumed descriptor mbufs to update pend_compl_off,

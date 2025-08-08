@@ -56,11 +56,19 @@ struct dao_virtio_blkdev_conf {
 /** Virtio blk header for external buffers */
 struct dao_virtio_blk_hdr {
 	/** Array of virtio descriptor data */
-	uint64_t desc_data[2];
+	union {
+		struct vring_packed_desc vio_desc;
+		uint64_t desc_data[2];
+	};
+
+	/** Link to next buffer in IO request chain */
+	struct dao_virtio_blk_hdr *next;
 	/** blk request status byte's address */
 	uint8_t *status;
-	/** Total length of single blk request in bytes */
-	uint32_t tot_len;
+	/** Total length of data written by device in read request */
+	uint32_t write_buf_len;
+	/** length of data in `hdr_data` array */
+	uint32_t cur_len;
 	/** Total number of segments in blk request */
 	uint32_t tot_segs;
 	/** Total number of ext buffers in the chain */

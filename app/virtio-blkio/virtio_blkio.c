@@ -682,16 +682,6 @@ decode_virtio_blk_request(virtio_blk_hdr_t *req, uint32_t *req_type, uint64_t *s
 }
 
 static inline void
-decode_virtio_blk_buf_addr_len(struct dao_virtio_blk_hdr *dv_hdr, void **buf, uint32_t *len)
-{
-	/* Next dao blk segment */
-	struct dao_virtio_blk_hdr *dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->desc_data[0];
-	*buf = (void *)dv_hdr1->hdr_data;
-	/* total size of data[] for read/write req */
-	*len = dv_hdr1->tot_len - sizeof(virtio_blk_hdr_t) - sizeof(uint8_t);
-}
-
-static inline void
 build_iov_buf_list(struct dao_virtio_blk_hdr *dv_hdr0, dao_blk_io_vec_t *iov, uint32_t *len)
 {
 	uint32_t i;
@@ -699,13 +689,13 @@ build_iov_buf_list(struct dao_virtio_blk_hdr *dv_hdr0, dao_blk_io_vec_t *iov, ui
 
 	iov->bufs = rte_malloc(NULL, (dv_hdr0->tot_bufs - 2) * sizeof(blk_iobuf_ptr_t), 0);
 	/* Skip the first virtio block header buffer */
-	dv_hdr = (struct dao_virtio_blk_hdr *)dv_hdr0->desc_data[0];
+	dv_hdr = (struct dao_virtio_blk_hdr *)dv_hdr0->next;
 
 	for (i = 0; i < dv_hdr0->tot_bufs - 2; i++) {
 		iov->bufs[i].data = dv_hdr->hdr_data;
-		iov->bufs[i].size = dv_hdr->desc_data[1];
+		iov->bufs[i].size = dv_hdr->cur_len;
 		*len += iov->bufs[i].size;
-		dv_hdr = (struct dao_virtio_blk_hdr *)dv_hdr->desc_data[0];
+		dv_hdr = (struct dao_virtio_blk_hdr *)dv_hdr->next;
 	}
 
 	/** status is pointing to the trailer of blk request */
@@ -737,6 +727,7 @@ virtio_blk_io_process_request(uint16_t devid, void *vbuf)
 	uint8_t unmap;
 
 	dv_hdr = (struct dao_virtio_blk_hdr *)vbuf;
+	dv_hdr->write_buf_len = 0;
 	request = (virtio_blk_hdr_t *)dv_hdr->hdr_data;
 	result = decode_virtio_blk_request(request, &req_type, &start_sector);
 
@@ -751,11 +742,12 @@ virtio_blk_io_process_request(uint16_t devid, void *vbuf)
 		case VIRTIO_BLK_T_OUT:
 			build_iov_buf_list(dv_hdr, &iov, &data_len);
 			ret = dao_blkdev_write(devid, start_sector, &iov, data_len);
+			dv_hdr->write_buf_len = data_len;
 			free_iov_buf_list(&iov);
 			break;
 		case VIRTIO_BLK_T_WRITE_ZEROES:
 			/* Go to first buffer after blk header */
-			dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->desc_data[0];
+			dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->next;
 			disc_wr_z = (struct virtio_blk_discard_write_zeroes *)dv_hdr1->hdr_data;
 			unmap = disc_wr_z->flags.unmap;
 			ret = dao_blkdev_write_zeroes(devid, disc_wr_z->sector,
@@ -764,7 +756,7 @@ virtio_blk_io_process_request(uint16_t devid, void *vbuf)
 			break;
 		case VIRTIO_BLK_T_DISCARD:
 			/* Go to first buffer after blk header */
-			dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->desc_data[0];
+			dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->next;
 			disc_wr_z = (struct virtio_blk_discard_write_zeroes *)dv_hdr->hdr_data;
 			ret = dao_blkdev_discard(devid, disc_wr_z->sector,
 						 disc_wr_z->num_sectors * dev->sector_size);
@@ -773,7 +765,7 @@ virtio_blk_io_process_request(uint16_t devid, void *vbuf)
 			ret = dao_blkdev_flush(devid);
 			break;
 		case VIRTIO_BLK_T_GET_ID:
-			dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->desc_data[0];
+			dv_hdr1 = (struct dao_virtio_blk_hdr *)dv_hdr->next;
 			ret = dao_blkdev_get_id(devid, (char *)dv_hdr1->hdr_data,
 						MAX_VIRTIO_BLK_ID_STRLEN);
 			break;
