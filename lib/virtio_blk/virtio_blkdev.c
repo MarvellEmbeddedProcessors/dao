@@ -6,6 +6,7 @@
 #include "dao_virtio_blkdev.h"
 #include "virtio_dev_priv.h"
 #include "virtio_blk_priv.h"
+#include "virtio_blk_trace.h"
 
 /** Virtio blk devices */
 struct dao_virtio_blkdev dao_virtio_blkdevs[DAO_VIRTIO_DEV_MAX + 1];
@@ -197,6 +198,7 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 	struct virtio_blkdev *blkdev = virtio_dev_to_blkdev(vdev);
 	struct dao_virtio_blkdev *dao_blkdev = virtio_blkdev_to_dao(blkdev);
 	uint32_t max_vqs = blkdev->dev.max_virtio_queues;
+	volatile struct virtio_blk_config *dev_cfg;
 	struct virtio_dev *dev = &blkdev->dev;
 	struct virtio_queue_conf *q_conf;
 	struct virtio_blk_queue *queue;
@@ -257,6 +259,10 @@ virtio_blkdev_queue_enable(struct virtio_dev *vdev, uint16_t queue_id)
 	queue->dao_blkdev = dao_blkdev;
 	queue->blkdev_id = blkdev->dev.dev_id;
 	queue->virtio_hdr_sz = sizeof(struct virtio_blk_hdr);
+
+	dev_cfg = (volatile struct virtio_blk_config *)dev->dev_cfg;
+	queue->io_depth = dev_cfg->seg_max + 2; /* +2 for header and status */
+	queue->io_buf_sz = dev_cfg->size_max;
 
 	queue->driver_area = (((uint64_t)q_conf->queue_avail_hi << 32) | (q_conf->queue_avail_lo));
 	queue->sd_driver_area = (uintptr_t)queue->sd_desc_base + queue->q_sz * 16;
@@ -404,6 +410,30 @@ dao_virtio_blkdev_queue_count_max(uint16_t pem_devid, uint16_t devid)
 }
 
 void
+virtio_blk_trace_dflags(struct virtio_blk_queue *q, uint16_t start, uint16_t count, bool used)
+{
+	struct vring_packed_desc *desc;
+	uint16_t off;
+
+	for (int i = 0; i < count; i++) {
+		off = desc_off_add(start, i, q->q_sz);
+		desc = (struct vring_packed_desc *)DESC_PTR_OFF(q->sd_desc_base,
+				off & (q->q_sz - 1), 0);
+
+		/* Intend to trace only used descriptor's for now to avoid bloat.
+		 * useful in post trace verification. If some buf_id is not there in
+		 * trace, it is probably not used. */
+		if (!!(desc->flags & VRING_PACKED_DESC_F_AVAIL) == !!(desc->flags &
+					VRING_PACKED_DESC_F_USED) && used) {
+			virtio_blk_trace_desc_flags(used ? "used_ring" : "avail_ring",
+						    q->blkdev_id, q->qid, off,
+						    desc->flags, desc->id,
+						    desc->len);
+		}
+	}
+}
+
+void
 virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start, uint16_t count, bool avail,
 			 bool used)
 {
@@ -520,6 +550,13 @@ virtio_blk_desc_manage(uint16_t devid, uint16_t q_count, const uint16_t flags)
 		/* Store tail to check descriptor DMA completion */
 		q->pend_compl_idx = mem2dev->tail;
 		q->pend_compl = 1;
+
+#ifdef VIRTIO_BLK_DEBUG
+		virtio_blk_trace_queue_context(
+			"virtio_blk_desc_manage", blkdev->dev.dev_id, q->qid,
+			q->sd_desc_off, q->sd_mbuf_off, q->pend_sd_desc,
+			q->pend_sd_mbuf, q->last_off, q->compl_off, q->m2d_pend_sd_mbuf);
+#endif
 	}
 
 	return 0;

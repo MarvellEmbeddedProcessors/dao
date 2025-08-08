@@ -84,6 +84,8 @@ struct virtio_blk_queue {
 
 	/* Slow path */
 	struct dao_virtio_blkdev *dao_blkdev __rte_cache_aligned;
+	uint32_t io_depth;
+	uint32_t io_buf_sz;
 	uint16_t qid;
 
 	/* Read-Write worker. */
@@ -146,12 +148,21 @@ void virtio_blk_flush_deq(struct virtio_blk_queue *q);
 void virtio_blk_flush_deq_ext(struct virtio_blk_queue *q);
 void virtio_blk_desc_validate(struct virtio_blk_queue *q, uint16_t start,
 			      uint16_t count, bool avail, bool used);
+void virtio_blk_trace_dflags(struct virtio_blk_queue *q, uint16_t start,
+			     uint16_t count, bool used);
 
-#ifdef DAO_VIRTIO_DEBUG
+#ifdef VIRTIO_BLK_DEBUG
 #define VIRTIO_BLK_DESC_CHECK(q, start, count, avail, used)                                        \
 	virtio_blk_desc_validate(q, start, count, avail, used)
 #else
 #define VIRTIO_BLK_DESC_CHECK(...)
+#endif
+
+#ifdef VIRTIO_BLK_DEBUG
+#define VIRTIO_BLK_TRACE_DESC_FLAGS(q, start, count, is_used)                                      \
+	virtio_blk_trace_dflags(q, start, count, is_used)
+#else
+#define VIRTIO_BLK_TRACE_DESC_FLAGS(...)
 #endif
 
 static inline struct virtio_blkdev *
@@ -394,6 +405,8 @@ mark_io_desc_compl(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2d
 	uint64_t first;
 	uint64_t used;
 	uint16_t end;
+
+	VIRTIO_BLK_TRACE_DESC_FLAGS(q, start, nb_desc, true);
 
 	if (unlikely(!q->auto_free)) {
 		if (flags & VIRTIO_BLK_DESC_MANAGE_EXTBUF)

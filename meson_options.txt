@@ -23,3 +23,5 @@ option('prefer_static_build', type: 'boolean', value: false, description:
        'Build only static DAO libraries and link external dependencies statically.')
 option('virtio_debug', type: 'boolean', value: false, description:
        'Enable virtio debug.')
+option('virtio_blk_debug', type: 'boolean', value: false, description:
+       'Enable virtio blk debug.')

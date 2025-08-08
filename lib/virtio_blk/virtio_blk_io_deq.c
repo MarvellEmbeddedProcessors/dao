@@ -2,11 +2,13 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <dao_assert.h>
 #include "dao_virtio_blkdev.h"
 #include "virtio_dev_priv.h"
 
 #include "spec/virtio_blk.h"
 #include "virtio_blk_priv.h"
+#include "virtio_blk_trace.h"
 
 dao_virtio_blk_deq_fn_t dao_virtio_blk_deq_fns[VIRTIO_BLK_DEQ_LAST << 1] = {
 #define R(name, flags)[flags] = virtio_blk_deq_##name,
@@ -112,6 +114,11 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		/* read-only buffer(blk write reqs) for device */
 		is_rd = !(vio_desc->flags & VRING_DESC_F_WRITE);
 
+#ifdef VIRTIO_BLK_DEBUG
+		DAO_ASSERT_FATAL(slen <= q->io_buf_sz,
+				 "[dev %u] [qid %u] off %u slen %u > io_buf_sz %u at %s:%d",
+				 q->blkdev_id, q->qid, off, slen, q->io_buf_sz, __func__, __LINE__);
+#endif
 		/* Limit data to buffer length */
 		if (unlikely(slen > buf_len)) {
 			pend = slen - buf_len;
@@ -209,8 +216,16 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, u
 	buf_arr = q->mbuf_arr;
 
 	while ((i < total_desc) && (num_io_reqs < nb_bufs)) {
-		rte_prefetch0((uint8_t *)buf_arr[pend_compl_off + 1]);
+		rte_prefetch0((uint8_t *)buf_arr[(pend_compl_off + 1) & off_mask]);
 		buf0 = (struct dao_virtio_blk_hdr *)buf_arr[pend_compl_off];
+
+#ifdef VIRTIO_BLK_DEBUG
+		/* Header buffer should be the first in the chain. */
+		DAO_ASSERT_FATAL(buf0->cur_len == q->virtio_hdr_sz,
+				 "[dev %u] [qid %u] desc_off %u Invalid header length %u at "
+				 "%s:%d", q->blkdev_id, q->qid, pend_compl_off, buf0->cur_len,
+				 __func__, __LINE__);
+#endif
 
 		dflags = (*DESC_PTR_OFF(desc_base, pend_compl_off, 8) >> 48) & VRING_DESC_F_NEXT;
 
@@ -222,9 +237,31 @@ post_process_bufs(struct virtio_blk_queue *q, void **d_bufs, uint16_t nb_bufs, u
 			off = (off + 1) & off_mask;
 			dflags = (*DESC_PTR_OFF(desc_base, off, 8) >> 48) & VRING_DESC_F_NEXT;
 			segs++;
+
+#ifdef VIRTIO_BLK_DEBUG
+			/* Sanity check and helps to identify infinite loops */
+			DAO_ASSERT_FATAL(segs < q->io_depth,
+					 "[dev %u] [qid %u] desc_off %u Too many segments %u at %s:%d",
+					 q->blkdev_id, q->qid, pend_compl_off, segs, __func__,
+					 __LINE__);
+#endif
 		}
 
 		buf0->tot_segs += segs;
+
+#ifdef VIRTIO_BLK_DEBUG
+		virtio_blk_trace_io_req(
+			q->blkdev_id,
+			q->qid,
+			/* this don't flip wrap bit until next call, if boundary is crossed.*/
+			pend_compl_off | (q->pend_compl_off & 0x8000),
+			buf0->vio_desc.id,
+			((uint32_t *)buf0->hdr_data)[0],      // req_type
+			((uint64_t *)buf0->hdr_data)[1],      // sector
+			(uint16_t)(buf0->tot_segs - 2)        // num_sectors
+		);
+#endif
+
 		/* Create buf chain from descriptors */
 		while (segs) {
 			/* Internal bufs can also have chain based on descriptor length vs

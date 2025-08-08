@@ -7,6 +7,7 @@
 #include "spec/virtio_blk.h"
 #include "virtio_dev_priv.h"
 #include "virtio_blk_priv.h"
+#include "virtio_blk_trace.h"
 
 dao_virtio_blk_process_compl_ext_fn_t
 dao_virtio_blk_process_compl_ext_fns[VIRTIO_BLK_COMPL_LAST << 1] = {
@@ -52,6 +53,27 @@ push_compl_ext_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2
 		hdr = (struct dao_virtio_blk_hdr *)vbufs[i];
 		n_segs = hdr->tot_segs;
 
+#ifdef VIRTIO_BLK_DEBUG
+		/* Block request header should be the first in the chain. */
+		DAO_ASSERT_FATAL(hdr->cur_len == q->virtio_hdr_sz,
+				 "Invalid header length %u at %s:%d", hdr->cur_len, __func__,
+				 __LINE__);
+
+		/* assert for inorder case */
+		if (!(flags & VIRTIO_BLK_COMPL_NOINOR))
+			DAO_ASSERT_FATAL(vbufs[i] == q->extbuf_arr[off],
+					 "detected out-of-order completion processing at %s:%d",
+					 __func__, __LINE__);
+
+		virtio_blk_trace_io_req_compl(
+			q->blkdev_id,
+			q->qid,
+			off | (used_wrap_bit << 15),
+			hdr->vio_desc.id,
+			((uint32_t *)hdr->hdr_data)[0],
+			*hdr->status
+		);
+#endif
 		/* Make room to enqueue in worst possible case. */
 		if (unlikely(!dao_dma_flush(mem2dev, n_segs - 1)))
 			goto exit;

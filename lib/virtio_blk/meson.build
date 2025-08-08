@@ -19,4 +19,8 @@ headers = files(
 	'virtio_blk_trace.h',
 )
 
+if get_option('virtio_blk_debug')
+  cflags += ['-DVIRTIO_BLK_DEBUG=1']
+endif
+
 deps += ['virtio']
