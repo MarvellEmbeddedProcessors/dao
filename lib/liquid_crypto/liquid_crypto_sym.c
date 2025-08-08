@@ -562,8 +562,8 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 	}
 
 	pkt_len = 0;
+	buf = op->in_buffer;
 	do {
-		buf = op->in_buffer;
 		if (buf->data == NULL) {
 			dao_err("Invalid input buffer fragment data pointer.");
 			return -EINVAL;
@@ -583,8 +583,8 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 
 	if (op->out_buffer != NULL) {
 		out_pkt_len = 0;
+		buf = op->out_buffer;
 		do {
-			buf = op->out_buffer;
 			if (buf->data == NULL) {
 				dao_err("Invalid output buffer fragment data pointer.");
 				return -EINVAL;
