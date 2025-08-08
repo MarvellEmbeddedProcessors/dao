@@ -463,11 +463,6 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (op->auth_len == 0) {
-		dao_err("Invalid auth length for auth only operation.");
-		return -EINVAL;
-	}
-
 	if (op->digest == NULL) {
 		dao_err("Invalid digest pointer for auth only operation.");
 		return -EINVAL;
