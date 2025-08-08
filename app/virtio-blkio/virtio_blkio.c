@@ -28,6 +28,7 @@
 #include <rte_malloc.h>
 #include <rte_mempool.h>
 #include <rte_per_lcore.h>
+#include <rte_random.h>
 #include <rte_rcu_qsbr.h>
 #include <rte_string_fns.h>
 
@@ -968,6 +969,66 @@ process_pending_requests(uint8_t dev_id, uint8_t q_id, struct stash_head *pend_r
 }
 
 static __rte_always_inline void
+process_new_requests_random_order(uint8_t dev_id, uint8_t q_id,
+				  struct stash_head *pend_reqs_stash,
+				  struct stash_head *compl_reqs_stash)
+{
+	struct stash_entry *new_entry;
+	void *compl_vbufs[IO_BURST];
+	int num_compl_vbufs = 0;
+	void *vbufs[IO_BURST];
+	uint8_t max_retries = 4;
+	uint8_t num_deq = 0;
+	int num_compl;
+	int status;
+	void *temp;
+	int j;
+
+	if (!(TAILQ_EMPTY(compl_reqs_stash) && TAILQ_EMPTY(pend_reqs_stash))) {
+		dao_virtio_blk_process_compl(dev_id, q_id, NULL, 0);
+		return;
+	}
+
+	do {
+		num_deq += dao_virtio_blk_dequeue_burst(dev_id, q_id, &vbufs[num_deq],
+							IO_BURST - num_deq);
+	} while ((num_deq < RANDOM_ORDER_MIN_DEQ) && --max_retries);
+
+	if (unlikely(num_deq == 0))
+		return;
+
+	/* Fisher-Yates shuffle to simulate random completion order */
+	for (int i = num_deq - 1; i > 0; i--) {
+		j = rte_rand() % (i + 1);
+		temp = vbufs[i];
+		vbufs[i] = vbufs[j];
+		vbufs[j] = temp;
+	}
+
+	/* Process all requests in shuffled order */
+	for (int i = 0; i < num_deq; i++) {
+		status = virtio_blk_io_process_request(dev_id, vbufs[i]);
+		if (unlikely(status != DAO_VIRTIO_BLK_REQ_COMPLETE)) {
+			/* If request is not complete, park it in pending stash */
+			new_entry = vbuf_to_stash_entry(dev_id, vbufs[i]);
+			new_entry->vbuf = vbufs[i];
+			TAILQ_INSERT_TAIL(pend_reqs_stash, new_entry, link);
+		} else {
+			compl_vbufs[num_compl_vbufs++] = vbufs[i];
+		}
+	}
+
+	num_compl = dao_virtio_blk_process_compl(dev_id, q_id, compl_vbufs, num_compl_vbufs);
+
+	/* Park requests which library was not able to complete */
+	for (int j = num_compl; j < num_compl_vbufs; j++) {
+		new_entry = vbuf_to_stash_entry(dev_id, compl_vbufs[j]);
+		new_entry->vbuf = compl_vbufs[j];
+		TAILQ_INSERT_TAIL(compl_reqs_stash, new_entry, link);
+	}
+}
+
+static __rte_always_inline void
 process_new_requests(uint8_t dev_id, uint8_t q_id, struct stash_head *pend_reqs_stash,
 		     struct stash_head *compl_reqs_stash)
 {
@@ -1020,7 +1081,10 @@ virtio_blkio_main(uint8_t dev_id, uint8_t q_id)
 
 	process_completed_requests(dev_id, q_id, compl_reqs_stash);
 	process_pending_requests(dev_id, q_id, pend_reqs_stash, compl_reqs_stash);
-	process_new_requests(dev_id, q_id, pend_reqs_stash, compl_reqs_stash);
+	if (in_order)
+		process_new_requests(dev_id, q_id, pend_reqs_stash, compl_reqs_stash);
+	else
+		process_new_requests_random_order(dev_id, q_id, pend_reqs_stash, compl_reqs_stash);
 }
 
 static int

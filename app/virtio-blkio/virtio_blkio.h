@@ -21,6 +21,8 @@
 
 #define IO_BURST 32
 
+#define RANDOM_ORDER_MIN_DEQ 8 /* This should be less than IO_BURST */
+
 #define NUM_STASH_PER_QUEUE 2 /* process_compl_stash, process_pend_stash */
 
 /* Default block device attributes */
