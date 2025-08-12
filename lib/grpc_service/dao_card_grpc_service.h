@@ -16,6 +16,12 @@ extern "C" {
 /** The maximum length of the version string. */
 #define DAO_CARD_VERSION_LEN 32
 
+enum dao_card_update_type {
+	DAO_CARD_APP_UPDATE,
+	DAO_CARD_FW_UPDATE,
+	DAO_CARD_FAILSAFE_UPDATE
+};
+
 /**
  * Liquid crypto card information.
  */
@@ -41,14 +47,6 @@ struct dao_card_config {
 };
 
 /**
- * Request structure for DAO App update.
- */
-struct dao_card_app_update_req {
-	char *filename;
-	char *filepath;
-};
-
-/**
  * Liquid crypto card stats.
  */
 struct dao_card_stats {
@@ -59,17 +57,9 @@ struct dao_card_stats {
 };
 
 /**
- * Request structure for DAO MMC update.
+ * Request structure for DAO Image update.
  */
-struct dao_card_fw_update_req {
-	char *filename;
-	char *filepath;
-};
-
-/**
- * Request structure for DAO Failsafe update.
- */
-struct dao_card_failsafe_update_req {
+struct dao_card_update_req {
 	char *filename;
 	char *filepath;
 };

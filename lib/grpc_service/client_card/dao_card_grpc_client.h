@@ -76,18 +76,6 @@ void dao_card_fini(struct dao_card_grpc_ctx *ctx);
 int dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info);
 
 /**
- * Update the application in liquid crypto card.
- *
- * This function need to be called from management daemon.
- * It will copy or update the application on the liquid crypto card.
- *
- * @param ctx: gRPC client context
- * @param req: Request with file details
- * @return: 0 on success, negative value on failure
- */
-int dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *req);
-
-/**
  * Fallback the application to working one or older one.
  *
  * This function should be called to switch the application older or working one when updated
@@ -112,29 +100,22 @@ int dao_card_app_fallback(struct dao_card_grpc_ctx *ctx);
 int dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats);
 
 /**
- * Update the firmware image in liquid crypto card.
+ * Update the image in liquid crypto card.
  *
  * This function need to be called from management daemon.
- * It will update the firmware, rootfs kernel image and application on the liquid crypto card.
+ * It will update the provided image on to the DAO card based on update type.
+ * For update type as:
+ * APP_UPDATE, it will copy or update the application.
+ * FW_UPDATE, it will update the firmware, rootfs kernel image and application.
+ * FAIL_SAFE_UPDATE, It will update the failsafe image.
  *
  * @param ctx: gRPC client context
  * @param req: Request with file details
+ * @param type: Request with file details
  * @return: 0 on success, negative value on failure
  */
-int dao_card_fw_update(struct dao_card_grpc_ctx *ctx, struct dao_card_fw_update_req *req);
-
-/**
- * Update the failsafe image in liquid crypto card.
- *
- * This function need to be called from management daemon.
- * It will update the failsafe image on the liquid crypto card.
- *
- * @param ctx: gRPC client context
- * @param req: Request with file details
- * @return: 0 on success, negative value on failure
- */
-int dao_card_failsafe_update(struct dao_card_grpc_ctx *ctx,
-			     struct dao_card_failsafe_update_req *req);
+int dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *req,
+			 enum dao_card_update_type type);
 
 #ifdef __cplusplus
 }

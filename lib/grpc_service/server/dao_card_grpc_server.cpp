@@ -43,7 +43,8 @@ using dao_card_manager::DaoCardService;
 using dao_card_manager::CardConfig;
 using dao_card_manager::CardInfo;
 using dao_card_manager::CardResponse;
-using dao_card_manager::UpdateReq;
+using dao_card_manager::FileUpdateReq;
+using dao_card_manager::FileTransferType;
 using dao_card_manager::CardStats;
 using dao_card_manager::Emp;
 
@@ -128,60 +129,6 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		return Status::OK;
 	}
 
-	Status AppUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
-	{
-		(void)(context);
-
-		std::string base_dir = APP_BASE_DIR;
-		std::string file_full_path = base_dir + '/' + req->file_name();
-
-		static std::unordered_map<std::string, std::ofstream> file_map;
-		auto it = file_map.find(file_full_path);
-		if (it == file_map.end()) {
-			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
-			if (!output_file.is_open()) {
-				std::cerr << "Failed to open the file"<< std::endl;
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
-			}
-			file_map[file_full_path] = std::move(output_file);
-		}
-
-		std::ofstream& output_file = file_map[file_full_path];
-		output_file.write(req->file_content().data(), req->file_content().size());
-		if (output_file.fail()) {
-			std::cerr << "Failed to write to file" << std::endl;
-			response->set_err(1);
-			return grpc::Status::CANCELLED;
-		}
-
-		if (req->is_last_chunk()) {
-			std::cerr << "last chunk received" << std::endl;
-			output_file.close();
-			file_map.erase(file_full_path);
-
-			std::string file_name = req->file_name();
-			for (char c : file_name) {
-				if (!std::isalnum(c) && c != '.' && c != '-' && c != '_') {
-					std::cerr << "Invalid character in filename" << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
-			}
-
-			std::string command = std::string(". ") + APP_UPDATE_SCRIPT + " " +
-					      file_name;
-			if (system(command.c_str()) != 0) {
-				std::cerr << "Failed to execute lc_app_update.sh" << std::endl;
-				std::remove(file_full_path.c_str());
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
-			}
-		}
-
-		return Status::OK;
-	}
-
 	Status AppFallback(ServerContext *context, const Emp *empty, CardResponse *response) override
 	{
 		(void)(context);
@@ -197,29 +144,43 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		return Status::OK;
 	}
 
-	Status FwUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
+	Status FileUpdate(ServerContext *context, const FileUpdateReq *req, CardResponse *response) override
 	{
 		(void)(context);
+		std::string base_dir;
 		static bool is_mounted = false;
-		if (is_mounted == false) {
-			std::string command = std::string(". ")  + FW_MOUNT_SCRIPT;
-			if (system(command.c_str()) != 0) {
-				std::cerr << "Failed to mount"<< std::endl;
+
+		switch (req->transfer_type()) {
+			case FileTransferType::APP_UPDATE:
+				base_dir = APP_BASE_DIR;
+				break;
+			case FileTransferType::FW_UPDATE:
+				base_dir = FW_BASE_DIR;
+				if (!is_mounted) {
+					std::string command = std::string(". ") + FW_MOUNT_SCRIPT;
+					if (system(command.c_str()) != 0) {
+						std::cerr << "Failed to mount" << std::endl;
+						response->set_err(1);
+						return grpc::Status::CANCELLED;
+					}
+					is_mounted = true;
+				}
+				break;
+			case FileTransferType::FAILSAFE_UPDATE:
+				base_dir = APP_BASE_DIR;
+				break;
+			default:
 				response->set_err(1);
 				return grpc::Status::CANCELLED;
-			}
-			is_mounted = true;
 		}
 
-		std::string base_dir = FW_BASE_DIR;
 		std::string file_full_path = base_dir + '/' + req->file_name();
-
 		static std::unordered_map<std::string, std::ofstream> file_map;
 		auto it = file_map.find(file_full_path);
 		if (it == file_map.end()) {
 			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
 			if (!output_file.is_open()) {
-				std::cerr << "Failed to open the file"<< std::endl;
+				std::cerr << "Failed to open the file" << std::endl;
 				response->set_err(1);
 				return grpc::Status::CANCELLED;
 			}
@@ -248,67 +209,18 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 				}
 			}
 
-			std::string command = std::string(". ") + FW_UPDATE_SCRIPT + " " +
-					      file_name;
+			std::string command;
+			if (req->transfer_type() == FileTransferType::APP_UPDATE) {
+				command = std::string(". ") + APP_UPDATE_SCRIPT + " " + file_name;
+			} else if (req->transfer_type() == FileTransferType::FW_UPDATE) {
+				command = std::string(". ") + FW_UPDATE_SCRIPT + " " + file_name;
+				is_mounted = false;
+			} else if (req->transfer_type() == FileTransferType::FAILSAFE_UPDATE) {
+				std::string checksum = req->checksum();
+				command = std::string(". ") + FAILSAFE_UPDATE_SCRIPT + " " + file_name + " " + checksum;
+			}
 			if (system(command.c_str()) != 0) {
-				std::cerr << "Failed to update firmware" << std::endl;
-				std::remove(file_full_path.c_str());
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
-			}
-
-			is_mounted = false;
-		}
-		return Status::OK;
-	}
-
-	Status FailsafeUpdate(ServerContext *context, const UpdateReq *req, CardResponse *response)
-	{
-		(void)(context);
-
-		std::string base_dir = APP_BASE_DIR;
-		std::string file_full_path = base_dir + '/' + req->file_name();
-
-		static std::unordered_map<std::string, std::ofstream> file_map;
-		auto it = file_map.find(file_full_path);
-		if (it == file_map.end()) {
-			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
-			if (!output_file.is_open()) {
-				std::cerr << "Failed to open the failsafe file"<< std::endl;
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
-			}
-			file_map[file_full_path] = std::move(output_file);
-		}
-
-		std::ofstream& output_file = file_map[file_full_path];
-		output_file.write(req->file_content().data(), req->file_content().size());
-		if (output_file.fail()) {
-			std::cerr << "Failed to write to failsafe file" << std::endl;
-			response->set_err(1);
-			return grpc::Status::CANCELLED;
-		}
-
-		if (req->is_last_chunk()) {
-			std::cerr << "last chunk received for failsafe" << std::endl;
-			output_file.close();
-			file_map.erase(file_full_path);
-
-			std::string file_name = req->file_name();
-			for (char c : file_name) {
-				if (!std::isalnum(c) && c != '.' && c != '-' && c != '_') {
-					std::cerr << "Invalid character in failsafe filename"
-						  << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
-			}
-
-			std::string checksum = req->checksum();
-			std::string command = std::string(". ") + FAILSAFE_UPDATE_SCRIPT + " " +
-						file_name + " " + checksum;
-			if (system(command.c_str()) != 0) {
-				std::cerr << "Failed to update failsafe image" << std::endl;
+				std::cerr << "Failed to execute update script" << std::endl;
 				std::remove(file_full_path.c_str());
 				response->set_err(1);
 				return grpc::Status::CANCELLED;

@@ -10,11 +10,15 @@ service DaoCardService {
 	rpc Init(CardConfig) returns (CardResponse) {}
 	rpc Fini(Emp) returns (Emp){}
 	rpc Info(Emp) returns (CardInfo) {}
-	rpc AppUpdate(UpdateReq) returns (CardResponse) {}
 	rpc Stats(Emp) returns (CardStats) {}
-	rpc FwUpdate(UpdateReq) returns (CardResponse) {}
 	rpc AppFallback(Emp) returns (CardResponse) {}
-	rpc FailsafeUpdate(UpdateReq) returns (CardResponse) {}
+	rpc FileUpdate(FileUpdateReq) returns (CardResponse) {}
+}
+
+enum FileTransferType {
+	APP_UPDATE = 0;
+	FW_UPDATE = 1;
+	FAILSAFE_UPDATE = 2;
 }
 
 message CardConfig {
@@ -33,11 +37,12 @@ message CardResponse {
 	int32 err = 1;
 }
 
-message UpdateReq {
+message FileUpdateReq {
 	string file_name = 1;
 	bytes file_content = 2;
 	bool is_last_chunk = 3;
 	string checksum = 4;
+	FileTransferType transfer_type = 5;
 }
 
 message CardStats {

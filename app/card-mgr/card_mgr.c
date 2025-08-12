@@ -25,6 +25,10 @@
 #include <dao_card_grpc_client.h>
 #include <dao_log.h>
 
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 #define DAO_CARD_CFG_NB_DESC 1024
 
 #define DAO_CARD_MGR_PORT        50055
@@ -139,6 +143,41 @@ split_path_filename(const char *input, char **out_path, char **out_file)
 			*out_path = NULL;
 			return -ENOMEM;
 		}
+	}
+	return 0;
+}
+
+static int
+validate_file(cli_args *cmd, struct dao_card_update_req *req)
+{
+	char fullpath[PATH_MAX];
+	struct stat st;
+	int rc;
+
+	if (cmd->argc < 2) {
+		syslog(LOG_ERR, "Command requires a file to update");
+		return -EINVAL;
+	}
+
+	req->filename = NULL;
+	req->filepath = NULL;
+
+	rc = split_path_filename(cmd->argv[1], &req->filepath, &req->filename);
+	if (rc != 0) {
+		syslog(LOG_ERR, "Failed to split path/filename for app update: %s", strerror(-rc));
+		return rc;
+	}
+
+	snprintf(fullpath, PATH_MAX, "%s/%s", req->filepath, req->filename);
+	if (access(fullpath, F_OK | R_OK) != 0) {
+		rc = -errno;
+		syslog(LOG_ERR, "file '%s' does not exist or is not accessible: %s", fullpath,
+		       strerror(errno));
+		return rc;
+	}
+	if (stat(fullpath, &st) == 0 && S_ISDIR(st.st_mode)) {
+		syslog(LOG_ERR, " '%s' is a directory, not a file", fullpath);
+		return -EISDIR;
 	}
 	return 0;
 }
@@ -347,25 +386,16 @@ dao_card_mgr_app_fallback(void)
 static int
 dao_card_mgr_app_update(cli_args *cmd)
 {
-	struct dao_card_app_update_req update_req;
-	int rc = 0;
+	struct dao_card_update_req update_req;
+	int rc;
 
-	if (cmd->argc < 2) {
-		syslog(LOG_ERR, "card_app_update command requires file to update");
-		return -EINVAL;
-	}
+	rc = validate_file(cmd, &update_req);
+	if (rc != 0)
+		goto req_free;
 
-	update_req.filename = NULL;
-	update_req.filepath = NULL;
+	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_APP_UPDATE);
 
-	rc = split_path_filename(cmd->argv[1], &update_req.filepath, &update_req.filename);
-	if (rc != 0) {
-		syslog(LOG_ERR, "Failed to split path/filename for app update: %s", strerror(-rc));
-		return rc;
-	}
-
-	rc = dao_card_app_update(card_ctx, &update_req);
-
+req_free:
 	free(update_req.filename);
 	free(update_req.filepath);
 	return rc;
@@ -374,36 +404,16 @@ dao_card_mgr_app_update(cli_args *cmd)
 static int
 dao_card_mgr_fw_update(cli_args *cmd)
 {
-	struct dao_card_fw_update_req update_req;
-	char fullpath[PATH_MAX];
-	int rc = 0;
+	struct dao_card_update_req update_req;
+	int rc;
 
-	if (cmd->argc < 2) {
-		syslog(LOG_ERR, "card_fw_update command requires file to update");
-		return -EINVAL;
-	}
+	rc = validate_file(cmd, &update_req);
+	if (rc != 0)
+		goto req_free;
 
-	update_req.filename = NULL;
-	update_req.filepath = NULL;
+	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_FW_UPDATE);
 
-	rc = split_path_filename(cmd->argv[1], &update_req.filepath, &update_req.filename);
-	if (rc != 0) {
-		syslog(LOG_ERR, "Failed to split path/filename for firmware update: %s",
-		       strerror(-rc));
-		return rc;
-	}
-
-	snprintf(fullpath, PATH_MAX, "%s/%s", update_req.filepath, update_req.filename);
-	if (access(fullpath, F_OK | R_OK) != 0) {
-		rc = -errno;
-		syslog(LOG_ERR, "Firmware update file '%s' does not exist or is not accessible: %s",
-		       fullpath, strerror(errno));
-		free(update_req.filename);
-		free(update_req.filepath);
-		return rc;
-	}
-	rc = dao_card_fw_update(card_ctx, &update_req);
-
+req_free:
 	free(update_req.filename);
 	free(update_req.filepath);
 	return rc;
@@ -472,36 +482,16 @@ dao_card_mgr_boot(cli_args *cmd)
 static int
 dao_card_mgr_failsafe_update(cli_args *cmd)
 {
-	struct dao_card_failsafe_update_req update_req;
-	char fullpath[PATH_MAX];
-	int rc = 0;
+	struct dao_card_update_req update_req;
+	int rc;
 
-	if (cmd->argc < 2) {
-		syslog(LOG_ERR, "card_failsafe_update command requires file to update");
-		return -EINVAL;
-	}
+	rc = validate_file(cmd, &update_req);
+	if (rc != 0)
+		goto req_free;
 
-	update_req.filename = NULL;
-	update_req.filepath = NULL;
+	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_FAILSAFE_UPDATE);
 
-	rc = split_path_filename(cmd->argv[1], &update_req.filepath, &update_req.filename);
-	if (rc != 0) {
-		syslog(LOG_ERR, "Failed to split path/filename for failsafe update: %s",
-		       strerror(-rc));
-		return rc;
-	}
-
-	snprintf(fullpath, PATH_MAX, "%s/%s", update_req.filepath, update_req.filename);
-	if (access(fullpath, F_OK | R_OK) != 0) {
-		rc = -errno;
-		syslog(LOG_ERR, "Failsafe update file '%s' does not exist or is not accessible: %s",
-		       fullpath, strerror(errno));
-		free(update_req.filename);
-		free(update_req.filepath);
-		return rc;
-	}
-	rc = dao_card_failsafe_update(card_ctx, &update_req);
-
+req_free:
 	free(update_req.filename);
 	free(update_req.filepath);
 	return rc;

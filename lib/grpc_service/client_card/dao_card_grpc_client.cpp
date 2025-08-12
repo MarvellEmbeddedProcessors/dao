@@ -4,6 +4,8 @@
 
 #include <stdio.h>
 #include <fstream>
+#include <string>
+#include <vector>
 
 #include <grpcpp/grpcpp.h>
 #include <grpcpp/channel.h>
@@ -15,6 +17,9 @@
 #include "dao_card_grpc_client.h"
 #include "dao_card.grpc.pb.h"
 
+/* Set max chunk size as 3MB for file transfer */
+#define MAX_CHUNK_SIZE 3 * 1024 * 1024
+
 using grpc::Channel;
 using grpc::ClientContext;
 using grpc::Status;
@@ -24,7 +29,8 @@ using dao_card_manager::CardConfig;
 using dao_card_manager::CardInfo;
 using dao_card_manager::CardResponse;
 using dao_card_manager::Emp;
-using dao_card_manager::UpdateReq;
+using dao_card_manager::FileUpdateReq;
+using dao_card_manager::FileTransferType;
 using dao_card_manager::CardStats;
 
 struct dao_card_grpc_ctx {
@@ -114,45 +120,6 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 }
 
 int
-dao_card_app_update(struct dao_card_grpc_ctx *ctx, struct dao_card_app_update_req *update_req)
-{
-
-	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
-		return -EINVAL;
-
-	std::string full_path = std::string(update_req->filepath) + "/" + std::string(update_req->filename);
-	std::ifstream file(full_path, std::ios::binary);
-	if (!file.is_open()) {
-		fprintf(stderr, "Failed to open file: %s\n", update_req->filename);
-		return -ENOENT;
-	}
-
-	const size_t chunk_size = 3 * 1024 * 1024;
-	std::vector<char> buffer(chunk_size);
-
-	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
-		grpc::ClientContext context;
-		grpc::Status status;
-		UpdateReq req;
-		CardResponse resp;
-
-		req.set_file_name(update_req->filename);
-		req.set_file_content(buffer.data(), file.gcount());
-		req.set_is_last_chunk(file.eof());
-
-		status = ctx->stub->AppUpdate(&context, req, &resp);
-		if (!status.ok()) {
-			fprintf(stderr, "Failed to upload chunk: %s\n", status.error_message().c_str());
-			file.close();
-			return -EIO;
-		}
-	}
-
-	file.close();
-	return 0;
-}
-
-int
 dao_card_app_fallback(struct dao_card_grpc_ctx *ctx)
 {
 	if (ctx == NULL)
@@ -194,8 +161,12 @@ dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 }
 
 int
-dao_card_fw_update(struct dao_card_grpc_ctx *ctx, struct dao_card_fw_update_req *update_req)
+dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *update_req,
+		     enum dao_card_update_type type)
 {
+	const size_t chunk_size = MAX_CHUNK_SIZE;
+	const char *checksum = nullptr;
+
 	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
 		return -EINVAL;
 
@@ -206,114 +177,40 @@ dao_card_fw_update(struct dao_card_grpc_ctx *ctx, struct dao_card_fw_update_req 
 		return -ENOENT;
 	}
 
-	const size_t chunk_size = 3 * 1024 * 1024;
+	FileTransferType proto_type = FileTransferType::APP_UPDATE;
 	std::vector<char> buffer(chunk_size);
 
-	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
-		grpc::ClientContext context;
-		grpc::Status status;
-		UpdateReq req;
-		CardResponse resp;
-
-		req.set_file_name(update_req->filename);
-		req.set_file_content(buffer.data(), file.gcount());
-		req.set_is_last_chunk(file.eof());
-
-		status = ctx->stub->FwUpdate(&context, req, &resp);
-		if (!status.ok()) {
-			fprintf(stderr, "Failed to upload chunk: %s\n", status.error_message().c_str());
-			file.close();
-			return -EIO;
-		}
-	}
-
-	file.close();
-	return 0;
-}
-
-int
-dao_card_failsafe_update(struct dao_card_grpc_ctx *ctx, struct dao_card_failsafe_update_req *update_req)
-{
-	const size_t chunk_size = 3 * 1024 * 1024;
-	unsigned int hash_len = 0;
-	unsigned char hash[32];
-
-	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
+	switch (type) {
+	case DAO_CARD_APP_UPDATE:
+		proto_type = FileTransferType::APP_UPDATE;
+		break;
+	case DAO_CARD_FW_UPDATE:
+		proto_type = FileTransferType::FW_UPDATE;
+		break;
+	case DAO_CARD_FAILSAFE_UPDATE:
+		proto_type = FileTransferType::FAILSAFE_UPDATE;
+		break;
+	default:
+		file.close();
 		return -EINVAL;
-
-	std::string full_path = std::string(update_req->filepath) + "/" +
-				std::string(update_req->filename);
-	std::ifstream file(full_path, std::ios::binary);
-	if (!file.is_open()) {
-		fprintf(stderr, "Failed to open file: %s\n", update_req->filename);
-		return -ENOENT;
-	}
-
-	file.seekg(0, std::ios::end);
-	std::streamsize file_size = file.tellg();
-	file.seekg(0, std::ios::beg);
-	std::vector<char> file_data(file_size);
-	if (!file.read(file_data.data(), file_size)) {
-		fprintf(stderr, "Failed to read file for checksum: %s\n", update_req->filename);
-		file.close();
-		return -EIO;
-	}
-	file.clear();
-	file.seekg(0, std::ios::beg);
-
-	EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
-	if (mdctx == NULL) {
-		file.close();
-		return -ENOMEM;
-	}
-
-	if (EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) != 1) {
-		EVP_MD_CTX_free(mdctx);
-		file.close();
-		return -EIO;
-	}
-
-	std::vector<char> buffer(chunk_size);
-	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
-		if (EVP_DigestUpdate(mdctx, buffer.data(), file.gcount()) != 1) {
-			EVP_MD_CTX_free(mdctx);
-			file.close();
-			return -EIO;
-		}
-	}
-
-	if (EVP_DigestFinal_ex(mdctx, hash, &hash_len) != 1) {
-		EVP_MD_CTX_free(mdctx);
-		file.close();
-		return -EIO;
-	}
-
-	EVP_MD_CTX_free(mdctx);
-	file.clear();
-	file.seekg(0, std::ios::beg);
-
-	std::string checksum_str;
-	checksum_str.reserve(64);
-	for (int i = 0; i < 32; ++i) {
-		char hex[3];
-		snprintf(hex, sizeof(hex), "%02x", hash[i]);
-		checksum_str.append(hex);
 	}
 
 	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
 		grpc::ClientContext context;
 		grpc::Status status;
-		UpdateReq req;
+		FileUpdateReq req;
 		CardResponse resp;
 
 		req.set_file_name(update_req->filename);
 		req.set_file_content(buffer.data(), file.gcount());
 		req.set_is_last_chunk(file.eof());
-		req.set_checksum(checksum_str);
+		req.set_transfer_type(proto_type);
+		if (type == DAO_CARD_FAILSAFE_UPDATE && checksum)
+			req.set_checksum(checksum);
 
-		status = ctx->stub->FailsafeUpdate(&context, req, &resp);
+		status = ctx->stub->FileUpdate(&context, req, &resp);
 		if (!status.ok()) {
-			fprintf(stderr, "Failed to upload failsafe chunk: %s\n",
+			fprintf(stderr, "Failed to upload chunk: %s\n",
 				status.error_message().c_str());
 			file.close();
 			return -EIO;
