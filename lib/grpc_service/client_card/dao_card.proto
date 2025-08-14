@@ -21,6 +21,12 @@ enum FileTransferType {
 	FAILSAFE_UPDATE = 2;
 }
 
+enum BootSource {
+	BOOT_SOURCE_UNKNOWN = 0;
+	BOOT_SOURCE_MMC = 1;
+	BOOT_SOURCE_SPI = 2;
+}
+
 message CardConfig {
 	uint32 argc = 1;
 	repeated string argv = 2;
@@ -31,6 +37,7 @@ message CardInfo {
 	string version = 1;
 	uint32 nb_devs = 2;
 	uint32 max_sessions = 3;
+	BootSource boot_source = 4;
 }
 
 message CardResponse {

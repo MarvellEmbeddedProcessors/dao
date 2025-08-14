@@ -226,6 +226,12 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 		recv(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
 		dao_info("Card info: version: %s, num SDP devices: %d, max_sessions: %d",
 			 card_info.version, card_info.nb_devs, card_info.max_sessions);
+		if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SPI)
+			dao_info("Card boot source: SPI");
+		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_MMC)
+			dao_info("Card boot source: MMC");
+		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_UNKNOWN)
+			dao_info("Card boot source: UNAVAILABLE");
 	}
 
 	/* Dump the stats info */

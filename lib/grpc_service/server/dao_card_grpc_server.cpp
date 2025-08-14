@@ -25,6 +25,7 @@
 #define FW_BASE_DIR "/mnt/new_root"
 #define APP_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_app_update.sh"
 #define APP_FALLBACK_SCRIPT "/root/lc_service/scripts/lc_app_fallback.sh"
+#define BOOT_SRC_GET_SCRIPT "/root/lc_service/scripts/lc_boot_src_get.sh"
 #define FW_UPDATE_SCRIPT "/root/lc_service/scripts/lc_fw_update.sh"
 #define FW_MOUNT_SCRIPT "/root/lc_service/scripts/lc_fw_mount.sh"
 #define FAILSAFE_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_failsafe_update.sh"
@@ -98,6 +99,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 	Status Info(ServerContext *context, const Emp *empty, CardInfo *response) override
 	{
 		struct dao_card_info info;
+		int status, exit_code;
 		(void)(context);
 		(void)(empty);
 
@@ -106,6 +108,20 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		response->set_version(DAO_CARD_VERSION);
 		response->set_nb_devs(info.nb_devs);
 		response->set_max_sessions(info.max_sessions);
+
+		std::string command = std::string(". ") + BOOT_SRC_GET_SCRIPT;
+		status = system(command.c_str());
+		exit_code = WEXITSTATUS(status);
+		if (exit_code == 0) {
+			response->set_boot_source(dao_card_manager::BOOT_SOURCE_UNKNOWN);
+		} else if (exit_code == 1) {
+			response->set_boot_source(dao_card_manager::BOOT_SOURCE_MMC);
+		} else if (exit_code == 2) {
+			response->set_boot_source(dao_card_manager::BOOT_SOURCE_SPI);
+		} else {
+			std::cerr << "Info: Boot source get script failed" << std::endl;
+			return Status(StatusCode::INTERNAL, "Script failed");
+		}
 
 		std::cout << "Card Info: version: " << response->version()
 			  << ", nb_devs: " << response->nb_devs()

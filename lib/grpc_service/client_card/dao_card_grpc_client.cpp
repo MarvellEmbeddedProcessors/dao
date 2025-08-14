@@ -31,6 +31,7 @@ using dao_card_manager::CardResponse;
 using dao_card_manager::Emp;
 using dao_card_manager::FileUpdateReq;
 using dao_card_manager::FileTransferType;
+using dao_card_manager::BootSource;
 using dao_card_manager::CardStats;
 
 struct dao_card_grpc_ctx {
@@ -125,6 +126,18 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 	info->version[sizeof(info->version) - 1] = '\0';
 	info->nb_devs = resp.nb_devs();
 	info->max_sessions = resp.max_sessions();
+
+	switch (resp.boot_source()) {
+	case BootSource::BOOT_SOURCE_SPI:
+		info->boot_source = DAO_CARD_BOOT_SOURCE_SPI;
+		break;
+	case BootSource::BOOT_SOURCE_MMC:
+		info->boot_source = DAO_CARD_BOOT_SOURCE_MMC;
+		break;
+	case BootSource::BOOT_SOURCE_UNKNOWN:
+	default:
+		info->boot_source = DAO_CARD_BOOT_SOURCE_UNKNOWN;
+	}
 
 	return 0;
 }

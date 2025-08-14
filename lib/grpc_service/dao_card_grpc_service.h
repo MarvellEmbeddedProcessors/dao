@@ -22,6 +22,12 @@ enum dao_card_update_type {
 	DAO_CARD_FAILSAFE_UPDATE
 };
 
+enum dao_card_boot_source {
+	DAO_CARD_BOOT_SOURCE_UNKNOWN,
+	DAO_CARD_BOOT_SOURCE_MMC,
+	DAO_CARD_BOOT_SOURCE_SPI,
+};
+
 /**
  * Liquid crypto card information.
  */
@@ -32,6 +38,8 @@ struct dao_card_info {
 	uint32_t nb_devs;
 	/** Maximum number of sessions supported on card */
 	uint32_t max_sessions;
+	/** Card boot source */
+	enum dao_card_boot_source boot_source;
 };
 
 /**
