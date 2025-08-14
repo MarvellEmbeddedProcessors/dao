@@ -78,6 +78,11 @@ dao_card_init(struct dao_card_grpc_ctx *ctx, struct dao_card_config *cfg)
 
 	status = ctx->stub->Init(&context, config, &resp);
 	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNAVAILABLE) {
+			fprintf(stderr, "Card is not ready yet\n");
+			return -EAGAIN;
+		}
+
 		fprintf(stderr, "Failed to initialize card: %s\n", status.error_message().c_str());
 		return resp.err();
 	}
@@ -107,6 +112,11 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 
 	status = ctx->stub->Info(&context, empty, &resp);
 	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNAVAILABLE) {
+			fprintf(stderr, "Card is not ready yet\n");
+			return -EAGAIN;
+		}
+
 		fprintf(stderr, "Failed to get card info: %s\n", status.error_message().c_str());
 		return -1;
 	}

@@ -212,6 +212,8 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	if (resp) {
 		if (resp == ENOTSUP)
 			dao_err("Command is not supported");
+		else if (resp == -EAGAIN)
+			dao_info("Card is not ready: %d (%s)", resp, strerror(-resp));
 		else if (resp < 0)
 			dao_err("Received error for the command: %d (%s)", resp, strerror(-resp));
 		else
