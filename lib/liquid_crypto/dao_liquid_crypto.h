@@ -14,6 +14,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <dao_eth_trs.h>
+
 #include "liquid_crypto_asym.h"
 
 /** The version of the liquid crypto library */

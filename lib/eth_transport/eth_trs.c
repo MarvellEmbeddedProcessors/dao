@@ -370,6 +370,48 @@ dao_eth_trs_info(struct dao_eth_trs_info *info)
 }
 
 int
+dao_eth_trs_port_info_get(struct dao_eth_trs_port_info *port_info)
+{
+	struct rte_eth_dev_info dev_info;
+	int ret, i;
+
+	for (i = 0; i < eth_trs->nb_ports; i++) {
+		ret = rte_eth_dev_info_get(eth_trs->port_id[i], &dev_info);
+		if (ret != 0)
+			return ret;
+
+		const char *name = rte_dev_name(dev_info.device);
+
+		if (name) {
+			uint8_t bus, device, function;
+			uint16_t domain;
+			char bdf_str[32] = {0};
+
+			strncpy(bdf_str, name, sizeof(bdf_str) - 1);
+			if (sscanf(bdf_str, "%hx:%hhx:%hhx.%hhd", &domain, &bus, &device,
+				   &function) == 4) {
+			} else if (sscanf(bdf_str, "%hhx:%hhx.%hhd", &bus, &device, &function) ==
+				   3) {
+				domain = 0;
+			} else {
+				domain = 0;
+				bus = 0;
+				device = 0;
+				function = 0;
+			}
+			port_info->oct_dev_id[i] = function;
+		} else {
+			port_info->oct_dev_id[i] = 0;
+		}
+	}
+
+	port_info->nb_ports = eth_trs->nb_ports;
+	port_info->nb_queues = dev_info.max_rx_queues;
+
+	return 0;
+}
+
+int
 dao_eth_trs_init(void)
 {
 	uint8_t i;

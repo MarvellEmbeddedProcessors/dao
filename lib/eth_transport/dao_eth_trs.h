@@ -42,6 +42,9 @@
 #include <rte_ethdev.h>
 #include <rte_mempool.h>
 
+/* Maximum eth ports supported by an ethernet transport device */
+#define DAO_MAX_ETH_TRS_PORTS 64
+
 /**
  * DAO ethernet transport op type based on the class of operation.
  * @see dao_eth_trs_hdr
@@ -107,6 +110,16 @@ struct dao_eth_trs_info {
 	uint16_t max_queue_size; /**< Max number of RX/TX descriptors per queue */
 	uint32_t min_buf_len;    /**< Minimum configurable length of packet data */
 	uint32_t max_pkt_len;    /**< Maximum configurable length of a packet */
+};
+
+/** Ethernet transport port information */
+struct dao_eth_trs_port_info {
+	/**< Number of ports on the ethernet transport device */
+	uint32_t nb_ports;
+	/**< Max number of RX/TX queues per port */
+	uint32_t nb_queues;
+	/**< PCI function of the ethernet device */
+	uint32_t oct_dev_id[DAO_MAX_ETH_TRS_PORTS];
 };
 
 #define dao_eth_trs_tx rte_eth_tx_burst /**< Alias for rte_eth_tx_burst */
@@ -250,4 +263,24 @@ int dao_eth_trs_dev_stop(uint8_t dev_id);
  * 0 on success, negative on error.
  */
 int dao_eth_trs_dev_free(uint8_t dev_id);
+
+/**
+ * * Get detailed information about port details.
+ *
+ * This function populates number of ports of ethernet transport device, max queues
+ * supported by port and PCI device/function of each port.
+ *
+ * @param port_info
+ *  Pointer to a struct dao_eth_trs_port_info that will be filled with port details.
+ *  The structure will be populated with:
+ *    - nb_ports:       Number of ports present in the ethernet transport device.
+ *    - nb_max_queues:  Maximum number of RX/TX queues supported by any port.
+ *    - oct_dev_id:     PCI device/function of each port.
+ *
+ * @return
+ * 0 on success,
+ * -EINVAL if the port index is invalid or arguments are NULL,
+ *  negative error code on other failures.
+ */
+int dao_eth_trs_port_info_get(struct dao_eth_trs_port_info *port_info);
 #endif /*  __DAO_ETH_TRANSPORT_H__ */

@@ -45,6 +45,10 @@ struct liquid_crypto_dev {
 	uint16_t cmd_qp_idx;
 	/** Queue pair pointers */
 	void *qp[LIQUID_CRYPTO_MAX_NB_QP];
+	/** Number of eth ports */
+	uint8_t nb_ports;
+	/** Port info of each eth port */
+	struct dao_eth_trs_port_info port_info;
 } __rte_cache_aligned;
 
 /** Liquid crypto queue pair */

@@ -133,11 +133,14 @@ dao_liquid_crypto_info_get(struct dao_lc_info *info)
 int
 dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 {
+	struct dao_eth_trs_port_info *port_info;
 	struct dao_eth_trs_dev_config trs_conf;
 	struct liquid_crypto_dev *dev;
 	uint16_t nb_qp, cmd_qp_idx;
+	uint16_t req_ports;
 	uint8_t dev_id;
 	int rc;
+	int i;
 
 	if (conf == NULL) {
 		dao_err("Invalid argument.");
@@ -187,16 +190,32 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 		return rc;
 	}
 
-	rc = dao_lc_ethdev_create(lc_ctx, dev_id, nb_qp);
-	if (rc != 0) {
-		dao_err("Could not create card device.");
-		goto eth_dev_free;
+	port_info = &dev->port_info;
+	dao_eth_trs_port_info_get(port_info);
+	req_ports = (nb_qp / port_info->nb_queues);
+	if (nb_qp % port_info->nb_queues != 0)
+		req_ports++;
+
+	if (req_ports > port_info->nb_ports)
+		goto dev_free;
+
+	dev->nb_ports = req_ports;
+
+	for (i = 0; i < dev->nb_ports; i++) {
+		rc = dao_lc_ethdev_create(lc_ctx, port_info->oct_dev_id[i], port_info->nb_queues);
+		if (rc != 0) {
+			dao_err("Could not create card device.");
+			goto lc_eth_dev_destroy;
+		}
 	}
 	dev->is_created = true;
 
 	return 0;
 
-eth_dev_free:
+lc_eth_dev_destroy:
+	for (; i > 0; i--)
+		dao_lc_ethdev_destroy(lc_ctx, port_info->oct_dev_id[i - 1]);
+dev_free:
 	dao_eth_trs_dev_free(dev_id);
 	return rc;
 }
@@ -212,10 +231,18 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 		return -EINVAL;
 	}
 
-	rc = dao_lc_ethdev_destroy(lc_ctx, dev_id);
-	if (rc != 0) {
-		dao_err("Could not destroy card device.");
-		return rc;
+	dev = &liquid_crypto_devs[dev_id];
+
+	if (dev->is_created) {
+		for (i = 0; i < dev->nb_ports; i++) {
+			struct dao_eth_trs_port_info *port_info = &dev->port_info;
+
+			rc = dao_lc_ethdev_destroy(lc_ctx, port_info->oct_dev_id[i]);
+			if (rc != 0) {
+				dao_err("Could not destroy card device.");
+				return rc;
+			}
+		}
 	}
 
 	rc = dao_eth_trs_dev_free(dev_id);
@@ -223,8 +250,6 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 		dao_err("Could not free ethernet transport device.");
 		return rc;
 	}
-
-	dev = &liquid_crypto_devs[dev_id];
 
 	if (dev->is_created) {
 		for (i = 0; i < dev->nb_qp; i++)
@@ -246,6 +271,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	struct dao_lc_eth_qconf card_qp_conf;
 	struct dao_eth_trs_info trs_info;
 	char name[RTE_MEMZONE_NAMESIZE];
+	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct rte_mempool *mp;
@@ -430,9 +456,12 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		rte_bitmap_reset(qp->req_bm);
 	}
 
+	oct_qp_id = qp_id % dev->port_info.nb_queues;
+	oct_dev_id = dev->port_info.oct_dev_id[(qp_id / dev->port_info.nb_queues)];
+
 	memset(&card_qp_conf, 0, sizeof(card_qp_conf));
-	card_qp_conf.dev_id = dev_id;
-	card_qp_conf.qp_id = qp_id;
+	card_qp_conf.dev_id = oct_dev_id;
+	card_qp_conf.qp_id = oct_qp_id;
 	card_qp_conf.nb_desc = nb_desc;
 	card_qp_conf.max_seg_size = conf->max_seg_size;
 	card_qp_conf.out_of_order_delivery_en = conf->out_of_order_delivery_en;
@@ -474,6 +503,7 @@ qp_free:
 static int
 liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 {
+	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 
@@ -483,7 +513,9 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	if (qp == NULL)
 		return 0;
 
-	dao_lc_ethdev_queue_destroy(lc_ctx, dev_id, qp_id);
+	oct_qp_id = qp_id % dev->port_info.nb_queues;
+	oct_dev_id = dev->port_info.oct_dev_id[(qp_id / dev->port_info.nb_queues)];
+	dao_lc_ethdev_queue_destroy(lc_ctx, oct_dev_id, oct_qp_id);
 
 	if (qp_id == dev->cmd_qp_idx) {
 		rte_bitmap_free(qp->cmd_req_bm);
@@ -505,6 +537,7 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 int
 dao_liquid_crypto_dev_start(uint8_t dev_id)
 {
+	struct dao_eth_trs_port_info *port_info;
 	struct liquid_crypto_dev *dev;
 	int rc, i;
 
@@ -539,23 +572,33 @@ dao_liquid_crypto_dev_start(uint8_t dev_id)
 		return rc;
 	}
 
-	rc = dao_lc_ethdev_start(lc_ctx, dev_id);
-	if (rc != 0) {
-		dao_err("Could not start card device.");
-		dao_eth_trs_dev_stop(dev_id);
-		return rc;
+	port_info = &dev->port_info;
+	for (i = 0; i < dev->nb_ports; i++) {
+		rc = dao_lc_ethdev_start(lc_ctx, port_info->oct_dev_id[i]);
+		if (rc != 0) {
+			dao_err("Could not start card device.");
+			goto lc_ethdev_stop;
+		}
 	}
 
 	dev->is_started = true;
 
 	return 0;
+
+lc_ethdev_stop:
+	for (; i > 0; i--)
+		dao_lc_ethdev_stop(lc_ctx, port_info->oct_dev_id[i - 1]);
+	dao_eth_trs_dev_stop(dev_id);
+	return rc;
 }
 
 int
 dao_liquid_crypto_dev_stop(uint8_t dev_id)
 {
+	struct dao_eth_trs_port_info *port_info;
 	struct liquid_crypto_dev *dev;
 	int rc;
+	int i;
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
@@ -580,10 +623,13 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 		return rc;
 	}
 
-	rc = dao_lc_ethdev_stop(lc_ctx, dev_id);
-	if (rc != 0) {
-		dao_err("Could not stop card device.");
-		return rc;
+	port_info = &dev->port_info;
+	for (i = 0; i < dev->nb_ports; i++) {
+		rc = dao_lc_ethdev_stop(lc_ctx, port_info->oct_dev_id[i]);
+		if (rc != 0) {
+			dao_err("Could not stop card device.");
+			return rc;
+		}
 	}
 
 	dev->is_started = false;
@@ -2475,7 +2521,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 	qp = dev->qp[qp_id];
 
 	nb_events = RTE_MIN(nb_events, LIQUID_CRYPTO_MAX_BURST);
-	nb_rx = rte_eth_rx_burst(dev_id, qp_id, mbufs, nb_events);
+	nb_rx = rte_eth_rx_burst(qp->port_id, qp->queue_id, mbufs, nb_events);
 
 	for (i = 0; i < nb_rx; i++) {
 		mbuf = mbufs[i];
