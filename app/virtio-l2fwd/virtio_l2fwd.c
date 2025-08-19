@@ -52,6 +52,8 @@
 #define RX_DESC_DEFAULT 1024
 #define TX_DESC_DEFAULT 1024
 
+#define MAX_NUM_MBUFS (128 * 1024)
+
 #define DEFAULT_QUEUES_PER_PORT 1
 
 #define MAX_ETHDEV_RX_PER_LCORE 128
@@ -162,7 +164,7 @@ static uint16_t dev2mem_cnt;
 static uint16_t mem2dev_cnt;
 static int wrkr_dma_devs;
 static uint16_t dma_flush_thr;
-static uint32_t pktmbuf_count = 128 * 1024;
+static uint32_t pktmbuf_count = MAX_NUM_MBUFS;
 
 static bool override_dma_vfid;
 static uint16_t dma_vfid;
@@ -419,6 +421,7 @@ print_usage(const char *prgname)
 		" [--l2fwd-map (port,dev)[,(port,dev)]]"
 		" [--max-pkt-len PKTLEN]"
 		" [--pool-buf-len PKTLEN]"
+		" [--max-num-bufs COUNT]"
 		" [--per-port-pool]"
 		" [--disable-tx-mseg]"
 		" [--num-pkt-cap]"
@@ -440,6 +443,7 @@ print_usage(const char *prgname)
 		"           Default is (e0,v0),(e1,v1)... i.e ethdev 0 is mapped to virtio 0\n"
 		"  --max-pkt-len PKTLEN: maximum packet length in decimal (64-9600)\n"
 		"  --pool-buf-len PKTLEN: maximum pool buffer length in decimal (64-9600)\n"
+		"  --max-num-mbufs COUNT: maximum number of mbufs to allocate\n"
 		"  --per-port-pool: Use separate buffer pool per port\n"
 		"  --disable-tx-mseg: Disable ethdev Tx multi-seg offload capability\n"
 		"  --pcap-enable: Enables pcap capture\n"
@@ -475,6 +479,23 @@ parse_max_pkt_len(const char *pktlen)
 	/* Parse decimal string */
 	len = strtoul(pktlen, &end, 10);
 	if ((pktlen[0] == '\0') || (end == NULL) || (*end != '\0'))
+		return -1;
+
+	if (len == 0)
+		return -1;
+
+	return len;
+}
+
+static int
+parse_max_num_mbufs(const char *num_mbufs)
+{
+	unsigned long len;
+	char *end = NULL;
+
+	/* Parse decimal string */
+	len = strtoul(num_mbufs, &end, 10);
+	if ((num_mbufs[0] == '\0') || (end == NULL) || (*end != '\0'))
 		return -1;
 
 	if (len == 0)
@@ -689,6 +710,7 @@ static const char short_options[] = "p:" /* portmask */
 #define CMD_LINE_OPT_L2FWD_MAP     "l2fwd-map"
 #define CMD_LINE_OPT_MAX_PKT_LEN   "max-pkt-len"
 #define CMD_LINE_OPT_MAX_BUF_LEN   "pool-buf-len"
+#define CMD_LINE_OPT_MAX_NUM_MBUFS "max-num-mbufs"
 #define CMD_LINE_OPT_PER_PORT_POOL "per-port-pool"
 #define CMD_LINE_OPT_DIS_TX_MSEG   "disable-tx-mseg"
 #define CMD_LINE_OPT_PCAP_ENABLE   "pcap-enable"
@@ -707,6 +729,7 @@ enum {
 	CMD_LINE_OPT_L2FWD_MAP_NUM,
 	CMD_LINE_OPT_MAX_PKT_LEN_NUM,
 	CMD_LINE_OPT_MAX_BUF_LEN_NUM,
+	CMD_LINE_OPT_MAX_NUM_MBUFS_NUM,
 	CMD_LINE_OPT_PARSE_PER_PORT_POOL,
 	CMD_LINE_OPT_PARSE_DIS_TX_MSEG,
 	CMD_LINE_OPT_PARSE_PCAP_ENABLE,
@@ -721,6 +744,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_L2FWD_MAP, 1, 0, CMD_LINE_OPT_L2FWD_MAP_NUM},
 	{CMD_LINE_OPT_MAX_PKT_LEN, 1, 0, CMD_LINE_OPT_MAX_PKT_LEN_NUM},
 	{CMD_LINE_OPT_MAX_BUF_LEN, 1, 0, CMD_LINE_OPT_MAX_BUF_LEN_NUM},
+	{CMD_LINE_OPT_MAX_NUM_MBUFS, 1, 0, CMD_LINE_OPT_MAX_NUM_MBUFS_NUM},
 	{CMD_LINE_OPT_PER_PORT_POOL, 0, 0, CMD_LINE_OPT_PARSE_PER_PORT_POOL},
 	{CMD_LINE_OPT_DIS_TX_MSEG, 0, 0, CMD_LINE_OPT_PARSE_DIS_TX_MSEG},
 	{CMD_LINE_OPT_PCAP_ENABLE, 0, 0, CMD_LINE_OPT_PARSE_PCAP_ENABLE},
@@ -907,6 +931,15 @@ parse_args(int argc, char **argv)
 			pool_buf_len = parse_max_pkt_len(optarg);
 			if (pool_buf_len == -1)
 				pool_buf_len = RTE_MBUF_DEFAULT_BUF_SIZE;
+			break;
+
+		case CMD_LINE_OPT_MAX_NUM_MBUFS_NUM:
+			int n_pktmbuf_count = parse_max_num_mbufs(optarg);
+
+			if (n_pktmbuf_count == -1)
+				pktmbuf_count = MAX_NUM_MBUFS;
+			else
+				pktmbuf_count = (uint32_t)n_pktmbuf_count;
 			break;
 
 		case CMD_LINE_OPT_PARSE_PER_PORT_POOL:
@@ -2390,6 +2423,7 @@ setup_mempools(void)
 	uint16_t portid;
 	int rc;
 
+	APP_INFO("Setting up mempools with %d mbufs\n", pktmbuf_count);
 	/* Initialize all ports. 8< */
 	RTE_ETH_FOREACH_DEV(portid) {
 		/* Skip ports that are not enabled */
