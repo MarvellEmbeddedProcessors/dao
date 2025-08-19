@@ -186,13 +186,23 @@ test_hash_verify(const void *data)
 	return test_hash_only(data, false);
 }
 
+static bool
+is_aead_algo(const struct test_sym_params *params)
+{
+	return ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
+		(params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM) ||
+		((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA) &&
+		 (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_POLY1305)));
+}
+
 static int
-test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
+test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_digest_separate)
 {
 	uint8_t out_buf_data[TEST_LC_MAX_CIPHERTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
 			     TEST_LC_MAX_OFFSET] = {0};
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
 			    TEST_LC_MAX_OFFSET] = {0};
+	uint8_t digest_buf[TEST_LC_MAX_DIGEST_LEN] = {0};
 	int ret, i, max_offset = TEST_LC_MAX_OFFSET;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
@@ -204,6 +214,7 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 	struct dao_lc_sym_op op[1] = {0};
 	uint64_t sess_cookie, op_cookie;
 	uint8_t *result_buffer = NULL;
+	uint8_t *digest_result = NULL;
 	struct dao_lc_cmd_event ev;
 	struct dao_lc_buf *dst_buf;
 	size_t max_len, total_len;
@@ -247,8 +258,17 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 		in_buf[0].data = in_buf_data;
 		in_buf[0].frag_len = in_data_len + i;
 		in_buf[0].total_len = in_buf[0].frag_len;
+		total_len = in_data_len + params->digest.len + i;
 
 		if (is_oop) {
+			/*
+			 * As, in-place digest is stored in in_buf_data[] and in OOP
+			 * it is stored in out_buf_data[] and each buffer has
+			 * different capacity different limit checks are used.
+			 */
+			max_len = TEST_LC_MAX_CIPHERTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+				  TEST_LC_MAX_OFFSET;
+
 			dst_buf = out_buf;
 			if (is_encrypt)
 				out_data_len = params->ciphertext.len;
@@ -259,16 +279,16 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 			dst_buf[0].total_len = dst_buf[0].frag_len;
 			op[0].out_buffer = out_buf;
 		} else {
+			max_len = TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+				  TEST_LC_MAX_OFFSET;
+
 			dst_buf = in_buf;
 			op[0].out_buffer = NULL;
 		}
 
 		op[0].in_buffer = in_buf;
 
-		if ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
-		    (params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_CCM) ||
-		    ((params->ctx.fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA) &&
-			(params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_POLY1305))) {
+		if (is_aead_algo(params)) {
 			if (params->aad.len > TEST_LC_MAX_AAD_LEN) {
 				TEST_LC_ERR("AAD length (%u) out of bounds [0, %u]",
 					    params->aad.len, TEST_LC_MAX_AAD_LEN);
@@ -285,46 +305,38 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 				memcpy(in_buf_data + i, params->plaintext.data,
 				       params->plaintext.len);
 				op[0].encrypt = true;
-				/*
-				 * As, in-place digest is stored in in_buf_data[] and in OOP it is
-				 * stored in out_buf_data[] and each buffer has different capacity
-				 * different limit checks are used.
-				 */
-				if (is_oop)
-					max_len = TEST_LC_MAX_CIPHERTEXT_LEN +
-						  TEST_LC_MAX_DIGEST_LEN + TEST_LC_MAX_OFFSET;
-				else
-					max_len = TEST_LC_MAX_PLAINTEXT_LEN +
-						  TEST_LC_MAX_DIGEST_LEN + TEST_LC_MAX_OFFSET;
-
-				total_len = params->plaintext.len + params->digest.len + i;
-				if (total_len <= max_len) {
-					op[0].digest = (uint8_t *)dst_buf[0].data +
-						       params->plaintext.len + i;
+				if (is_digest_separate) {
+					memset(digest_buf, 0, TEST_LC_MAX_DIGEST_LEN);
+					op[0].digest = digest_buf;
 				} else {
-					TEST_LC_ERR("Digest buffer too small for offset %d", i);
-					goto exit;
+					if (total_len > max_len) {
+						TEST_LC_ERR("Digest buffer too small for offset %d",
+							    i);
+						goto exit;
+					}
+					if (is_oop)
+						in_buf[0].frag_len += params->digest.len;
+					dst_buf[0].frag_len += params->digest.len;
 				}
 			} else {
 				memcpy(in_buf_data + i, params->ciphertext.data,
 				       params->ciphertext.len);
 				op[0].encrypt = false;
-				if (params->ciphertext.len + params->digest.len + i <=
-				    TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
-					    TEST_LC_MAX_OFFSET) {
+				if (is_digest_separate) {
+					memcpy(digest_buf, params->digest.data, params->digest.len);
+					op[0].digest = digest_buf;
+				} else {
+					if (total_len > max_len) {
+						TEST_LC_ERR("Digest buffer too small for offset %d",
+							    i);
+						goto exit;
+					}
+
 					memcpy(in_buf_data + params->ciphertext.len + i,
 					       params->digest.data, params->digest.len);
-					op[0].digest = &(in_buf_data[params->ciphertext.len + i]);
-					/*
-					 * During decryption digest should be present in input
-					 * buffer for  both in-place and out-of-place operations,
-					 * as APIs require digest to be present in the input
-					 * buffer for decryption.
-					 * TODO: Address this limitation in the LC API.
-					 */
-				} else {
-					TEST_LC_ERR("Buffer too small for digest for offset %d", i);
-					goto exit;
+					if (is_oop)
+						in_buf[0].frag_len += params->digest.len;
+					dst_buf[0].frag_len += params->digest.len;
 				}
 			}
 		} else {
@@ -339,6 +351,9 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 				op[0].encrypt = false;
 			}
 		}
+
+		in_buf[0].total_len = in_buf[0].frag_len;
+		dst_buf[0].total_len = dst_buf[0].frag_len;
 
 		op[0].cipher_offset = params->cipher_offset + i;
 		op[0].cipher_len = params->ciphertext.len;
@@ -383,10 +398,15 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop)
 				return -1;
 			}
 
-			ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
+			if (is_digest_separate)
+				digest_result = op[0].digest;
+			else
+				digest_result = result_buffer + params->ciphertext.len;
+
+			ret = memcmp(digest_result, params->digest.data, params->digest.len);
 			if (ret != 0) {
 				TEST_LC_ERR("Invalid digest for offset %d", i);
-				rte_hexdump(stdout, "RESULT digest: ", op[0].digest,
+				rte_hexdump(stdout, "RESULT digest: ", digest_result,
 					    params->digest.len);
 				rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
 					    params->digest.len);
@@ -434,25 +454,102 @@ exit:
 static int
 test_block_cipher_only_encrypt(const void *data)
 {
-	return test_block_cipher_only(data, true, false);
+	const struct test_sym_params *params = data;
+	int ret = 0;
+
+	if (is_aead_algo(params)) {
+		/**
+		 * AEAD supports two modes of digest handling.
+		 * 1. Digest can be placed explicitly in a separate buffer.
+		 * 2. Digest data can located after the ciphertext in the buffer.
+		 *
+		 * Test here case 1.
+		 */
+
+		ret = test_block_cipher_only(data, true, false, true);
+
+		if (ret < 0) {
+			TEST_LC_ERR("AEAD test failed for separate digest mode");
+			return ret;
+		}
+	}
+
+	return test_block_cipher_only(data, true, false, false);
 }
 
 static int
 test_block_cipher_only_decrypt(const void *data)
 {
-	return test_block_cipher_only(data, false, false);
+	const struct test_sym_params *params = data;
+	int ret = 0;
+
+	if (is_aead_algo(params)) {
+		/**
+		 * AEAD supports two modes of digest handling.
+		 * 1. Digest can be placed explicitly in a separate buffer.
+		 * 2. Digest data can located after the ciphertext in the buffer.
+		 *
+		 * Test here case 1.
+		 */
+
+		ret = test_block_cipher_only(data, false, false, true);
+		if (ret < 0) {
+			TEST_LC_ERR("AEAD test failed for separate digest mode");
+			return ret;
+		}
+	}
+
+	return test_block_cipher_only(data, false, false, false);
 }
 
 static int
 test_block_cipher_only_encrypt_oop(const void *data)
 {
-	return test_block_cipher_only(data, true, true);
+	const struct test_sym_params *params = data;
+	int ret = 0;
+
+	if (is_aead_algo(params)) {
+		/**
+		 * AEAD supports two modes of digest handling.
+		 * 1. Digest can be placed explicitly in a separate buffer.
+		 * 2. Digest data can located after the ciphertext in the buffer.
+		 *
+		 * Test here case 1.
+		 */
+
+		ret = test_block_cipher_only(data, true, true, true);
+		if (ret < 0) {
+			TEST_LC_ERR("AEAD test failed for separate digest mode");
+			return ret;
+		}
+	}
+
+	return test_block_cipher_only(data, true, true, false);
 }
 
 static int
 test_block_cipher_only_decrypt_oop(const void *data)
 {
-	return test_block_cipher_only(data, false, true);
+	const struct test_sym_params *params = data;
+	int ret = 0;
+
+	if (is_aead_algo(params)) {
+		/**
+		 * AEAD supports two modes of digest handling.
+		 * 1. Digest can be placed explicitly in a separate buffer.
+		 * 2. Digest data can located after the ciphertext in the buffer.
+		 *
+		 * Test here case 1.
+		 */
+
+		ret = test_block_cipher_only(data, false, true, true);
+		if (ret < 0) {
+			TEST_LC_ERR("AEAD test failed for separate digest mode");
+			return ret;
+		}
+	}
+
+	return test_block_cipher_only(data, false, true, false);
 }
 
 struct unit_test_suite lc_testsuite_sym = {
