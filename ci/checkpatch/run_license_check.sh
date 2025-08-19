@@ -27,6 +27,8 @@ IGNORE_FILES=(
 	"ci/checkpatch/spelling.txt"
 	"ci/klocwork/kw_override.h"
 	"ci/klocwork/local.kb"
+	"doc/guides/_static/tab_logo.jpg"
+	"doc/guides/_static/versions.json"
 	"tests/ct-func/ct_test.pcap"
 )
 
@@ -40,6 +42,7 @@ IGNORE_DIRECTORIES=(
 	"doc/guides/_static/css/"
 	"doc/guides/_static/demo/"
 	"doc/guides/_static/js/"
+	"doc/guides/_templates/"
 	"doc/guides/applications/img/"
 	"doc/guides/contributing/img/"
 	"doc/guides/gsg/img/"

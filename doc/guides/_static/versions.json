@@ -1,0 +1,12 @@
+[
+  {
+    "version": "dao-devel",
+    "name": "latest (dev)",
+    "url": "/dao/guides/dao-devel/"
+  },
+  {
+    "version": "dao-25.05",
+    "name": "25.05",
+    "url": "/dao/guides/dao-25.05/"
+  }
+]

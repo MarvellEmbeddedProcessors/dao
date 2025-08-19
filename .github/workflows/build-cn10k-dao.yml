@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0  # fetch all history/tags for SMV and version logic
       - name: Generate cache keys
         id: get_ref_keys
         run: |
@@ -61,8 +63,15 @@ jobs:
             sudo apt-get install -y libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev
             sudo apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
             sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            python3 -m pip install --upgrade pip
+            python3 -m pip install "sphinx>=7.0.0" \
+                                  "pydata-sphinx-theme>=0.16" \
+                                  "sphinx-multiversion>=0.2.4" \
+                                  "sphinx-copybutton" \
+                                  "sphinx-design"
             DISTRO=ubuntu-`lsb_release -rs`
             source "${PWD}/artifacts/env"
+            git fetch --all --tags --prune
             echo "DISTRO=${DISTRO}" >> ${PWD}/artifacts/env
             BASE_DIR=${PWD}
             wget "https://github.com/MarvellEmbeddedProcessors/marvell-dpdk/releases/download/dpdk-cn10k-${DPDK_BASE_PKG_VERSION}_${DPDK_PKG_VERSION}-${DISTRO}-${DPDK_PKG_VERSION}/dpdk-${DPDK_BASE_PKG_VERSION}-cn10k_${DPDK_PKG_VERSION}_arm64.deb"
@@ -95,9 +104,24 @@ jobs:
             mv "${PWD}/install" "${PWD}/dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             dpkg --build "dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
             cp "dao-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
-            mkdir -p gen_docs
-            mv build/doc/guides/html gen_docs/guides
-            mv build/doc/api/html gen_docs/api
+            # ---- Build multi-version docs with SMV ----
+            sphinx-multiversion doc/guides build/smv_html
+            # Final site layout will be:
+            #   build/html/guides/          -> default docs (dao-devel content)
+            #   build/html/guides/<version> -> all versions
+            #   build/html/api/             -> API docs
+            mkdir -p build/html/guides
+            cp -r build/smv_html/* build/html/guides/
+            # Version switcher manifest
+            cp doc/guides/_static/versions.json build/html/guides/versions.json
+            # Make /guides/ render the dev version by default
+            if [ -d build/html/guides/dao-devel ]; then
+              cp -r build/html/guides/dao-devel/* build/html/guides/
+            fi
+            mkdir -p build/html/api
+            cp -r build/doc/api/html/* build/html/api/
+            # Required for GitHub Pages to serve files under underscores
+            touch build/html/.nojekyll
       - name: Export version name
         id: artifacts
         run: |
@@ -131,7 +155,7 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         if: ${{ github.event_name == 'push' }}
         with:
-          path: ${{ github.workspace }}/gen_docs
+          path: build/html
       - name: Deploy Github Pages
         if: ${{ github.event_name == 'push' }}
         uses: actions/deploy-pages@v4.0.5
