@@ -35,6 +35,7 @@ ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s 
 
 	if (unlikely(infl_req->res.cn9k.uc_compcode != DAO_UC_SUCCESS)) {
 		rlen = 0;
+		pkt_len = sizeof(struct __dao_lc_resp_asym);
 		goto rlen_set;
 	}
 
