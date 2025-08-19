@@ -37,7 +37,7 @@ Flow Rule
 A flow rule is the combination of attributes with a matching pattern and a list of
 actions.
 
-Refer `DPDK Flow Rule Description <https://doc.dpdk.org/guides/prog_guide/rte_flow.html#flow-rule>`_ for more details.
+Refer `DPDK Flow Rule Description <https://doc.dpdk.org/guides-24.07/prog_guide/rte_flow.html#flow-rule>`_ for more details.
 
 Programming Model
 =================
