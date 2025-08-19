@@ -716,9 +716,11 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		}
 
 		if (params->rng.rand_len) {
-			if (params->rng.rand_len > LIQUID_CRYPTO_RNG_MAX_LEN) {
+			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
+
+			if (params->rng.rand_len > rand_len_max) {
 				dao_err("Invalid RNG length. rand_len should be at most %u.",
-					LIQUID_CRYPTO_RNG_MAX_LEN);
+					rand_len_max);
 				return 0;
 			}
 
@@ -2570,6 +2572,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 int
 dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_random_op *op)
 {
+	uint16_t buf_len, rand_len_max;
 	struct liquid_crypto_dev *dev;
 	struct __dao_lc_req_sym *req;
 	struct liquid_crypto_qp *qp;
@@ -2577,7 +2580,6 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 	uint32_t req_idx = 0;
 	union cpt_inst_w4 w4;
 	union cpt_inst_w7 w7;
-	uint16_t buf_len;
 	int rc;
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
@@ -2610,9 +2612,9 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 		return -EINVAL;
 	}
 
-	if (op->rand_len == 0 || op->rand_len > LIQUID_CRYPTO_RNG_MAX_LEN) {
-		dao_err("Invalid argument. rand_len must be between 1 and %u.",
-			LIQUID_CRYPTO_RNG_MAX_LEN);
+	rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
+	if (op->rand_len == 0 || op->rand_len > rand_len_max) {
+		dao_err("Invalid argument. rand_len must be between 1 and %u.", rand_len_max);
 		return -EINVAL;
 	}
 #endif
@@ -2706,6 +2708,8 @@ mbuf_free:
 idx_put:
 	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 #endif
+	RTE_SET_USED(rand_len_max);
+
 	return rc;
 }
 

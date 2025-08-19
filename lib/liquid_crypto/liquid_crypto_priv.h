@@ -29,7 +29,15 @@
 #define LIQUID_CRYPTO_RSA_MOD_LEN_MAX     1024
 #define LIQUID_CRYPTO_RSA_MSG_LEN_PADDING 11
 
-#define LIQUID_CRYPTO_RNG_MAX_LEN 32767
+/* Hardware supports random length up to (2^15 - 1) bytes. */
+#define LIQUID_CRYPTO_RNG_LEN_MAX 32767u
+
+/* Derive maximum random length from the maximum supported payload size */
+#define LIQUID_CRYPTO_RAND_LEN_MAX                                                                 \
+	((uint16_t)RTE_MIN((LIQUID_CRYPTO_BUF_SZ_MAX -                                             \
+			    (RTE_PKTMBUF_HEADROOM + sizeof(struct __dao_lc_req_sym) +              \
+			     LIQUID_CRYPTO_BUF_SDP_DATA_LEN_SZ)),                                  \
+			   LIQUID_CRYPTO_RNG_LEN_MAX))
 
 /** Liquid crypto device */
 struct liquid_crypto_dev {
