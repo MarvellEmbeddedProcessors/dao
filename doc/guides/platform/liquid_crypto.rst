@@ -121,6 +121,21 @@ On Red Hat-based systems, the following command can be used:
     sudo dnf install openssl-devel
     sudo dnf install zlib-devel
 
+On FreeBSD-based systems, the following command can be used:
+
+.. code-block:: console
+
+    sudo pkg install git
+    sudo pkg install gcc
+    sudo pkg install pkgconf
+    sudo pkg install meson
+    sudo pkg install ninja
+    sudo pkg install py311-pyelftools
+    sudo pkg install cmake
+    sudo pkg install openssl
+    sudo pkg install zlib
+    sudo pkg install ncurses
+
 .. note::
 
     * Ensure that the meson version is 0.61 or higher.
@@ -155,6 +170,9 @@ compatible.
     ls <PATH_TO_INSTALL_DIR>/dpdk/lib/x86_64-linux-gnu/pkgconfig/
     ls <PATH_TO_INSTALL_DIR>/dpdk/lib64/pkgconfig/
 
+    # For FreeBSD-based systems, the libdpdk.pc file is generated in the following directory
+    ls <PATH_TO_INSTALL_DIR>/libdata/pkgconfig/
+
     # Expected output:
     # libdpdk-libs.pc  libdpdk.pc
 
@@ -163,6 +181,9 @@ compatible.
     # or
     export PKG_CONFIG_PATH=<PATH_TO_INSTALL_DIR>/dpdk/lib64/pkgconfig/:$PKG_CONFIG_PATH
 
+    # For FreeBSD-based systems, export the PKG_CONFIG_PATH environment variable as follows
+    export PKG_CONFIG_PATH=<PATH_TO_INSTALL_DIR>/libdata/pkgconfig:$PKG_CONFIG_PATH
+
 Marvell Octeon PCIe End Point Driver
 ++++++++++++++++++++++++++++++++++++
 
@@ -170,10 +191,13 @@ From Standard kernel distribution
 
 .. code-block:: console
 
-    # Check if the module is already preset
+    # On Debian/Red Hat-based systems, check if the module is already preset
     sudo modinfo octeon_ep
 
-If not present, build the driver
+    # On FreeBSD-based systems, check if the module is already preset
+    kldstat | grep octep_driver
+
+If not present on Debian/Red Hat-based systems, build the driver
 
 .. code-block:: console
 
@@ -181,6 +205,15 @@ If not present, build the driver
     cd pcie_ep_octeon_host
     make
     sudo insmod ./drivers/octeon_ep/octeon_ep.ko
+
+If not present on FreeBSD-based systems, build the driver
+
+.. code-block:: console
+
+    git clone --branch pcie_ep_octeon_host-bsd-release https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git
+    cd pcie_ep_octeon_host/drivers/octeon_ep
+    make
+    sudo kldload ./octep_driver.ko
 
 gRPC
 ++++
@@ -208,10 +241,13 @@ DAO provides a script for building the gRPC library. The script is located in th
     export LD_LIBRARY_PATH=<PATH_TO_GRPC_BUILD_DIR>/install/lib/:$LD_LIBRARY_PATH
     export LD_LIBRARY_PATH=<PATH_TO_GRPC_BUILD_DIR>/install/lib64/:$LD_LIBRARY_PATH
 
-    # Update PKG_CONFIG_PATH with DPDK
+    # On Debian/Red Hat-based systems, Update PKG_CONFIG_PATH with DPDK
     export PKG_CONFIG_PATH=<PATH_TO_INSTALL_DIR>/dpdk/lib/x86_64-linux-gnu/pkgconfig/:$PKG_CONFIG_PATH
     # or
     export PKG_CONFIG_PATH=<PATH_TO_INSTALL_DIR>/dpdk/lib64/pkgconfig/:$PKG_CONFIG_PATH
+
+    # On FreeBSD-based systems, Update PKG_CONFIG_PATH with DPDK
+    export PKG_CONFIG_PATH=<PATH_TO_INSTALL_DIR>/libdata/pkgconfig:$PKG_CONFIG_PATH
 
 libedit
 +++++++
@@ -230,6 +266,13 @@ On Red Hat-based systems, the following command can be used:
 .. code-block:: console
 
     sudo dnf install libedit-devel
+
+On FreeBSD-based systems, the following command can be used:
+
+.. code-block:: console
+
+    sudo pkg install libedit
+
 
 Build
 -----
@@ -265,6 +308,9 @@ process involves configuring the PCIe endpoint interface and initializing the ca
 
 Configure PCIe Endpoint Interface
 ---------------------------------
+
+Load Octeon EP Driver and Create VF on Debian/Red-Hat Based systems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: console
 
@@ -335,6 +381,87 @@ Configure PCIe Endpoint Interface
     # Bring up the interface. The interface name may change from host to host
     sudo ifconfig enp1s0f0 192.168.1.2 up
 
+
+Load Octeon EP Driver and Create VF on FreeBSD Based systems
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    # Make sure LiquidCrypto card is powered up
+
+    # Remove the octeon_ep module
+    sudo kldunload octep_driver.ko
+
+    # Insert the octeon_ep module
+    sudo kldload octep_driver.ko
+
+    # Bring up the interface. The interface name may change from host to host
+    sudo ifconfig octeon_ep0 up
+    sudo ifconfig octeon_ep0 192.168.1.2/24
+
+
+    # Check dmesg logs to confirm if the PF driver load is successful
+    # Example dmesg output:
+    # octeon_ep: Loading Marvell Octeon EndPoint NIC Driver ...
+    # octeon_ep: Starting taskqueue threads
+    # octeon_ep: Loaded successfully!
+    # octeon_ep0: Info: Device setup task queued
+    # octeon_ep0: Info: chip_id = 0xb200
+    # octeon_ep0: Info: Setting up OCTEON CN93XX PF PASS2.0
+    # octeon_ep0: Info: Octeon device using PCIE Port 0
+    # octeon_ep0: Info: pf_srn=0 rpvf=8 nvfs=0 rppf=8
+    # octeon_ep0: Info: Control plane versions host: 10000, firmware: 10000:10000
+    # octeon_ep0: Info: IOV schema configured
+    # octeon_ep0: Info: SR-IOV attached successfully
+    # octeon_ep0: Info: SR-IOV initialized successfully
+    # octeon_ep0: Info: Heartbeat interval 1000 msecs Heartbeat miss count 20
+    # octeon_ep0: Info: Device setup successful
+    # octeon_ep0: Ethernet address: 00:00:00:01:01:00
+    # octeon_ep0: Info: OCTEP device attached successfully
+    # octeon_ep0: Info: Allocated 8 IOQ vectors
+    # octeon_ep0: Info: MSI-X enabled successfully
+    # octeon_ep0: Info: Started netdev ...
+    # octeon_ep0: Info: Interrupt poll task stopped.
+    # octeon_ep0: link state changed to UP
+
+    # Create iov configuration file (octep_iov.conf) to Enable SR-IOV with 1 VF
+    cat octep_iov.conf
+    PF {
+        device "octeon_ep0";
+        num_vfs 1;
+    }
+
+    # Use the iovctl command to apply the configuration:
+    iovctl -C -f octep_iov.conf
+
+    # Check the dmesg logs to confirm successful VF creation
+    # Example dmesg output:
+    # octeon_ep0: SR-IOV initialized with 1 VFs
+    # octeon_ep0: Added VF ID: 0
+
+    # Load the contigmem kernel module
+    kldload contigmem
+
+    # Unload the nic_uio module
+    kldunload nic_uio
+
+    # Find the VF PCI
+    pciconf -l | grep b200
+    octeon_ep0@pci0:1:0:0:  class=0x028000 rev=0x18 hdr=0x00 vendor=0x177d device=0xb200 subvendor=0x177d subdevice=0xb200
+    none9@pci0:1:0:16:      class=0x028000 rev=0x18 hdr=0x00 vendor=0x177d device=0xb203 subvendor=0x177d subdevice=0xb200
+
+    # Set the environment variable for the NIC UIO module with VF PCI
+    kenv hw.nic_uio.bdfs="1:0:16"
+
+    # Load the nic_uio module
+    kldload nic_uio
+
+    # Check the VF PCI configuration to ensure the devices are correctly initialized:
+    pciconf -l | grep b200
+    octeon_ep0@pci0:1:0:0:  class=0x028000 rev=0x18 hdr=0x00 vendor=0x177d device=0xb200 subvendor=0x177d subdevice=0xb200
+    nic_uio0@pci0:1:0:16:   class=0x028000 rev=0x18 hdr=0x00 vendor=0x177d device=0xb203 subvendor=0x177d subdevice=0xb200
+
+
 Run the Card Manager
 --------------------
 
@@ -391,7 +518,7 @@ build process. The autotest binary is located in the `build/tests/` directory.
 
     # if the above command complains about missing DPDK libraries like following
     # "./build/tests/dao-liquid-crypto-autotest: error while loading shared libraries: librte_kvargs.so.25: cannot open shared object file: No such file or directory"
-    # set LD_LIBRARY_PATH to <PATH_TO_INSTALL_DIR>/lib64/ or <PATH_TO_INSTALL_DIR>/lib/x86_64-linux-gnu
+    # set LD_LIBRARY_PATH to <PATH_TO_INSTALL_DIR>/lib64/ or <PATH_TO_INSTALL_DIR>/lib/x86_64-linux-gnu or LD_LIBRARY_PATH to <PATH_TO_INSTALL_DIR>/lib/
     sudo LD_LIBRARY_PATH=<PATH_TO_INSTALL_DIR>/lib/x86_64-linux-gnu ./build_dao_host/tests/dao-liquid-crypto-autotest
 
 Sample Output
