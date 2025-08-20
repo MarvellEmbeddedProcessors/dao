@@ -52,6 +52,12 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
+| ECDSA          | P-192, P-224,    |
+|                | P-256, P-384,    |
+|                | P-521 curves     |
+|                +------------------+
+|                | Sign, verify     |
++----------------+------------------+
 
 Symmetric Cryptography
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -295,6 +301,8 @@ The following APIs are used to enqueue asymmetric cryptographic operations:
 #. ``dao_liquid_crypto_enq_op_pkcs1v15dec`` : Enqueue PKCS1v15 decryption operation.
 #. ``dao_liquid_crypto_enq_op_pkcs1v15enc_crt`` : Enqueue PKCS1v15 CRT encryption operation.
 #. ``dao_liquid_crypto_enq_op_pkcs1v15dec_crt`` : Enqueue PKCS1v15 CRT decryption operation.
+#. ``dao_liquid_crypto_enq_op_ecdsa_sign`` : Enqueue ECDSA signing operation.
+#. ``dao_liquid_crypto_enq_op_ecdsa_verify`` : Enqueue ECDSA verification operation.
 
 Enqueue API - Symmetric Crypto
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
