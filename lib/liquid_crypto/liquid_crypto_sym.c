@@ -10,6 +10,7 @@
 #include <dao_liquid_crypto.h>
 #include <dao_log.h>
 
+#include "liquid_crypto_debug.h"
 #include "liquid_crypto_op_defines.h"
 #include "liquid_crypto_sym.h"
 
@@ -578,18 +579,11 @@ int
 lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
-	uint32_t pkt_len, out_pkt_len;
 	enum lc_crypto_op_type op_type;
-	struct dao_lc_buf *buf;
 	int ret;
 
 	if (op == NULL) {
 		dao_err("Invalid operation pointer.");
-		return -EINVAL;
-	}
-
-	if (op->in_buffer == NULL) {
-		dao_err("Invalid input buffer pointer.");
 		return -EINVAL;
 	}
 
@@ -598,50 +592,17 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		return -EINVAL;
 	}
 
-	if (op->in_buffer->total_len == 0) {
-		dao_err("Invalid input buffer total length.");
-		return -EINVAL;
-	}
-
-	pkt_len = 0;
-	buf = op->in_buffer;
-	do {
-		if (buf->data == NULL) {
-			dao_err("Invalid input buffer fragment data pointer.");
-			return -EINVAL;
-		}
-		if (buf->frag_len == 0) {
-			dao_err("Invalid input buffer fragment length.");
-			return -EINVAL;
-		}
-		pkt_len += buf->frag_len;
-		buf = buf->next;
-	} while (buf != NULL);
-
-	if (pkt_len != op->in_buffer->total_len) {
-		dao_err("Input buffer total length does not match fragment lengths.");
-		return -EINVAL;
+	ret = lc_buf_validate(op->in_buffer);
+	if (ret != 0) {
+		dao_err("Invalid input buffer.");
+		return ret;
 	}
 
 	if (op->out_buffer != NULL) {
-		out_pkt_len = 0;
-		buf = op->out_buffer;
-		do {
-			if (buf->data == NULL) {
-				dao_err("Invalid output buffer fragment data pointer.");
-				return -EINVAL;
-			}
-			if (buf->frag_len == 0) {
-				dao_err("Invalid output buffer fragment length.");
-				return -EINVAL;
-			}
-			out_pkt_len += buf->frag_len;
-			buf = buf->next;
-		} while (buf != NULL);
-
-		if (out_pkt_len != op->out_buffer->total_len) {
-			dao_err("Output buffer total length does not match fragment lengths.");
-			return -EINVAL;
+		ret = lc_buf_validate(op->out_buffer);
+		if (ret != 0) {
+			dao_err("Invalid output buffer.");
+			return ret;
 		}
 	}
 

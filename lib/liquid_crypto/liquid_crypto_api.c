@@ -2610,17 +2610,19 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 		return -EINVAL;
 	}
 
-	if (op->out_buf == NULL) {
-		dao_err("Invalid argument. out_buffer cannot be NULL.");
-		return -EINVAL;
-	}
-
 	if (op->rand_len == 0 || op->rand_len > LIQUID_CRYPTO_RNG_MAX_LEN) {
 		dao_err("Invalid argument. rand_len must be between 1 and %u.",
 			LIQUID_CRYPTO_RNG_MAX_LEN);
 		return -EINVAL;
 	}
 #endif
+	if (lc_debug_enabled()) {
+		rc = lc_buf_validate(op->out_buf);
+		if (rc != 0) {
+			dao_err("Invalid output buffer.");
+			return rc;
+		}
+	}
 
 	if (op->type != DAO_LC_RANDOM_TYPE_HW) {
 		dao_err("Invalid argument. Only HW RANDOM type is supported.");
