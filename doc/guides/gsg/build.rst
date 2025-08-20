@@ -53,7 +53,7 @@ When compiling for the Octeon platform, DAO has a mandatory dependency on DPDK a
  * git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
  * cd marvell-dpdk
  * git checkout dpdk-24.11-release
- * meson build -Dexamples=all -Denable_drivers=*/cnxk,net/ring -Dplatform=cn10k --prefix=${PWD}/install
+ * meson build -Dexamples=all -Denable_drivers=*/cnxk,net/ring -Dplatform=cn10k --prefix=/usr
  * ninja -C build install
  * # Build gRPC
  * cd <Path to DAO repo>/dao
