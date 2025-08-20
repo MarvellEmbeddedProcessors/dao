@@ -73,7 +73,7 @@ ca_handle_ec_sign_verify_op(union cpt_inst_w4 w4, struct cpt_inflight_req *infl_
 	dptr += p_align;
 }
 
-static inline int
+static inline void
 ca_handle_asym_op(struct cpt_inst_s *inst, struct cpt_inflight_req *infl_req,
 		  struct __dao_lc_req_asym *asym, struct __dao_lc_resp_asym *asym_resp,
 		  union cpt_inst_w4 w4)
@@ -97,7 +97,7 @@ ca_handle_asym_op(struct cpt_inst_s *inst, struct cpt_inflight_req *infl_req,
 		if (curve_id > ca_glb_ctx.nb_ae_ec_max_entries) {
 			CA_ERR("Invalid curve_id: %lu", curve_id);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
-			return -1;
+			return;
 		}
 
 		struct rte_pmd_cnxk_crypto_ae_ec_group_params *ec_grp =
@@ -105,7 +105,7 @@ ca_handle_asym_op(struct cpt_inst_s *inst, struct cpt_inflight_req *infl_req,
 		if (ec_grp == NULL) {
 			CA_ERR("ec_grp[%lu] is NULL", curve_id);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
-			return -1;
+			return;
 		}
 
 		uint8_t *dptr = asym->dptr;
@@ -118,7 +118,6 @@ ca_handle_asym_op(struct cpt_inst_s *inst, struct cpt_inflight_req *infl_req,
 
 		ca_handle_ec_sign_verify_op(w4, infl_req, ec_grp, dptr);
 	}
-	return 0;
 }
 
 #endif /* __CA_ASYM_H__ */

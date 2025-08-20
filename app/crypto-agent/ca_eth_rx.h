@@ -91,14 +91,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w7.u64 = 0;
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			infl_req->op_type = asym->op_type;
-
-			rc = ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
-			if (rc != 0) {
-				infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
-				nb_cpt_bypass++;
-				CA_ERR("Asym operation failed: rc: %d", rc);
-				continue;
-			}
+			ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
 			rc = ca_sess_handle_create(rx_pkts[pkt_id]);
