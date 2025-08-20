@@ -188,7 +188,7 @@ dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *
 		     enum dao_card_update_type type)
 {
 	const size_t chunk_size = MAX_CHUNK_SIZE;
-	const char *checksum = nullptr;
+	std::string checksum_str;
 
 	if (update_req->filename == NULL || update_req->filepath == NULL || ctx == NULL)
 		return -EINVAL;
@@ -218,6 +218,61 @@ dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *
 		return -EINVAL;
 	}
 
+	if (type == DAO_CARD_FAILSAFE_UPDATE) {
+		unsigned int hash_len = 0;
+		unsigned char hash[32];
+
+		file.seekg(0, std::ios::end);
+		std::streamsize file_size = file.tellg();
+		file.seekg(0, std::ios::beg);
+		std::vector<char> file_data(file_size);
+		if (!file.read(file_data.data(), file_size)) {
+			fprintf(stderr, "Failed to read file for checksum: %s\n", update_req->filename);
+			file.close();
+			return -EIO;
+		}
+		file.clear();
+		file.seekg(0, std::ios::beg);
+
+		EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
+		if (mdctx == NULL) {
+			file.close();
+			return -ENOMEM;
+		}
+
+		if (EVP_DigestInit_ex(mdctx, EVP_sha256(), NULL) != 1) {
+			EVP_MD_CTX_free(mdctx);
+			file.close();
+			return -EIO;
+		}
+
+		std::vector<char> buffer(chunk_size);
+		while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
+			if (EVP_DigestUpdate(mdctx, buffer.data(), file.gcount()) != 1) {
+				EVP_MD_CTX_free(mdctx);
+				file.close();
+				return -EIO;
+			}
+		}
+
+		if (EVP_DigestFinal_ex(mdctx, hash, &hash_len) != 1) {
+			EVP_MD_CTX_free(mdctx);
+			file.close();
+			return -EIO;
+		}
+
+		EVP_MD_CTX_free(mdctx);
+		file.clear();
+		file.seekg(0, std::ios::beg);
+
+		checksum_str.reserve(64);
+		for (int i = 0; i < 32; ++i) {
+			char hex[3];
+			snprintf(hex, sizeof(hex), "%02x", hash[i]);
+			checksum_str.append(hex);
+		}
+	}
+
 	while (file.read(buffer.data(), buffer.size()) || file.gcount() > 0) {
 		grpc::ClientContext context;
 		grpc::Status status;
@@ -228,8 +283,8 @@ dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *
 		req.set_file_content(buffer.data(), file.gcount());
 		req.set_is_last_chunk(file.eof());
 		req.set_transfer_type(proto_type);
-		if (type == DAO_CARD_FAILSAFE_UPDATE && checksum)
-			req.set_checksum(checksum);
+		if (type == DAO_CARD_FAILSAFE_UPDATE)
+			req.set_checksum(checksum_str);
 
 		status = ctx->stub->FileUpdate(&context, req, &resp);
 		if (!status.ok()) {
