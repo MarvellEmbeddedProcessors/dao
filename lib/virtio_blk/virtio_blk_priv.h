@@ -52,16 +52,18 @@ VIRTIO_BLK_DESC_MANAGE_MODES
 VIRTIO_BLK_DEQ_FASTPATH_MODES
 #undef R
 
-#define VIRTIO_BLK_COMPL_DEF		(0)
-#define VIRTIO_BLK_COMPL_LAST		(1)
+#define VIRTIO_BLK_COMPL_DEF    (0)
+#define VIRTIO_BLK_COMPL_NOINOR RTE_BIT64(0)
+#define VIRTIO_BLK_COMPL_LAST   RTE_BIT64(0)
 
-#define VIRTIO_BLK_COMPL_EXTBUF		RTE_BIT64(15)
+#define VIRTIO_BLK_COMPL_EXTBUF RTE_BIT64(15)
 
-#define VIRTIO_BLK_COMPL_FASTPATH_MODES			\
-	T(def, VIRTIO_BLK_COMPL_DEF)
+#define VIRTIO_BLK_COMPL_FASTPATH_MODES                                                            \
+	T(def, VIRTIO_BLK_COMPL_DEF)                                                               \
+	T(noinorder, VIRTIO_BLK_COMPL_NOINOR)
 
-#define T(name, flags)										\
-	uint16_t virtio_blk_process_compl_##name(void *q, void **pkts, uint16_t nb_pkts);	\
+#define T(name, flags)                                                                             \
+	uint16_t virtio_blk_process_compl_##name(void *q, void **pkts, uint16_t nb_pkts);          \
 	uint16_t virtio_blk_process_compl_ext_##name(void *q, void **pkts, uint16_t nb_pkts);
 
 VIRTIO_BLK_COMPL_FASTPATH_MODES

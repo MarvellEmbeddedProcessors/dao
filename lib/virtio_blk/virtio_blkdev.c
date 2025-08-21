@@ -159,12 +159,12 @@ virtio_blkdev_status_cb(struct virtio_dev *dev, uint8_t status)
 		if (cb_enabled)
 			virtio_blkdev_cb_interrupt_conf(blkdev);
 
-		//dao_blkdev->deq_fn_id = 0;
-		//dao_blkdev->compl_fn_id = 0;
 		dao_blkdev->deq_fn_id &= ~VIRTIO_BLK_DEQ_NOINOR;
+		dao_blkdev->compl_fn_id &= ~VIRTIO_BLK_COMPL_NOINOR;
 		dao_blkdev->mgmt_fn_id &= ~VIRTIO_BLK_DESC_MANAGE_NOINORDER;
 		if (!(dev->feature_bits & RTE_BIT64(VIRTIO_F_IN_ORDER))) {
 			dao_blkdev->deq_fn_id |= VIRTIO_BLK_DEQ_NOINOR;
+			dao_blkdev->compl_fn_id |= VIRTIO_BLK_COMPL_NOINOR;
 			dao_blkdev->mgmt_fn_id |= VIRTIO_BLK_DESC_MANAGE_NOINORDER;
 		}
 
