@@ -1706,23 +1706,6 @@ dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_
 	return copied;
 }
 
-static inline uint16_t
-dao_lc_buf_copy_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t len)
-{
-	struct dao_lc_buf *tmp = src;
-	uint16_t to_copy, copied = 0;
-
-	do {
-		to_copy = RTE_MIN(tmp->frag_len, len - copied);
-
-		memcpy(dst + copied, tmp->data, to_copy);
-		copied += to_copy;
-		tmp = tmp->next;
-	} while (tmp && copied < len);
-
-	return copied;
-}
-
 static inline void
 dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_sym_op *op,
 		   uint8_t *dptr)
