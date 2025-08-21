@@ -29,6 +29,12 @@
 #define PATH_MAX 4096
 #endif
 
+#if defined(__FreeBSD__)
+#ifndef EREMOTEIO
+#define EREMOTEIO 121
+#endif
+#endif
+
 #define DAO_CARD_CFG_NB_DESC 1024
 
 #define DAO_CARD_MGR_PORT        50055
