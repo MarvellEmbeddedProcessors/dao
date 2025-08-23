@@ -5,6 +5,7 @@ sources = files(
 	'pts_rdma_dev.c',
 	'pts_rdma_mbox.c',
 	'pts_rdma_deq.c',
+	'pts_rdma_enq.c',
 )
 
 headers = files(
