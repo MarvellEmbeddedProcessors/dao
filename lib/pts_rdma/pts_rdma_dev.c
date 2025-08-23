@@ -352,3 +352,75 @@ dao_pts_rdma_dev_config_update(uint16_t devid, uint8_t *cfg, uint16_t cfg_len)
 		cfg_reg->opaque_data[4], cfg_reg->opaque_data[5]);
 	return 0;
 }
+
+int
+dao_pts_rdma_desc_manage(uint16_t devid)
+{
+	struct dao_pts_rdma_dev *dao_dev = &dao_pts_rdma_devs[devid];
+	struct pts_rdma_dev *dev = pts_rdma_dev_priv(dao_dev);
+	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_dma_vchan_state *dev2mem, *mem2dev;
+	struct pts_rdma_cq_data *cq_data;
+	struct rte_dma_sge *src, *dst;
+	struct pts_rdma_qp *qp;
+	uint16_t dma_vchan;
+	uint16_t sg_i = 0;
+	uint32_t i;
+
+	dma_vchan = dev->dma_vchan;
+	dev2mem = &vchan_info->dev2mem[dma_vchan];
+	mem2dev = &vchan_info->mem2dev[dma_vchan];
+
+	/* Fetch all DMA completed status */
+	dao_dma_check_meta_compl_v2(dev2mem, 1 /* ATOMIC update */);
+	dao_dma_check_meta_compl_v2(mem2dev, 1 /* ATOMIC update */);
+
+	for (i = 0; i < dev->max_qps; i++) {
+		if (!rte_bitmap_get(dev->qp_bmap, i))
+			continue;
+		if (!dao_dma_flush(dev2mem, DAO_DMA_MAX_POINTER))
+			break;
+
+		/* Populate pointers for Host send queue */
+		qp = dao_dev->qps[i];
+		src = dao_dma_sge_src(dev2mem);
+		dst = dao_dma_sge_dst(dev2mem);
+		sg_i = fetch_sq_desc_prep(&qp->sq, dev2mem, src, dst);
+		dev2mem->src_i += sg_i;
+		dev2mem->dst_i += sg_i;
+
+		if (!dao_dma_flush(dev2mem, DAO_DMA_MAX_POINTER))
+			break;
+
+		/* Populate pointers for Host Receive queue */
+		src = dao_dma_sge_src(dev2mem);
+		dst = dao_dma_sge_dst(dev2mem);
+		sg_i = fetch_rq_desc_prep(&qp->rq, dev2mem, src, dst);
+		dev2mem->src_i += sg_i;
+		dev2mem->dst_i += sg_i;
+
+		if (!dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER))
+			break;
+
+		/* Populate pointers for Host Completion queue for send */
+		cq_data = &qp->sq.cq_data;
+		src = dao_dma_sge_src(mem2dev);
+		dst = dao_dma_sge_dst(mem2dev);
+		sg_i = push_cq_desc_prep(cq_data, mem2dev, src, dst);
+		mem2dev->src_i += sg_i;
+		mem2dev->dst_i += sg_i;
+
+		if (!dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER))
+			break;
+
+		/* Populate pointers for Host Completion queue for recv */
+		cq_data = &qp->rq.cq_data;
+		src = dao_dma_sge_src(mem2dev);
+		dst = dao_dma_sge_dst(mem2dev);
+		sg_i = push_cq_desc_prep(cq_data, mem2dev, src, dst);
+		mem2dev->src_i += sg_i;
+		mem2dev->dst_i += sg_i;
+	}
+
+	return 0;
+}

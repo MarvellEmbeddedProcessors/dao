@@ -225,6 +225,161 @@ is_queue_full(uint16_t pi, uint16_t ci)
 	return (pi + 1 == ci);
 }
 
+static __rte_always_inline uint16_t
+alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint16_t off, uint16_t q_sz,
+	    uint16_t nb_mbufs)
+{
+	uint16_t cnt;
+
+	cnt = (off + nb_mbufs) > q_sz ? q_sz - off : nb_mbufs;
+	if (rte_mempool_get_bulk(mp, (void **)(mbuf_arr + off), cnt))
+		return 0;
+	off = (off + cnt) & (q_sz - 1);
+	cnt = nb_mbufs - cnt;
+	if (cnt && rte_mempool_get_bulk(mp, (void **)(mbuf_arr + off), cnt))
+		nb_mbufs -= cnt;
+	return nb_mbufs;
+}
+
+static __rte_always_inline uint16_t
+fetch_sq_desc_prep(struct pts_rdma_qp_sq *q, struct dao_dma_vchan_state *dev2mem,
+		   struct rte_dma_sge *src, struct rte_dma_sge *dst)
+{
+	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
+	uintptr_t desc_base = q->desc_base;
+	struct rte_mbuf **mbuf_arr;
+	uint16_t q_sz = q->q_sz;
+	int desc_count = 0;
+	uint16_t pi, off;
+	int i, j = 0;
+	int nb_desc;
+
+	pi = __atomic_load_n(q->pi_addr, __ATOMIC_RELAXED);
+	off = q->sd_desc_off;
+
+	nb_desc = desc_off_diff(pi, off, q->q_sz);
+	if (unlikely(!nb_desc))
+		return 0;
+
+	/* Allocate required mbufs */
+	mbuf_arr = q->mbuf_arr;
+
+	nb_desc = alloc_mbufs(mbuf_arr, q->mp, off, q_sz, nb_desc);
+	if (unlikely(!nb_desc))
+		return 0;
+
+	/* Start DMA of descriptors */
+	i = 0;
+	do {
+		i = (off + nb_desc) > q_sz ? (q_sz - off) : nb_desc;
+		src[j].addr = (rte_iova_t)SQ_DESC_PTR_OFF(desc_base, off, 0);
+		dst[j].addr = (rte_iova_t)SQ_DESC_PTR_OFF(sd_desc_base, off, 0);
+		src[j].length = SQ_DESC_SZ(i);
+		dst[j].length = SQ_DESC_SZ(i);
+
+		desc_count += i;
+		off = (off + i) & (q_sz - 1);
+		nb_desc -= i;
+		j++;
+	} while (nb_desc);
+
+	q->sd_desc_off = off;
+	dao_dma_update_cmpl_meta_v2(dev2mem, &q->sd_desc_dma_off, off, dev2mem->tail);
+	return j;
+}
+
+static __rte_always_inline uint16_t
+fetch_rq_desc_prep(struct pts_rdma_qp_rq *q, struct dao_dma_vchan_state *dev2mem,
+		   struct rte_dma_sge *src, struct rte_dma_sge *dst)
+{
+	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
+	uintptr_t desc_base = q->desc_base;
+	uint16_t q_sz = q->q_sz;
+	int desc_count = 0;
+	uint16_t pi, off;
+	int i, j = 0;
+	int nb_desc;
+
+	pi = __atomic_load_n(q->pi_addr, __ATOMIC_RELAXED);
+	off = q->sd_desc_off;
+
+	nb_desc = desc_off_diff(pi, off, q->q_sz);
+	if (unlikely(!nb_desc))
+		return 0;
+
+	/* Start DMA of descriptors */
+	i = 0;
+	do {
+		i = (off + nb_desc) > q_sz ? (q_sz - off) : nb_desc;
+		src[j].addr = (rte_iova_t)RQ_DESC_PTR_OFF(desc_base, off, 0);
+		dst[j].addr = (rte_iova_t)RQ_DESC_PTR_OFF(sd_desc_base, off, 0);
+		src[j].length = RQ_DESC_SZ(i);
+		dst[j].length = RQ_DESC_SZ(i);
+
+		desc_count += i;
+		off = (off + i) & (q_sz - 1);
+		nb_desc -= i;
+		j++;
+	} while (nb_desc);
+
+	q->sd_desc_off = off;
+	dao_dma_update_cmpl_meta_v2(dev2mem, &q->sd_desc_dma_off, off, dev2mem->tail);
+	return j;
+}
+
+static __rte_always_inline uint16_t
+push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *mem2dev,
+		  struct rte_dma_sge *src, struct rte_dma_sge *dst)
+{
+	uintptr_t ring_base = (uintptr_t)cq_data->ring_base;
+	struct pts_rdma_cq *cq = cq_data->cq;
+	uintptr_t desc_base = cq->desc_base;
+	uint16_t nb_desc, space;
+	uint16_t q_sz = cq->q_sz;
+	uint16_t pi, ci, hci, hpi;
+	int desc_count = 0;
+	int i, j = 0;
+
+	pi = __atomic_load_n(&cq_data->pi, __ATOMIC_RELAXED);
+	ci = __atomic_load_n(&cq_data->ci_data, __ATOMIC_RELAXED);
+	hpi = cq->desc_off;
+
+	/* Skip if there is no desc in local cq ring */
+	nb_desc = desc_off_diff(pi, ci, q_sz);
+	if (unlikely(!nb_desc))
+		return 0;
+
+	/* Skip if there in no space to store the cq desc */
+	hci = __atomic_load_n(cq->ci_addr, __ATOMIC_RELAXED);
+	space = q_sz - desc_off_diff(hpi, hci, q_sz) - 1;
+	if (unlikely(!space))
+		return 0;
+	nb_desc = RTE_MIN(nb_desc, space);
+
+	/* Start DMA of descriptors */
+	i = 0;
+	do {
+		i = (hpi + nb_desc) > q_sz ? (q_sz - hpi) : nb_desc;
+		i = (ci + i) > q_sz ? (q_sz - ci) : i;
+		src[j].addr = (rte_iova_t)CQ_DESC_PTR_OFF(ring_base, ci, 0);
+		dst[j].addr = (rte_iova_t)CQ_DESC_PTR_OFF(desc_base, hpi, 0);
+		src[j].length = i << 6;
+		dst[j].length = i << 6;
+
+		desc_count += i;
+		hpi = (hpi + i) & (q_sz - 1);
+		ci = (ci + i) & (q_sz - 1);
+		nb_desc -= i;
+		j++;
+	} while (nb_desc);
+
+	cq->desc_off = hpi;
+	cq_data->ci_data = ci;
+	dao_dma_update_cmpl_meta_v2(mem2dev, &cq_data->ci, ci, mem2dev->tail);
+	dao_dma_update_cmpl_meta_v2(mem2dev, cq->pi_addr, hpi, mem2dev->tail);
+	return j;
+}
+
 extern struct dao_pts_rdma_dev_cbs pts_rdma_dev_cbs;
 extern struct dao_pts_rdma_dev dao_pts_rdma_devs[DAO_PTS_RDMA_MAX_DEVS];
 

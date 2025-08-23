@@ -246,6 +246,16 @@ int dao_pts_rdma_dev_fini(uint16_t dev_id);
 int dao_pts_rdma_dev_config_update(uint16_t devid, uint8_t *cfg, uint16_t cfg_len);
 
 /**
+ * Fetch the RDMA TR device descriptors from SQ, RQ and CQ.
+ *
+ * @param devid
+ *   RDMA TR device id
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_desc_manage(uint16_t devid);
+
+/**
  * Dequeue burst of packets from a qp(send queue) of a RDMA TR device.
  *
  * MBUF data return based on opcode.
