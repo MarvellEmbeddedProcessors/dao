@@ -21,7 +21,8 @@ libraries = [
 	'netlink',
 	'pal',
 	'featurearc',
-	'flow'
+	'flow',
+	'pts_rdma'
 ]
 
 always_enable = [
