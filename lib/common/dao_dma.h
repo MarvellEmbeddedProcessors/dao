@@ -24,11 +24,14 @@
 /** DMA MAX pointer */
 #define DAO_DMA_MAX_POINTER 15u
 
+/** DMA MAX META pointer MAX DMA POINTER  */
+#define DAO_DMA_MAX_META_POINTER 48
+
 /** DMA pointer flush threshold */
 #define DAO_DMA_MAX_POINTER_THR_DFLT 8u
 
 /** DMA Max VCHAN per lcore */
-#define DAO_DMA_MAX_VCHAN_PER_LCORE 128
+#define DAO_DMA_MAX_VCHAN_PER_LCORE 64
 
 /** DMA inflight event meta data */
 #define DAO_DMA_MAX_INFLIGHT_MDATA 4096
@@ -36,13 +39,13 @@
 /** DMA inflight event completion meta data */
 struct dao_dma_cmpl_mdata {
 	/** Pending counter address */
-	uint16_t *pend_ptr[DAO_DMA_MAX_POINTER];
+	uint16_t *pend_ptr[DAO_DMA_MAX_META_POINTER];
 	/** Pending value */
-	uint16_t pend_val[DAO_DMA_MAX_POINTER];
+	uint16_t pend_val[DAO_DMA_MAX_META_POINTER];
 	/** Completion val to write */
-	uint16_t val[DAO_DMA_MAX_POINTER];
+	uint16_t val[DAO_DMA_MAX_META_POINTER];
 	/** Completion address to write */
-	uint16_t *ptr[DAO_DMA_MAX_POINTER];
+	uint16_t *ptr[DAO_DMA_MAX_META_POINTER];
 	/** Count */
 	uint16_t cnt;
 };
