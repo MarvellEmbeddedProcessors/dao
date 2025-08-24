@@ -549,7 +549,7 @@ dao_dma_check_meta_compl(struct dao_dma_vchan_state *vchan, const int mem_order)
 		for (j = 0; j < vchan->mdata[idx].cnt; j++) {
 			if (mem_order)
 				__atomic_store_n(vchan->mdata[idx].ptr[j], vchan->mdata[idx].val[j],
-						 __ATOMIC_RELAXED);
+						 __ATOMIC_RELEASE);
 			else
 				*vchan->mdata[idx].ptr[j] = vchan->mdata[idx].val[j];
 			*vchan->mdata[idx].pend_ptr[j] -= vchan->mdata[idx].pend_val[j];

@@ -207,6 +207,7 @@ dao_dma_flush_submit(void)
 			state->pend_ops = 0;
 			if (dao_dma_has_stats_feature())
 				state->dbells++;
+			dao_dma_check_meta_compl(state, 0 /* ATOMIC update */);
 		}
 	}
 
@@ -219,6 +220,7 @@ dao_dma_flush_submit(void)
 			state->pend_ops = 0;
 			if (dao_dma_has_stats_feature())
 				state->dbells++;
+			dao_dma_check_meta_compl(state, 1 /* ATOMIC update */);
 		}
 	}
 
