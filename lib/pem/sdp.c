@@ -48,7 +48,7 @@ sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset)
 }
 
 int
-sdp_init(struct dao_vfio_device *sdp_pdev)
+sdp_init(struct dao_vfio_device *sdp_pdev, bool sdp_inuse)
 {
 	uint8_t idx, ring_idx, rpvf, vfid, num_vfs;
 	uint64_t reg_val, info;
@@ -67,7 +67,7 @@ sdp_init(struct dao_vfio_device *sdp_pdev)
 
 	sdp_pdev->mbar = DAO_VFIO_DEV_BAR4;
 
-	if (sdp_pdev->prime) {
+	if (sdp_pdev->prime && !sdp_inuse) {
 		reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
 		reg_val &= ~SDP_EPFX_RINFO_SRN_MASK;
 		sdp_reg_write(sdp_pdev, SDP_EPFX_RINFO(0), reg_val);

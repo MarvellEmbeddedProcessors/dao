@@ -49,6 +49,7 @@ struct pem {
 	uint64_t host_pages_per_dev;
 	uint16_t max_vfs;
 	uint16_t rpvf;
+	bool sdp_inuse;
 
 	rte_thread_t ctrl_thread;
 	bool ctrl_done;

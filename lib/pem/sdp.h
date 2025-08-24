@@ -6,6 +6,7 @@
 #define __INCLUDE_SDP_H__
 
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #include <dao_vfio.h>
@@ -26,7 +27,7 @@
 #define SDP_RX_OUT_INTERRUPT_SHIFT     59
 #define SDP_EPFX_RINFO_SRN_MASK        DAO_GENMASK_ULL(6, 0)
 
-int sdp_init(struct dao_vfio_device *sdp_pdev);
+int sdp_init(struct dao_vfio_device *sdp_pdev, bool sdp_inuse);
 uint64_t sdp_reg_read(struct dao_vfio_device *sdp_pdev, uint64_t offset);
 void sdp_reg_write(struct dao_vfio_device *sdp_pdev, uint64_t offset, uint64_t val);
 uint64_t *sdp_reg_addr(struct dao_vfio_device *sdp_pdev, uint64_t offset);

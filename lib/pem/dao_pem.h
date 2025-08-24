@@ -31,6 +31,8 @@
 struct dao_pem_dev_conf {
 	/** Host page size */
 	size_t host_page_sz;
+	/** Indicate SDP ring is in use */
+	bool sdp_inuse;
 };
 
 /* End of structure dao_pem_dev_conf. */

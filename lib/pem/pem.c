@@ -191,7 +191,7 @@ setup_vfio_devices(struct pem *pem)
 	if (pem->pem_id == 0)
 		pem->sdp_pdev.prime = 1;
 
-	rc = sdp_init(&pem->sdp_pdev);
+	rc = sdp_init(&pem->sdp_pdev, pem->sdp_inuse);
 	if (rc < 0) {
 		dao_err("Failed to initialize SDP device");
 		return -1;
@@ -236,6 +236,7 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 		return -1;
 	}
 
+	pem->sdp_inuse = conf->sdp_inuse;
 	rc = setup_vfio_devices(pem);
 	if (rc < 0)
 		return -1;
