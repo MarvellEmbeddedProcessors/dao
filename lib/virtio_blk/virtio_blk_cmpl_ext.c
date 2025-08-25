@@ -88,15 +88,16 @@ push_compl_ext_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2
 		while (n_segs-- > 0) {
 			next_hdr = hdr->next;
 			is_wr = !!(hdr->vio_desc.flags & VRING_DESC_F_WRITE);
-			if (is_wr)
+			if (is_wr) {
 				dao_dma_enq_x1(mem2dev, (uintptr_t)&(hdr->hdr_data), hdr->cur_len,
 					       hdr->desc_data[0], hdr->cur_len);
+				last_idx = mem2dev->tail;
+			}
 			off = (off + 1) & off_mask;
 			used++;
 			hdr = next_hdr;
 		}
 		i++;
-		last_idx = mem2dev->tail;
 	}
 
 exit:

@@ -74,6 +74,7 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 #endif
 				dao_dma_enq_x1(mem2dev, (uintptr_t)&(hdr->hdr_data), hdr->cur_len,
 					       hdr->desc_data[0], hdr->cur_len);
+				last_idx = mem2dev->tail;
 			} else {
 				/* auto free applies only to DPI HW submissions. */
 				if (likely(q->auto_free))
@@ -84,7 +85,6 @@ push_compl_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *mem2dev,
 			hdr = next_hdr;
 		}
 		i++;
-		last_idx = mem2dev->tail;
 	}
 
 exit:

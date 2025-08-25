@@ -146,6 +146,7 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 			dst[0].length = dlen;
 			dev2mem->src_i++;
 			dev2mem->dst_i++;
+			last_idx = dev2mem->tail;
 		}
 
 		/* update buffer length */
@@ -177,7 +178,6 @@ fetch_host_data(struct virtio_blk_queue *q, struct dao_dma_vchan_state *dev2mem,
 		i++;
 		off = (off + 1) & (q_sz - 1);
 		used = i;
-		last_idx = dev2mem->tail;
 
 		if (is_rd) {
 			/* Flush on reaching max SG limit */
