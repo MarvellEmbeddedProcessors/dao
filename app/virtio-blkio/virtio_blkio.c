@@ -293,10 +293,12 @@ print_usage(const char *prgname)
 		" [-d DMA_FLUSH_THR]"
 		" [-f]"
 		" [-y DMA_VFID]"
+		" [-o]"
 		"  -v VIRTIOMASK_L[,VIRTIOMASK_H]: Hexadecimal bitmask of virtio to configure\n"
 		"  -d DMA_FLUSH_THR: Number of SGE's before DMA is flushed(1..15). Default is 8.\n"
 		"  -f : Disable auto free with virtio Tx do sw freeing\n"
 		"  -y : DMA_VFID: Value to override DMA VCHAN VFID\n"
+		"  -o : Enable out-of-order processing\n"
 		"  --virtio-blkconfig (dev_id[,[lcore_mask=val],[capacity=val[M|G]],[blk_sz=val],[max_segs=val],[max_seg_sz=val]]) : Configure block device attributes\n\n",
 		prgname);
 }
@@ -500,12 +502,12 @@ static const char short_options[] = "v:" /* virt dev mask */
 				    "d:" /* DMA flush threshold */
 				    "f"  /* Disable auto free */
 				    "y:" /* Override DMA vfid */
-				    "o"  /* Enable in-order processing */
+				    "o"  /* Enable out-of-order processing */
 	;
 
 #define CMD_LINE_OPT_VIRTIO_CONFIG "virtio-blkconfig"
 #define CMD_LINE_OPT_PER_DEV_POOL  "per-dev-pool"
-#define CMD_LINE_OPT_IN_ORDER      "in-order"
+#define CMD_LINE_OPT_NO_IN_ORDER   "no-in-order"
 enum {
 	/* Long options mapped to a short option */
 
@@ -515,13 +517,13 @@ enum {
 	CMD_LINE_OPT_MIN_NUM = 256,
 	CMD_LINE_OPT_VIRTIO_CONFIG_NUM,
 	CMD_LINE_OPT_PER_DEV_POOL_NUM,
-	CMD_LINE_OPT_IN_ORDER_NUM,
+	CMD_LINE_OPT_NO_IN_ORDER_NUM,
 };
 
 static const struct option lgopts[] = {
 	{CMD_LINE_OPT_VIRTIO_CONFIG, 1, 0, CMD_LINE_OPT_VIRTIO_CONFIG_NUM},
 	{CMD_LINE_OPT_PER_DEV_POOL, 0, 0, CMD_LINE_OPT_PER_DEV_POOL_NUM},
-	{CMD_LINE_OPT_IN_ORDER, 0, 0, CMD_LINE_OPT_IN_ORDER_NUM},
+	{CMD_LINE_OPT_NO_IN_ORDER, 0, 0, CMD_LINE_OPT_NO_IN_ORDER_NUM},
 	{NULL, 0, 0, 0},
 };
 
@@ -566,6 +568,7 @@ parse_args(int argc, char **argv)
 	for (i = 0; i < DAO_VIRTIO_DEV_MAX; i++)
 		blkdev_conf[i].lcore_mask = virtio_mask_dflt;
 
+	in_order = 1; /* Enable in-order processing by default */
 	argvopt = argv;
 
 	/* Error or normal output strings. */
@@ -618,10 +621,9 @@ parse_args(int argc, char **argv)
 			break;
 
 		case 'o':
-		case CMD_LINE_OPT_IN_ORDER_NUM:
-			/* Enable in-order processing */
-			APP_INFO("In-order processing enabled\n");
-			in_order = 1;
+		case CMD_LINE_OPT_NO_IN_ORDER_NUM:
+			APP_INFO("out-of-order processing enabled\n");
+			in_order = 0;
 			break;
 		default:
 			print_usage(prgname);

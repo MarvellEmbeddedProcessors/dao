@@ -99,7 +99,7 @@ static uint16_t lcore_list_wt_sorted[RTE_MAX_LCORE];
 static struct blkdev_conf blkdev_conf[DAO_VIRTIO_DEV_MAX];
 
 static int per_dev_pool;
-static int in_order = 1; /* Enable by default till blk lib supports out-of-order */
+static int in_order;
 static volatile bool force_quit;
 
 /* Mask of enabled virtio devs */
