@@ -17,6 +17,8 @@
 #include "lcperf_test_latency.h"
 #include "lcperf_test_vectors.h"
 
+extern volatile int force_quit;
+
 struct lcperf_op_result {
 	uint64_t tsc_start;
 	uint64_t tsc_end;
@@ -155,7 +157,7 @@ lcperf_latency_test_runner(void *test_ctx)
 	dev_id = ctx->dev_id;
 	qp_id = ctx->qp_id;
 
-	while (ops_enqd_total < total_ops) {
+	while (!force_quit && (ops_enqd_total < total_ops)) {
 		remaining_ops = total_ops - ops_enqd_total;
 		curr_burst_sz = RTE_MIN(remaining_ops, burst_size);
 

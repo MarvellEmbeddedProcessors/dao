@@ -11,6 +11,7 @@
 #include <rte_eal.h>
 #include <rte_errno.h>
 #include <rte_log.h>
+#include <signal.h>
 
 #include "lcperf.h"
 #include "lcperf_options.h"
@@ -82,6 +83,15 @@ struct lcore_qp_mapping {
 };
 
 static struct lcore_qp_mapping lcore_qp_map[RTE_MAX_LCORE];
+
+volatile int force_quit;
+
+static void
+signal_handler(int signum)
+{
+	if (signum == SIGINT || signum == SIGTERM)
+		force_quit = 1;
+}
 
 static int
 lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
@@ -254,6 +264,10 @@ main(int argc, char **argv)
 	uint32_t lcore_id;
 	uint16_t qp_id;
 	int ret = 0;
+
+	force_quit = 0;
+	signal(SIGINT, signal_handler);
+	signal(SIGTERM, signal_handler);
 
 	/* Initialise DPDK EAL */
 	ret = rte_eal_init(argc, argv);

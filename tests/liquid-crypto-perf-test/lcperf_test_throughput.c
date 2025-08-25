@@ -15,6 +15,8 @@
 #include "lcperf_test_throughput.h"
 #include "lcperf_test_vectors.h"
 
+extern volatile int force_quit;
+
 struct lcperf_throughput_ctx {
 	uint8_t dev_id;
 	uint16_t qp_id;
@@ -305,7 +307,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 	time_limit_tsc = rte_get_tsc_hz() * ENQ_TIMEOUT * 60;
 	tsc_start = rte_rdtsc_precise();
 
-	while (ops_enqd_total < total_ops) {
+	while (!force_quit && (ops_enqd_total < total_ops)) {
 		remaining_ops = total_ops - ops_enqd_total;
 		curr_burst_sz = RTE_MIN(remaining_ops, burst_size);
 
