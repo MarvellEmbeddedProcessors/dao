@@ -140,7 +140,7 @@ cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len)
 }
 
 int
-dao_liquid_crypto_ec_curve_id_valid(enum dao_liquid_crypto_ec_curve_type curve_id)
+cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id)
 {
 	if (curve_id < DAO_LC_AE_EC_ID_P192 || curve_id > DAO_LC_AE_EC_ID_P512) {
 		dao_err("Invalid curve ID. curve_id=%d (valid range: %d to %d).", curve_id,
@@ -161,22 +161,6 @@ cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len)
 	if (nonce_len != prime_len) {
 		dao_err("Invalid nonce length. nonce_len should be  %u prime length bytes.",
 			prime_len);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-int
-cpt_ae_ecdsa_digest_len_check(uint16_t prime_len, uint16_t digest_len)
-{
-	if (digest_len == 0) {
-		dao_err("Invalid digest length. digest_len cannot be zero.");
-		return -EINVAL;
-	}
-
-	if (digest_len > prime_len) {
-		dao_err("Invalid digest length. digest_len should be at most %u bytes.", prime_len);
 		return -EINVAL;
 	}
 
@@ -210,6 +194,23 @@ cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_
 
 	if ((pubkey_x_len > prime_len) || (pubkey_y_len > prime_len)) {
 		dao_err("Invalid public key length. pubkey_x_len and pubkey_y_len should be at most %u bytes.",
+			prime_len);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int
+cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len)
+{
+	if ((r_len == 0) || (s_len == 0)) {
+		dao_err("Invalid r and s sign components length. r and s canonot be zero.");
+		return -EINVAL;
+	}
+
+	if ((r_len > prime_len) || (s_len > prime_len)) {
+		dao_err("Invalid r and s sign components length. r and s should be at most %u bytes.",
 			prime_len);
 		return -EINVAL;
 	}

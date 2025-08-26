@@ -87,11 +87,9 @@ int cpt_ae_rsa_msw_check(uint16_t plen, uint8_t *p);
 int cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
 				uint8_t *qInv);
 
-int dao_liquid_crypto_ec_curve_id_valid(enum dao_liquid_crypto_ec_curve_type curve_id);
+int cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id);
 
 int cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len);
-
-int cpt_ae_ecdsa_digest_len_check(uint16_t prime_len, uint16_t digest_len);
 
 int cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len);
 
@@ -100,5 +98,7 @@ int cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uin
 int ecc_curve_id_to_prime_len(enum dao_liquid_crypto_ec_curve_type curve_id);
 
 void cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len);
+
+int cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len);
 
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */

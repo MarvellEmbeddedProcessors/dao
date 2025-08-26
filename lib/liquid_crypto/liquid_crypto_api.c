@@ -2784,16 +2784,17 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (!dao_liquid_crypto_ec_curve_id_valid(curve_id)) {
+	if (digest_len == 0) {
+		dao_err("Invalid digest length. digest_len cannot be zero.");
+		return -EINVAL;
+	}
+
+	if (cpt_ec_curve_id_validate(curve_id)) {
 		dao_err("Invalid argument. curve_id (%d) is not valid.", curve_id);
 		return -EINVAL;
 	}
 
 	rc = cpt_ae_ecdsa_nonce_len_check(prime_len, nonce_len);
-	if (rc != 0)
-		return rc;
-
-	rc = cpt_ae_ecdsa_digest_len_check(prime_len, digest_len);
 	if (rc != 0)
 		return rc;
 
@@ -2974,7 +2975,12 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (!dao_liquid_crypto_ec_curve_id_valid(curve_id)) {
+	if (digest_len == 0) {
+		dao_err("Invalid digest length. digest_len cannot be zero.");
+		return -EINVAL;
+	}
+
+	if (cpt_ec_curve_id_validate(curve_id)) {
 		dao_err("Invalid argument. curve_id (%d) is not valid.", curve_id);
 		return -EINVAL;
 	}
@@ -2983,7 +2989,7 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_ecdsa_digest_len_check(prime_len, digest_len);
+	rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, r_len, s_len);
 	if (rc != 0)
 		return rc;
 #endif
