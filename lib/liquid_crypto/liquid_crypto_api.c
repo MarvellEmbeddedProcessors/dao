@@ -770,6 +770,13 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	return max_seg_size;
 }
 
+static inline void
+lc_inflight_req_reset(struct liquid_crypto_inflight_req *req)
+{
+	req->digest = NULL;
+	req->digest_len = 0;
+}
+
 int
 dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_t op_cookie)
 {
@@ -826,6 +833,7 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 
 	buf_len = RTE_MAX(sizeof(struct __dao_lc_hdr), LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -979,6 +987,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = em;
 
@@ -1149,6 +1158,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = msg;
 
@@ -1320,6 +1330,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = em;
 
@@ -1489,6 +1500,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = msg;
 
@@ -2003,6 +2015,7 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		}
 
 		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
+		lc_inflight_req_reset(&qp->req_queue[req_idx]);
 		qp->req_queue[req_idx].op_cookie = op->op_cookie;
 		qp->req_queue[req_idx].sess_meta = sess_meta;
 
@@ -2329,6 +2342,7 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 		goto sess_meta_free;
 	}
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].sess_meta = sess_meta;
 
@@ -2434,6 +2448,7 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 		return -ENOSPC;
 	}
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = sess_cookie;
 
 	mb = rte_pktmbuf_alloc(qp->tx_mp);
@@ -2655,6 +2670,7 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op->op_cookie;
 	qp->req_queue[req_idx].data_out = op->out_buf;
 
@@ -2825,6 +2841,7 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = rs_outdata;
 	qp->req_queue[req_idx].ecc_op = DAO_LC_AE_ECDSA_SIGN;
@@ -3016,6 +3033,7 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].ecc_op = DAO_LC_AE_ECDSA_VERIFY;
 
