@@ -496,6 +496,8 @@ enum dao_lc_hash_type {
 	DAO_LC_HASH_TYPE_SHA3_SHA384 = 12,
 	/** Hash Type = SHA3-SHA512 */
 	DAO_LC_HASH_TYPE_SHA3_SHA512 = 13,
+	/** Hash Type = CMAC */
+	DAO_LC_HASH_TYPE_CMAC = 16,
 };
 
 /**

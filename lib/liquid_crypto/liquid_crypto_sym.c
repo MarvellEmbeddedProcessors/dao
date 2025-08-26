@@ -152,7 +152,7 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 }
 
 static int
-sym_sess_hmac_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
+sym_sess_hmac_hash_validate(const struct dao_lc_sym_ctx *ctx)
 {
 	switch (ctx->hash.hmac_hash_type) {
 	case DAO_LC_HASH_TYPE_SHA1:
@@ -177,6 +177,14 @@ sym_sess_hmac_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_HASH_TYPE_SHA2_SHA512:
 	case DAO_LC_HASH_TYPE_SHA3_SHA512:
 		if (ctx->hash.digest_len == 64)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_CMAC:
+		if (ctx->hash.hmac_key_len != 16) {
+			dao_err("Invalid AES-CMAC key length.");
+			return -EINVAL;
+		}
+		if (ctx->hash.digest_len >= 1 && ctx->hash.digest_len <= 16)
 			return 0;
 		break;
 	default:
@@ -249,7 +257,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		w4.s.param2 = ((uint16_t)ctx->fc.hash_type << 8) | (uint16_t)ctx->fc.mac_len;
 		sess_meta->digest_len = ctx->fc.mac_len;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
-		if (sym_sess_hmac_hash_digest_len_validate(ctx))
+		if (sym_sess_hmac_hash_validate(ctx))
 			goto sess_meta_free;
 
 		sess_meta->hash_type = ctx->hash.hmac_hash_type;
@@ -259,6 +267,8 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_HMAC;
 		w4.s.opcode_minor = 0x0;
+		if (ctx->hash.hmac_hash_type == DAO_LC_HASH_TYPE_CMAC)
+			w4.s.opcode_minor |= (0x1 << 4);
 		w4.s.param1 = ctx->hash.hmac_key_len;
 		w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
 		sess_meta->digest_len = ctx->hash.digest_len;
@@ -451,6 +461,7 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		case DAO_LC_HASH_TYPE_SHA3_SHA256:
 		case DAO_LC_HASH_TYPE_SHA3_SHA384:
 		case DAO_LC_HASH_TYPE_SHA3_SHA512:
+		case DAO_LC_HASH_TYPE_CMAC:
 			break;
 		default:
 			dao_err("Unsupported HMAC hash type.");
