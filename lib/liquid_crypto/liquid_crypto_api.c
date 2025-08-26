@@ -378,7 +378,8 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	snprintf(name, sizeof(name), "lc_tx_mp_%hhu_%hu", dev_id, qp_id);
 
-	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, max_seg_size, 0);
+	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
+				     max_seg_size + RTE_PKTMBUF_HEADROOM, 0);
 	if (mp == NULL) {
 		dao_err("Could not create Tx mbuf pool.");
 		rc = -ENOMEM;
