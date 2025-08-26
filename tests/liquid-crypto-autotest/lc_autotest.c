@@ -143,6 +143,7 @@ main(int argc, char **argv)
 		feature_params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 		feature_params.rsa.exp_len = TEST_LC_MAX_RSA_MOD_LEN;
 		feature_params.rsa.msg_len = TEST_LC_MAX_RSA_MOD_LEN - 11;
+		feature_params.rng.rand_len = TEST_LC_MAX_RANDOM_LEN;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {
