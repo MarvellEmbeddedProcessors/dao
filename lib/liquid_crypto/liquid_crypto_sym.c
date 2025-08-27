@@ -575,6 +575,19 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 	return 0;
 }
 
+static inline bool
+lc_sym_op_is_zero_len_auth_only(struct dao_lc_sym_op *op, enum lc_crypto_op_type op_type)
+{
+	if (op_type == LC_SYM_OP_AUTH_ONLY) {
+		if (op->in_buffer != NULL) {
+			if (op->in_buffer->total_len == 0)
+				return true;
+		}
+	}
+
+	return false;
+}
+
 int
 lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
@@ -592,10 +605,15 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		return -EINVAL;
 	}
 
+	sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
+	op_type = sess_meta->op_type;
+
 	ret = lc_buf_validate(op->in_buffer);
 	if (ret != 0) {
-		dao_err("Invalid input buffer.");
-		return ret;
+		if (lc_sym_op_is_zero_len_auth_only(op, op_type) == false) {
+			dao_err("Invalid input buffer.");
+			return ret;
+		}
 	}
 
 	if (op->out_buffer != NULL) {
@@ -605,9 +623,6 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 			return ret;
 		}
 	}
-
-	sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
-	op_type = sess_meta->op_type;
 
 	switch (op_type) {
 	case LC_SYM_OP_CIPHER_ONLY:
