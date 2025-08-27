@@ -10,6 +10,7 @@ Application User Guide
 
     conntrack
     ovs-offload
+    crypto-agent
     virtio-crypto
     virtio-l2fwd
     virtio-blkio
