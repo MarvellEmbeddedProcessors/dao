@@ -41,10 +41,6 @@ lc_buf_validate(struct dao_lc_buf *first_buf)
 			dao_err("Invalid buffer fragment data pointer.");
 			return -EINVAL;
 		}
-		if (buf->frag_len == 0) {
-			dao_err("Invalid buffer fragment length.");
-			return -EINVAL;
-		}
 		pkt_len += buf->frag_len;
 		buf = buf->next;
 	} while (buf != NULL);
