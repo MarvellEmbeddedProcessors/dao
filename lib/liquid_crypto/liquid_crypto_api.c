@@ -270,6 +270,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	uint16_t nb_desc, max_seg_size, desc_watermark;
 	struct dao_lc_eth_qconf card_qp_conf;
 	struct dao_eth_trs_info trs_info;
+	uint16_t min_seg_sz, max_seg_sz;
 	char name[RTE_MEMZONE_NAMESIZE];
 	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
@@ -277,7 +278,6 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	struct rte_mempool *mp;
 	uint32_t bm_mem_size;
 	unsigned int pool_sz;
-	uint16_t min_seg_sz;
 	int rc, size;
 
 	if (conf == NULL) {
@@ -313,11 +313,12 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	 * Increase the min seg size to include headroom. Eth dev library validates buffer size
 	 * including headroom.
 	 */
-	min_seg_sz = trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM;
+	min_seg_sz = RTE_MAX(trs_info.min_buf_len + RTE_PKTMBUF_HEADROOM, LIQUID_CRYPTO_SEG_SZ_MIN);
+	max_seg_sz = RTE_MIN(trs_info.max_pkt_len, LIQUID_CRYPTO_BUF_SZ_MAX);
 
-	if (conf->max_seg_size < min_seg_sz || conf->max_seg_size > trs_info.max_pkt_len) {
+	if (conf->max_seg_size < min_seg_sz || conf->max_seg_size > max_seg_sz) {
 		dao_err("Invalid argument. max_seg_size must be between %u and %u.", min_seg_sz,
-			trs_info.max_pkt_len);
+			max_seg_sz);
 		return -EINVAL;
 	}
 
