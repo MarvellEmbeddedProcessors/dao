@@ -655,7 +655,6 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		req_resp_hdr_sz = RTE_MAX(sizeof(struct __dao_lc_req_sess_create),
 					  sizeof(struct __dao_lc_resp_sess_create));
 		max_seg_size = req_resp_hdr_sz + sizeof(struct dao_lc_sym_ctx);
-		max_seg_size = RTE_MAX(max_seg_size, LIQUID_CRYPTO_SEG_SZ_MIN);
 	} else {
 		if (params->sym.cipher_auth_payload_len) {
 			/* DAO LC sym header */
@@ -731,6 +730,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 		max_seg_size = RTE_MAX(max_seg_size, rng_seg_size);
 	}
+
+	max_seg_size = RTE_MAX(max_seg_size, LIQUID_CRYPTO_SEG_SZ_MIN);
 
 	/* Make sure segment size is larger than min supported. */
 	memset(&trs_info, 0, sizeof(trs_info));
