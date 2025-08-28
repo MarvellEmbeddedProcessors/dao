@@ -52,7 +52,7 @@ PKG_CACHE_DIR=${PKG_CACHE_DIR:-}
 HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v25.11"
-ALL_DEPS="dpdk libnl liboqs libpcap grpc libconfig"
+ALL_DEPS="dpdk libnl liboqs libpcap openssl grpc libconfig"
 DEPS_TO_BUILD=${3:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
@@ -77,6 +77,11 @@ LIBCONFIG_TARBALL=libconfig-1.8
 LIBPCAP_BUILD_DIR=$BUILD_DEPS_ROOT/libpcap
 LIBPCAP_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
 LIBPCAP_INSTALL_DIR=$LIBPCAP_PREFIX_DIR
+
+# libcrypto variables
+OPENSSL_BUILD_DIR=$BUILD_DEPS_ROOT/openssl
+OPENSSL_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
+OPENSSL_INSTALL_DIR=$OPENSSL_PREFIX_DIR
 
 #grpc variables
 GRPC_SRC_TAG=v1.66.0
@@ -154,10 +159,16 @@ function build_dpdk() {
 
 function build_dpdk_host() {
 	local verbose=
+	local saved_pkg_config_libdir="${PKG_CONFIG_LIBDIR-}"
+	local saved_pkg_config_path="${PKG_CONFIG_PATH-}"
 
 	if [[ "$DEPS_TO_BUILD" != *"dpdk"* ]]; then
 		return
 	fi
+
+	# Host DPDK build must not consume ARM pkg-config metadata/libraries.
+	unset PKG_CONFIG_LIBDIR
+	unset PKG_CONFIG_PATH
 
 	# Cloning the repositories
 	mkdir -p $HOST_DPDK_DIR
@@ -174,6 +185,15 @@ function build_dpdk_host() {
 
 	ninja -C $HOST_BUILD_DPDK_DIR -j $MAKE_J $verbose
 	ninja -C $HOST_BUILD_DPDK_DIR -j $MAKE_J $verbose install
+
+	# Restore cross/target pkg-config environment for subsequent ARM deps.
+	if [[ -n "$saved_pkg_config_libdir" ]]; then
+		export PKG_CONFIG_LIBDIR="$saved_pkg_config_libdir"
+	fi
+
+	if [[ -n "$saved_pkg_config_path" ]]; then
+		export PKG_CONFIG_PATH="$saved_pkg_config_path"
+	fi
 }
 
 function build_libconfig() {
@@ -321,7 +341,6 @@ function build_grpc() {
 			>> $GRPC_CMAKE_CROSS_FILE
 	fi
 	echo "set(ENV{PATH} \"$GRPC_HOST_INSTALL_PREFIX/bin:\$ENV{PATH}\")" >> $GRPC_CMAKE_CROSS_FILE
-	echo "set(ENV{PKG_CONFIG_PATH} \"$GRPC_HOST_INSTALL_PREFIX/lib/pkgconfig/:\$ENV{PKG_CONFIG_PATH}\")" >> $GRPC_CMAKE_CROSS_FILE
 	echo "set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)" >>$GRPC_CMAKE_CROSS_FILE
 	echo "set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)" >>$GRPC_CMAKE_CROSS_FILE
 	echo "set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)" >>$GRPC_CMAKE_CROSS_FILE
@@ -336,7 +355,7 @@ function build_grpc() {
 		GRPC_OCT_CMAKE_CMD="-DCMAKE_TOOLCHAIN_FILE=$GRPC_CMAKE_CROSS_FILE \
 			-DCMAKE_CXX_STANDARD=$GRPC_CXX_ABI_STANDARD \
 			-DCMAKE_INSTALL_PREFIX=$GRPC_OCT_INSTALL_PREFIX \
-			-DCMAKE_BUILD_TYPE=Release"
+			-DCMAKE_BUILD_TYPE=Release -DgRPC_SSL_PROVIDER=module"
 		cmake $GRPC_OCT_CMAKE_CMD $GRPC_SRC_DIR
 		make -j $MAKE_J
 		make install
@@ -454,10 +473,37 @@ function build_libpcap() {
 	fi
 }
 
+function build_openssl() {
+	local openssl_is_enabled=1
+	if [[ "$DEPS_TO_BUILD" != *"openssl"* ]]; then
+		return
+	fi
+
+	if [ $openssl_is_enabled == 1 ]; then
+		rm -rf $OPENSSL_BUILD_DIR
+		mkdir -p $OPENSSL_BUILD_DIR
+		cd $OPENSSL_BUILD_DIR
+		git clone --branch OpenSSL_1_1_1-stable --depth 1 \
+		https://github.com/openssl/openssl.git
+		cd openssl
+		./Configure linux-aarch64 shared --cross-compile-prefix=$CROSS_COMPILE- \
+			    --prefix=$OPENSSL_PREFIX_DIR --libdir=lib --openssldir=etc/ssl
+		make -j $MAKE_J;
+		make install;
+		if [[ -f "$OPENSSL_PREFIX_DIR/include/openssl/ssl.h" && \
+		      -f "$OPENSSL_PREFIX_DIR/lib/libcrypto.so" ]]; then
+			echo "OpenSSL (libcrypto) installed."
+			return 0
+		fi
+		return 1
+	fi
+}
+
 # Building DPDK
 build_dpdk $PLAT
 build_libnl $@
 build_libconfig
+build_openssl
 build_grpc
 
 # Building DPDK for host
