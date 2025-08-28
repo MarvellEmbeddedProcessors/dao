@@ -81,6 +81,7 @@ function virtio_l2fwd_perf()
 		# Check the performance
 		ref_pps=$(l2fwd_device_ref_pps l2fwd "${DAO_TEST}"_${list[0]})
 		pass_pps=$(l2fwd_device_expected_pps $ref_pps $TOLERANCE)
+		echo "PPS: reference $ref_pps pass $pass_pps"
 		l2fwd_remote_validate_perf_pps $remote_testpmd_pfx $ref_pps $pass_pps
 		k=$?
 		if [[ "$k" != "0" ]]; then
