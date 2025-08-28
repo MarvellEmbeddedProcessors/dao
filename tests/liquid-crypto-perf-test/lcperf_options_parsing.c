@@ -102,7 +102,8 @@ parse_total_ops(struct lcperf_options *opts, const char *arg)
 		RTE_LOG(ERR, USER1, "Failed to parse total operations count\n");
 
 	if (opts->total_ops == 0) {
-		RTE_LOG(ERR, USER1, "Invalid total operations count number specified\n");
+		RTE_LOG(ERR, USER1,
+			"Total number of operations should not be configured as zero\n");
 		return -1;
 	}
 
@@ -120,7 +121,13 @@ parse_desc_nb(struct lcperf_options *opts, const char *arg)
 	}
 
 	if (opts->nb_descriptors == 0) {
-		RTE_LOG(ERR, USER1, "Invalid descriptors number specified\n");
+		RTE_LOG(ERR, USER1, "Number of descriptors should not be configured as zero\n");
+		return -1;
+	}
+
+	if (opts->nb_descriptors < 2048 || opts->nb_descriptors > 8192) {
+		RTE_LOG(ERR, USER1,
+			"Number of descriptors must be configured between 2048 to 8192\n");
 		return -1;
 	}
 
@@ -148,7 +155,7 @@ parse_op_type(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(optype_namemap, RTE_DIM(optype_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid opt type specified\n");
+		RTE_LOG(ERR, USER1, "Invalid op type %s configured\n", arg);
 		return -1;
 	}
 
@@ -174,7 +181,7 @@ parse_asym_op(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(asym_op_namemap, RTE_DIM(asym_op_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid ASYM operation specified\n");
+		RTE_LOG(ERR, USER1, "Invalid ASYM operation type %s configured\n", arg);
 		return -1;
 	}
 
@@ -194,7 +201,9 @@ parse_rsa_priv_keytype(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(rsa_keytype_namemap, RTE_DIM(rsa_keytype_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid RSA private key type\n");
+		RTE_LOG(ERR, USER1,
+			"Invalid RSA private key type %s configured and exp and qt are valid priv key types\n",
+			arg);
 		return -1;
 	}
 
@@ -228,7 +237,7 @@ parse_sym_op(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(sym_op_namemap, RTE_DIM(sym_op_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid SYM operation specified\n");
+		RTE_LOG(ERR, USER1, "Invalid %s SYM operation configured\n", arg);
 		return -1;
 	}
 
@@ -250,7 +259,7 @@ parse_sym_cipher_op(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(sym_cipher_op_namemap, RTE_DIM(sym_cipher_op_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid SYM cipher-only operation specified\n");
+		RTE_LOG(ERR, USER1, "Invalid %s SYM cipher-only operation configured\n", arg);
 		return -1;
 	}
 
@@ -270,7 +279,7 @@ parse_sym_cipher_algo(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(cipher_algo_namemap, RTE_DIM(cipher_algo_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid cipher algorithm specified\n");
+		RTE_LOG(ERR, USER1, "Invalid %s cipher algorithm configured\n", arg);
 		return -1;
 	}
 
@@ -305,7 +314,7 @@ parse_sym_auth_op(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(auth_op_namemap, RTE_DIM(auth_op_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid SYM auth operation specified\n");
+		RTE_LOG(ERR, USER1, "Invalid %s SYM auth operation configured\n", arg);
 		return -1;
 	}
 
@@ -324,7 +333,7 @@ parse_sym_auth_algo(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(auth_algo_namemap, RTE_DIM(auth_algo_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid SYM auth algorithm specified\n");
+		RTE_LOG(ERR, USER1, "Invalid %s SYM auth algorithm configured\n", arg);
 		return -1;
 	}
 
@@ -344,7 +353,7 @@ parse_burst_size(struct lcperf_options *opts, const char *arg)
 	}
 
 	if (opts->burst_size == 0) {
-		RTE_LOG(ERR, USER1, "Invalid burst size specified\n");
+		RTE_LOG(ERR, USER1, "Burst size should not be configured as zero value\n");
 		return -1;
 	}
 
@@ -368,7 +377,7 @@ parse_buffer_size(struct lcperf_options *opts, const char *arg)
 	}
 
 	if (opts->test_buffer_size == 0) {
-		RTE_LOG(ERR, USER1, "Invalid buffer size specified\n");
+		RTE_LOG(ERR, USER1, "Buffer size should not be configured as zero value\n");
 		return -1;
 	}
 
@@ -591,7 +600,8 @@ lcperf_options_check(struct lcperf_options *options)
 		options->rsa_data = &rsa_256_params;
 		break;
 	default:
-		RTE_LOG(ERR, USER1, "Invalid RSA modulus length specified\n");
+		RTE_LOG(ERR, USER1, "Invalid %d RSA modulus length specified\n",
+			options->rsa_modlen);
 		return -EINVAL;
 	}
 

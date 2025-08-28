@@ -42,7 +42,7 @@ const char *lcperf_crypto_asym_op_type_strs[] = {
 
 const char *lcperf_rsa_priv_keytype_strs[] = {
 	[LCPERF_RSA_KEY_TYPE_EXP] = "exp",
-	[LCPERF_RSA_KEY_TYPE_QT] = "crt",
+	[LCPERF_RSA_KEY_TYPE_QT] = "qt",
 };
 
 const char *lcperf_crypto_sym_op_type_strs[] = {
