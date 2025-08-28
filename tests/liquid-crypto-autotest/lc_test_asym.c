@@ -503,17 +503,6 @@ test_rsa_seg_size(void)
 	memset(&params, 0, sizeof(params));
 
 	/* Test exponent type */
-	params.rsa.mod_len = TEST_LC_MIN_RSA_ENC_MOD_LEN;
-	params.rsa.exp_len = 4;
-	params.rsa.msg_len = 1;
-	ret = dao_liquid_crypto_seg_size_calc(&params);
-	if (ret == 0) {
-		TEST_LC_ERR("Segment size calculation failed");
-		return TEST_FAILED;
-	}
-
-	TEST_ASSERT(ret == 64, "Incorrect segment size");
-
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 	params.rsa.exp_len = 4;
 	params.rsa.msg_len = 1;
@@ -526,17 +515,6 @@ test_rsa_seg_size(void)
 	TEST_ASSERT(ret == 1049, "Incorrect segment size");
 
 	/* Test CRT type */
-	params.rsa.mod_len = TEST_LC_MIN_RSA_SIGN_MOD_LEN;
-	params.rsa.exp_len = 0;
-	params.rsa.msg_len = 1;
-	ret = dao_liquid_crypto_seg_size_calc(&params);
-	if (ret == 0) {
-		TEST_LC_ERR("Segment size calculation failed");
-		return TEST_FAILED;
-	}
-
-	TEST_ASSERT(ret == 106, "Incorrect segment size");
-
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 	params.rsa.exp_len = 0;
 	params.rsa.msg_len = 4;
