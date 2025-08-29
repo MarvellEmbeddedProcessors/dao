@@ -11,6 +11,8 @@
 #include <limits.h>
 #include <netinet/in.h>
 #include <signal.h>
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -52,6 +54,44 @@
 #define DAO_CARD_MGR_FW_UPDATE       "card_fw_update"
 #define DAO_CARD_MGR_BOOT_SOURCE     "card_boot_source"
 #define DAO_CARD_MGR_FAILSAFE_UPDATE "card_failsafe_update"
+#define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256
+
+static __thread char *dao_card_err_buf;
+static __thread size_t dao_card_err_buf_len;
+
+static inline void
+dao_card_err_ctx_set(char *buf, size_t len)
+{
+	dao_card_err_buf = buf;
+	dao_card_err_buf_len = len;
+	if (buf && len)
+		buf[0] = '\0';
+}
+
+static inline void
+dao_card_err_ctx_clear(void)
+{
+	dao_card_err_buf = NULL;
+	dao_card_err_buf_len = 0;
+}
+
+static void
+dao_card_log_err_internal(const char *fmt, ...)
+{
+	va_list ap;
+
+	va_start(ap, fmt);
+	vsyslog(LOG_ERR, fmt, ap);
+	va_end(ap);
+
+	if (dao_card_err_buf && dao_card_err_buf_len && dao_card_err_buf[0] == '\0') {
+		va_start(ap, fmt);
+		vsnprintf(dao_card_err_buf, dao_card_err_buf_len, fmt, ap);
+		va_end(ap);
+	}
+}
+
+#define DAO_CARD_ERR(fmt, ...) dao_card_log_err_internal((fmt), ##__VA_ARGS__)
 
 typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER,
@@ -83,6 +123,8 @@ signal_handler(int signum)
 {
 	if (signum == SIGINT || signum == SIGTERM) {
 		dao_info("Signal %d received, preparing to exit...", signum);
+
+		dao_card_err_ctx_clear();
 		force_quit = true;
 	}
 }
@@ -161,7 +203,7 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 	int rc;
 
 	if (cmd->argc < 2) {
-		syslog(LOG_ERR, "Command requires a file to update");
+		DAO_CARD_ERR("Command requires a file to update");
 		return -EINVAL;
 	}
 	if (bootpath)
@@ -172,7 +214,7 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 
 	rc = split_path_filename(cmd->argv[1], &req->filepath, &req->filename);
 	if (rc != 0) {
-		syslog(LOG_ERR, "Failed to split path/filename for app update: %s", strerror(-rc));
+		DAO_CARD_ERR("Failed to split path/filename for app update: %s", strerror(-rc));
 		return rc;
 	}
 	if (cmd->argc >= 3 && bootpath) {
@@ -184,12 +226,12 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 	snprintf(fullpath, PATH_MAX, "%s/%s", req->filepath, req->filename);
 	if (access(fullpath, F_OK | R_OK) != 0) {
 		rc = -errno;
-		syslog(LOG_ERR, "file '%s' does not exist or is not accessible: %s", fullpath,
-		       strerror(errno));
+		DAO_CARD_ERR("file '%s' does not exist or is not accessible: %s", fullpath,
+			     strerror(errno));
 		return rc;
 	}
 	if (stat(fullpath, &st) == 0 && S_ISDIR(st.st_mode)) {
-		syslog(LOG_ERR, " '%s' is a directory, not a file", fullpath);
+		DAO_CARD_ERR(" '%s' is a directory, not a file", fullpath);
 		return -EISDIR;
 	}
 	return 0;
@@ -201,13 +243,13 @@ reload_octeon_ep_module(void)
 	int ret = system("rmmod octeon_ep");
 
 	if (ret != 0) {
-		syslog(LOG_ERR, "Failed to remove octeon_ep module: %d", ret);
+		DAO_CARD_ERR("Failed to remove octeon_ep module: %d", ret);
 		return ret;
 	}
 	sleep(60);
 	ret = system("modprobe octeon_ep");
 	if (ret != 0) {
-		syslog(LOG_ERR, "Failed to insert octeon_ep module: %d", ret);
+		DAO_CARD_ERR("Failed to insert octeon_ep module: %d", ret);
 		return ret;
 	}
 	return 0;
@@ -219,12 +261,12 @@ dao_card_mgr_boot_exec(const char *boot_path, const char *boot_arg)
 	int rc = 0;
 
 	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
-		syslog(LOG_ERR, "Invalid characters in boot binary path");
+		DAO_CARD_ERR("Invalid characters in boot binary path");
 		return -EINVAL;
 	}
 
 	if (access(boot_path, X_OK) != 0) {
-		syslog(LOG_ERR, "Boot binary not found or not executable: %s", boot_path);
+		DAO_CARD_ERR("Boot binary not found or not executable: %s", boot_path);
 		return -ENOENT;
 	}
 
@@ -294,13 +336,13 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	int boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
 
 	if (boot_rc != 0) {
-		syslog(LOG_ERR, "Boot exec failed in %s: %d", __func__, boot_rc);
+		DAO_CARD_ERR("Boot exec failed in %s: %d", __func__, boot_rc);
 		return boot_rc;
 	}
 
 	boot_rc = reload_octeon_ep_module();
 	if (boot_rc != 0) {
-		syslog(LOG_ERR, "unload and relod of octeon_ep failed: %d", boot_rc);
+		DAO_CARD_ERR("unload and relod of octeon_ep failed: %d", boot_rc);
 		return boot_rc;
 	}
 
@@ -315,6 +357,7 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	struct dao_card_stats card_stats;
 	struct dao_card_info card_info;
 	int resp;
+	uint32_t err_len = 0;
 
 	if (strstr(line, "help") != NULL) {
 		dao_card_cmd_usage_print();
@@ -337,14 +380,40 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 		return;
 	}
 	if (resp) {
-		if (resp == ENOTSUP)
-			dao_err("Command is not supported");
-		else if (resp == -EAGAIN)
-			dao_info("Card is not ready: %d (%s)", resp, strerror(-resp));
-		else if (resp < 0)
-			dao_err("Received error for the command: %d (%s)", resp, strerror(-resp));
-		else
+		/* Attempt to receive an optional error message length when rc < 0 */
+		if (resp < 0) {
+			ssize_t ln = recv(cli_fd, &err_len, sizeof(err_len), MSG_DONTWAIT);
+
+			if (ln == (ssize_t)sizeof(err_len) && err_len > 0 &&
+			    err_len < DAO_CARD_MGR_MAX_ERR_MSG_LEN) {
+				char emsg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
+				ssize_t rn = recv(cli_fd, emsg, err_len, 0);
+
+				if (rn == (ssize_t)err_len) {
+					emsg[err_len < DAO_CARD_MGR_MAX_ERR_MSG_LEN ?
+						     err_len :
+						     (DAO_CARD_MGR_MAX_ERR_MSG_LEN - 1)] = '\0';
+					/* Prefer server-provided message */
+					dao_err("%s (rc=%d)", emsg, resp);
+				} else {
+					/* Fallback to generic message */
+					dao_err("Received error for the command: %d (%s)", resp,
+						strerror(-resp));
+				}
+			} else {
+				if (resp == ENOTSUP)
+					dao_err("Command is not supported");
+				else if (resp == -EAGAIN)
+					dao_info("Card is not ready: %d (%s)", resp,
+						 strerror(-resp));
+				else
+					dao_err("Received error for the command: %d (%s)", resp,
+						strerror(-resp));
+			}
+		} else {
+			/* Positive resp treated as generic error */
 			dao_err("Received error for the command: %d", resp);
+		}
 		return;
 	}
 
@@ -514,7 +583,7 @@ dao_card_mgr_app_fallback(void)
 
 	rc = dao_card_app_fallback(card_ctx);
 	if (rc < 0)
-		syslog(LOG_ERR, "gRPC error in card_app_fallback: %d", rc);
+		DAO_CARD_ERR("gRPC error in card_app_fallback: %d", rc);
 	return rc;
 }
 
@@ -535,7 +604,7 @@ dao_card_mgr_app_update(cli_args *cmd)
 			reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
 
 		if (boot_rc != 0)
-			syslog(LOG_ERR, "Boot exec failed after app update: %d", boot_rc);
+			DAO_CARD_ERR("Boot exec failed after app update: %d", boot_rc);
 	}
 
 req_free:
@@ -563,7 +632,7 @@ dao_card_mgr_fw_update(cli_args *cmd)
 			reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
 
 		if (boot_rc != 0)
-			syslog(LOG_ERR, "Boot exec failed after fw update: %d", boot_rc);
+			DAO_CARD_ERR("Boot exec failed after fw update: %d", boot_rc);
 	}
 
 req_free:
@@ -580,8 +649,8 @@ dao_card_mgr_boot(cli_args *cmd)
 	int rc = 0;
 
 	if (cmd->argc < 3) {
-		syslog(LOG_ERR, "card_boot command requires arguments: <main|failsafe>"
-				" <path-to-mrvl-oct-boot>");
+		DAO_CARD_ERR("card_boot command requires arguments: <main|failsafe>"
+			     " <path-to-mrvl-oct-boot>");
 		return -EINVAL;
 	}
 
@@ -594,7 +663,7 @@ dao_card_mgr_boot(cli_args *cmd)
 	} else if (strcmp(arg, "failsafe") == 0) {
 		boot_arg = "spi";
 	} else {
-		syslog(LOG_ERR, "Invalid argument to card_boot: %s", arg);
+		DAO_CARD_ERR("Invalid argument to card_boot: %s", arg);
 		return -EINVAL;
 	}
 
@@ -619,7 +688,7 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 			reload_and_bringup_octeon_ep(boot_bin_path, "spi", DAO_CARD_MGR_BOOT_IP);
 
 		if (boot_rc != 0)
-			syslog(LOG_ERR, "Boot exec failed after failsafe update: %d", boot_rc);
+			DAO_CARD_ERR("Boot exec failed after failsafe update: %d", boot_rc);
 	}
 
 req_free:
@@ -710,6 +779,10 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	struct dao_card_config card_cfg;
 	struct dao_card_info card_info;
 	int rc = 0;
+	char err_msg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
+
+	/* Set thread-local error capture buffer */
+	dao_card_err_ctx_set(err_msg, sizeof(err_msg));
 
 	if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INIT) == 0) {
 		const char **new_argv = malloc((cmd->argc + 4) * sizeof(char *));
@@ -751,6 +824,18 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 
 send_resp:
 	send(cli_fd, &rc, sizeof(rc), 0);
+	if (rc < 0) {
+		uint32_t len = 0;
+
+		if (err_msg[0] != '\0')
+			len = (uint32_t)strnlen(err_msg, sizeof(err_msg));
+		send(cli_fd, &len, sizeof(len), 0);
+		if (len)
+			send(cli_fd, err_msg, len, 0);
+	}
+
+	/* Clear context after we are done */
+	dao_card_err_ctx_clear();
 
 	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0)
 		send(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
@@ -777,7 +862,7 @@ dao_card_mgr_parse_args(const char *line, cli_args *cmd_args)
 		char **new_argv = realloc(cmd_args->argv, sizeof(char *) * (cmd_args->argc + 1));
 
 		if (!new_argv) {
-			syslog(LOG_ERR, "realloc failed in parse_args");
+			DAO_CARD_ERR("realloc failed in parse_args");
 			cmd_args->argc = 0;
 			goto free_line;
 		}
@@ -806,13 +891,13 @@ dao_card_mgr_server_init(const char *ip_str)
 
 	srv_fd = socket(AF_INET, SOCK_STREAM, 0);
 	if (srv_fd == 0) {
-		syslog(LOG_ERR, "Could not create server socket");
+		DAO_CARD_ERR("Could not create server socket");
 		return -1;
 	}
 
 	/* Allow address reuse for immediate restart */
 	if (setsockopt(srv_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) < 0) {
-		syslog(LOG_ERR, "setsockopt SO_REUSEADDR failed");
+		DAO_CARD_ERR("setsockopt SO_REUSEADDR failed");
 		close(srv_fd);
 		return -1;
 	}
@@ -822,7 +907,7 @@ dao_card_mgr_server_init(const char *ip_str)
 	sock_addr.sin_port = htons(DAO_CARD_MGR_PORT);
 
 	if (bind(srv_fd, (struct sockaddr *)&sock_addr, sizeof(struct sockaddr_in)) < 0) {
-		syslog(LOG_ERR, "Could not bind the socket");
+		DAO_CARD_ERR("Could not bind the socket");
 		goto srv_fini;
 	}
 
@@ -832,11 +917,11 @@ dao_card_mgr_server_init(const char *ip_str)
 		card_ctx = dao_card_grpc_client_init(ip_str, DAO_CARD_GRPC_PORT);
 
 	if (card_ctx == NULL) {
-		syslog(LOG_ERR, "gRPC client init failed");
+		DAO_CARD_ERR("gRPC client init failed");
 		goto srv_fini;
 	}
 	if (listen(srv_fd, 3) < 0) {
-		syslog(LOG_ERR, "error on listen");
+		DAO_CARD_ERR("error on listen");
 		goto grpc_fini;
 	}
 	return srv_fd;
@@ -923,9 +1008,9 @@ dao_card_mgr_server(const char *ip_str)
 						syslog(LOG_INFO, "Client %d closed the connection",
 						       fd);
 					else
-						syslog(LOG_ERR,
-						       "Could not receive command from client %d",
-						       fd);
+						DAO_CARD_ERR(
+							"Could not receive command from client %d",
+							fd);
 					close(fd);
 					client_fds[i] = -1;
 					continue;
