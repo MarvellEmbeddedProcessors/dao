@@ -22,7 +22,7 @@ packet processing.
 
 ## Programmers Guide
 
-https://marvellembeddedprocessors.github.io/dao/guides/
+https://marvellembeddedprocessors.github.io/dao/guides/dao-devel/
 
 ## API Reference Guide
 
