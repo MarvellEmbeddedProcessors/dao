@@ -305,7 +305,7 @@ Configure PCIe Endpoint Interface
     # [  428.416145] octeon_ep_vf 0000:01:00.2: MSI-X enabled successfully
 
     # Get the BDF of the device
-    SDP_DEV_BDF=$(sudo dmesg | grep 'Setting up OCTEON CN93XX PF PASS2.0' | grep -oP '0000:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]')
+    SDP_DEV_BDF=$(sudo dmesg | grep 'Setting up OCTEON CN93XX PF PASS2.0' | grep -oP '0000:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]'|uniq)
 
     # Enable SR-IOV with 1 VF. BDF would be the one obtained in previous step.
     echo 1 | sudo tee /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
