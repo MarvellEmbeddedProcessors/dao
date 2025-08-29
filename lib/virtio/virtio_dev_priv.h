@@ -10,6 +10,7 @@
 
 #include <dao_dma.h>
 #include <dao_log.h>
+#include <dao_platform.h>
 #include <dao_util.h>
 #include <dao_virtio.h>
 
@@ -34,8 +35,13 @@
 /* Vendor-specific data */
 #define VIRTIO_PCI_CAP_VENDOR_CFG 9
 
-#define PCI_CAP_ID_VNDR 0x09
-#define PCI_CAP_BAR     4
+#define PCI_CAP_ID_VNDR   0x09
+#define PCI_CAP_BAR_CN10K 4 /* CN10K devices use BAR 4 */
+#define PCI_CAP_BAR_ILIAD 1 /* Iliad devices use BAR 1 */
+
+/* Platform-specific interrupt trigger values */
+#define VIRTIO_CB_INTR_VAL_CN10K   (1UL << 59) /* CN10K SDP uses bit 59 */
+#define VIRTIO_CB_INTR_VAL_DEFAULT 1UL         /* Iliad and other platforms */
 
 #define VIRTIO_DMA_TMO_MS   3000
 #define VIRTIO_MAX_CB_INTRS 8
@@ -209,6 +215,7 @@ struct virtio_dev {
 	uint64_t feature_bits;
 	uint16_t prev_queue_select;
 	uint32_t prev_drv_feature_select;
+	uint64_t cb_intr_val;
 	uint64_t *cb_intr_addr[VIRTIO_MAX_CB_INTRS];
 	uint8_t nb_cb_intrs;
 
@@ -267,5 +274,19 @@ int virtio_dev_init(struct virtio_dev *dev);
 int virtio_dev_fini(struct virtio_dev *dev);
 void virtio_dev_feature_bits_set(struct virtio_dev *dev, uint64_t feature_bits);
 int virtio_dev_max_virtio_queues(uint16_t pem_devid, uint16_t devid);
+
+static inline uint64_t
+virtio_dev_get_cb_intr_val(void)
+{
+	enum dao_platform platform = dao_platform_detect();
+
+	switch (platform) {
+	case DAO_PLATFORM_CN10K:
+		return VIRTIO_CB_INTR_VAL_CN10K;
+	case DAO_PLATFORM_ILIAD:
+	default:
+		return VIRTIO_CB_INTR_VAL_DEFAULT;
+	}
+}
 
 #endif /* __INCLUDE_DAO_VIRTIO_PRIV_H__ */

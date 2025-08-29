@@ -16,6 +16,7 @@ The public API headers are grouped by topics
   - [dynamic_string]      (@ref dao_dynamic_string.h)
   - [bitmap]              (@ref dao_bitmap.h)
   - [assert]              (@ref dao_assert.h)
+  - [platform]            (@ref dao_platform.h)
 
 - **workers**
 

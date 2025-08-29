@@ -42,6 +42,7 @@ struct virtio_net_queue {
 	uint16_t sd_mbuf_off;
 	uint32_t *cb_notify_addr;
 	uint64_t *cb_intr_addr;
+	uint64_t cb_intr_val;
 
 	/* Mempool to use for DMA inbound */
 	struct rte_mempool *mp;

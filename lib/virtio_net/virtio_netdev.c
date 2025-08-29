@@ -382,6 +382,7 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 			continue;
 
 		queue->cb_intr_addr = dev->cb_intr_addr[intr_idx];
+		queue->cb_intr_val = dev->cb_intr_val;
 		queue->cb_notify_addr = queue->notify_addr + 1;
 		__atomic_store_n(queue->cb_notify_addr, 0, __ATOMIC_RELAXED);
 		intr_idx = (intr_idx + 1) % dev->nb_cb_intrs;
@@ -1074,7 +1075,7 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 		if (q->cb_intr_addr && q->pend_compl &&
 		    dao_dma_op_status(mem2dev, q->pend_compl_idx)) {
 			__atomic_store_n(q->cb_notify_addr, 1, __ATOMIC_RELAXED);
-			__atomic_store_n(q->cb_intr_addr, (1UL << 59), __ATOMIC_RELAXED);
+			__atomic_store_n(q->cb_intr_addr, q->cb_intr_val, __ATOMIC_RELAXED);
 			q->pend_compl = 0;
 		}
 
@@ -1116,7 +1117,7 @@ dao_virtio_netdev_link_sts_update(uint16_t devid, struct dao_virtio_netdev_link_
 	dev_cfg->speed = link_info->speed;
 	/* Notify host with link interrupt */
 	*(uint8_t *)dev->isr = 0x2;
-	__atomic_store_n(dev->cb_intr_addr[0], (1UL << 59), __ATOMIC_RELAXED);
+	__atomic_store_n(dev->cb_intr_addr[0], dev->cb_intr_val, __ATOMIC_RELAXED);
 
 	return 0;
 }

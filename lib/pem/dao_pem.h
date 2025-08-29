@@ -204,4 +204,5 @@ int dao_pem_host_dev_add(uint16_t pem_devid, int vfid);
  *    Zero on success
  */
 int dao_pem_host_dev_del(uint16_t pem_devid, int vfid);
+
 #endif /* __INCLUDE_DAO_PEM_H__ */

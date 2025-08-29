@@ -7,7 +7,9 @@ endif
 
 sources = files(
 	'pem.c',
-	'sdp.c'
+	'sdp.c',
+	'iliad.c',
+	'iliad_cdev.c'
 )
 
 headers = files(

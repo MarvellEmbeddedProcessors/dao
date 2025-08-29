@@ -990,9 +990,19 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	volatile struct virtio_pci_notify_cap *notify_cap;
 	volatile struct virtio_pci_cap *common_cfg_cap;
 	struct virtio_pci_vndr_data vndr_cap;
+	enum dao_platform platform;
 	struct virtio_pci_cap cap;
 	uint32_t cap_end = 0;
+	uint8_t cap_bar;
 	uint32_t off;
+
+	static const uint8_t platform_cap_bar[] = {
+		[DAO_PLATFORM_CN10K] = PCI_CAP_BAR_CN10K,
+		[DAO_PLATFORM_ILIAD] = PCI_CAP_BAR_ILIAD,
+	};
+
+	platform = dao_platform_detect();
+	cap_bar = platform_cap_bar[platform];
 
 	/* Device common config cap */
 	config_base = VIRTIO_PCI_CAP_COMMON_CFG_OFFSET + sizeof(struct virtio_pci_cap);
@@ -1039,7 +1049,7 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	cap.cap_next = cap_end + cap.cap_len;
 	cap.offset = config_base;
 	cap.cfg_type = VIRTIO_PCI_CAP_COMMON_CFG;
-	cap.bar = PCI_CAP_BAR;
+	cap.bar = cap_bar;
 	cap.length = sizeof(struct virtio_pci_common_cfg);
 	dao_dev_memcpy(common_cfg_cap, &cap, cap.cap_len);
 	cap_end += sizeof(struct virtio_pci_cap);
@@ -1056,7 +1066,7 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	cap.cap_next = cap_end + sizeof(struct virtio_pci_notify_cap);
 	cap.offset = notify_base;
 	cap.cfg_type = VIRTIO_PCI_CAP_NOTIFY_CFG;
-	cap.bar = PCI_CAP_BAR;
+	cap.bar = cap_bar;
 	cap.length = dev->max_virtio_queues * off;
 	dao_dev_memcpy(&notify_cap->notify_off_multiplier, &off, 4);
 	dao_dev_memcpy(&notify_cap->cap, &cap, sizeof(cap));
@@ -1071,7 +1081,7 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	cap.cap_next = cap_end + sizeof(struct virtio_pci_cap);
 	cap.offset = isr_base;
 	cap.cfg_type = VIRTIO_PCI_CAP_ISR_CFG;
-	cap.bar = PCI_CAP_BAR;
+	cap.bar = cap_bar;
 	cap.length = 4;
 	dao_dev_memcpy(isr_cap, &cap, sizeof(cap));
 	cap_end += sizeof(struct virtio_pci_cap);
@@ -1086,7 +1096,7 @@ virtio_caps_populate(struct virtio_dev *dev, volatile uint8_t *base)
 	cap.cap_next = cap_end + sizeof(struct virtio_pci_cap);
 	cap.offset = dev_cfg_base;
 	cap.cfg_type = VIRTIO_PCI_CAP_DEVICE_CFG;
-	cap.bar = PCI_CAP_BAR;
+	cap.bar = cap_bar;
 	cap.length = VIRTIO_PCI_DEV_CFG_LENGTH;
 	dao_dev_memcpy(dev_cfg_cap, &cap, sizeof(cap));
 	cap_end += sizeof(struct virtio_pci_cap);
@@ -1203,6 +1213,9 @@ virtio_dev_init(struct virtio_dev *dev)
 	/* Setup virtio device host interrupt for the vring call */
 	dev->nb_cb_intrs =
 		dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1, dev->cb_intr_addr);
+
+	/* Set platform-specific interrupt trigger value */
+	dev->cb_intr_val = virtio_dev_get_cb_intr_val();
 
 	/* Register control register region */
 	rc = dao_pem_ctrl_region_register(dev->pem_devid, (uintptr_t)dev->common_cfg,

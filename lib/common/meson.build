@@ -19,7 +19,8 @@ else
 		'dao_bitmap.c',
 		'dao_log.c',
 		'dao_util.c',
-		'dao_dynamic_string.c'
+		'dao_dynamic_string.c',
+		'dao_platform.c'
 	)
 endif
 
@@ -32,4 +33,5 @@ headers = files(
 	'dao_dynamic_string.h',
 	'dao_version.h',
 	'dao_assert.h',
+	'dao_platform.h',
 )

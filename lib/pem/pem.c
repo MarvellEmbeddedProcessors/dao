@@ -6,7 +6,9 @@
 #include <dirent.h>
 
 #include "dao_pem.h"
+#include "dao_platform.h"
 #include "dao_vfio.h"
+#include "iliad.h"
 #include "pem.h"
 #include "sdp.h"
 
@@ -28,7 +30,7 @@ dt_max_vfs_get(void)
 	DIR *dir;
 	FILE *f;
 
-	/* Read device tree to find out max SDP VF's */
+	/* Read device tree to find out max SDP VF's for CN10K */
 	dir = opendir(DT_PATH);
 	if (dir == NULL) {
 		dao_err("opendir(%s) failed: %s\n", DT_PATH, strerror(errno));
@@ -65,6 +67,19 @@ dt_max_vfs_get(void)
 
 	fclose(f);
 	return max_vfs;
+}
+
+static void *
+pem_bar4_base_get(struct pem *pem)
+{
+	switch (pem->platform) {
+	case DAO_PLATFORM_CN10K:
+		return pem->cn10k.bar4_pdev.mem[pem->cn10k.bar4_pdev.mbar].addr;
+	case DAO_PLATFORM_ILIAD:
+		return iliad_dev_bar4_base_get(&pem->ili);
+	default:
+		return NULL;
+	}
 }
 
 static void
@@ -127,19 +142,35 @@ pem_update_bar4_info(struct pem *pem)
 	signature[1] = 0x3355ffaa;
 	signature[2] = (pem->host_pages_per_dev * pem->host_page_sz);
 	signature[3] = pem->max_vfs;
-	dao_dev_memcpy((void *)pem->bar4_pdev.mem[pem->bar4_pdev.mbar].addr, signature,
-		       sizeof(signature));
-
+	dao_dev_memcpy(pem_bar4_base_get(pem), signature, sizeof(signature));
 	return 0;
 }
 
 static void
-release_vfio_devices(struct pem *pem)
+cn10k_dev_fini(struct pem *pem)
 {
-	sdp_fini(&pem->sdp_pdev);
-	if (pem->bar4_pdev.type == DAO_VFIO_DEV_PLATFORM)
-		dao_vfio_device_free(&pem->bar4_pdev);
+	sdp_fini(&pem->cn10k.sdp_pdev);
+	if (pem->cn10k.bar4_pdev.type == DAO_VFIO_DEV_PLATFORM)
+		dao_vfio_device_free(&pem->cn10k.bar4_pdev);
+
 	dao_vfio_fini();
+}
+
+static void
+pem_devices_release(struct pem *pem)
+{
+	enum dao_platform platform = pem->platform;
+
+	switch (platform) {
+	case DAO_PLATFORM_CN10K:
+		cn10k_dev_fini(pem);
+		break;
+	case DAO_PLATFORM_ILIAD:
+		iliad_dev_fini(&pem->ili);
+		break;
+	default:
+		break;
+	}
 }
 
 static int
@@ -175,47 +206,62 @@ pem_bar4_pdev_name_get(struct pem *pem, char *pdev_name)
 }
 
 static int
-setup_vfio_devices(struct pem *pem)
+cn10k_dev_init(struct pem *pem)
 {
 	char bar4_pdev_name[VFIO_DEV_NAME_MAX_LEN];
 	int rc;
 
 	rc = dao_vfio_init();
 	if (rc < 0) {
-		dao_err("Failed to initialize DAO VFIO");
+		dao_err("Failed to initialize VFIO for CN10K, rc=%d", (int)rc);
 		return -1;
 	}
 
 	if (pem->pem_id == 0)
-		pem->sdp_pdev.prime = 1;
+		pem->cn10k.sdp_pdev.prime = 1;
 
-	rc = sdp_init(&pem->sdp_pdev, pem->sdp_inuse);
+	rc = sdp_init(&pem->cn10k.sdp_pdev, pem->sdp_inuse);
 	if (rc < 0) {
 		dao_err("Failed to initialize SDP device");
 		return -1;
 	}
 
-	if (pem->sdp_pdev.type == DAO_VFIO_DEV_PCIE) {
-		memcpy(&pem->bar4_pdev, &pem->sdp_pdev, sizeof(struct dao_vfio_device));
+	/* If SDP is exposed as PCIe device, BAR4 is part of it */
+	if (pem->cn10k.sdp_pdev.type == DAO_VFIO_DEV_PCIE) {
+		memcpy(&pem->cn10k.bar4_pdev, &pem->cn10k.sdp_pdev, sizeof(struct dao_vfio_device));
 		return 0;
 	}
 
+	/* If SDP is exposed as platform device, get PEM BAR4 platform device */
 	rc = pem_bar4_pdev_name_get(pem, bar4_pdev_name);
 	if (rc < 0) {
 		dao_err("Failed to get PEM device name");
 		return -1;
 	}
 
-	rc = dao_vfio_device_setup(bar4_pdev_name, &pem->bar4_pdev);
+	rc = dao_vfio_device_setup(bar4_pdev_name, &pem->cn10k.bar4_pdev);
 	if (rc < 0) {
 		dao_err("Failed to initialize PEM BAR4 device");
 		return -1;
 	}
 
-	pem->bar4_pdev.mbar = DAO_VFIO_DEV_BAR0;
-	pem->bar4_pdev.type = DAO_VFIO_DEV_PLATFORM;
+	pem->cn10k.bar4_pdev.mbar = DAO_VFIO_DEV_BAR0;
+	pem->cn10k.bar4_pdev.type = DAO_VFIO_DEV_PLATFORM;
 
 	return 0;
+}
+
+static int
+pem_devices_init(struct pem *pem)
+{
+	switch (pem->platform) {
+	case DAO_PLATFORM_CN10K:
+		return cn10k_dev_init(pem);
+	case DAO_PLATFORM_ILIAD:
+		return iliad_dev_init(&pem->ili);
+	default:
+		return -1;
+	}
 }
 
 int
@@ -228,20 +274,29 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 	int rc;
 
 	pem->pem_id = pem_devid;
+	pem->platform = dao_platform_detect();
+	if (pem->platform == DAO_PLATFORM_INVALID) {
+		dao_err("Failed to detect platform");
+		return -1;
+	}
 
 	if (conf->host_page_sz && !rte_is_power_of_2(conf->host_page_sz)) {
-		dao_err("Invalid host page size, not power of 2");
+		dao_err("Host page size must be power of 2");
 		return -1;
 	}
 
 	pem->sdp_inuse = conf->sdp_inuse;
-	rc = setup_vfio_devices(pem);
+	rc = pem_devices_init(pem);
 	if (rc < 0)
 		return -1;
 
-	mbar = pem->bar4_pdev.mbar;
-	bar4 = pem->bar4_pdev.mem[mbar].addr;
-	sz = pem->bar4_pdev.mem[mbar].len;
+	bar4 = pem_bar4_base_get(pem);
+	if (pem->platform == DAO_PLATFORM_ILIAD) {
+		sz = iliad_dev_bar4_size_get();
+	} else {
+		mbar = pem->cn10k.bar4_pdev.mbar;
+		sz = pem->cn10k.bar4_pdev.mem[mbar].len;
+	}
 
 	/* Clear bar 4 */
 	if (sz % 8 == 0)
@@ -281,7 +336,7 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 
 	return 0;
 err:
-	release_vfio_devices(pem);
+	pem_devices_release(pem);
 	return -EFAULT;
 }
 
@@ -301,7 +356,7 @@ dao_pem_dev_fini(uint16_t pem_devid)
 		pem->regions[i] = NULL;
 	}
 
-	release_vfio_devices(pem);
+	pem_devices_release(pem);
 	return 0;
 }
 
@@ -395,7 +450,7 @@ dao_pem_vf_region_info_get(uint16_t pem_devid, uint16_t dev_id, uint8_t bar_idx,
 		return -ENOTSUP;
 	}
 
-	*addr = (uintptr_t)pem->bar4_pdev.mem[pem->bar4_pdev.mbar].addr +
+	*addr = (uint64_t)pem_bar4_base_get(pem) +
 		(vf * pem->host_pages_per_dev * pem->host_page_sz);
 	*size = pem->host_pages_per_dev * pem->host_page_sz;
 	return 0;
@@ -409,15 +464,15 @@ dao_pem_host_page_sz(uint16_t pem_devid)
 	return pem->host_page_sz;
 }
 
-uint8_t
-dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
+static uint8_t
+cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr)
 {
-	struct pem *pem = &pem_devices[pem_devid];
+	struct dao_vfio_device *sdp_pdev = &pem->cn10k.sdp_pdev;
 	int idx, ring_idx;
 	uint64_t reg_val;
 	uint8_t rpvf;
 
-	reg_val = sdp_reg_read(&pem->sdp_pdev, SDP_VF_MBOX_DATA(0));
+	reg_val = sdp_reg_read(sdp_pdev, SDP_VF_MBOX_DATA(0));
 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
 	pem->rpvf = rpvf;
 
@@ -429,13 +484,13 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
 	for (idx = 0; idx < rpvf; idx++) {
 		ring_idx = idx + (vfid - 1) * rpvf;
 
-		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
-		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
-		sdp_reg_write(&pem->sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
-		sdp_reg_write(&pem->sdp_pdev, SDP_VF_EVENT_STATE(ring_idx), 0x0);
-		sdp_reg_write(&pem->sdp_pdev, SDP_VF_EVENT_REG(ring_idx), 0x0);
+		sdp_reg_write(sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
+		sdp_reg_write(sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
+		sdp_reg_write(sdp_pdev, SDP_RX_OUT_INT_LEVELS(ring_idx), ~0xfUL);
+		sdp_reg_write(sdp_pdev, SDP_VF_EVENT_STATE(ring_idx), 0x0);
+		sdp_reg_write(sdp_pdev, SDP_VF_EVENT_REG(ring_idx), 0x0);
 
-		__atomic_store_n(intr_addr, sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
+		__atomic_store_n(intr_addr, sdp_reg_addr(sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
 				 __ATOMIC_RELAXED);
 		intr_addr++;
 	}
@@ -447,11 +502,12 @@ static void
 pem_get_host_dev_addrs(struct pem *pem, int vfid, uint64_t **intr_addr, uint64_t **event_addr,
 		       uint64_t **event_state_addr)
 {
+	struct dao_vfio_device *sdp_pdev = &pem->cn10k.sdp_pdev;
 	uint16_t rpvf = pem->rpvf;
 
-	*intr_addr = sdp_reg_addr(&pem->sdp_pdev, SDP_RX_OUT_CNTS(vfid * rpvf));
-	*event_addr = sdp_reg_addr(&pem->sdp_pdev, SDP_VF_EVENT_REG(vfid * rpvf));
-	*event_state_addr = sdp_reg_addr(&pem->sdp_pdev, SDP_VF_EVENT_STATE(vfid * rpvf));
+	*intr_addr = sdp_reg_addr(sdp_pdev, SDP_RX_OUT_CNTS(vfid * rpvf));
+	*event_addr = sdp_reg_addr(sdp_pdev, SDP_VF_EVENT_REG(vfid * rpvf));
+	*event_state_addr = sdp_reg_addr(sdp_pdev, SDP_VF_EVENT_STATE(vfid * rpvf));
 }
 
 static inline int
@@ -530,13 +586,38 @@ dao_pem_host_dev_del(uint16_t pem_devid, int vfid)
 	return pem_host_dev_add_del(pem_devid, vfid, PEM_HOST_DEV_DEL_EVENT);
 }
 
+uint8_t
+dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
+{
+	struct pem *pem = &pem_devices[pem_devid];
+	enum dao_platform platform = pem->platform;
+
+	switch (platform) {
+	case DAO_PLATFORM_CN10K:
+		return cn10k_sdp_host_interrupt_setup(pem, vfid, intr_addr);
+	case DAO_PLATFORM_ILIAD:
+		return iliad_dev_host_interrupt_setup(&pem->ili, intr_addr);
+	default:
+		return 0;
+	}
+}
+
 uint16_t
 dao_pem_max_vfs_get(uint16_t pem_devid)
 {
+	enum dao_platform platform;
 	uint16_t max_vfs;
 
 	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
 		return 0;
+
+	platform = dao_platform_detect();
+	if (platform == DAO_PLATFORM_INVALID)
+		return 0;
+
+	/* For Iliad platform, we don't support host VFs */
+	if (platform == DAO_PLATFORM_ILIAD)
+		return 1;
 
 	max_vfs = dt_max_vfs_get();
 	if (max_vfs != 1)
