@@ -65,7 +65,7 @@ The following are the application-specific command-line options:
 	      Perform a passthrough operation where data is sent through the card without modification.
 
 	   rsa
-	      Perform RSA cryptographic operations, including encryption and decryption.
+		  Perform RSA cryptographic operations, including public key encryption/decryption and private key encryption/decryption.
 
 	   symmetric
 	      Perform symmetric cryptographic operations, such as AES encryption and decryption.
@@ -75,6 +75,7 @@ The following are the application-specific command-line options:
 	Specify the number of descriptors to allocate for each LiquidCrypto device.
 	This option allows users to control the number of descriptors used during
 	the performance test, which can impact the throughput and resource utilization.
+	The value of ``<n>`` must be between 2048 and 8192.
 
 * ``--asym-op <pub-encrypt|pub-decrypt|prv-encrypt|prv-decrypt>``
 
@@ -186,14 +187,14 @@ The following are examples of how to use the ``dao-liquid-crypto-perf-test`` app
 		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 1000000 --desc-nb 2048 --optype passthrough --ptest throughput
 
 2. **Throughput Test for RSA Encryption**
-	Perform a throughput test for RSA public key encryption with 50,000 total operations, 1024-bit modulus length, and 1024 descriptors::
+	Perform a throughput test for RSA public key encryption with 50,000 total operations, 1024-bit modulus length, and 3096 descriptors::
 
-		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 50000 --desc-nb 1024 --optype rsa --asym-op pub-encrypt --rsa-modlen 1024 --ptest throughput
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 50000 --desc-nb 3096 --optype rsa --asym-op pub-encrypt --rsa-modlen 1024 --ptest throughput
 
 3. **Throughput Test for RSA Decryption**
-	Perform a throughput test for RSA private key decryption using the quintuple-based private key, with 25,000 total operations and 1024 descriptors::
+	Perform a throughput test for RSA private key decryption using the quintuple-based private key, with 25,000 total operations and 2048 descriptors::
 
-		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 25000 --desc-nb 1024 --optype rsa --asym-op prv-decrypt --rsa-priv-keytype qt --ptest throughput
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 25000 --desc-nb 2048 --optype rsa --asym-op prv-decrypt --rsa-priv-keytype qt --ptest throughput
 
 4. **Latency Test for Passthrough Operation**
 	Perform a latency test for the passthrough operation with 128 total ops and burst size is 32::
