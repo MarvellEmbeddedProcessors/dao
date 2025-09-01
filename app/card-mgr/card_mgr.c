@@ -35,9 +35,9 @@
 #endif
 #endif
 
-#define DAO_CARD_CFG_NB_DESC 1024
-
+#define DAO_CARD_CFG_NB_DESC     1024
 #define DAO_CARD_MGR_PORT        50055
+#define DAO_CARD_MGR_BOOT_IP     "192.168.1.1"
 #define DAO_CARD_GRPC_PORT       50051
 #define DAO_CARD_MGR_MAX_CLIENTS 10
 #define BUFFER_SIZE              1024
@@ -154,7 +154,7 @@ split_path_filename(const char *input, char **out_path, char **out_file)
 }
 
 static int
-validate_file(cli_args *cmd, struct dao_card_update_req *req)
+validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 {
 	char fullpath[PATH_MAX];
 	struct stat st;
@@ -164,6 +164,8 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req)
 		syslog(LOG_ERR, "Command requires a file to update");
 		return -EINVAL;
 	}
+	if (bootpath)
+		*bootpath = NULL;
 
 	req->filename = NULL;
 	req->filepath = NULL;
@@ -172,6 +174,11 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req)
 	if (rc != 0) {
 		syslog(LOG_ERR, "Failed to split path/filename for app update: %s", strerror(-rc));
 		return rc;
+	}
+	if (cmd->argc >= 3 && bootpath) {
+		*bootpath = strdup(cmd->argv[2]);
+		if (!*bootpath)
+			return -ENOMEM;
 	}
 
 	snprintf(fullpath, PATH_MAX, "%s/%s", req->filepath, req->filename);
@@ -185,6 +192,120 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req)
 		syslog(LOG_ERR, " '%s' is a directory, not a file", fullpath);
 		return -EISDIR;
 	}
+	return 0;
+}
+
+static int
+reload_octeon_ep_module(void)
+{
+	int ret = system("rmmod octeon_ep");
+
+	if (ret != 0) {
+		syslog(LOG_ERR, "Failed to remove octeon_ep module: %d", ret);
+		return ret;
+	}
+	sleep(60);
+	ret = system("modprobe octeon_ep");
+	if (ret != 0) {
+		syslog(LOG_ERR, "Failed to insert octeon_ep module: %d", ret);
+		return ret;
+	}
+	return 0;
+}
+
+static int
+dao_card_mgr_boot_exec(const char *boot_path, const char *boot_arg)
+{
+	int rc = 0;
+
+	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
+		syslog(LOG_ERR, "Invalid characters in boot binary path");
+		return -EINVAL;
+	}
+
+	if (access(boot_path, X_OK) != 0) {
+		syslog(LOG_ERR, "Boot binary not found or not executable: %s", boot_path);
+		return -ENOENT;
+	}
+
+	pid_t pid = fork();
+
+	if (pid == 0) {
+		execlp(boot_path, boot_path, boot_arg, (char *)NULL);
+		_exit(127);
+	} else if (pid > 0) {
+		int status = 0;
+
+		if (waitpid(pid, &status, 0) == -1)
+			rc = -errno;
+		else if (!WIFEXITED(status))
+			rc = -EIO;
+		else
+			rc = WEXITSTATUS(status);
+	} else {
+		rc = -errno;
+	}
+
+	return rc;
+}
+
+static void
+bring_up_octeon_ep_interface(const char *ip_addr)
+{
+	FILE *fp = popen("dmesg | grep 'octeon_ep' | grep 'renamed from' | tail -1", "r");
+
+	if (!fp)
+		return;
+
+	char iface[32] = {0};
+	char buf[256];
+
+	if (fgets(buf, sizeof(buf), fp)) {
+		/* Example line: octeon_ep 0000:01:00.0 enp1s0f0: renamed from eth0 */
+		char *p = strstr(buf, ": renamed from");
+
+		if (p) {
+			/* Find the interface name before ': renamed from' */
+			char *end = p;
+			size_t len;
+
+			while (end > buf && *(end - 1) != ' ')
+				end--;
+			len = p - end;
+			if (len < sizeof(iface)) {
+				strncpy(iface, end, len);
+				iface[len] = '\0';
+			}
+		}
+	}
+	pclose(fp);
+
+	if (iface[0]) {
+		char cmd[128];
+
+		snprintf(cmd, sizeof(cmd), "ifconfig %s %s up", iface, ip_addr);
+		system(cmd);
+	}
+}
+
+static int
+reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, const char *ip_addr)
+{
+	int boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
+
+	if (boot_rc != 0) {
+		syslog(LOG_ERR, "Boot exec failed in %s: %d", __func__, boot_rc);
+		return boot_rc;
+	}
+
+	boot_rc = reload_octeon_ep_module();
+	if (boot_rc != 0) {
+		syslog(LOG_ERR, "unload and relod of octeon_ep failed: %d", boot_rc);
+		return boot_rc;
+	}
+
+	bring_up_octeon_ep_interface(ip_addr);
+
 	return 0;
 }
 
@@ -401,17 +522,27 @@ static int
 dao_card_mgr_app_update(cli_args *cmd)
 {
 	struct dao_card_update_req update_req;
+	char *boot_bin_path = NULL;
 	int rc;
 
-	rc = validate_file(cmd, &update_req);
+	rc = validate_file(cmd, &update_req, &boot_bin_path);
 	if (rc != 0)
 		goto req_free;
 
 	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_APP_UPDATE);
+	if (rc == 0 && boot_bin_path != NULL) {
+		int boot_rc =
+			reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
+
+		if (boot_rc != 0)
+			syslog(LOG_ERR, "Boot exec failed after app update: %d", boot_rc);
+	}
 
 req_free:
 	free(update_req.filename);
 	free(update_req.filepath);
+	if (boot_bin_path)
+		free(boot_bin_path);
 	return rc;
 }
 
@@ -419,17 +550,27 @@ static int
 dao_card_mgr_fw_update(cli_args *cmd)
 {
 	struct dao_card_update_req update_req;
+	char *boot_bin_path = NULL;
 	int rc;
 
-	rc = validate_file(cmd, &update_req);
+	rc = validate_file(cmd, &update_req, &boot_bin_path);
 	if (rc != 0)
 		goto req_free;
 
 	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_FW_UPDATE);
+	if (rc == 0 && boot_bin_path != NULL) {
+		int boot_rc =
+			reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
+
+		if (boot_rc != 0)
+			syslog(LOG_ERR, "Boot exec failed after fw update: %d", boot_rc);
+	}
 
 req_free:
 	free(update_req.filename);
 	free(update_req.filepath);
+	if (boot_bin_path)
+		free(boot_bin_path);
 	return rc;
 }
 
@@ -457,39 +598,7 @@ dao_card_mgr_boot(cli_args *cmd)
 		return -EINVAL;
 	}
 
-	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
-		syslog(LOG_ERR, "Invalid characters in boot binary path");
-		return -EINVAL;
-	}
-
-	if (access(boot_path, X_OK) != 0) {
-		syslog(LOG_ERR, "Boot binary not found or not executable: %s", boot_path);
-		return -ENOENT;
-	}
-
-	pid_t pid = fork();
-
-	if (pid == 0) {
-		execlp(boot_path, boot_path, boot_arg, (char *)NULL);
-		_exit(127);
-	} else if (pid > 0) {
-		int status = 0;
-
-		if (waitpid(pid, &status, 0) == -1) {
-			rc = -errno;
-		} else if (!WIFEXITED(status)) {
-			syslog(LOG_ERR, "Boot process terminated abnormally");
-			rc = -EPROTO;
-		} else if (WEXITSTATUS(status) != 0) {
-			syslog(LOG_ERR, "Boot process failed with exit code: %d",
-			       WEXITSTATUS(status));
-			rc = -EREMOTEIO;
-		} else {
-			rc = 0;
-		}
-	} else {
-		rc = -EFAULT;
-	}
+	rc = dao_card_mgr_boot_exec(boot_path, boot_arg);
 	return rc;
 }
 
@@ -497,17 +606,27 @@ static int
 dao_card_mgr_failsafe_update(cli_args *cmd)
 {
 	struct dao_card_update_req update_req;
+	char *boot_bin_path = NULL;
 	int rc;
 
-	rc = validate_file(cmd, &update_req);
+	rc = validate_file(cmd, &update_req, &boot_bin_path);
 	if (rc != 0)
 		goto req_free;
 
 	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_FAILSAFE_UPDATE);
+	if (rc == 0 && boot_bin_path != NULL) {
+		int boot_rc =
+			reload_and_bringup_octeon_ep(boot_bin_path, "spi", DAO_CARD_MGR_BOOT_IP);
+
+		if (boot_rc != 0)
+			syslog(LOG_ERR, "Boot exec failed after failsafe update: %d", boot_rc);
+	}
 
 req_free:
 	free(update_req.filename);
 	free(update_req.filepath);
+	if (boot_bin_path)
+		free(boot_bin_path);
 	return rc;
 }
 
