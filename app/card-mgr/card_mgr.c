@@ -426,8 +426,10 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 			dao_info("Card boot source: SPI");
 		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_MMC)
 			dao_info("Card boot source: MMC");
-		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_UNKNOWN)
-			dao_info("Card boot source: UNAVAILABLE");
+		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SCRIPT_FAILURE)
+			dao_info("Card boot source: SCRIPT FAILURE (missing or failed script)");
+		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_UNSUPPORTED)
+			dao_info("Card boot source: UNSUPPORTED by dao-crypto-agent");
 	}
 
 	/* Dump the stats info */

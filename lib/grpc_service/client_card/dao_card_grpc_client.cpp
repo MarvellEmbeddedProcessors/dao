@@ -134,9 +134,12 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 	case BootSource::BOOT_SOURCE_MMC:
 		info->boot_source = DAO_CARD_BOOT_SOURCE_MMC;
 		break;
-	case BootSource::BOOT_SOURCE_UNKNOWN:
+	case BootSource::BOOT_SOURCE_SCRIPT_FAILURE:
+		info->boot_source = DAO_CARD_BOOT_SOURCE_SCRIPT_FAILURE;
+		break;
+	case BootSource::BOOT_SOURCE_UNSUPPORTED:
 	default:
-		info->boot_source = DAO_CARD_BOOT_SOURCE_UNKNOWN;
+		info->boot_source = DAO_CARD_BOOT_SOURCE_UNSUPPORTED;
 	}
 
 	return 0;

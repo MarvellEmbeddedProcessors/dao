@@ -103,6 +103,18 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		(void)(context);
 		(void)(empty);
 
+		auto boot_source_to_string = [](dao_card_manager::BootSource s) -> const char * {
+			switch (s) {
+			case dao_card_manager::BOOT_SOURCE_MMC:
+				return "MMC";
+			case dao_card_manager::BOOT_SOURCE_SPI:
+				return "SPI";
+			case dao_card_manager::BOOT_SOURCE_SCRIPT_FAILURE:
+			default:
+				return "SCRIPT_FAILURE";
+			}
+		};
+
 		server_cbs->card_info_cb(&info);
 
 		response->set_version(DAO_CARD_VERSION);
@@ -111,21 +123,26 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 		std::string command = std::string(". ") + BOOT_SRC_GET_SCRIPT;
 		status = system(command.c_str());
-		exit_code = WEXITSTATUS(status);
-		if (exit_code == 0) {
-			response->set_boot_source(dao_card_manager::BOOT_SOURCE_UNKNOWN);
-		} else if (exit_code == 1) {
-			response->set_boot_source(dao_card_manager::BOOT_SOURCE_MMC);
-		} else if (exit_code == 2) {
-			response->set_boot_source(dao_card_manager::BOOT_SOURCE_SPI);
+		if (status == -1 || !WIFEXITED(status)) {
+			std::cerr << "Failed to execute get boot source script" << std::endl;
+			response->set_boot_source(dao_card_manager::BOOT_SOURCE_SCRIPT_FAILURE);
 		} else {
-			std::cerr << "Info: Boot source get script failed" << std::endl;
-			return Status(StatusCode::INTERNAL, "Script failed");
+			exit_code = WEXITSTATUS(status);
+			if (exit_code == 11) {
+				response->set_boot_source(dao_card_manager::BOOT_SOURCE_MMC);
+			} else if (exit_code == 12) {
+				response->set_boot_source(dao_card_manager::BOOT_SOURCE_SPI);
+			} else if (exit_code == 2) {
+				std::cerr << "Script failed. Unable to determine boot source" << std::endl;
+				response->set_boot_source(dao_card_manager::BOOT_SOURCE_SCRIPT_FAILURE);
+			}
 		}
 
 		std::cout << "Card Info: version: " << response->version()
 			  << ", nb_devs: " << response->nb_devs()
-			  << ", max_sessions: " << response->max_sessions() << std::endl;
+			  << ", max_sessions: " << response->max_sessions()
+			  << ", boot source: " << boot_source_to_string(response->boot_source())
+			  << std::endl;
 
 		return Status::OK;
 	}

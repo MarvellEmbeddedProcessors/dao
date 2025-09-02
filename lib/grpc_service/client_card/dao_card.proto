@@ -22,9 +22,10 @@ enum FileTransferType {
 }
 
 enum BootSource {
-	BOOT_SOURCE_UNKNOWN = 0;
-	BOOT_SOURCE_MMC = 1;
-	BOOT_SOURCE_SPI = 2;
+	BOOT_SOURCE_UNSUPPORTED = 0;      // crypto-agent does not support boot source detection
+	BOOT_SOURCE_SCRIPT_FAILURE = 2;   // script missing or failed execution
+	BOOT_SOURCE_MMC = 11;             // determined main (MMC)
+	BOOT_SOURCE_SPI = 12;             // determined failsafe (SPI)
 }
 
 message CardConfig {
