@@ -380,10 +380,6 @@ init_lcore_ethdev_rx(void)
 		}
 	}
 
-	/* Initialize lcore list */
-	for (lcore = 0; lcore < RTE_MAX_LCORE; lcore++)
-		lcore_list_wt_sorted[lcore] = lcore;
-
 	return 0;
 }
 
@@ -782,12 +778,13 @@ parse_args(int argc, char **argv)
 	int i;
 
 	/* Setup l2fwd map to defaults */
-	for (portid = 0; portid < RTE_MAX_ETHPORTS; portid++) {
+	for (portid = 0; portid < DAO_VIRTIO_DEV_MAX; portid++) {
 		eth_map[portid].type = VIRTIO_NEXT;
 		eth_map[portid].id = portid;
 	}
 
-	for (virtio_devid = 0; virtio_devid < RTE_MAX_ETHPORTS; virtio_devid++) {
+	/* Initialize with default - will be updated after parsing if needed */
+	for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++) {
 		virtio_map[virtio_devid].type = ETHDEV_NEXT;
 		virtio_map[virtio_devid].id = virtio_devid;
 	}
@@ -994,10 +991,19 @@ parse_args(int argc, char **argv)
 	rc = optind - 1;
 	optind = 1; /* Reset getopt lib */
 
-	if (!nb_ethdevs || !nb_virtio_netdevs) {
-		APP_ERR("Need at least one port and virtio dev\n");
+	if (!nb_virtio_netdevs) {
+		APP_ERR("Need at least one virtio dev\n");
 		return -1;
 	}
+
+	/* Application can run with virtio-only (no ethdev required) */
+	if (nb_ethdevs == 0) {
+		for (virtio_devid = 0; virtio_devid < DAO_VIRTIO_DEV_MAX; virtio_devid++)
+			virtio_map[virtio_devid].type = VIRTIO_NEXT;
+
+		APP_INFO("Running in virtio-only mode (no ethdev)\n");
+	}
+
 	return rc;
 }
 
@@ -1803,9 +1809,18 @@ error_flow_create:
 	return rc;
 }
 
+static bool
+is_ethdev_mapped(uint16_t virtio_devid)
+{
+	return virtio_map[virtio_devid].type == ETHDEV_NEXT;
+}
+
 static int
 configure_promisc(uint16_t virtio_devid, uint8_t enable)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	if (enable)
 		return rte_eth_promiscuous_enable(virtio_map[virtio_devid].id);
 	return rte_eth_promiscuous_disable(virtio_map[virtio_devid].id);
@@ -1814,6 +1829,9 @@ configure_promisc(uint16_t virtio_devid, uint8_t enable)
 static int
 configure_allmulti(uint16_t virtio_devid, uint8_t enable)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	if (enable)
 		return rte_eth_allmulticast_enable(virtio_map[virtio_devid].id);
 	return rte_eth_allmulticast_disable(virtio_map[virtio_devid].id);
@@ -1822,6 +1840,9 @@ configure_allmulti(uint16_t virtio_devid, uint8_t enable)
 static int
 mac_addr_set(uint16_t virtio_devid, uint8_t *mac)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	return rte_eth_dev_default_mac_addr_set(virtio_map[virtio_devid].id,
 						(struct rte_ether_addr *)mac);
 }
@@ -1867,6 +1888,9 @@ mac_addr_add(uint16_t virtio_devid, struct virtio_net_ctrl_mac *mac_tbl, uint8_t
 {
 	struct rte_ether_addr *macs = (struct rte_ether_addr *)mac_tbl->macs;
 
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	if (type)
 		return rte_eth_dev_set_mc_addr_list(virtio_map[virtio_devid].id, macs,
 						    mac_tbl->entries);
@@ -1876,6 +1900,9 @@ mac_addr_add(uint16_t virtio_devid, struct virtio_net_ctrl_mac *mac_tbl, uint8_t
 static int
 vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	struct rte_flow_action_rss act_rss_conf;
 	struct rte_flow_item_vlan vlan, mask;
 	struct rte_eth_rss_conf rss_conf;
@@ -1993,6 +2020,9 @@ skip_flow_create:
 static int
 vlan_del(uint16_t virtio_devid, uint16_t vlan_tci)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	struct vlan_filter_head *list;
 	struct rte_flow *flow = NULL;
 	struct vlan_filter *node;
@@ -2038,6 +2068,9 @@ skip_flow_delete:
 static void
 vlan_reset(uint16_t virtio_devid)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return;
+
 	struct vlan_filter_head *list;
 	struct rte_flow *flow = NULL;
 	struct vlan_filter *node;
@@ -2065,6 +2098,9 @@ vlan_reset(uint16_t virtio_devid)
 static int
 hash_report_enable(uint16_t virtio_devid)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	uint64_t enable_hash_report, rx_offloads;
 	struct rte_eth_conf *local_port_conf;
 	uint32_t is_ethdev_supports_rss_hash;
@@ -2101,6 +2137,9 @@ hash_report_enable(uint16_t virtio_devid)
 static int
 chksum_offload_configure(uint16_t virtio_devid)
 {
+	if (!is_ethdev_mapped(virtio_devid))
+		return 0;
+
 	uint64_t csum_offload, tx_offloads, rx_offloads, tso_offload;
 	struct rte_eth_conf *local_port_conf;
 	uint16_t virt_q_count, portid;
@@ -2208,7 +2247,7 @@ rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 		return -EIO;
 	}
 
-	if (virtio_map[virtio_devid].type != ETHDEV_NEXT)
+	if (!is_ethdev_mapped(virtio_devid))
 		goto skip_eth_reconfig;
 
 	portid = virtio_map[virtio_devid].id;
@@ -2920,13 +2959,19 @@ setup_virtio_devices(void)
 
 			/* Populate default mac address */
 			rte_eth_macaddr_get(portid, (struct rte_ether_addr *)netdev_conf.mac);
-		} else {
+		} else { /* VIRTIO_NEXT */
 			netdev_conf.reta_size = VIRTIO_NET_RSS_RETA_SIZE;
 			netdev_conf.hash_key_size = 48;
-			/* Link status always UP */
-			netdev_conf.link_info.status = 0x1;
+			netdev_conf.link_info.status = RTE_ETH_LINK_UP;
 			netdev_conf.link_info.speed = RTE_ETH_SPEED_NUM_UNKNOWN;
 			netdev_conf.link_info.duplex = 0xFF;
+
+			/* Populate unique MAC address per virtio device */
+			struct rte_ether_addr default_mac = {
+				.addr_bytes = {0x02, /* Locally administered MAC address */
+					       0x00, 0x00, 0x00, (virtio_devid >> 8) & 0xFF,
+					       virtio_devid & 0xFF}};
+			rte_ether_addr_copy(&default_mac, (struct rte_ether_addr *)netdev_conf.mac);
 		}
 
 		if (max_pkt_len)
@@ -3105,11 +3150,15 @@ main(int argc, char **argv)
 	if (rc < 0)
 		rte_exit(EXIT_FAILURE, "init_lcore_rx_queues() failed\n");
 
+	/* Initialize lcore list for queue distribution */
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++)
+		lcore_list_wt_sorted[lcore_id] = lcore_id;
+
 	rc = init_lcore_virtio_rx();
 	if (rc < 0)
 		rte_exit(EXIT_FAILURE, "init_lcore_virtio_dev() failed\n");
 
-	if (check_port_config() < 0)
+	if (nb_ethdevs && (check_port_config() < 0))
 		rte_exit(EXIT_FAILURE, "check_port_config() failed\n");
 
 	if (check_virtio_config() < 0)
@@ -3140,8 +3189,9 @@ main(int argc, char **argv)
 	/* Initialize PEM device */
 	setup_pem_device();
 
-	/* Initialize all ethdev ports. 8< */
-	setup_eth_devices();
+	/* Initialize ethdev ports only if enabled */
+	if (nb_ethdevs)
+		setup_eth_devices();
 
 	/* Setup RCU QSBR variable */
 	sz = rte_rcu_qsbr_get_memsize(RTE_MAX_LCORE);
@@ -3319,8 +3369,9 @@ main(int argc, char **argv)
 				rte_mempool_avail_count(e_pktmbuf_pool[portid]));
 		}
 	} else {
-		APP_ERR("Initial Packet pool avial buff_cnt=%d\n",
-			rte_mempool_avail_count(e_pktmbuf_pool[0]));
+		if (nb_ethdevs)
+			APP_ERR("Initial Packet pool avial buff_cnt=%d\n",
+				rte_mempool_avail_count(e_pktmbuf_pool[0]));
 	}
 	/* Launch per-lcore init on every worker lcore */
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
