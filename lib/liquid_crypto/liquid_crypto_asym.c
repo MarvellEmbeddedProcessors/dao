@@ -97,6 +97,8 @@ int
 cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
 			    uint8_t *qInv)
 {
+	int i;
+
 	if (q == NULL || dQ == NULL || p == NULL || dP == NULL || qInv == NULL) {
 		dao_err("Invalid CRT parameters. None of the parameters can be NULL.");
 		return -EINVAL;
@@ -112,31 +114,37 @@ cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *
 		return -EINVAL;
 	}
 
-	if (cpt_ae_rsa_msw_check(mod_len / 2, q) != 0) {
-		dao_err("Invalid CRT parameter. MSW of q must be non-zero.");
+	/* Check if dQ is zero */
+	for (i = 0; i < mod_len / 2; i++) {
+		if (dQ[i] != 0)
+			break;
+	}
+	if (i == mod_len / 2) {
+		dao_err("Invalid CRT parameter. dQ cannot be zero.");
 		return -EINVAL;
 	}
 
-	if (cpt_ae_rsa_msw_check(mod_len / 2, p) != 0) {
-		dao_err("Invalid CRT parameter. MSW of p must be non-zero.");
+	/* Check if dP is zero */
+	for (i = 0; i < mod_len / 2; i++) {
+		if (dP[i] != 0)
+			break;
+	}
+	if (i == mod_len / 2) {
+		dao_err("Invalid CRT parameter. dP cannot be zero.");
+		return -EINVAL;
+	}
+
+	/* Check if qInv is zero */
+	for (i = 0; i < mod_len / 2; i++) {
+		if (qInv[i] != 0)
+			break;
+	}
+	if (i == mod_len / 2) {
+		dao_err("Invalid CRT parameter. qInv cannot be zero.");
 		return -EINVAL;
 	}
 
 	return 0;
-}
-
-void
-cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len)
-{
-	uint16_t i;
-
-	for (i = 0; i < *len; ++i) {
-		if ((*data)[i] != 0)
-			break;
-	}
-
-	*data += i;
-	*len -= i;
 }
 
 int
