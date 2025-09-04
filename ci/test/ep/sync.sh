@@ -62,8 +62,6 @@ function remote_sync()
 	echo "Syncing EP remote files"
 	ep_remote_ssh_cmd "mkdir -p $EP_DIR"
 	$sync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE:$EP_DIR
-	ep_remote_ssh_cmd "mkdir -p $EP_DIR/deps-prefix"
-	$sync -e "$EP_SSH_CMD" -r $DEPS_PREFIX/* $EP_REMOTE:$EP_DIR/deps-prefix
 	$sync -e "$EP_SSH_CMD" -r $EP_PREBUILT_BINARIES_SERVER:$EP_PREBUILT_BINARIES_PATH/* \
 		/tmp/ep_files
 	$sync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_REMOTE:$EP_DIR/ep_files

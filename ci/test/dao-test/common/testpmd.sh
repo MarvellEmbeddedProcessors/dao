@@ -4,7 +4,6 @@
 
 TESTPMD_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
 source $TESTPMD_SCRIPT_PATH/utils.sh
-deps_prefix=${EP_DIR:-}
 
 function testpmd_cleanup()
 {
@@ -74,8 +73,8 @@ function testpmd_launch()
 	find_executable "dpdk-testpmd" testpmd "${EP_DIR:-}/deps-prefix/bin"
 
 	tail -f $in | \
-		($unbuffer env LD_LIBRARY_PATH=$deps_prefix/deps-prefix/ep/lib $testpmd $eal_args \
-		--file-prefix $pfx -- $testpmd_args -i &>$out) &
+		($unbuffer $testpmd $eal_args --file-prefix $pfx -- \
+			$testpmd_args -i &>$out) &
 	# Wait till out file is created
 	while [[ ! -f $out ]]; do
 		sleep 1

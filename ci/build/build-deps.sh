@@ -52,7 +52,7 @@ HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v24.11"
 GIT_USER=${2}
-ALL_DEPS="dpdk libnl libpcap grpc libcrypto"
+ALL_DEPS="dpdk libnl libpcap grpc"
 DEPS_TO_BUILD=${4:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
@@ -66,11 +66,6 @@ LIBNL_TARBALL=libnl-3.7.0
 LIBPCAP_BUILD_DIR=$BUILD_DEPS_ROOT/libpcap
 LIBPCAP_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
 LIBPCAP_INSTALL_DIR=$LIBPCAP_PREFIX_DIR
-
-# libcrypto variables
-LIBCRYPTO_BUILD_DIR=$BUILD_DEPS_ROOT/libcrypto
-LIBCRYPTO_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
-LIBCRYPTO_INSTALL_DIR=$LIBCRYPTO_PREFIX_DIR
 
 #grpc variables
 GRPC_SRC_TAG=v1.66.0
@@ -327,31 +322,6 @@ function build_libpcap() {
 	fi
 }
 
-function build_libcrypto() {
-	local libcrypto_is_enabled=1
-	if [[ "$DEPS_TO_BUILD" != *"libcrypto"* ]]; then
-		return
-		mkdir -p $LIBCRYPTO_BUILD_DIR
-	fi
-
-	if [ $libcrypto_is_enabled == 1 ]; then
-		mkdir -p $LIBCRYPTO_BUILD_DIR
-		cd $LIBCRYPTO_BUILD_DIR
-		git clone https://github.com/openssl/openssl.git
-		cd openssl
-		git checkout OpenSSL_1_1_0-stable
-		./Configure linux-aarch64 --cross-compile-prefix=aarch64-marvell-linux-gnu- --prefix=$LIBCRYPTO_PREFIX_DIR
-		make;
-		make install;
-		set +x
-			if ($PKGCONFIG --modversion libcrypto); then
-				echo "libcrypto installed."
-				return 0
-			fi
-		return 1
-	fi
-}
-
 # Building DPDK
 build_dpdk $PLAT
 build_libnl $@
@@ -362,4 +332,3 @@ build_dpdk_host
 
 # Building LIBPCAP
 build_libpcap
-build_libcrypto
