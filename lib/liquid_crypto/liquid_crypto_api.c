@@ -2718,14 +2718,14 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 				    uint8_t *nonce, uint8_t *pkey, uint8_t *digest_data,
 				    uint8_t *rs_outdata, uint64_t op_cookie)
 {
-	uint32_t p_align, nonce_align, m_align, pk_offset;
+	uint32_t p_align, nonce_align, m_align;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	uint32_t req_idx = 0, dlen;
+	int pk_offset, prime_len;
 	struct rte_mbuf *mbuf;
 	union cpt_inst_w4 w4;
-	int prime_len;
 	uint16_t buf_len;
 	uint8_t *dptr;
 	int rc;
@@ -2832,6 +2832,11 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	nonce_align = RTE_ALIGN_CEIL(nonce_len, 8);
 	pk_offset = p_align - pkey_len;
 
+	if (pk_offset < 0) {
+		dao_err("Invalid offset: pk_offset = %d", pk_offset);
+		return -EINVAL;
+	}
+
 	/* dlen = sum(sizeof(fpm address) + ROUNDUP8 (scalar_len) +  ROUNDUP8(digest_len) +
 	 * ROUNDUP8 (prime_len) + ROUNDUP8 (order_len) +
 	 * ROUNDUP8 (pkey_len) + ROUNDUP8 (consta_len) + ROUNDUP8 (constb_len)
@@ -2905,11 +2910,12 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 				      uint8_t *digest_data, uint8_t *qx_data, uint8_t *qy_data,
 				      uint64_t op_cookie)
 {
-	uint32_t p_align, m_align, qx_offset, qy_offset, r_offset, s_offset;
+	int qx_offset, qy_offset, r_offset, s_offset;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	uint32_t req_idx = 0, dlen;
+	uint32_t p_align, m_align;
 	struct rte_mbuf *mbuf;
 	union cpt_inst_w4 w4;
 	int prime_len;
@@ -3025,6 +3031,13 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	qy_offset = prime_len - qy_len;
 	r_offset = prime_len - r_len;
 	s_offset = prime_len - s_len;
+
+	/* Check for negative offsets */
+	if (qx_offset < 0 || qy_offset < 0 || r_offset < 0 || s_offset < 0) {
+		dao_err("Invalid offset: qx_offset = %d, qy_offset = %d, r_offset = %d, s_offset = %d",
+			qx_offset, qy_offset, r_offset, s_offset);
+		return -EINVAL;
+	}
 
 	/* dlen = sum(sizeof(fpm address) + ROUNDUP8 (digest_len) +  ROUNDUP8(sign_len(r,s)) +
 	 * ROUNDUP8 (public key len(x and y coordinates)) + (order_len) + (prime_len) +
