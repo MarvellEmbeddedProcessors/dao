@@ -7,6 +7,7 @@
 
 #include <dao_eth_trs.h>
 #include <dao_liquid_crypto.h>
+#include <liquid_crypto_asym.h>
 #include <mc/ae.h>
 
 #include "crypto_agent.h"
@@ -78,6 +79,7 @@ ca_handle_asym_op(struct cpt_inst_s *inst, struct cpt_inflight_req *infl_req,
 		  struct __dao_lc_req_asym *asym, struct __dao_lc_resp_asym *asym_resp,
 		  union cpt_inst_w4 w4)
 {
+	uint8_t max_supported_lc_curves = DAO_LC_AE_EC_ID_PMAX;
 	uint8_t opcode_major = w4.s.opcode_major;
 	uint8_t opcode_minor = w4.s.opcode_minor;
 	uint64_t curve_id;
@@ -91,10 +93,11 @@ ca_handle_asym_op(struct cpt_inst_s *inst, struct cpt_inflight_req *infl_req,
 			inst->rptr = (uint64_t)RTE_PTR_SUB(asym_resp->rptr, 2);
 		}
 	} else if (opcode_major == ROC_AE_MAJOR_OP_EC) {
+		max_supported_lc_curves =
+			RTE_MIN(ca_glb_ctx.nb_ae_ec_max_entries, max_supported_lc_curves);
 		/* Store first 8 bytes from inst[i].dptr in curve_id */
 		curve_id = *(uint64_t *)inst->w5.u64;
-
-		if (curve_id > ca_glb_ctx.nb_ae_ec_max_entries) {
+		if (curve_id > max_supported_lc_curves) {
 			CA_ERR("Invalid curve_id: %lu", curve_id);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
 			return;
