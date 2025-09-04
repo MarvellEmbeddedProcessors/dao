@@ -22,18 +22,6 @@ enum dao_liquid_crypto_ec_curve_type {
 	DAO_LC_AE_EC_ID_P384 = 3,
 	/* Elliptic curve identifier for P-521 (secpr521r1) */
 	DAO_LC_AE_EC_ID_P521 = 4,
-	/** Elliptic curve identifier for P-160 (secp160r1) */
-	DAO_LC_AE_EC_ID_P160 = 5,
-	/** Elliptic curve identifier for P-320 (secp320r1) */
-	DAO_LC_AE_EC_ID_P320 = 6,
-	/** Elliptic curve identifier for P-512 (secp512r1) */
-	DAO_LC_AE_EC_ID_P512 = 7,
-	/** Elliptic curve identifier for SM2 */
-	DAO_LC_AE_EC_ID_SM2 = 8,
-	/** Elliptic curve identifier for Ed25519 */
-	DAO_LC_AE_EC_ID_ED25519 = 9,
-	/** Elliptic curve identifier for Ed448 */
-	DAO_LC_AE_EC_ID_ED448 = 10,
 	/** Maximum value for elliptic curve identifier */
 	DAO_LC_AE_EC_ID_PMAX
 };
@@ -52,18 +40,6 @@ enum dao_lc_ec_curve_prime_len_bytes {
 	DAO_LC_PRIME_LEN_P384 = 48,
 	/** Prime length for P-521 curve (66 bytes) */
 	DAO_LC_PRIME_LEN_P521 = 66,
-	/** Prime length for P-160 curve (20 bytes) */
-	DAO_LC_PRIME_LEN_P160 = 20,
-	/** Prime length for P-320 curve (40 bytes) */
-	DAO_LC_PRIME_LEN_P320 = 40,
-	/** Prime length for P-512 curve (64 bytes) */
-	DAO_LC_PRIME_LEN_P512 = 64,
-	/** Prime length for SM2 curve (32 bytes) */
-	DAO_LC_PRIME_LEN_SM2 = 32,
-	/** Prime length for Ed25519 curve (32 bytes) */
-	DAO_LC_PRIME_LEN_ED25519 = 32,
-	/** Prime length for Ed448 curve (56 bytes) */
-	DAO_LC_PRIME_LEN_ED448 = 56,
 };
 
 /**

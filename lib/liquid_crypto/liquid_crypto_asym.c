@@ -150,9 +150,9 @@ cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *
 int
 cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id)
 {
-	if (curve_id < DAO_LC_AE_EC_ID_P192 || curve_id > DAO_LC_AE_EC_ID_P512) {
+	if (curve_id < DAO_LC_AE_EC_ID_P192 || curve_id > DAO_LC_AE_EC_ID_P521) {
 		dao_err("Invalid curve ID. curve_id=%d (valid range: %d to %d).", curve_id,
-			DAO_LC_AE_EC_ID_P192, DAO_LC_AE_EC_ID_P512);
+			DAO_LC_AE_EC_ID_P192, DAO_LC_AE_EC_ID_P521);
 		return -EINVAL;
 	}
 	return 0;
@@ -240,18 +240,6 @@ ecc_curve_id_to_prime_len(enum dao_liquid_crypto_ec_curve_type curve_id)
 		return DAO_LC_PRIME_LEN_P384;
 	case DAO_LC_AE_EC_ID_P521:
 		return DAO_LC_PRIME_LEN_P521;
-	case DAO_LC_AE_EC_ID_P160:
-		return DAO_LC_PRIME_LEN_P160;
-	case DAO_LC_AE_EC_ID_P320:
-		return DAO_LC_PRIME_LEN_P320;
-	case DAO_LC_AE_EC_ID_P512:
-		return DAO_LC_PRIME_LEN_P512;
-	case DAO_LC_AE_EC_ID_SM2:
-		return DAO_LC_PRIME_LEN_SM2;
-	case DAO_LC_AE_EC_ID_ED25519:
-		return DAO_LC_PRIME_LEN_ED25519;
-	case DAO_LC_AE_EC_ID_ED448:
-		return DAO_LC_PRIME_LEN_ED448;
 	default:
 		return -1;
 	}
