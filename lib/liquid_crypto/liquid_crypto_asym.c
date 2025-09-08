@@ -161,13 +161,8 @@ cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id)
 int
 cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len)
 {
-	if (nonce_len == 0) {
-		dao_err("Invalid nonce length. nonce_len cannot be zero.");
-		return -EINVAL;
-	}
-
-	if (nonce_len != prime_len) {
-		dao_err("Invalid nonce length. nonce_len should be  %u prime length bytes.",
+	if ((nonce_len == 0) || (nonce_len > prime_len)) {
+		dao_err("Invalid nonce length. nonce_len must be in between 1 to %u length bytes.",
 			prime_len);
 		return -EINVAL;
 	}
@@ -178,13 +173,8 @@ cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len)
 int
 cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len)
 {
-	if (pkey_len == 0) {
-		dao_err("Invalid private key length. pkey_len cannot be zero.");
-		return -EINVAL;
-	}
-
-	if (pkey_len != prime_len) {
-		dao_err("Invalid private key length. pkey_len should be at most %u bytes.",
+	if ((pkey_len == 0) || (pkey_len > prime_len)) {
+		dao_err("Invalid private key length. pkey_len must be in between 1 to %u length bytes.",
 			prime_len);
 		return -EINVAL;
 	}
@@ -195,13 +185,14 @@ cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len)
 int
 cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len)
 {
-	if ((pubkey_x_len == 0) || (pubkey_y_len == 0)) {
-		dao_err("Invalid public key length. pubkey_x_len and pubkey_y_len cannot be zero.");
+	if ((pubkey_x_len == 0) || (pubkey_x_len > prime_len)) {
+		dao_err("Invalid public key length. pubkey_x_len must be in between 1 to %u length bytes.",
+			prime_len);
 		return -EINVAL;
 	}
 
-	if ((pubkey_x_len > prime_len) || (pubkey_y_len > prime_len)) {
-		dao_err("Invalid public key length. pubkey_x_len and pubkey_y_len should be at most %u bytes.",
+	if ((pubkey_y_len == 0) || (pubkey_y_len > prime_len)) {
+		dao_err("Invalid public key length. pubkey_y_len must be in between 1 to %u length bytes.",
 			prime_len);
 		return -EINVAL;
 	}
@@ -212,13 +203,14 @@ cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_
 int
 cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len)
 {
-	if ((r_len == 0) || (s_len == 0)) {
-		dao_err("Invalid r and s sign components length. r and s canonot be zero.");
+	if ((r_len == 0) || (r_len > prime_len)) {
+		dao_err("Invalid r sign component length. r length must be in between 1 to %u bytes.",
+			prime_len);
 		return -EINVAL;
 	}
 
-	if ((r_len > prime_len) || (s_len > prime_len)) {
-		dao_err("Invalid r and s sign components length. r and s should be at most %u bytes.",
+	if ((s_len == 0) || (s_len > prime_len)) {
+		dao_err("Invalid s sign component length. s length must be in between 1 to %u bytes.",
 			prime_len);
 		return -EINVAL;
 	}
