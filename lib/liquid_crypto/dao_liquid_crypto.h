@@ -153,6 +153,22 @@ enum dao_uc_comp_code {
 	/** PKCS decrypt incorrect. */
 	DAO_UC_RSA_PKCS_DEC_INCORRECT = 0x0A,
 
+	/** ECDSA sign/verify error codes */
+	/** Invalid private and hash and random key length */
+	DAO_UC_ECC_DATA_LEN_INVALID = 0x08,
+	/** ECC point at infinity */
+	DAO_UC_ECC_PAI = 0x0b,
+	/** Invalid ECC curve */
+	DAO_UC_ECC_CURVE_INVALID = 0x0c,
+	/** Invalid ECDSA sign r component */
+	DAO_UC_ECC_SIGN_R_INVALID = 0x0d,
+	/** Invalid ECDSA sign s component */
+	DAO_UC_ECC_SIGN_S_INVALID = 0x0e,
+	/** ECC signature mismatch */
+	DAO_UC_ECC_VERIFY_MISMATCH = 0x0f,
+	/** Public key point not on curve */
+	DAO_UC_ECC_PUB_KEY_INVALID = 0x11,
+
 	/** SE GC */
 	/** Invalid data length. */
 	DAO_UC_ERR_GC_DATA_LEN_INVALID = 0x43,
