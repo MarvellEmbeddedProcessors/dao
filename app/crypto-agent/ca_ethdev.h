@@ -33,6 +33,5 @@ int ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf);
 int ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id);
 int ca_eth_dev_start(uint32_t port_id);
 int ca_eth_dev_stop(uint32_t dev_id);
-int ca_eth_dev_info_get(uint32_t dev_id, struct dao_lc_eth_info *ethdev_info);
 
 #endif /* __CA_ETHDEV_H__ */

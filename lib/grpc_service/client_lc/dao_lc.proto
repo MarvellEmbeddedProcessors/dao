@@ -9,7 +9,6 @@ package lc_manager;
 service DaoLCService {
 	rpc CreateDev(DeviceId) returns (Response) {}
 	rpc DestroyDev(DeviceId) returns (Response) {}
-	rpc GetDevInfo(DeviceId) returns (DevInfo) {}
 	rpc StartDev(DeviceId) returns (Response) {}
 	rpc StopDev(DeviceId) returns (Response) {}
 	rpc ConfigureQP(QpConf) returns (Response) {}
@@ -39,8 +38,4 @@ message Response {
 }
 
 message Empty {
-}
-
-message DevInfo {
-	uint32 nb_queues = 1;
 }

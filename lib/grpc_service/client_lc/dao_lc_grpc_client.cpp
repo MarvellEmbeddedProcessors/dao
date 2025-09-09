@@ -18,7 +18,6 @@ using grpc::ClientContext;
 using grpc::Status;
 
 using lc_manager::DaoLCService;
-using lc_manager::DevInfo;
 using lc_manager::DeviceId;
 using lc_manager::QueuePairId;
 using lc_manager::Response;
@@ -54,29 +53,6 @@ dao_lc_grpc_client_fini(struct dao_lc_grpc_ctx *ctx)
 	if (ctx == NULL)
 		return;
 	delete ctx;
-}
-
-int
-dao_card_lc_ethdev_info_get(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id, struct dao_lc_eth_info *info)
-{
-	ClientContext context;
-	grpc::Status status;
-	DeviceId dev_id_msg;
-	DevInfo dev_info;
-
-	if (ctx == NULL || info == NULL)
-		return -EINVAL;
-
-	dev_id_msg.set_dev_id(dev_id);
-	status = ctx->stub->GetDevInfo(&context, dev_id_msg, &dev_info);
-	if (!status.ok()) {
-		fprintf(stderr, "Failed to get device info: %s\n", status.error_message().c_str());
-		return -ENODEV;
-	}
-
-	info->nb_queues = dev_info.nb_queues();
-
-	return 0;
 }
 
 int

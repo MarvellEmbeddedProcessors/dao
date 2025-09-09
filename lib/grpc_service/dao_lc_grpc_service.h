@@ -25,14 +25,6 @@ struct dao_lc_eth_qconf {
 	bool out_of_order_delivery_en;
 };
 
-/**
- * Ethdev information on the liquid crypto card.
- */
-struct dao_lc_eth_info {
-	/** Number of queues on a device */
-	uint32_t nb_queues;
-};
-
 #ifdef __cplusplus
 }
 #endif

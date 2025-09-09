@@ -51,14 +51,6 @@ typedef void (*dao_card_fini_cb)(void);
 typedef int (*dao_card_stats_cb)(struct dao_card_stats *stats);
 
 /**
- * Function pointer for getting eth device information.
- * @param dev_id: Device ID
- * @param info: Pointer to eth device information
- * @return: 0 on success, negative value on failure
- */
-typedef int (*dao_lc_get_dev_info_cb)(uint32_t dev_id, struct dao_lc_eth_info *info);
-
-/**
  * Function pointer for creating a device.
  * @param dev_id: Device ID
  * @param nb_qp: Number of queue pairs
@@ -115,8 +107,6 @@ struct dao_card_server_cbs {
 	/** DAO Card stats callback */
 	dao_card_stats_cb card_stats_cb;
 
-	/** DAO LC get dev info callback */
-	dao_lc_get_dev_info_cb dev_info_cb;
 	/** DAO LC dev create callback */
 	dao_lc_dev_create_cb dev_create_cb;
 	/** DAO LC dev destroy callback */

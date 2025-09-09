@@ -901,19 +901,3 @@ ca_eth_flow_clear(uint8_t port_id)
 	if (ret)
 		CA_ERR("Could not flush flow on port %u", port_id);
 }
-
-int
-ca_eth_dev_info_get(uint32_t dev_id, struct dao_lc_eth_info *info)
-{
-	struct rte_eth_dev_info dev_info;
-	int ret;
-
-	ret = rte_eth_dev_info_get(dev_id, &dev_info);
-	if (ret) {
-		CA_ERR("Could not get ethdev info: %d.", dev_id);
-		return ret;
-	}
-	info->nb_queues = dev_info.max_rx_queues;
-
-	return 0;
-}

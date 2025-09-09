@@ -59,7 +59,6 @@ using dao_card_manager::CardSensors;
 using dao_card_manager::AppLogs;
 
 using lc_manager::DaoLCService;
-using lc_manager::DevInfo;
 using lc_manager::DeviceId;
 using lc_manager::QueuePairId;
 using lc_manager::QpConf;
@@ -403,19 +402,6 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 class DaoLCServiceImpl final : public DaoLCService::Service
 {
-	Status GetDevInfo(ServerContext *context, const DeviceId *request, DevInfo *dev_info) override
-	{
-		struct dao_lc_eth_info info;
-		(void)(context);
-
-		server_cbs->dev_info_cb(request->dev_id(), &info);
-		dev_info->set_nb_queues(info.nb_queues);
-
-		std::cout << "Device " << request->dev_id() << ": nb_queues: " << dev_info->nb_queues() << std::endl;
-
-		return Status::OK;
-	}
-
 	Status CreateDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
 		(void)(context);

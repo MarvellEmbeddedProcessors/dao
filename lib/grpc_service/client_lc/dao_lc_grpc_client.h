@@ -90,17 +90,6 @@ int dao_lc_ethdev_start(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id);
  */
 int dao_lc_ethdev_stop(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id);
 
-/**
- * Get the ethdev information.
- *
- * @param ctx: gRPC client context
- * @param dev_id: ethdev id
- * @param info [out]: ethdev information
- * @return: 0 on success, negative value on failure
- */
-int dao_lc_ethdev_info_get(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id,
-			   struct dao_lc_eth_info *info);
-
 #ifdef __cplusplus
 }
 #endif

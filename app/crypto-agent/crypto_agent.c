@@ -718,7 +718,6 @@ static struct dao_card_server_cbs card_cbs = {
 	.dev_stop_cb = ca_eth_dev_stop,
 	.q_configure_cb = ca_eth_dev_q_configure,
 	.q_destroy_cb = ca_eth_dev_q_destroy,
-	.dev_info_cb = ca_eth_dev_info_get,
 };
 
 int
