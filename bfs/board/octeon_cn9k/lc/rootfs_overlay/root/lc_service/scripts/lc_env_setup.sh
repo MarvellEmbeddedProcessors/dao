@@ -80,11 +80,6 @@ function config_static_ip() {
 	ip link set sdp15-0 up
 }
 
-function enable_ssh() {
-	sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-	/etc/init.d/S50sshd restart
-}
-
 # Wrapper to invoke partition logic only when booted from MMC
 setup_redirection() {
 	cmdline=$(cat /proc/cmdline)
@@ -105,5 +100,4 @@ load_cpt
 setup_devices
 run_cp
 config_static_ip
-enable_ssh
 setup_redirection
