@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <getopt.h>
 #include <histedit.h>
+#include <ifaddrs.h>
 #include <limits.h>
 #include <netinet/in.h>
 #include <signal.h>
@@ -39,7 +40,6 @@
 
 #define DAO_CARD_CFG_NB_DESC     1024
 #define DAO_CARD_MGR_PORT        50055
-#define DAO_CARD_MGR_BOOT_IP     "192.168.1.1"
 #define DAO_CARD_GRPC_PORT       50051
 #define DAO_CARD_MGR_MAX_CLIENTS 10
 #define BUFFER_SIZE              1024
@@ -56,8 +56,98 @@
 #define DAO_CARD_MGR_FAILSAFE_UPDATE "card_failsafe_update"
 #define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256
 
+/* Module reload helpers */
+#define DAO_CARD_MGR_BOOT_IP        "192.168.1.2"
+#define OCTEON_EP_MODULE_NAME       "octeon_ep"
+#define OCTEON_EP_RMMOD_TIMEOUT_MS  5000
+#define OCTEON_EP_INSMOD_TIMEOUT_MS 5000
+#define OCTEON_EP_POLL_INTERVAL_US  100000 /* 100ms */
+
 static __thread char *dao_card_err_buf;
 static __thread size_t dao_card_err_buf_len;
+
+/* Global state */
+static volatile bool force_quit;
+static struct dao_card_grpc_ctx *card_ctx;                   /* actual definition */
+static char remote_card_ip[INET_ADDRSTRLEN] = "192.168.1.1"; /* target card IP */
+
+/* Validate path for insmod: allow only a safe subset */
+static int
+sanitize_module_path(const char *p)
+{
+	if (!p || !*p)
+		return -EINVAL;
+	for (const char *c = p; *c; c++) {
+		if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') ||
+		      (*c >= '0' && *c <= '9') || *c == '_' || *c == '.' || *c == '/' || *c == '-'))
+			return -EINVAL;
+	}
+	return 0;
+}
+
+/* Run a shell command and normalize return codes to 0 / -errno / -EIO */
+static int
+run_cmd(const char *cmd)
+{
+	int r = system(cmd);
+
+	if (r == -1)
+		return -errno; /* fork/exec error */
+	if (WIFEXITED(r)) {
+		int st = WEXITSTATUS(r);
+
+		return st == 0 ? 0 : -EIO;
+	}
+	return -EIO;
+}
+
+/* Check if module is present in /proc/modules */
+static int
+module_present(const char *name)
+{
+	FILE *f = fopen("/proc/modules", "r");
+	char line[256];
+	size_t n = strlen(name);
+
+	if (!f)
+		return 0; /* can't verify -> assume not present */
+	while (fgets(line, sizeof(line), f)) {
+		if (strncmp(line, name, n) == 0 && line[n] == ' ') {
+			fclose(f);
+			return 1;
+		}
+	}
+	fclose(f);
+	return 0;
+}
+
+static int
+wait_for_module_absent(const char *name, int timeout_ms)
+{
+	int waited = 0;
+
+	while (module_present(name)) {
+		if (waited >= timeout_ms)
+			return -ETIMEDOUT;
+		usleep(OCTEON_EP_POLL_INTERVAL_US);
+		waited += OCTEON_EP_POLL_INTERVAL_US / 1000;
+	}
+	return 0;
+}
+
+static int
+wait_for_module_present(const char *name, int timeout_ms)
+{
+	int waited = 0;
+
+	while (!module_present(name)) {
+		if (waited >= timeout_ms)
+			return -ETIMEDOUT;
+		usleep(OCTEON_EP_POLL_INTERVAL_US);
+		waited += OCTEON_EP_POLL_INTERVAL_US / 1000;
+	}
+	return 0;
+}
 
 static inline void
 dao_card_err_ctx_set(char *buf, size_t len)
@@ -116,8 +206,6 @@ static struct option long_options[] = {
 		{"ip", required_argument, 0, 'i'},
 		{0, 0, 0, 0}};
 
-static volatile bool force_quit;
-
 static void
 signal_handler(int signum)
 {
@@ -138,17 +226,17 @@ dao_card_cmd_usage_print(void)
 			"Initializes the DAO card\n");
 	fprintf(stderr, " card_fini: Frees any allocated resources and stops the DAO card\n");
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
-	fprintf(stderr,
-		" card_app_update [absolute path of file]: Update the given file on to the card\n");
-	fprintf(stderr,
-		" card_app_fallback: Config the card to fallback to the working app when updated app fails\n");
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
+	fprintf(stderr, " card_app_fallback: Fallback to the working app when app update fails\n");
+	fprintf(stderr, " card_boot_source <main|failsafe> [absolute path to mrvl-oct-boot]:"
+			" Boot from main or failsafe using the specified binary\n");
+	fprintf(stderr, " card_app_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
+			" Update the given file on to the card\n");
+	fprintf(stderr, " card_fw_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
+			" Update the image on to the DAO card.\n");
 	fprintf(stderr,
-		" card_fw_update: [absolute path of file]: Update the image on to the DAO card.\n");
-	fprintf(stderr,
-		" card_failsafe_update: [absolute path of file]: Update the failsafe image on to the DAO card.\n");
-	fprintf(stderr, " card_boot_source <main|failsafe> <path-to-mrvl-oct-boot>: Boot from main"
-			"(mmc) or failsafe (spi) using the specified binary\n");
+		" card_failsafe_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
+		" Update the failsafe image on to the DAO card.\n");
 	fprintf(stderr, " quit: Exit the application\n");
 }
 
@@ -240,18 +328,69 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 static int
 reload_octeon_ep_module(void)
 {
-	int ret = system("rmmod octeon_ep");
+	const char *ko_path = getenv("OCTEON_EP_KO_PATH");
+	const char *name = OCTEON_EP_MODULE_NAME;
+	int did_unload = 0;
+	char cmd[512];
+	int rc;
 
-	if (ret != 0) {
-		DAO_CARD_ERR("Failed to remove octeon_ep module: %d", ret);
-		return ret;
+	if (force_quit)
+		return -EINTR;
+
+	/* If present, attempt to remove */
+	if (module_present(name)) {
+		rc = run_cmd("rmmod " OCTEON_EP_MODULE_NAME);
+		if (rc != 0) {
+			DAO_CARD_ERR("rmmod %s failed (rc=%d)", name, rc);
+		} else {
+			rc = wait_for_module_absent(name, OCTEON_EP_RMMOD_TIMEOUT_MS);
+			if (rc != 0) {
+				DAO_CARD_ERR("Module %s did not unload in time (rc=%d)", name, rc);
+				return rc;
+			}
+			did_unload = 1;
+		}
 	}
-	sleep(60);
-	ret = system("modprobe octeon_ep");
-	if (ret != 0) {
-		DAO_CARD_ERR("Failed to insert octeon_ep module: %d", ret);
-		return ret;
+
+	/* If unloaded, wait 60s for card boot before loading again */
+	if (did_unload) {
+		const int total_ms = 60000; /* 60 seconds */
+		int waited = 0;
+
+		while (waited < total_ms) {
+			if (force_quit)
+				return -EINTR;
+			usleep(200000); /* 200ms */
+			waited += 200;
+		}
 	}
+
+	if (!ko_path) {
+		DAO_CARD_ERR("OCTEON_EP_KO_PATH not set; falling back to modprobe");
+		rc = run_cmd("modprobe " OCTEON_EP_MODULE_NAME);
+		if (rc != 0) {
+			DAO_CARD_ERR("modprob failed (rc=%d)", rc);
+			return rc;
+		}
+		goto wait_for_module;
+	}
+
+	if (sanitize_module_path(ko_path) != 0) {
+		DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s", ko_path);
+		return -EINVAL;
+	}
+	snprintf(cmd, sizeof(cmd), "insmod %s", ko_path);
+	rc = run_cmd(cmd);
+	if (rc != 0)
+		DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s", name, rc, ko_path);
+
+wait_for_module:
+	rc = wait_for_module_present(name, OCTEON_EP_INSMOD_TIMEOUT_MS);
+	if (rc != 0) {
+		DAO_CARD_ERR("Module %s not present after load (rc=%d)", name, rc);
+		return rc;
+	}
+
 	return 0;
 }
 
@@ -351,13 +490,106 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	return 0;
 }
 
+/* Handle a response error code from server, optionally reading an extended
+ * error message that may follow on the socket. This preserves previous
+ * behaviour while keeping the send function slimmer.
+ */
+static void
+dao_card_mgr_process_error(int cli_fd, int resp)
+{
+	uint32_t err_len = 0;
+
+	/* Attempt to receive an optional error message length when rc < 0 */
+	if (resp < 0) {
+		ssize_t ln = recv(cli_fd, &err_len, sizeof(err_len), MSG_DONTWAIT);
+
+		if (ln == (ssize_t)sizeof(err_len) && err_len > 0 &&
+		    err_len < DAO_CARD_MGR_MAX_ERR_MSG_LEN) {
+			char emsg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
+			ssize_t rn = recv(cli_fd, emsg, err_len, 0);
+
+			if (rn == (ssize_t)err_len) {
+				emsg[err_len < DAO_CARD_MGR_MAX_ERR_MSG_LEN ?
+					     err_len :
+					     (DAO_CARD_MGR_MAX_ERR_MSG_LEN - 1)] = '\0';
+				/* Prefer server-provided message */
+				dao_err("%s (rc=%d)", emsg, resp);
+				return;
+			}
+			/* Fall through to generic handling if payload read failed */
+		}
+
+		/* Specific negative codes */
+		if (resp == ENOTSUP || resp == -ENOTSUP)
+			dao_err("Command not supported by card (UNIMPLEMENTED)");
+		else if (resp == -EAGAIN)
+			dao_info("Card is not ready: %d (%s)", resp, strerror(-resp));
+		else
+			dao_err("Received error for the command: %d (%s)", resp, strerror(-resp));
+		return;
+	}
+
+	/* Positive resp treated as generic error */
+	dao_err("Received error for the command: %d", resp);
+}
+
+static void
+dao_card_mgr_recv_card_info(int cli_fd)
+{
+	struct dao_card_info card_info;
+
+	if (recv(cli_fd, &card_info, sizeof(struct dao_card_info), 0) !=
+	    (ssize_t)sizeof(struct dao_card_info)) {
+		dao_err("Failed to receive card info struct");
+		return;
+	}
+
+	dao_info("Card info: version: %s, num SDP devices: %d, max_sessions: %d", card_info.version,
+		 card_info.nb_devs, card_info.max_sessions);
+	if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SPI)
+		dao_info("Card boot source: SPI");
+	else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_MMC)
+		dao_info("Card boot source: MMC");
+	else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SCRIPT_FAILURE)
+		dao_info("Card boot source: SCRIPT FAILURE (missing or failed script)");
+	else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_UNSUPPORTED)
+		dao_info("Card boot source: UNSUPPORTED by dao-crypto-agent");
+}
+
+static void
+dao_card_mgr_recv_card_stats(int cli_fd)
+{
+	struct dao_card_stats card_stats;
+	uint64_t total_rx_pkts = 0, total_tx_pkts = 0;
+	int i;
+
+	if (recv(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0) !=
+	    (ssize_t)sizeof(struct dao_card_stats)) {
+		dao_err("Failed to receive card stats struct");
+		return;
+	}
+
+	dao_info("LC stats:");
+	dao_info("--------------------------------------------------");
+	dao_info("| Core |      RX Packets      |      TX Packets      |");
+	dao_info("--------------------------------------------------");
+
+	for (i = 0; i < CA_MAX_WORKER_CORES; i++) {
+		dao_info("| %4u | %20lu | %20lu |", i + 1, card_stats.rx_packets[i],
+			 card_stats.tx_packets[i]);
+		total_rx_pkts += card_stats.rx_packets[i];
+		total_tx_pkts += card_stats.tx_packets[i];
+	}
+
+	dao_info("--------------------------------------------------");
+	dao_info("| Total| %20lu | %20lu |", total_rx_pkts, total_tx_pkts);
+	dao_info("--------------------------------------------------");
+}
+
 static void
 dao_card_mgr_send_to_server(int cli_fd, const char *line)
 {
-	struct dao_card_stats card_stats;
-	struct dao_card_info card_info;
 	int resp;
-	uint32_t err_len = 0;
 
 	if (strstr(line, "help") != NULL) {
 		dao_card_cmd_usage_print();
@@ -380,81 +612,17 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 		return;
 	}
 	if (resp) {
-		/* Attempt to receive an optional error message length when rc < 0 */
-		if (resp < 0) {
-			ssize_t ln = recv(cli_fd, &err_len, sizeof(err_len), MSG_DONTWAIT);
-
-			if (ln == (ssize_t)sizeof(err_len) && err_len > 0 &&
-			    err_len < DAO_CARD_MGR_MAX_ERR_MSG_LEN) {
-				char emsg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
-				ssize_t rn = recv(cli_fd, emsg, err_len, 0);
-
-				if (rn == (ssize_t)err_len) {
-					emsg[err_len < DAO_CARD_MGR_MAX_ERR_MSG_LEN ?
-						     err_len :
-						     (DAO_CARD_MGR_MAX_ERR_MSG_LEN - 1)] = '\0';
-					/* Prefer server-provided message */
-					dao_err("%s (rc=%d)", emsg, resp);
-				} else {
-					/* Fallback to generic message */
-					dao_err("Received error for the command: %d (%s)", resp,
-						strerror(-resp));
-				}
-			} else {
-				if (resp == ENOTSUP)
-					dao_err("Command is not supported");
-				else if (resp == -EAGAIN)
-					dao_info("Card is not ready: %d (%s)", resp,
-						 strerror(-resp));
-				else
-					dao_err("Received error for the command: %d (%s)", resp,
-						strerror(-resp));
-			}
-		} else {
-			/* Positive resp treated as generic error */
-			dao_err("Received error for the command: %d", resp);
-		}
+		dao_card_mgr_process_error(cli_fd, resp);
 		return;
 	}
 
-	/* Dump the received info, if the cmd is to get the info */
-	if (!resp && strstr(line, "card_info") != NULL) {
-		recv(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
-		dao_info("Card info: version: %s, num SDP devices: %d, max_sessions: %d",
-			 card_info.version, card_info.nb_devs, card_info.max_sessions);
-		if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SPI)
-			dao_info("Card boot source: SPI");
-		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_MMC)
-			dao_info("Card boot source: MMC");
-		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SCRIPT_FAILURE)
-			dao_info("Card boot source: SCRIPT FAILURE (missing or failed script)");
-		else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_UNSUPPORTED)
-			dao_info("Card boot source: UNSUPPORTED by dao-crypto-agent");
-	}
+	/* Dump card info */
+	if (!resp && strstr(line, "card_info") != NULL)
+		dao_card_mgr_recv_card_info(cli_fd);
 
-	/* Dump the stats info */
-	if (!resp && strstr(line, "card_stats") != NULL) {
-		int i = 0;
-		uint64_t total_rx_pkts = 0, total_tx_pkts = 0;
-
-		recv(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0);
-
-		dao_info("LC stats:");
-		dao_info("--------------------------------------------------");
-		dao_info("| Core |      RX Packets      |      TX Packets      |");
-		dao_info("--------------------------------------------------");
-
-		for (i = 0; i < CA_MAX_WORKER_CORES; i++) {
-			dao_info("| %4u | %20lu | %20lu |", i + 1, card_stats.rx_packets[i],
-				 card_stats.tx_packets[i]);
-			total_rx_pkts += card_stats.rx_packets[i];
-			total_tx_pkts += card_stats.tx_packets[i];
-		}
-
-		dao_info("--------------------------------------------------");
-		dao_info("| Total| %20lu | %20lu |", total_rx_pkts, total_tx_pkts);
-		dao_info("--------------------------------------------------");
-	}
+	/* Dump card stats */
+	if (!resp && strstr(line, "card_stats") != NULL)
+		dao_card_mgr_recv_card_stats(cli_fd);
 }
 
 static int
@@ -913,10 +1081,11 @@ dao_card_mgr_server_init(const char *ip_str)
 		goto srv_fini;
 	}
 
-	if (ip_str == NULL)
-		card_ctx = dao_card_grpc_client_init("192.168.1.1", DAO_CARD_GRPC_PORT);
-	else
-		card_ctx = dao_card_grpc_client_init(ip_str, DAO_CARD_GRPC_PORT);
+	if (ip_str != NULL) {
+		strncpy(remote_card_ip, ip_str, sizeof(remote_card_ip));
+		remote_card_ip[sizeof(remote_card_ip) - 1] = '\0';
+	}
+	card_ctx = dao_card_grpc_client_init(remote_card_ip, DAO_CARD_GRPC_PORT);
 
 	if (card_ctx == NULL) {
 		DAO_CARD_ERR("gRPC client init failed");

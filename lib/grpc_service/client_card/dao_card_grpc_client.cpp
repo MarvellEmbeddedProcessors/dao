@@ -79,6 +79,9 @@ dao_card_init(struct dao_card_grpc_ctx *ctx, struct dao_card_config *cfg)
 
 	status = ctx->stub->Init(&context, config, &resp);
 	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP;
+
 		if (status.error_code() == grpc::StatusCode::UNAVAILABLE) {
 			fprintf(stderr, "Card is not ready yet\n");
 			return -EAGAIN;
@@ -113,6 +116,9 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 
 	status = ctx->stub->Info(&context, empty, &resp);
 	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP;
+
 		if (status.error_code() == grpc::StatusCode::UNAVAILABLE) {
 			fprintf(stderr, "Card is not ready yet\n");
 			return -EAGAIN;
@@ -156,6 +162,9 @@ dao_card_app_fallback(struct dao_card_grpc_ctx *ctx)
 	CardResponse resp;
 	grpc::Status status = ctx->stub->AppFallback(&context, empty, &resp);
 	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP;
+
 		fprintf(stderr, "Failed to perform app fallback: %s\n", status.error_message().c_str());
 		return resp.err();
 	}
@@ -175,6 +184,9 @@ dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 
 	status = ctx->stub->Stats(&context, empty, &resp);
 	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP;
+
 		fprintf(stderr, "Failed to get card stats: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
 		return -EIO;
 	}
@@ -291,6 +303,10 @@ dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *
 
 		status = ctx->stub->FileUpdate(&context, req, &resp);
 		if (!status.ok()) {
+			if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
+				file.close();
+				return -ENOTSUP;
+			}
 			fprintf(stderr, "Failed to upload chunk: %s\n",
 				status.error_message().c_str());
 			file.close();
