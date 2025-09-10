@@ -1,24 +1,46 @@
 name: build-cn10k-nginx
-
 on:
-  push:
-  schedule:
-    - cron: "0 0 * * 1"
+  # 1) Manual trigger from the GitHub UI "Run workflow"
+  workflow_dispatch:
+  # 2) Trigger on pull request events
   pull_request:
+  # 3) Scheduled trigger via cron
+  schedule:
+    - cron: "0 0 * * *" #minute, hour, date of month, month, day of week
+  # 4) Trigger on pushes that create/update tags matching
+  # Release tags like YY.MM.Minor
+  push:
+    tags:
+      - '[0-9][0-9].[0-9][0-9].0'
 
+# Permission to pushing commits, creating releases, or uploading artifacts
+# to publish or install packages, deploy to GitHub Pages
+# to authenticate with the GitHub API
 permissions:
   contents: write
+  packages: write
   pages: write
   id-token: write
-  packages: write
+env:
+  # Set the 2 components
+  COMPONENT_1: nginx
+  COMPONENT_2: openssl
 
+# run on Ubuntu 24.04 ARM
 jobs:
   ubuntu-cn10k-build:
     name: ubuntu-cn10k-arm64
     runs-on: ubuntu-24.04-arm
+
     steps:
+      # 1) Checkout the source code from the repository
       - name: Checkout sources
         uses: actions/checkout@v4.2.2
+        with:
+          # Fetch all history for all branches and tags
+          # if you only need the latest commit, set `fetch-depth: 1`.
+          fetch-depth: 0
+
       - name: Generate cache keys
         id: get_ref_keys
         run: |
@@ -30,142 +52,191 @@ jobs:
           key: ${{ steps.get_ref_keys.outputs.ccache }}-${{ github.ref }}
           restore-keys: |
             ${{ steps.get_ref_keys.outputs.ccache }}-refs/heads/main
+
       - name: Extract version details
         id: version
         run: |
-          mkdir -p "${PWD}/artifacts"
-          git tag --points-at HEAD > /tmp/tags
-          [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
-          echo "PKG_VERSION_NAME=`cat VERSION`" >> "${PWD}/artifacts/env"
-          echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
-      - name: Build NGINX and generate package
+          set -x
+          mkdir -p artifacts
+          git fetch --tags --quiet
+          # Capture the current event name ("tag push", "pull_request", "workflow_dispatch", "schedule").
+          EVENT="${{ github.event_name }}"
+          # Extract first two fields = YY.MM from the VERSION file.
+          BASE=$(cut -d. -f1,2 < VERSION)
+          # If event is a Tag Push
+          if [ "$EVENT" = "push" ]; then
+            # Start release cycle of minor=0
+            # PKG_POSTFIX is empty to signify non-devel
+            MINOR=0
+            PKG_POSTFIX=""
+            IS_DEVEL=false
+          else
+            # Find the latest Tag for this component and base (component-1.2.*), version-sort, and select the newest.
+            LAST_1=$(git tag -l "${COMPONENT_1}-${BASE}.*" | sort -V | tail -n1)
+            # If no previous tag exists for this base, start at .0; else increment the existing minor.
+            if [ -z "$LAST_1" ]; then MINOR=0 ; else
+              MINOR=$(echo "$LAST_1" | awk -F. '{print $3}')
+              MINOR=$((MINOR+1))
+            fi
+            # -devel specified by the PKG_POSTFIX
+            PKG_POSTFIX="-devel"
+            IS_DEVEL=true
+          fi
+          # Assemble the full version name as YY.MM.Minor
+          PKG_VERSION_NAME="${BASE}.${MINOR}"
+          {
+            echo "PKG_VERSION_NAME=${PKG_VERSION_NAME}"
+            echo "PKG_POSTFIX=${PKG_POSTFIX}"
+            echo "IS_DEVEL=${IS_DEVEL}"
+          } >> artifacts/env
+
+      - name: push component patch tag # Limit this step strictly to manual runs. This prevents tag creation during PRs/schedules/releases.
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          set -x
+          source artifacts/env
+          # Build the Tag to be pushed
+          NEWTAG_1="${COMPONENT_1}-${PKG_VERSION_NAME}"
+          NEWTAG_2="${COMPONENT_2}-${PKG_VERSION_NAME}"
+          # git identity for the tag push
+          git config user.name "github-bot-accelerator"
+          git config user.email "github-bot-accelerator@marvell.com"
+          # If the tag doesn't already exist locally, create it as an annotated tag with a message.
+          git tag -l "$NEWTAG_1" | grep -q . || git tag -a "$NEWTAG_1" -m "devel bump $NEWTAG_1"
+          git tag -l "$NEWTAG_2" | grep -q . || git tag -a "$NEWTAG_2" -m "devel bump $NEWTAG_2"
+          # push tag to 'origin'
+          git push origin "$NEWTAG_1"
+          git push origin "$NEWTAG_2"
+
+      - name: Build packages
         id: build
         run: |
-            set -x
-            sudo apt-get update -q -y
-            sudo apt-get install -y apt-utils python3-sphinx-rtd-theme python3-pip
-            sudo apt-get install -y python3-pyelftools python3-setuptools python3-wheel
-            sudo apt-get install -y build-essential meson ccache git doxygen
-            sudo apt-get install -y libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev
-            sudo apt-get install -y sphinx-common pkg-config software-properties-common
-            sudo apt-get install -y libarchive-dev libbsd-dev libbpf-dev
-            sudo apt-get install -y libfdt-dev libjansson-dev autoconf dh-autoreconf
-            sudo apt-get install -y libssl-dev ninja-build zlib1g-dev
-            sudo apt-get install -y gcc-14 bzip2-doc icu-devtools libacl1-dev libattr1-dev
-            sudo apt-get install -y libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev
-            sudo apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
-            git config --global --add safe.directory "${PWD}"
-            DISTRO=ubuntu-`lsb_release -rs`
-            source "${PWD}/artifacts/env"
-            echo "DISTRO=${DISTRO}" >> ${PWD}/artifacts/env
-            export CC='ccache gcc-14 -mcpu=neoverse-n2+sve2+crypto'
-            ccache --show-config
-            pkg-config --list-all
-            BASE_DIR=${PWD}
-            OPENSSL_PATCH_VERSION=$(ls patches/nginx/deps/openssl/ | head -n 1)
-            OPENSSL_VERSION=${OPENSSL_PATCH_VERSION#v}
-            echo "OPENSSL_VERSION=${OPENSSL_VERSION}" >> ${PWD}/artifacts/env
-            wget "https://www.openssl.org/source/old/1.1.1/openssl-${OPENSSL_VERSION}.tar.gz"
-            tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
-            cd "${PWD}/openssl-${OPENSSL_VERSION}"
-            for patch in ${BASE_DIR}/patches/nginx/deps/openssl/${OPENSSL_PATCH_VERSION}/*.patch; do
-                patch -p1 < "$patch"
-            done
-            CFLAGS="-Wno-error=implicit-function-declaration" ./Configure --prefix=$PWD/install linux-aarch64
-            until make; do echo "Building OpenSSL failed, retrying"; done
-            make install
-            mkdir -p "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}"
-            mv "${PWD}/install/lib" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
-            mv "${PWD}/install/bin" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
-            mv "${PWD}/install/include" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
-            mv "${PWD}/install/ssl" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
-            mv "${PWD}/install/share" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
-            mkdir -p "${PWD}/install/DEBIAN"
-            mkdir -p "${PWD}/install/debian"
-            cd "${PWD}/install"
-            sed -i "s/^prefix=.*/prefix=\/usr\/lib\/cn10k\/openssl-${OPENSSL_VERSION}/g" usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib/pkgconfig/openssl.pc
-            sed -i "s/^prefix=.*/prefix=\/usr\/lib\/cn10k\/openssl-${OPENSSL_VERSION}/g" usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib/pkgconfig/libssl.pc
-            sed -i "s/^prefix=.*/prefix=\/usr\/lib\/cn10k\/openssl-${OPENSSL_VERSION}/g" usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib/pkgconfig/libcrypto.pc
-            echo 'Source: OpenSSL' > debian/control
-            echo 'Package: openssl-'${OPENSSL_VERSION}'-cn10k'${PKG_POSTFIX} >> DEBIAN/control
-            echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control >> DEBIAN/control
-            echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
-            echo "Architecture: arm64" >> DEBIAN/control
-            echo "Homepage: https://www.openssl.org/" >> DEBIAN/control
-            echo "Description: OpenSSL with Asynchronous support for Marvell Octeon 10" >> DEBIAN/control
-            echo "Provides: libssl.so.1.1, libcrypto.so.1.1" >> DEBIAN/control
-            rm -rf debian
-            cd ..
-            rm -rf "${PWD}/install/~" "${PWD}/install/home"
-            mv "${PWD}/install" "${PWD}/openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
-            dpkg --build "openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
-            cp -r "openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
-            sudo apt-get install ./openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb
-            cd ..
-            PCRE_PATCH_VERSION=$(ls patches/nginx/deps/pcre | head -n 1)
-            PCRE_VERSION=${PCRE_PATCH_VERSION#v}
-            wget "https://sourceforge.net/projects/pcre/files/pcre/${PCRE_VERSION}/pcre-${PCRE_VERSION}.tar.gz/download"
-            mv download pcre-${PCRE_VERSION}.tar.gz
-            tar xzf pcre-${PCRE_VERSION}.tar.gz
-            cd "${PWD}/pcre-${PCRE_VERSION}"
-            for patch in ${BASE_DIR}/patches/nginx/deps/pcre/${PCRE_PATCH_VERSION}/*.patch; do
-                patch -p1 < "$patch"
-            done
-            cd ..
-            export PCRE_PATH=$BASE_DIR/pcre-${PCRE_VERSION}
-            NGINX_PATCH_VERSION=$(ls patches/nginx | tail -n 1)
-            NGINX_VERSION=${NGINX_PATCH_VERSION#v}
-            echo "NGINX_VERSION=$NGINX_VERSION" >> ${PWD}/artifacts/env
-            wget "https://github.com/nginx/nginx/archive/release-${NGINX_VERSION}.tar.gz"
-            tar xzf release-${NGINX_VERSION}.tar.gz
-            cd "${PWD}/nginx-release-${NGINX_VERSION}"
-            for patch in ${BASE_DIR}/patches/nginx/${NGINX_PATCH_VERSION}/*.patch; do
-                patch -p1 < "$patch"
-            done
-            chmod +x configure
-            mkdir install
-            ./configure --with-pcre=${PCRE_PATH} --with-http_ssl_module --without-http_gzip_module --with-cc-opt="-DNGX_SECURE_MEM -I/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/include -Wno-error=deprecated-declarations -Wno-error=implicit-function-declaration" --with-threads  --with-file-aio    --with-ld-opt="-Wl,-rpath=/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib -L/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib -lssl -lcrypto" --add-dynamic-module=modules/nginx_cpt_module/
-            until make; do make clean;echo "Building NGINX failed, retrying"; done
-            DESTDIR=${PWD}/install/ make install
-            mkdir -p "${PWD}/certs/"
-            openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-                -keyout ${PWD}/certs/server.key.pem -out ${PWD}/certs/server.crt.pem \
-                -subj "/CN=marvell.com"
-            openssl req -x509 -newkey rsa:2048 -days 365 -nodes \
-                -keyout ${PWD}/certs/rootca.key.pem -out ${PWD}/certs/rootca.crt.pem \
-                -subj "/CN=MarvellRootCA"
-            mkdir -p "${PWD}/install/etc/nginx/certs/"
-            cp "${PWD}/certs/server.crt.pem" "${PWD}/install/etc/nginx/certs/"
-            cp "${PWD}/certs/server.key.pem" "${PWD}/install/etc/nginx/certs/"
-            cp "${PWD}/certs/rootca.crt.pem" "${PWD}/install/etc/nginx/certs/"
-            version_range() {
-              local var="$1"
-              local full="${!var}"
-              local year=$(echo "$full" | cut -d. -f1)
-              local month=$(echo "$full" | cut -d. -f2)
-              local base="${year}.${month}.0"
-              local upper="${year}.$((10#$month + 1)).0"
-              export "${var}_BASE"="${base}"
-              export "${var}_UPPER"="${upper}"
-            }
-            version_range PKG_VERSION_NAME
-            mkdir -p "${PWD}/install/DEBIAN"
-            mkdir -p "${PWD}/install/debian"
-            cd "${PWD}/install"
-            echo 'Source: NGINX' > debian/control
-            echo 'Package: nginx-'${NGINX_VERSION}'-cn10k'${PKG_POSTFIX} >> DEBIAN/control
-            echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
-            echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O usr/local/nginx/sbin/nginx | awk -F'Depends=' '{print $2}'`, openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (>= ${PKG_VERSION_NAME_BASE}), openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (<< ${PKG_VERSION_NAME_UPPER})" >> DEBIAN/control
-            echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
-            echo "Architecture: arm64" >> DEBIAN/control
-            echo "Homepage: https://nginx.org/" >> DEBIAN/control
-            echo "Description: Asynchronous NGINX for Marvell Octeon 10" >> DEBIAN/control
-            rm -rf debian
-            cd ..
-            rm -rf "${PWD}/install/~" "${PWD}/install/home"
-            mv "${PWD}/install" "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
-            dpkg --build "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
-            cp "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
+          set -x
+          source artifacts/env
+          sudo apt-get update -q -y
+          sudo apt-get install -y apt-utils python3-sphinx-rtd-theme python3-pip
+          sudo apt-get install -y python3-pyelftools python3-setuptools python3-wheel
+          sudo apt-get install -y build-essential meson ccache git gh doxygen
+          sudo apt-get install -y libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev
+          sudo apt-get install -y sphinx-common pkg-config software-properties-common
+          sudo apt-get install -y libarchive-dev libbsd-dev libbpf-dev
+          sudo apt-get install -y libfdt-dev libjansson-dev autoconf dh-autoreconf
+          sudo apt-get install -y libssl-dev ninja-build zlib1g-dev
+          sudo apt-get install -y gcc-14 bzip2-doc icu-devtools libacl1-dev libattr1-dev
+          sudo apt-get install -y libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev
+          sudo apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
+          git config --global --add safe.directory "${PWD}"
+          DISTRO=ubuntu-`lsb_release -rs`
+          source "${PWD}/artifacts/env"
+          echo "DISTRO=${DISTRO}" >> ${PWD}/artifacts/env
+          export CC='ccache gcc-14 -mcpu=neoverse-n2+sve2+crypto'
+          ccache --show-config
+          pkg-config --list-all
+          BASE_DIR="${PWD}"
+          OPENSSL_PATCH_VERSION=$(ls patches/nginx/deps/openssl/ | head -n 1)
+          OPENSSL_VERSION=${OPENSSL_PATCH_VERSION#v}
+          echo "OPENSSL_VERSION=${OPENSSL_VERSION}" >> ${PWD}/artifacts/env
+          wget "https://www.openssl.org/source/old/1.1.1/openssl-${OPENSSL_VERSION}.tar.gz"
+          tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
+          cd "${PWD}/openssl-${OPENSSL_VERSION}"
+          for patch in ${BASE_DIR}/patches/nginx/deps/openssl/${OPENSSL_PATCH_VERSION}/*.patch; do
+              patch -p1 < "$patch"
+          done
+          CFLAGS="-Wno-error=implicit-function-declaration" ./Configure --prefix=$PWD/install linux-aarch64
+          until make; do echo "Building OpenSSL failed, retrying"; done
+          make install
+          mkdir -p "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}"
+          mv "${PWD}/install/lib" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
+          mv "${PWD}/install/bin" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
+          mv "${PWD}/install/include" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
+          mv "${PWD}/install/ssl" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
+          mv "${PWD}/install/share" "${PWD}/install/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/."
+          mkdir -p "${PWD}/install/DEBIAN"
+          mkdir -p "${PWD}/install/debian"
+          cd "${PWD}/install"
+          sed -i "s/^prefix=.*/prefix=\/usr\/lib\/cn10k\/openssl-${OPENSSL_VERSION}/g" usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib/pkgconfig/openssl.pc
+          sed -i "s/^prefix=.*/prefix=\/usr\/lib\/cn10k\/openssl-${OPENSSL_VERSION}/g" usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib/pkgconfig/libssl.pc
+          sed -i "s/^prefix=.*/prefix=\/usr\/lib\/cn10k\/openssl-${OPENSSL_VERSION}/g" usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib/pkgconfig/libcrypto.pc
+          echo 'Source: OpenSSL' > debian/control
+          echo 'Package: openssl-'${OPENSSL_VERSION}'-cn10k'${PKG_POSTFIX} >> DEBIAN/control
+          echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
+          echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
+          echo "Architecture: arm64" >> DEBIAN/control
+          echo "Homepage: https://www.openssl.org/" >> DEBIAN/control
+          echo "Description: OpenSSL with Asynchronous support for Marvell Octeon 10" >> DEBIAN/control
+          echo "Provides: libssl.so.1.1, libcrypto.so.1.1" >> DEBIAN/control
+          rm -rf debian
+          cd ..
+          rm -rf "${PWD}/install/~" "${PWD}/install/home"
+          mv "${PWD}/install" "${PWD}/openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+          dpkg --build "openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+          cp -r "openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
+          sudo apt-get install ./openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb
+          cd ..
+          PCRE_PATCH_VERSION=$(ls patches/nginx/deps/pcre | head -n 1)
+          PCRE_VERSION=${PCRE_PATCH_VERSION#v}
+          wget "https://sourceforge.net/projects/pcre/files/pcre/${PCRE_VERSION}/pcre-${PCRE_VERSION}.tar.gz/download"
+          mv download pcre-${PCRE_VERSION}.tar.gz
+          tar xzf pcre-${PCRE_VERSION}.tar.gz
+          cd "${PWD}/pcre-${PCRE_VERSION}"
+          for patch in ${BASE_DIR}/patches/nginx/deps/pcre/${PCRE_PATCH_VERSION}/*.patch; do
+              patch -p1 < "$patch"
+          done
+          cd ..
+          export PCRE_PATH=$BASE_DIR/pcre-${PCRE_VERSION}
+          NGINX_PATCH_VERSION=$(ls patches/nginx | tail -n 1)
+          NGINX_VERSION=${NGINX_PATCH_VERSION#v}
+          echo "NGINX_VERSION=$NGINX_VERSION" >> ${PWD}/artifacts/env
+          wget "https://github.com/nginx/nginx/archive/release-${NGINX_VERSION}.tar.gz"
+          tar xzf release-${NGINX_VERSION}.tar.gz
+          cd "${PWD}/nginx-release-${NGINX_VERSION}"
+          for patch in ${BASE_DIR}/patches/nginx/${NGINX_PATCH_VERSION}/*.patch; do
+              patch -p1 < "$patch"
+          done
+          chmod +x configure
+          mkdir install
+          ./configure --with-pcre=${PCRE_PATH} --with-http_ssl_module --without-http_gzip_module --with-cc-opt="-DNGX_SECURE_MEM -I/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/include -Wno-error=deprecated-declarations -Wno-error=implicit-function-declaration" --with-threads  --with-file-aio    --with-ld-opt="-Wl,-rpath=/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib -L/usr/lib/cn10k/openssl-${OPENSSL_VERSION}/lib -lssl -lcrypto" --add-dynamic-module=modules/nginx_cpt_module/
+          until make; do make clean;echo "Building NGINX failed, retrying"; done
+          DESTDIR=${PWD}/install/ make install
+          mkdir -p "${PWD}/certs/"
+          openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+              -keyout ${PWD}/certs/server.key.pem -out ${PWD}/certs/server.crt.pem \
+              -subj "/CN=marvell.com"
+          openssl req -x509 -newkey rsa:2048 -days 365 -nodes \
+              -keyout ${PWD}/certs/rootca.key.pem -out ${PWD}/certs/rootca.crt.pem \
+              -subj "/CN=MarvellRootCA"
+          mkdir -p "${PWD}/install/etc/nginx/certs/"
+          cp "${PWD}/certs/server.crt.pem" "${PWD}/install/etc/nginx/certs/"
+          cp "${PWD}/certs/server.key.pem" "${PWD}/install/etc/nginx/certs/"
+          cp "${PWD}/certs/rootca.crt.pem" "${PWD}/install/etc/nginx/certs/"
+          version_range() {
+            local var="$1"
+            local full="${!var}"
+            local year=$(echo "$full" | cut -d. -f1) # year is the first part of the version
+            local month=$(echo "$full" | cut -d. -f2) # month is the second part of the version
+            local base="${year}.${month}.0" # base is the first two parts of the version with .0
+            local upper="${year}.$((10#$month + 1)).0" # increment the month by 1 to get the upper limit
+            export "${var}_BASE"="${base}"
+            export "${var}_UPPER"="${upper}"
+          }
+          version_range PKG_VERSION_NAME
+          mkdir -p "${PWD}/install/DEBIAN"
+          mkdir -p "${PWD}/install/debian"
+          cd "${PWD}/install"
+          echo 'Source: NGINX' > debian/control
+          echo 'Package: nginx-'${NGINX_VERSION}'-cn10k'${PKG_POSTFIX} >> DEBIAN/control
+          echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
+          echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O usr/local/nginx/sbin/nginx | awk -F'Depends=' '{print $2}'`, openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (>= ${PKG_VERSION_NAME_BASE}), openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (<< ${PKG_VERSION_NAME_UPPER})" >> DEBIAN/control
+          echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
+          echo "Architecture: arm64" >> DEBIAN/control
+          echo "Homepage: https://nginx.org/" >> DEBIAN/control
+          echo "Description: Asynchronous NGINX for Marvell Octeon 10" >> DEBIAN/control
+          rm -rf debian
+          cd ..
+          rm -rf "${PWD}/install/~" "${PWD}/install/home"
+          mv "${PWD}/install" "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+          dpkg --build "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"
+          cp "${PWD}/nginx-${NGINX_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64.deb" ${BASE_DIR}/artifacts/.
       - name: Export version name
         id: artifacts
         run: |
@@ -179,12 +250,11 @@ jobs:
           echo $DISTRO
           echo "DISTRO=${DISTRO}" >> "$GITHUB_OUTPUT"
           [[ "$PKG_POSTFIX" == "-devel" ]] && TAG=devel || TAG=${PKG_VERSION_NAME}
-          [[ "$PKG_POSTFIX" == "-devel" ]] && IS_DEVEL="true" || IS_DEVEL="false"
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
           echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
           echo "IS_DEVEL=${IS_DEVEL}" >> "$GITHUB_OUTPUT"
       - name: Delete existing release
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' }} || ${{ github.event_name == 'workflow_dispatch' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -193,7 +263,7 @@ jobs:
         continue-on-error: true
       - name: Release NGINX cn10k package
         uses: softprops/action-gh-release@v2.2.2
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' }} || ${{ github.event_name == 'workflow_dispatch' }}
         with:
           draft: false
           tag_name: nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
@@ -201,14 +271,14 @@ jobs:
             ${{ github.workspace }}/artifacts/nginx-${{ steps.artifacts.outputs.NGINX_VERSION }}-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
       - name: Release OpenSSL cn10k package
         uses: softprops/action-gh-release@v2.2.2
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' }} || ${{ github.event_name == 'workflow_dispatch' }}
         with:
           draft: false
           tag_name: openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}
           files: |
             ${{ github.workspace }}/artifacts/openssl-${{ steps.artifacts.outputs.OPENSSL_VERSION }}-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}_${{ steps.artifacts.outputs.PKG_VERSION_NAME }}_arm64.deb
       - name: Dispatch package update event
-        if: ${{ github.event_name == 'push' }}
+        if: ${{ github.event_name == 'push' }} || ${{ github.event_name == 'workflow_dispatch' }}
         run: |
           curl -L \
             -X POST \
