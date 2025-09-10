@@ -34,10 +34,13 @@ Before downloading the octep CP agent package, make sure ubuntu repository is se
 
 Installing the octep CP agent package
 
+- Release repository
+
 .. code-block:: console
 
- Release repository
  # apt-get install oct-ep-target-cn10k
+
+- `Development repository <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
 
 .. _octep_cp_agent:
 

@@ -209,7 +209,13 @@ Change the repository to development version as mentioned in
 
 .. code-block:: console
 
- # apt-get install dao-cn10k-devel
+ # apt-get install <component>-devel
+
+Where:
+
+- <component> is the base name of the package, e.g. dao-cn10k.
+
+- The development package will have the suffix -devel, e.g. dao-cn10k-devel.
 
 Removing old packages
 ---------------------
