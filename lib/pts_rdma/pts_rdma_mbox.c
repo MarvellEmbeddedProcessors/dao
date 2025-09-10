@@ -24,6 +24,7 @@ pts_rdma_qp_mem_free(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 	rte_bitmap_clear(dev->qp_bmap, qp->qp_id);
 	rte_free(qp->rq.cq_data.ring_base);
 	rte_free(qp->rq.sd_desc_base);
+	rte_free(qp->r_mbuf_arr);
 	rte_free(qp->sq.cq_data.ring_base);
 	rte_free(qp->sq.mbuf_arr);
 	rte_free(qp->sq.sd_desc_base);
@@ -55,6 +56,32 @@ pts_rdma_qp_sq_flush(struct pts_rdma_qp *qp)
 }
 
 static void
+pts_rdma_qp_read_ring_flush(struct pts_rdma_qp *qp)
+{
+	uint16_t mbuf_dma_off, last_off, q_sz, off, end;
+	uint32_t nb_avail;
+
+	if (!qp)
+		return;
+
+	mbuf_dma_off = qp->r_mbuf_dma_off;
+	last_off = qp->r_last_off;
+	q_sz = qp->r_q_sz;
+
+	nb_avail = desc_off_diff(mbuf_dma_off, last_off, q_sz);
+	if (unlikely(!nb_avail))
+		return;
+
+	off = last_off;
+	do {
+		end = (off + nb_avail > q_sz) ? (uint32_t)(q_sz - off) : nb_avail;
+		rte_pktmbuf_free_bulk(&qp->r_mbuf_arr[off], end);
+		off = (off + end) & (q_sz - 1);
+		nb_avail -= end;
+	} while (nb_avail);
+}
+
+static void
 pts_rdma_qp_rq_flush(struct pts_rdma_qp *qp)
 {
 	/* Post DMA completion, all buffers are freed by DPI */
@@ -70,6 +97,7 @@ pts_rdma_qp_buf_free(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 		return;
 	pts_rdma_qp_sq_flush(qp);
 	pts_rdma_qp_rq_flush(qp);
+	pts_rdma_qp_read_ring_flush(qp);
 }
 
 static void
@@ -206,6 +234,14 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 		rc = -ENOMEM;
 		goto sq_free;
 	}
+	qp->r_mbuf_arr = (struct rte_mbuf **)rte_zmalloc(
+		"pts_rdma_qp_read_ring", sizeof(struct rte_mbuf *) * PTS_RDMA_MAX_READ_REQ,
+		RTE_CACHE_LINE_SIZE);
+	if (!qp->r_mbuf_arr) {
+		dao_err("[dev %u] Failed to allocate read mbuf ring", dev->dev_id);
+		goto sq_free;
+	}
+	qp->r_q_sz = PTS_RDMA_MAX_READ_REQ;
 	/* Populate Recv Queue and associate with its CQ */
 	rq->sd_desc_base = (uint32_t *)rte_zmalloc(
 		"pts_rdma_rq_sd_desc", req->rq_size * PTS_RDMA_DEV_RQE_SIZE, RTE_CACHE_LINE_SIZE);
@@ -213,7 +249,7 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 		dao_err("[dev %u] Failed to allocate memory for RDMA sq cq descriptors",
 			dev->dev_id);
 		rc = -ENOMEM;
-		goto sq_free;
+		goto mbuf_free;
 	}
 	rq->desc_base = req->rq_base;
 	rq->q_sz = req->rq_size;
@@ -265,6 +301,8 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 rq_free:
 	rte_free(rq->sd_desc_base);
 	rte_free(rq->cq_data.ring_base);
+mbuf_free:
+	rte_free(qp->r_mbuf_arr);
 sq_free:
 	rte_free(sq->mbuf_arr);
 	rte_free(sq->cq_data.ring_base);

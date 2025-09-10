@@ -196,6 +196,43 @@ struct dao_pts_rdma_dev_info {
 				     ((mbuf)->l2_len * sizeof(struct dao_pts_rdma_sge))))
 
 /**
+ * Get max supported read requests
+ *
+ * @return
+ * max supported read requests
+ */
+
+int dao_pts_rdma_max_read_req_get(void);
+
+/**
+ * Set RDMA dev QP MTU.
+ *
+ * @param devid
+ *   RDMA dev id
+ * @param qp_id
+ *   RDMA dev qp id
+ * @param mtu
+ *   MTU value to set
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_qp_mtu_set(uint16_t devid, uint16_t qp_id, uint16_t mtu);
+
+/**
+ * Get RDMA dev RQ depth.
+ *
+ * @param devid
+ *   RDMA dev id
+ * @param qp_id
+ *   RDMA dev qp id
+ * @param avail
+ *   RDMA rq depth to return
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_rq_avail_get(uint16_t devid, uint16_t qp_id, uint16_t *avail);
+
+/**
  * Get RDMA TR device info.
  *
  * @param pem_devid

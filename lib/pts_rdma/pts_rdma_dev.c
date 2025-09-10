@@ -336,6 +336,65 @@ dao_pts_rdma_dev_cb_unregister(void)
 }
 
 int
+dao_pts_rdma_qp_mtu_set(uint16_t devid, uint16_t qp_id, uint16_t mtu)
+{
+	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
+	struct pts_rdma_qp_sq *sq;
+
+	if (unlikely(!qp))
+		return -EINVAL;
+
+	sq = &qp->sq;
+	sq->mtu = mtu;
+
+	dao_dbg("dev[%d] QP%d mtu updated to %u", devid, qp_id, mtu);
+	return 0;
+}
+
+int
+dao_pts_rdma_rq_avail_get(uint16_t devid, uint16_t qp_id, uint16_t *avail)
+{
+	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
+	struct pts_rdma_qp_rq *rq;
+
+	if (unlikely(!qp))
+		return -EINVAL;
+
+	rq = &qp->rq;
+	*avail = desc_off_diff(__atomic_load_n(&rq->sd_desc_dma_off, __ATOMIC_ACQUIRE),
+			       rq->sd_mbuf_off, rq->q_sz);
+
+	return 0;
+}
+
+int
+dao_pts_rdma_dev_info_get(uint16_t pem_devid, uint16_t dev_id, struct dao_pts_rdma_dev_info *info)
+{
+	uint64_t bar4_sz, notify_off_mltpr;
+	uint64_t bar4;
+	int rc;
+
+	/* Get BAR4 info for this device */
+	rc = dao_pem_vf_region_info_get(pem_devid, dev_id, 4, &bar4, &bar4_sz);
+	if (rc) {
+		dao_err("[dev %u] Failed to get bar4 region info, rc=%d", dev_id, rc);
+		return rc;
+	}
+
+	/* Get host page size */
+	notify_off_mltpr = QUEUE_MULTIPLIER;
+
+	info->max_qps = pts_rdma_dev_max_qps(bar4_sz, notify_off_mltpr);
+	info->max_qps = RTE_MIN(info->max_qps, DAO_PTS_RDMA_MAX_QPS);
+	info->max_cqs = info->max_qps;
+	info->notify_off_mltpr = notify_off_mltpr;
+	info->notify_qs_mltpr = NOTIFY_QS_MULTIPLIER;
+	info->bar4_sz = bar4_sz;
+
+	return 0;
+}
+
+int
 dao_pts_rdma_dev_config_update(uint16_t devid, uint8_t *cfg, uint16_t cfg_len)
 {
 	struct dao_pts_rdma_dev *ptsdev = &dao_pts_rdma_devs[devid];

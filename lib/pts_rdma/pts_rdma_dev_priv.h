@@ -154,6 +154,11 @@ struct pts_rdma_qp {
 		uint16_t cq_id;
 		struct pts_rdma_cq_data cq_data;
 	} rq;
+	struct rte_mbuf **r_mbuf_arr;
+	uint16_t r_mbuf_dma_off;
+	uint16_t r_mbuf_off;
+	uint16_t r_last_off;
+	uint16_t r_q_sz;
 	uint16_t qp_id;
 };
 

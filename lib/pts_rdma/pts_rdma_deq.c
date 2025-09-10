@@ -37,19 +37,17 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 	RTE_SET_USED(flags);
 	off = sq->last_off;
 	mbuf_arr = sq->mbuf_arr;
-	mbuf_arr += off;
 
 	while (i < nb_mbufs) {
 		d_flags = *SQ_DESC_PTR_OFF(desc_base, off, 0);
 		opcode = d_flags & 0xFF;
 		num_sges = (d_flags >> 24) & 0xFF;
 		next_desc = num_sges > 2 ? RTE_ALIGN_CEIL(num_sges - 2, 4) / 4 : 0;
-
-		/* Stop processing if not all data is not available */
-		if (unlikely(desc_off_add(off, next_desc + 1, q_sz) > sd_mbuf_dma_off))
-			break;
-
-		mbuf = mbuf_arr[0];
+		if (unlikely(next_desc)) {
+			if (unlikely(desc_off_add(off, next_desc + 1, q_sz) > sd_mbuf_dma_off))
+				break;
+		}
+		mbuf = mbuf_arr[off];
 		/* Copy SQE descriptor without SGEs to mbuf */
 		mbuf_priv = rte_mbuf_to_priv(mbuf);
 		rte_memcpy(mbuf_priv, SQ_DESC_PTR_OFF(desc_base, off, 0), PTS_RDMA_SQE_HDR_SZ);
@@ -66,7 +64,6 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 		d_mbufs[i] = mbuf;
 		i++;
 		off = desc_off_add(off, next_desc + 1, q_sz);
-		mbuf_arr += (next_desc + 1);
 		if (off == sd_mbuf_dma_off)
 			break;
 	}
@@ -75,6 +72,177 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 	__atomic_store_n(sq->ci_addr, off, __ATOMIC_RELEASE);
 
 	return nb_mbufs;
+}
+
+static __rte_always_inline void
+free_mbuf_seg_chain(struct rte_mbuf *mbuf)
+{
+	struct rte_mbuf *mb = mbuf, *mb_next;
+
+	while (mb) {
+		mb_next = mb->next;
+		rte_pktmbuf_free_seg(mb);
+		mb = mb_next;
+	}
+}
+
+static __rte_always_inline uint32_t
+cal_num_dst_mbufs(uint32_t slen, uint32_t buf_len, uint32_t mtu)
+{
+	uint32_t n_mbufs = 0, mbuf_off = 0;
+	uint32_t len = 0, mbuf_space_left = 0;
+	uint32_t mtu_limit = mtu;
+
+	while (slen > 0) {
+		if (mbuf_off == 0)
+			n_mbufs++;
+		mbuf_space_left = buf_len - mbuf_off;
+		len = RTE_MIN(RTE_MIN(mbuf_space_left, mtu_limit), slen);
+		mbuf_off += len;
+		mtu_limit -= len;
+		slen -= len;
+		/* Move to next mbuf if buf_len or MTU boundary is reached */
+		if (mbuf_off == buf_len || mtu_limit == 0) {
+			mbuf_off = 0;
+			if (mtu_limit == 0)
+				mtu_limit = mtu;
+		}
+	}
+	return n_mbufs;
+}
+
+static __rte_always_inline int16_t
+alloc_and_chain_mbufs(struct pts_rdma_qp_sq *sq, struct rte_mbuf *mb, uint32_t n_mbufs,
+		      uint64_t rearm_data)
+{
+	struct rte_mbuf *mbuf = mb, *mb_next;
+	uint32_t i = 0;
+
+	for (i = 1; i < n_mbufs; i++) {
+		if (rte_mempool_get(sq->mp, (void **)&mb_next)) {
+			free_mbuf_seg_chain(mb->next);
+			mb->next = NULL;
+			mb->nb_segs = 1;
+			return -1;
+		}
+		*((uint64_t *)&mb_next->rearm_data) = rearm_data;
+		mb_next->ol_flags = 0;
+		mb_next->next = NULL;
+		mb_next->pkt_len = 0;
+		mb_next->data_len = 0;
+
+		mbuf->next = mb_next;
+		mbuf = mb_next;
+	}
+	return 0;
+}
+
+static __rte_always_inline int16_t
+process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct pts_rdma_qp_sq *sq,
+		   struct rte_mbuf *mbuf, uint16_t off, uint32_t nb_src_segs, uint32_t slen)
+{
+	const uint64_t rearm_data =
+		(0x100010000ULL | PTS_RDMA_DATA_OFF | ((uint64_t)(devid + RTE_MAX_ETHPORTS) << 48));
+	uintptr_t desc_base = (uintptr_t)sq->sd_desc_base;
+	uint16_t buf_len, mtu;
+	uint32_t max_src_len, max_dst_len, n_sge_idx, n_mbuf_idx;
+	uint32_t mtu_limit, to_copy, len;
+	uint32_t n_dst_mbufs = 0;
+	uint32_t dst_ops = 0;
+	uint32_t mbuf_off = 0, mbuf_len_left;
+	uint32_t dlen = 0, next_sge = 0;
+	struct rte_mbuf *mb = mbuf;
+	uint32_t sge_len, sge_offset = 0;
+	uint64_t sge_addr;
+	uint32_t sge_len_left;
+
+	max_src_len = slen;
+	buf_len = sq->buf_len;
+	mtu = sq->mtu ? sq->mtu : buf_len;
+	mtu_limit = mtu;
+
+	/* Calculate total required mbufs based on MTU requirement */
+	n_dst_mbufs = cal_num_dst_mbufs(slen, buf_len, mtu);
+
+	if (alloc_and_chain_mbufs(sq, mbuf, n_dst_mbufs, rearm_data) < 0)
+		return -1;
+
+	mbuf->nb_segs = n_dst_mbufs;
+	n_sge_idx = 0;
+	n_mbuf_idx = 0;
+
+	while (n_sge_idx < nb_src_segs && max_src_len > 0) {
+		if (unlikely(!dao_dma_flush(dev2mem, DAO_DMA_MAX_POINTER_THR_DFLT)))
+			return -1;
+
+		dst_ops = 0;
+		max_dst_len = 0;
+		while (n_mbuf_idx < n_dst_mbufs && max_src_len > 0 &&
+		       dst_ops < DAO_DMA_MAX_POINTER_THR_DFLT) {
+			mbuf_len_left = buf_len - mbuf_off;
+			dlen = RTE_MIN(mbuf_len_left, mtu_limit);
+			len = RTE_MIN(dlen, max_src_len);
+
+			if (len == 0) {
+				if (mbuf_off > 0)
+					mb->data_len = mbuf_off;
+				n_mbuf_idx++;
+				if (n_mbuf_idx < n_dst_mbufs)
+					mb = mb->next;
+				mbuf_off = 0;
+				if (mtu_limit == 0)
+					mtu_limit = mtu;
+				continue;
+			}
+
+			dao_dma_enq_dst_x1(dev2mem, (uintptr_t)mb + sq->data_off + mbuf_off, len);
+			mbuf_off += len;
+			mtu_limit -= len;
+			max_dst_len += len;
+			max_src_len -= len;
+			dst_ops++;
+
+			if (mbuf_off == buf_len || mtu_limit == 0) {
+				mb->data_len = mbuf_off;
+				n_mbuf_idx++;
+				if (n_mbuf_idx < n_dst_mbufs)
+					mb = mb->next;
+				mbuf_off = 0;
+				if (mtu_limit == 0)
+					mtu_limit = mtu;
+			}
+		}
+		if (mbuf_off > 0 && n_mbuf_idx < n_dst_mbufs)
+			mb->data_len = mbuf_off;
+
+		to_copy = max_dst_len;
+		while (to_copy > 0 && n_sge_idx < nb_src_segs) {
+			if (!next_sge) {
+				sge_len = *(uint32_t *)SQ_DESC_PTR_OFF(desc_base, off,
+								       40 + 16 * n_sge_idx);
+				sge_addr = *SQ_DESC_PTR_OFF(desc_base, off, 32 + 16 * n_sge_idx) &
+					   PTS_RDMA_DEV_IOVA_MASK;
+				next_sge = true;
+			}
+			sge_len_left = sge_len - sge_offset;
+			len = RTE_MIN(sge_len_left, to_copy);
+			if (len == 0) {
+				n_sge_idx++;
+				sge_offset = 0;
+				next_sge = 0;
+				continue;
+			}
+			dao_dma_enq_src_x1(dev2mem, sge_addr + sge_offset, len);
+			sge_offset += len;
+			to_copy -= len;
+			if (sge_offset == sge_len) {
+				n_sge_idx++;
+				sge_offset = 0;
+				next_sge = 0;
+			}
+		}
+	}
+	return 0;
 }
 
 static __rte_always_inline uint16_t
@@ -88,11 +256,13 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 	uint16_t sd_desc_dma_off, sd_mbuf_off, q_sz;
 	uint16_t data_off = sq->data_off;
 	uint16_t buf_len = sq->buf_len;
-	struct rte_mbuf *mbuf, *mbuf2;
-	uint16_t used = 0, num_sges;
+	uint16_t mtu = sq->mtu;
+	struct rte_mbuf *mbuf;
+	uint16_t used = 0, read_used = 0, num_sges;
 	uint32_t nb_mbufs, nb_desc;
-	uint32_t i = 0, slen, dlen;
+	uint32_t i = 0, slen, dlen, len;
 	struct rte_mbuf **mbuf_arr;
+	uint16_t unused_mbuf_off;
 	uint8_t opcode, next_desc;
 	uint16_t off, mbuf_off;
 	int last_idx = 0, j;
@@ -114,28 +284,30 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 
 	rte_prefetch0(SQ_DESC_PTR_OFF(desc_base, off, 0));
 	mbuf_arr = sq->mbuf_arr;
-	mbuf_arr += off;
 
 	/* Flush to get minimum space */
 	if (!dao_dma_flush(vchan, 1))
 		return 0;
 
+	if (!mtu)
+		mtu = buf_len;
 	i = 0;
 	while (i < nb_desc) {
 		d_flags = *SQ_DESC_PTR_OFF(desc_base, off, 0);
 		opcode = d_flags & 0xFF;
 		num_sges = (d_flags >> 24) & 0xFF;
 		next_desc = num_sges > 2 ? RTE_ALIGN_CEIL(num_sges - 2, 4) / 4 : 0;
-		/* Stop processing if not all descriptors are available */
-		if (unlikely(desc_off_add(off, next_desc + 1, q_sz) > sd_desc_dma_off))
-			break;
-
+		if (unlikely(next_desc)) {
+			if (unlikely(desc_off_add(off, next_desc + 1, q_sz) > sd_desc_dma_off))
+				break;
+		}
 		/* Skip DMA if xfer is from device to host */
-		if (DAO_BIT(opcode) & PTS_RDMA_M2D_MASK)
+		if (DAO_BIT(opcode) & PTS_RDMA_M2D_MASK) {
+			i += (next_desc + 1);
+			off = (off + next_desc + 1) & (q_sz - 1);
+			read_used = i;
 			continue;
-
-		if (!dao_dma_flush(vchan, num_sges))
-			goto exit;
+		}
 
 		src = dao_dma_sge_src(vchan);
 		dst = dao_dma_sge_dst(vchan);
@@ -143,126 +315,129 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 		/* Copy source sgs */
 		slen = *(uint32_t *)SQ_DESC_PTR_OFF(desc_base, off, 40);
 		dlen = slen;
-		mbuf = mbuf_arr[0];
-
-		src[0].addr = *SQ_DESC_PTR_OFF(desc_base, off, 32) & PTS_RDMA_DEV_IOVA_MASK;
-		src[0].length = slen;
-		dst[0].addr = (((uintptr_t)mbuf) + data_off);
-		dst[0].length = dlen;
+		mbuf = mbuf_arr[off];
 
 		/* Update mbuf length */
 		*((uint64_t *)&mbuf->rearm_data) = rearm_data;
 		mbuf->pkt_len = slen;
-		mbuf->data_len = dlen;
 		mbuf->ol_flags = 0;
 
-		/* Handle multi-seg */
-		if (unlikely(num_sges > 1 || dlen > buf_len)) {
-			struct rte_mbuf *mbuf_n;
-			uint32_t len;
+		if (likely(num_sges == 1 && dlen <= buf_len && dlen <= mtu)) {
+			src[0].addr = *SQ_DESC_PTR_OFF(desc_base, off, 32) & PTS_RDMA_DEV_IOVA_MASK;
+			src[0].length = slen;
+			dst[0].addr = (((uintptr_t)mbuf) + data_off);
+			dst[0].length = dlen;
 
+			mbuf->data_len = dlen;
+			vchan->src_i++;
+			vchan->dst_i++;
+		} else {
 			for (j = 1; j < num_sges; j++) {
-				src[j].addr = (*SQ_DESC_PTR_OFF(desc_base, off, 32 + 16 * j) &
-					       PTS_RDMA_DEV_IOVA_MASK);
 				len = *SQ_DESC_PTR_OFF(desc_base, off, 40 + 16 * j);
-				src[j].length = len;
 				slen += len;
 			}
-			mbuf->pkt_len = slen;
-
-			/* All dst's required doesn't fit in a request */
-			if (buf_len * dao_dma_dst_avail(vchan) < slen)
-				goto exit;
-
-			/* Enqueue all dst's */
-			dlen = slen;
-			len = RTE_MIN(dlen, buf_len);
-			dst[0].length = len;
-			dlen -= len;
-			mbuf->data_len = len;
-			j = 1;
-			mbuf2 = mbuf;
-			while (dlen) {
-				len = RTE_MIN(dlen, buf_len);
-				dlen -= len;
-				if (j < num_sges) {
-					mbuf2->next = mbuf_arr[j];
-					mbuf2 = mbuf_arr[j];
-				} else {
-					if (unlikely(rte_mempool_get(sq->mp, (void **)&mbuf_n))) {
-						/* Free all mbufs from end of num_sges */
-						if (j > num_sges)
-							rte_pktmbuf_free(mbuf_arr[num_sges]);
-						goto exit;
-					}
-					mbuf2->next = mbuf_n;
-					mbuf2 = mbuf_n;
-				}
-				dst[j].addr = (((uintptr_t)mbuf2) + data_off);
-				dst[j].length = len;
-				mbuf2->data_len = len;
-				mbuf->nb_segs++;
-				j++;
+			/* Free the mbuf which was allocated for next_desc > 2 */
+			if (next_desc) {
+				unused_mbuf_off = (off + 1) & (q_sz - 1);
+				rte_pktmbuf_free(mbuf_arr[unused_mbuf_off]);
 			}
-			vchan->src_i += num_sges - 1;
-			vchan->dst_i += j - 1;
+			mbuf->pkt_len = slen;
+			if (process_multi_mbuf(devid, vchan, sq, mbuf, off, num_sges, slen) < 0)
+				goto exit;
 		}
-		vchan->src_i++;
-		vchan->dst_i++;
-
 		i += (next_desc + 1);
 		off = (off + next_desc + 1) & (q_sz - 1);
 		used = i;
 		last_idx = vchan->tail;
-		mbuf_arr += (next_desc + 1);
 		if (!dao_dma_flush(vchan, 1))
 			break;
 	}
 
-	mbuf_off = desc_off_add(sq->sd_mbuf_off, used, sq->q_sz);
-	sq->sd_mbuf_off = mbuf_off;
-	dao_dma_update_cmpl_meta_v2(vchan, &sq->sd_mbuf_dma_off, mbuf_off, last_idx);
 exit:
+	if (used) {
+		mbuf_off = desc_off_add(sq->sd_mbuf_off, used, sq->q_sz);
+		sq->sd_mbuf_off = mbuf_off;
+		dao_dma_update_cmpl_meta_v2(vchan, &sq->sd_mbuf_dma_off, mbuf_off, last_idx);
+	}
+	if (read_used) {
+		mbuf_off = desc_off_add(sq->sd_mbuf_off, read_used, sq->q_sz);
+		sq->sd_mbuf_off = mbuf_off;
+		sq->sd_mbuf_dma_off = mbuf_off;
+	}
 	return 0;
+}
+
+static __rte_always_inline uint16_t
+fetch_pending_read(struct pts_rdma_qp *qp, uint16_t hint, struct rte_mbuf **mbufs,
+		   const uint16_t flags)
+{
+	uint16_t nb_mbufs_avail, nb_desc, i = 0;
+	uint16_t q_sz, mbuf_off, last_off, index = 0;
+	struct rte_mbuf **mbuf_arr;
+
+	RTE_SET_USED(flags);
+	q_sz = qp->r_q_sz;
+	last_off = qp->r_last_off;
+	mbuf_off = __atomic_load_n(&qp->r_mbuf_off, __ATOMIC_ACQUIRE);
+	nb_mbufs_avail = desc_off_diff(mbuf_off, last_off, q_sz);
+
+	if (unlikely(!nb_mbufs_avail))
+		return 0;
+
+	nb_desc = RTE_MIN(nb_mbufs_avail, hint);
+	if (unlikely(!nb_desc))
+		return 0;
+
+	mbuf_arr = qp->r_mbuf_arr;
+
+	for (i = 0; i < nb_desc; i++) {
+		index = desc_off_add(last_off, i, q_sz);
+		mbufs[i] = mbuf_arr[index];
+	}
+
+	last_off = desc_off_add(last_off, nb_desc, q_sz);
+	__atomic_store_n(&qp->r_last_off, last_off, __ATOMIC_RELEASE);
+
+	return nb_desc;
 }
 
 static __rte_always_inline int
 pts_rdma_dequeue_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbufs,
 		       uint16_t nb_mbufs, const uint16_t flags)
 {
-	struct pts_rdma_qp_sq *sq = &qp->sq;
+	uint16_t q_sz, nb_read = 0, nb_deq_pkts = 0, nb_to_process = 0, nb_deq_hint = 0;
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct pts_rdma_qp_sq *sq = &qp->sq;
 	uint16_t dma_vchan = sq->dma_vchan;
 	struct dao_dma_vchan_state *vchan;
 	uint16_t nb_avail, last_off;
 	uint16_t sd_mbuf_dma_off;
-	uint16_t q_sz;
+	uint16_t nb_read_hint;
 
 	vchan = &vchan_info->dev2mem[dma_vchan];
 
 	rte_prefetch0(&sq->last_off);
 	/* Update completed DMA ops */
-	dao_dma_check_meta_compl(vchan, 0 /* No ATOMIC update */);
+	dao_dma_check_meta_compl_v2(vchan, 0 /* No ATOMIC update */);
 
-	/* Check shadow mbuf status and issue new DMA's for mbuf's */
-	fetch_host_data(devid, sq, vchan, 128, flags);
+	nb_read_hint = nb_mbufs / 2;
+	nb_read = fetch_pending_read(qp, nb_read_hint, mbufs, flags);
+
+	nb_deq_hint = (nb_mbufs - nb_read_hint) + (nb_read_hint - nb_read);
+	fetch_host_data(devid, sq, vchan, nb_deq_hint, flags);
 	sd_mbuf_dma_off = sq->sd_mbuf_dma_off;
 	last_off = sq->last_off;
 
 	q_sz = sq->q_sz;
-	/* Check for available mbufs */
 	nb_avail = desc_off_diff(sd_mbuf_dma_off, last_off, q_sz);
+	nb_to_process = RTE_MIN(nb_deq_hint, nb_avail);
 
-	nb_mbufs = RTE_MIN(nb_mbufs, nb_avail);
-
-	/* Return if no mbuf's available */
-	if (unlikely(!nb_mbufs))
+	if (unlikely(nb_to_process == 0))
 		goto exit;
 
-	/* Post process packets and fill buffers */
-	nb_mbufs = post_process_data(devid, sq, mbufs, nb_mbufs, flags);
+	nb_deq_pkts = post_process_data(devid, sq, mbufs + nb_read, nb_to_process, flags);
 exit:
-	return nb_mbufs;
+	return nb_read + nb_deq_pkts;
 }
 
 int
