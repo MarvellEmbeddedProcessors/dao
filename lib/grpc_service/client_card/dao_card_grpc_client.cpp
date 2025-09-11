@@ -34,6 +34,7 @@ using dao_card_manager::FileTransferType;
 using dao_card_manager::BootSource;
 using dao_card_manager::CardStats;
 using dao_card_manager::DmesgLogs;
+using dao_card_manager::CardSensors;
 
 struct dao_card_grpc_ctx {
 	std::unique_ptr<DaoCardService::Stub> stub;
@@ -227,6 +228,30 @@ dao_card_dmesg_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
 	memcpy(buf, text.data(), text.size());
 	buf[text.size()] = '\0';
 	return (int)text.size();
+}
+
+int
+dao_card_sensors_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
+{
+	ClientContext context;
+	grpc::Status status;
+	CardSensors resp;
+	Emp empty;
+
+	if (ctx == NULL || buf == NULL || len == 0)
+		return -EINVAL;
+
+	status = ctx->stub->Sensors(&context, empty, &resp);
+	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP;
+		fprintf(stderr, "Failed to get sensors output: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return -EIO;
+	}
+
+	strncpy(buf, resp.output().c_str(), len - 1);
+	buf[len - 1] = '\0';
+	return 0;
 }
 
 int

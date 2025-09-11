@@ -7,6 +7,8 @@
 
 #include "../dao_card_grpc_service.h"
 
+#include <stddef.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -98,6 +100,17 @@ int dao_card_app_fallback(struct dao_card_grpc_ctx *ctx);
  * @return: 0 on success, negative value on failure
  */
 int dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats);
+
+/**
+ * Get sensors/temperature and voltage information collected via lm-sensors on the card.
+ * The returned output is a multi-line string; caller prints/logs as needed.
+ *
+ * @param ctx gRPC client context
+ * @param buf output buffer to fill (null-terminated)
+ * @param len size of output buffer
+ * @return 0 on success, negative errno style value on failure
+ */
+int dao_card_sensors_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len);
 
 /**
  * Get recent dmesg logs from the card.

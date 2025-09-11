@@ -49,6 +49,7 @@ using dao_card_manager::FileTransferType;
 using dao_card_manager::CardStats;
 using dao_card_manager::Emp;
 using dao_card_manager::DmesgLogs;
+using dao_card_manager::CardSensors;
 
 using lc_manager::DaoLCService;
 using lc_manager::DevInfo;
@@ -160,6 +161,30 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			response->add_tx_packets(stats.tx_packets[i]);
 		}
 
+		return Status::OK;
+	}
+
+	Status Sensors(ServerContext *context, const Emp *empty, CardSensors *response) override
+	{
+		std::string out;
+		char buf[256];
+		(void)context;
+		(void)empty;
+
+		FILE *fp = popen("sensors", "r");
+		if (!fp)
+			return Status(StatusCode::INTERNAL, "Failed to execute sensors");
+
+		while (fgets(buf, sizeof(buf), fp)) {
+			out.append(buf);
+			if (out.size() > 16384) { /* arbitrary safety cap */
+				out.append("\n[truncated]\n");
+				break;
+			}
+		}
+		pclose(fp);
+
+		response->set_output(out);
 		return Status::OK;
 	}
 

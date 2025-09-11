@@ -11,6 +11,7 @@ service DaoCardService {
 	rpc Fini(Emp) returns (Emp){}
 	rpc Info(Emp) returns (CardInfo) {}
 	rpc Stats(Emp) returns (CardStats) {}
+	rpc Sensors(Emp) returns (CardSensors) {}
 	rpc AppFallback(Emp) returns (CardResponse) {}
 	rpc FileUpdate(FileUpdateReq) returns (CardResponse) {}
 	rpc Dmesg(Emp) returns (DmesgLogs) {}
@@ -61,6 +62,10 @@ message CardStats {
 
 message DmesgLogs {
 	string text = 1; // Truncated dmesg output if exceeds server limit
+}
+
+message CardSensors {
+	string output = 1; // Consolidated multi-line output from 'sensors'
 }
 
 message Emp {

@@ -45,17 +45,19 @@
 #define BUFFER_SIZE              1024
 #define CA_MAX_WORKER_CORES      23
 
-#define DAO_CARD_MGR_CARD_INIT       "card_init"
-#define DAO_CARD_MGR_CARD_FINI       "card_fini"
-#define DAO_CARD_MGR_CARD_INFO       "card_info"
-#define DAO_CARD_MGR_APP_UPDATE      "card_app_update"
-#define DAO_CARD_MGR_APP_FALLBACK    "card_app_fallback"
-#define DAO_CARD_MGR_CARD_STATS      "card_stats"
-#define DAO_CARD_MGR_FW_UPDATE       "card_fw_update"
-#define DAO_CARD_MGR_BOOT_SOURCE     "card_boot_source"
-#define DAO_CARD_MGR_FAILSAFE_UPDATE "card_failsafe_update"
-#define DAO_CARD_MGR_DMESG           "card_dmesg"
-#define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256
+#define DAO_CARD_MGR_CARD_INIT        "card_init"
+#define DAO_CARD_MGR_CARD_FINI        "card_fini"
+#define DAO_CARD_MGR_CARD_INFO        "card_info"
+#define DAO_CARD_MGR_APP_UPDATE       "card_app_update"
+#define DAO_CARD_MGR_APP_FALLBACK     "card_app_fallback"
+#define DAO_CARD_MGR_CARD_STATS       "card_stats"
+#define DAO_CARD_MGR_FW_UPDATE        "card_fw_update"
+#define DAO_CARD_MGR_BOOT_SOURCE      "card_boot_source"
+#define DAO_CARD_MGR_FAILSAFE_UPDATE  "card_failsafe_update"
+#define DAO_CARD_MGR_DMESG            "card_dmesg"
+#define DAO_CARD_MGR_CARD_TEMPERATURE "card_temperature"
+#define DAO_CARD_MGR_MAX_ERR_MSG_LEN  256
+#define DAO_CARD_MGR_MAX_SENSORS_LEN  4096
 
 /* Module reload helpers */
 #define DAO_CARD_MGR_BOOT_IP        "192.168.1.2"
@@ -230,6 +232,8 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
 	fprintf(stderr, " card_dmesg: Fetch recent kernel dmesg lines (tail 512) from the card\n");
 	fprintf(stderr, " card_app_fallback: Fallback to the working app when app update fails\n");
+	fprintf(stderr,
+		" card_temperature: Display card voltage / temperature sensors output (lm-sensors)\n");
 	fprintf(stderr, " card_boot_source <main|failsafe> [absolute path to mrvl-oct-boot]:"
 			" Boot from main or failsafe using the specified binary\n");
 	fprintf(stderr, " card_app_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
@@ -644,6 +648,40 @@ dao_card_mgr_recv_card_dmesg(int cli_fd)
 }
 
 static void
+dao_card_mgr_recv_card_sensors(int cli_fd)
+{
+	uint32_t len = 0;
+	ssize_t r;
+
+	r = recv(cli_fd, &len, sizeof(len), 0);
+	if (r != (ssize_t)sizeof(len)) {
+		/* Length header not received fully; silently ignore */
+		return;
+	} else if (len == 0) {
+		/* Empty output, nothing to print */
+		return;
+	} else if (len >= DAO_CARD_MGR_MAX_SENSORS_LEN) {
+		dao_err("Sensors output too large (%u)", len);
+	} else {
+		char *buf = malloc(len + 1);
+
+		if (!buf) {
+			dao_err("Allocation failed for sensors output (%u bytes)", len);
+			return; /* stop processing this command */
+		}
+		r = recv(cli_fd, buf, len, 0);
+		if (r != (ssize_t)len) {
+			dao_err("Failed to receive full sensors output");
+			free(buf);
+			return;
+		}
+		buf[len] = '\0';
+		dao_info("Card sensors output:\n%s", buf);
+		free(buf);
+	}
+}
+
+static void
 dao_card_mgr_send_to_server(int cli_fd, const char *line)
 {
 	int resp;
@@ -683,6 +721,9 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 
 	if (!resp && strstr(line, "card_dmesg") != NULL)
 		dao_card_mgr_recv_card_dmesg(cli_fd);
+
+	if (!resp && strstr(line, "card_temperature") != NULL)
+		dao_card_mgr_recv_card_sensors(cli_fd);
 }
 
 static int
@@ -1005,9 +1046,11 @@ dao_card_mgr_update_init_args(cli_args *cmd, const char **new_argv, unsigned lon
 static void
 dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 {
+	char sensors_output[DAO_CARD_MGR_MAX_SENSORS_LEN];
 	struct dao_card_stats card_stats;
 	struct dao_card_config card_cfg;
 	struct dao_card_info card_info;
+	uint32_t sensors_len = 0;
 	int rc = 0;
 	char err_msg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
 
@@ -1061,6 +1104,10 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = dao_card_mgr_boot(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FAILSAFE_UPDATE) == 0) {
 		rc = dao_card_mgr_failsafe_update(cmd);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_TEMPERATURE) == 0) {
+		rc = dao_card_sensors_get(card_ctx, sensors_output, sizeof(sensors_output));
+		if (rc == 0)
+			sensors_len = (uint32_t)strnlen(sensors_output, sizeof(sensors_output));
 	} else {
 		rc = -ENOTSUP;
 	}
@@ -1100,6 +1147,10 @@ send_resp:
 				if (blen)
 					send(cli_fd, dmesg_buf, blen, 0);
 			}
+		} else if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_TEMPERATURE) == 0) {
+			send(cli_fd, &sensors_len, sizeof(sensors_len), 0);
+			if (sensors_len > 0)
+				send(cli_fd, sensors_output, sensors_len, 0);
 		}
 	}
 }
