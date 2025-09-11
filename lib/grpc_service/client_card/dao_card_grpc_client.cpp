@@ -33,6 +33,7 @@ using dao_card_manager::FileUpdateReq;
 using dao_card_manager::FileTransferType;
 using dao_card_manager::BootSource;
 using dao_card_manager::CardStats;
+using dao_card_manager::DmesgLogs;
 
 struct dao_card_grpc_ctx {
 	std::unique_ptr<DaoCardService::Stub> stub;
@@ -196,6 +197,36 @@ dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 		stats->tx_packets[i] = resp.tx_packets(i);
 	}
 	return 0;
+}
+
+int
+dao_card_dmesg_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
+{
+	ClientContext context;
+	grpc::Status status;
+	DmesgLogs resp;
+	Emp empty;
+
+	if (!ctx || !buf || len == 0)
+		return -EINVAL;
+
+	status = ctx->stub->Dmesg(&context, empty, &resp);
+	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP; /* Older server without Dmesg RPC */
+		fprintf(stderr, "Failed to get dmesg: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return -EIO;
+	}
+	std::string text = resp.text();
+	if (text.size() >= len) {
+		/* Truncate */
+		memcpy(buf, text.data(), len - 1);
+		buf[len - 1] = '\0';
+		return (int)(len - 1);
+	}
+	memcpy(buf, text.data(), text.size());
+	buf[text.size()] = '\0';
+	return (int)text.size();
 }
 
 int

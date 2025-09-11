@@ -100,6 +100,15 @@ int dao_card_app_fallback(struct dao_card_grpc_ctx *ctx);
 int dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats);
 
 /**
+ * Get recent dmesg logs from the card.
+ * @param ctx: gRPC client context
+ * @param buf: destination buffer
+ * @param len: buffer length
+ * @return: number of bytes copied (>=0) or negative errno-style value
+ */
+int dao_card_dmesg_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len);
+
+/**
  * Update the image in liquid crypto card.
  *
  * This function need to be called from management daemon.

@@ -13,6 +13,7 @@ service DaoCardService {
 	rpc Stats(Emp) returns (CardStats) {}
 	rpc AppFallback(Emp) returns (CardResponse) {}
 	rpc FileUpdate(FileUpdateReq) returns (CardResponse) {}
+	rpc Dmesg(Emp) returns (DmesgLogs) {}
 }
 
 enum FileTransferType {
@@ -56,6 +57,10 @@ message FileUpdateReq {
 message CardStats {
 	repeated uint64 rx_packets = 1;
 	repeated uint64 tx_packets = 2;
+}
+
+message DmesgLogs {
+	string text = 1; // Truncated dmesg output if exceeds server limit
 }
 
 message Emp {

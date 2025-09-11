@@ -48,6 +48,7 @@ using dao_card_manager::FileUpdateReq;
 using dao_card_manager::FileTransferType;
 using dao_card_manager::CardStats;
 using dao_card_manager::Emp;
+using dao_card_manager::DmesgLogs;
 
 using lc_manager::DaoLCService;
 using lc_manager::DevInfo;
@@ -259,6 +260,28 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 				return grpc::Status::CANCELLED;
 			}
 		}
+		return Status::OK;
+	}
+
+	Status Dmesg(ServerContext *context, const Emp *empty, DmesgLogs *response) override
+	{
+		( void)(context); (void)(empty);
+		/* Capture dmesg (recent portion). Limit to 64KB to avoid huge responses */
+		FILE *fp = popen("dmesg | tail -n 512", "r");
+		if (!fp) {
+			return Status(StatusCode::INTERNAL, "Failed to run dmesg");
+		}
+		std::string out;
+		char line[512];
+		while (fgets(line, sizeof(line), fp)) {
+			if (out.size() + strlen(line) > 65535) {
+				/* Truncate */
+				break;
+			}
+			out += line;
+		}
+		pclose(fp);
+		response->set_text(out);
 		return Status::OK;
 	}
 };

@@ -54,6 +54,7 @@
 #define DAO_CARD_MGR_FW_UPDATE       "card_fw_update"
 #define DAO_CARD_MGR_BOOT_SOURCE     "card_boot_source"
 #define DAO_CARD_MGR_FAILSAFE_UPDATE "card_failsafe_update"
+#define DAO_CARD_MGR_DMESG           "card_dmesg"
 #define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256
 
 /* Module reload helpers */
@@ -227,6 +228,7 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr, " card_fini: Frees any allocated resources and stops the DAO card\n");
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
+	fprintf(stderr, " card_dmesg: Fetch recent kernel dmesg lines (tail 512) from the card\n");
 	fprintf(stderr, " card_app_fallback: Fallback to the working app when app update fails\n");
 	fprintf(stderr, " card_boot_source <main|failsafe> [absolute path to mrvl-oct-boot]:"
 			" Boot from main or failsafe using the specified binary\n");
@@ -587,6 +589,61 @@ dao_card_mgr_recv_card_stats(int cli_fd)
 }
 
 static void
+dao_card_mgr_recv_card_dmesg(int cli_fd)
+{
+	uint32_t blen = 0;
+	uint32_t got = 0;
+	ssize_t chunk;
+	ssize_t rn;
+	char *buf;
+
+	rn = recv(cli_fd, &blen, sizeof(blen), 0);
+
+	if (rn != (ssize_t)sizeof(blen))
+		return; /* nothing */
+
+	if (blen == 0) {
+		dao_info("dmesg: (empty)");
+		return;
+	}
+
+	buf = malloc(blen + 1);
+	if (!buf) {
+		uint32_t remaining = blen;
+		char tmp[512];
+
+		dao_err("OOM receiving dmesg (%u bytes)", blen);
+		while (remaining) {
+			chunk = recv(cli_fd, tmp, remaining > sizeof(tmp) ? sizeof(tmp) : remaining,
+				     0);
+			if (chunk <= 0)
+				break;
+			remaining -= (uint32_t)chunk;
+		}
+		return;
+	}
+
+	while (got < blen) {
+		chunk = recv(cli_fd, buf + got, blen - got, 0);
+		if (chunk <= 0)
+			break;
+		got += (uint32_t)chunk;
+	}
+	buf[(got < blen ? got : blen)] = '\0';
+	if (got < blen)
+		dao_err("Truncated dmesg reception (%u/%u)", got, blen);
+
+	char *saveptr = NULL;
+	char *linep = strtok_r(buf, "\n", &saveptr);
+
+	while (linep) {
+		dao_info("dmesg: %s", linep);
+		linep = strtok_r(NULL, "\n", &saveptr);
+	}
+	free(buf);
+}
+
+static void
 dao_card_mgr_send_to_server(int cli_fd, const char *line)
 {
 	int resp;
@@ -623,6 +680,9 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	/* Dump card stats */
 	if (!resp && strstr(line, "card_stats") != NULL)
 		dao_card_mgr_recv_card_stats(cli_fd);
+
+	if (!resp && strstr(line, "card_dmesg") != NULL)
+		dao_card_mgr_recv_card_dmesg(cli_fd);
 }
 
 static int
@@ -982,6 +1042,19 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = dao_card_mgr_app_fallback();
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
 		rc = dao_card_stats_get(card_ctx, &card_stats);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_DMESG) == 0) {
+		/* Defer actual fetch to post-send phase; just probe availability now */
+		char tmp[4];
+		int n = dao_card_dmesg_get(card_ctx, tmp, sizeof(tmp));
+
+		if (n >= 0) {
+			rc = 0; /* supported */
+		} else {
+			rc = n;
+			if (rc == -ENOTSUP)
+				strncpy(err_msg, "card does not support dmesg RPC (older server)",
+					sizeof(err_msg));
+		}
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
 		rc = dao_card_mgr_fw_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_BOOT_SOURCE) == 0) {
@@ -1007,11 +1080,28 @@ send_resp:
 	/* Clear context after we are done */
 	dao_card_err_ctx_clear();
 
-	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0)
-		send(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
+	if (!rc) {
+		if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0) {
+			send(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
+		} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
+			send(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0);
+		} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_DMESG) == 0) {
+			char dmesg_buf[65536];
+			int n = dao_card_dmesg_get(card_ctx, dmesg_buf, sizeof(dmesg_buf));
 
-	if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0)
-		send(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0);
+			if (n < 0) {
+				uint32_t zero = 0;
+
+				send(cli_fd, &zero, sizeof(zero), 0);
+			} else {
+				uint32_t blen = (uint32_t)n;
+
+				send(cli_fd, &blen, sizeof(blen), 0);
+				if (blen)
+					send(cli_fd, dmesg_buf, blen, 0);
+			}
+		}
+	}
 }
 
 static void
