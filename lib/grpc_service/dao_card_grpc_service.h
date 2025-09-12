@@ -19,7 +19,8 @@ extern "C" {
 enum dao_card_update_type {
 	DAO_CARD_APP_UPDATE,
 	DAO_CARD_FW_UPDATE,
-	DAO_CARD_FAILSAFE_UPDATE
+	DAO_CARD_FAILSAFE_UPDATE,
+	DAO_CARD_MCU_UPDATE
 };
 
 enum dao_card_boot_source {

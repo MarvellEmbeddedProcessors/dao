@@ -21,6 +21,7 @@ enum FileTransferType {
 	APP_UPDATE = 0;
 	FW_UPDATE = 1;
 	FAILSAFE_UPDATE = 2;
+	MCU_UPDATE = 3; // New: MCU firmware update
 }
 
 enum BootSource {

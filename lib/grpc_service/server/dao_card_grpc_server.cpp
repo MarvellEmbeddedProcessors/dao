@@ -29,6 +29,7 @@
 #define FW_UPDATE_SCRIPT "/root/lc_service/scripts/lc_fw_update.sh"
 #define FW_MOUNT_SCRIPT "/root/lc_service/scripts/lc_fw_mount.sh"
 #define FAILSAFE_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_failsafe_update.sh"
+#define MCU_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_mcu_update.sh"
 #define LC_IP_ADDRESS_ENV_VAR "LC_IP_ADDRESS"
 #define LC_DEFAULT_PORT 50051
 #define LC_DEFAULT_IP_ADDRESS "192.168.1.1"
@@ -228,6 +229,9 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			case FileTransferType::FAILSAFE_UPDATE:
 				base_dir = APP_BASE_DIR;
 				break;
+			case FileTransferType::MCU_UPDATE:
+				base_dir = APP_BASE_DIR;
+				break;
 			default:
 				response->set_err(1);
 				return grpc::Status::CANCELLED;
@@ -277,6 +281,8 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			} else if (req->transfer_type() == FileTransferType::FAILSAFE_UPDATE) {
 				std::string checksum = req->checksum();
 				command = std::string(". ") + FAILSAFE_UPDATE_SCRIPT + " " + file_name + " " + checksum;
+			} else if (req->transfer_type() == FileTransferType::MCU_UPDATE) {
+				command = std::string(". ") + MCU_UPDATE_SCRIPT + " " + file_name;
 			}
 			if (system(command.c_str()) != 0) {
 				std::cerr << "Failed to execute update script" << std::endl;

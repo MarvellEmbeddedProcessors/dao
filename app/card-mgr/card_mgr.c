@@ -54,6 +54,7 @@
 #define DAO_CARD_MGR_FW_UPDATE        "card_fw_update"
 #define DAO_CARD_MGR_BOOT_SOURCE      "card_boot_source"
 #define DAO_CARD_MGR_FAILSAFE_UPDATE  "card_failsafe_update"
+#define DAO_CARD_MGR_MCU_UPDATE       "card_mcu_update"
 #define DAO_CARD_MGR_DMESG            "card_dmesg"
 #define DAO_CARD_MGR_CARD_TEMPERATURE "card_temperature"
 #define DAO_CARD_MGR_MAX_ERR_MSG_LEN  256
@@ -240,6 +241,8 @@ dao_card_cmd_usage_print(void)
 			" Update the given file on to the card\n");
 	fprintf(stderr, " card_fw_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
 			" Update the image on to the DAO card.\n");
+	fprintf(stderr,
+		" card_mcu_update [absolute path of file]: Update MCU firmware on the card.\n");
 	fprintf(stderr,
 		" card_failsafe_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
 		" Update the failsafe image on to the DAO card.\n");
@@ -1100,6 +1103,15 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		}
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
 		rc = dao_card_mgr_fw_update(cmd);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_MCU_UPDATE) == 0) {
+		struct dao_card_update_req update_req;
+		int mrc = validate_file(cmd, &update_req, NULL);
+
+		if (mrc == 0)
+			mrc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_MCU_UPDATE);
+		free(update_req.filename);
+		free(update_req.filepath);
+		rc = mrc;
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_BOOT_SOURCE) == 0) {
 		rc = dao_card_mgr_boot(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FAILSAFE_UPDATE) == 0) {

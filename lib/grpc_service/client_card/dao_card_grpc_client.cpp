@@ -284,6 +284,9 @@ dao_card_file_update(struct dao_card_grpc_ctx *ctx, struct dao_card_update_req *
 	case DAO_CARD_FAILSAFE_UPDATE:
 		proto_type = FileTransferType::FAILSAFE_UPDATE;
 		break;
+	case DAO_CARD_MCU_UPDATE:
+		proto_type = FileTransferType::MCU_UPDATE;
+		break;
 	default:
 		file.close();
 		return -EINVAL;
