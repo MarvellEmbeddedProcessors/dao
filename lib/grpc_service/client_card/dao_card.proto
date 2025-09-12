@@ -15,6 +15,7 @@ service DaoCardService {
 	rpc AppFallback(Emp) returns (CardResponse) {}
 	rpc FileUpdate(FileUpdateReq) returns (CardResponse) {}
 	rpc Dmesg(Emp) returns (DmesgLogs) {}
+	rpc AppLog(Emp) returns (AppLogs) {}
 }
 
 enum FileTransferType {
@@ -63,6 +64,10 @@ message CardStats {
 
 message DmesgLogs {
 	string text = 1; // Truncated dmesg output if exceeds server limit
+}
+
+message AppLogs {
+	string text = 1; // Tail of application log (crypto_agent.log) truncated at server limit
 }
 
 message CardSensors {

@@ -51,6 +51,7 @@ using dao_card_manager::CardStats;
 using dao_card_manager::Emp;
 using dao_card_manager::DmesgLogs;
 using dao_card_manager::CardSensors;
+using dao_card_manager::AppLogs;
 
 using lc_manager::DaoLCService;
 using lc_manager::DevInfo;
@@ -312,6 +313,39 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			out += line;
 		}
 		pclose(fp);
+		response->set_text(out);
+		return Status::OK;
+	}
+
+	Status AppLog(ServerContext *context, const Emp *empty, AppLogs *response) override
+	{
+		(void)context; (void)empty;
+		/* Tail application log file. Limit to 64KB. */
+		const char *log_path = "/mnt/log/crypto_agent.log";
+		FILE *fp = fopen(log_path, "r");
+		if (!fp) {
+			/* If missing, return empty (not an INTERNAL error) */
+			response->set_text("");
+			return Status::OK;
+		}
+		/* Seek to last ~64KB to avoid reading huge files */
+		if (fseek(fp, 0, SEEK_END) == 0) {
+			long sz = ftell(fp);
+			long back = 65536; /* 64KB */
+			if (sz > back)
+				fseek(fp, -back, SEEK_END);
+			else
+				fseek(fp, 0, SEEK_SET);
+		}
+		std::string out;
+		char buf[512];
+		while (fgets(buf, sizeof(buf), fp)) {
+			if (out.size() + strlen(buf) > 65535) {
+				break; /* truncate */
+			}
+			out += buf;
+		}
+		fclose(fp);
 		response->set_text(out);
 		return Status::OK;
 	}

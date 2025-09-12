@@ -35,6 +35,7 @@ using dao_card_manager::BootSource;
 using dao_card_manager::CardStats;
 using dao_card_manager::DmesgLogs;
 using dao_card_manager::CardSensors;
+using dao_card_manager::AppLogs;
 
 struct dao_card_grpc_ctx {
 	std::unique_ptr<DaoCardService::Stub> stub;
@@ -221,6 +222,35 @@ dao_card_dmesg_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
 	std::string text = resp.text();
 	if (text.size() >= len) {
 		/* Truncate */
+		memcpy(buf, text.data(), len - 1);
+		buf[len - 1] = '\0';
+		return (int)(len - 1);
+	}
+	memcpy(buf, text.data(), text.size());
+	buf[text.size()] = '\0';
+	return (int)text.size();
+}
+
+int
+dao_card_applogs_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
+{
+	ClientContext context;
+	grpc::Status status;
+	AppLogs resp;
+	Emp empty;
+
+	if (!ctx || !buf || len == 0)
+		return -EINVAL;
+
+	status = ctx->stub->AppLog(&context, empty, &resp);
+	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			return -ENOTSUP;
+		fprintf(stderr, "Failed to get application logs: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return -EIO;
+	}
+	std::string text = resp.text();
+	if (text.size() >= len) {
 		memcpy(buf, text.data(), len - 1);
 		buf[len - 1] = '\0';
 		return (int)(len - 1);

@@ -56,6 +56,7 @@
 #define DAO_CARD_MGR_FAILSAFE_UPDATE  "card_failsafe_update"
 #define DAO_CARD_MGR_MCU_UPDATE       "card_mcu_update"
 #define DAO_CARD_MGR_DMESG            "card_dmesg"
+#define DAO_CARD_MGR_APPLOG           "card_applog"
 #define DAO_CARD_MGR_CARD_TEMPERATURE "card_temperature"
 #define DAO_CARD_MGR_MAX_ERR_MSG_LEN  256
 #define DAO_CARD_MGR_MAX_SENSORS_LEN  4096
@@ -232,6 +233,8 @@ dao_card_cmd_usage_print(void)
 	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
 	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
 	fprintf(stderr, " card_dmesg: Fetch recent kernel dmesg lines (tail 512) from the card\n");
+	fprintf(stderr,
+		" card_applog: Fetch tail of application log (crypto agent) from the card\n");
 	fprintf(stderr, " card_app_fallback: Fallback to the working app when app update fails\n");
 	fprintf(stderr,
 		" card_temperature: Display card voltage / temperature sensors output (lm-sensors)\n");
@@ -725,6 +728,9 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	if (!resp && strstr(line, "card_dmesg") != NULL)
 		dao_card_mgr_recv_card_dmesg(cli_fd);
 
+	if (!resp && strstr(line, "card_applog") != NULL)
+		dao_card_mgr_recv_card_dmesg(cli_fd); /* same framing as dmesg */
+
 	if (!resp && strstr(line, "card_temperature") != NULL)
 		dao_card_mgr_recv_card_sensors(cli_fd);
 }
@@ -1101,6 +1107,18 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 				strncpy(err_msg, "card does not support dmesg RPC (older server)",
 					sizeof(err_msg));
 		}
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APPLOG) == 0) {
+		char tmp[4];
+		int n = dao_card_applogs_get(card_ctx, tmp, sizeof(tmp));
+
+		if (n >= 0) {
+			rc = 0; /* supported */
+		} else {
+			rc = n;
+			if (rc == -ENOTSUP)
+				strncpy(err_msg, "card does not support applog RPC (older server)",
+					sizeof(err_msg));
+		}
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
 		rc = dao_card_mgr_fw_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_MCU_UPDATE) == 0) {
@@ -1158,6 +1176,21 @@ send_resp:
 				send(cli_fd, &blen, sizeof(blen), 0);
 				if (blen)
 					send(cli_fd, dmesg_buf, blen, 0);
+			}
+		} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APPLOG) == 0) {
+			char app_buf[65536];
+			int n = dao_card_applogs_get(card_ctx, app_buf, sizeof(app_buf));
+
+			if (n < 0) {
+				uint32_t zero = 0;
+
+				send(cli_fd, &zero, sizeof(zero), 0);
+			} else {
+				uint32_t blen = (uint32_t)n;
+
+				send(cli_fd, &blen, sizeof(blen), 0);
+				if (blen)
+					send(cli_fd, app_buf, blen, 0);
 			}
 		} else if (!rc && strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_TEMPERATURE) == 0) {
 			send(cli_fd, &sensors_len, sizeof(sensors_len), 0);
