@@ -85,6 +85,16 @@ function enable_ssh() {
 	/etc/init.d/S50sshd restart
 }
 
+# Wrapper to invoke partition logic only when booted from MMC
+setup_redirection() {
+	cmdline=$(cat /proc/cmdline)
+	if echo "$cmdline" | grep -q "root="; then
+		check_or_create_partition6
+	else
+		echo "[partition6] Skipping (non-MMC root)"
+	fi
+}
+
 # Environment variables
 HP=${HP:-8}
 
@@ -96,3 +106,4 @@ setup_devices
 run_cp
 config_static_ip
 enable_ssh
+setup_redirection
