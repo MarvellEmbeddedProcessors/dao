@@ -111,7 +111,14 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		rc = server_cbs->init_cb(&cfg);
 		if (rc) {
 			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to initialize card");
+			StatusCode code = StatusCode::INTERNAL;
+			if (rc == -EINVAL)
+				code = StatusCode::INVALID_ARGUMENT;
+			else if (rc == -EAGAIN)
+				code = StatusCode::UNAVAILABLE;
+			else if (rc == -ENOTSUP)
+				code = StatusCode::UNIMPLEMENTED;
+			return Status(code, "Failed to initialize card");
 		}
 		response->set_err(0);
 
@@ -227,8 +234,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		std::string command = std::string(". ") + script_full_path(APP_FALLBACK_SCRIPT, false);
 		if (system(command.c_str()) != 0) {
 			std::cerr << "AppFallback: Script failed" << std::endl;
-			response->set_err(1);
-			return Status(StatusCode::INTERNAL, "Script failed");
+			return Status(StatusCode::FAILED_PRECONDITION, "Fallback script failed");
 		}
 		response->set_err(0);
 		return Status::OK;
@@ -241,51 +247,44 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		static bool is_mounted = false;
 
 		switch (req->transfer_type()) {
-			case FileTransferType::APP_UPDATE:
-				if (!is_mmc_boot()) {
-					std::cerr << "APP_UPDATE denied: not booted from Main image" << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
+		case FileTransferType::APP_UPDATE:
+			if (!is_mmc_boot()) {
+				std::cerr << "APP_UPDATE denied: not booted from Main image" << std::endl;
+				return Status(StatusCode::PERMISSION_DENIED, "APP_UPDATE requires MMC boot");
+			}
+			base_dir = APP_BASE_DIR;
+			break;
+		case FileTransferType::FW_UPDATE:
+			if (is_mmc_boot()) {
+				std::cerr << "FW_UPDATE denied: not booted from Failsafe" << std::endl;
+				return Status(StatusCode::PERMISSION_DENIED, "FW_UPDATE requires failsafe boot");
+			}
+			base_dir = FW_BASE_DIR;
+			if (!is_mounted) {
+				std::string command = std::string(". ") + script_full_path(FW_MOUNT_SCRIPT, false);
+				if (system(command.c_str()) != 0) {
+					std::cerr << "Failed to mount" << std::endl;
+					return Status(StatusCode::FAILED_PRECONDITION, "Mount failed");
 				}
-				base_dir = APP_BASE_DIR;
-				break;
-			case FileTransferType::FW_UPDATE:
-				if (is_mmc_boot()) {
-					std::cerr << "FW_UPDATE denied: not booted from Failsafe" << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
-
-				base_dir = FW_BASE_DIR;
-				if (!is_mounted) {
-					std::string command = std::string(". ") + script_full_path(FW_MOUNT_SCRIPT, false);
-					if (system(command.c_str()) != 0) {
-						std::cerr << "Failed to mount" << std::endl;
-						response->set_err(1);
-						return grpc::Status::CANCELLED;
-					}
-					is_mounted = true;
-				}
-				break;
-			case FileTransferType::FAILSAFE_UPDATE:
-				if (!is_mmc_boot()) {
-					std::cerr << "FAILSAFE_UPDATE denied: not booted from Main image" << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
-				base_dir = APP_BASE_DIR;
-				break;
-			case FileTransferType::MCU_UPDATE:
-				if (!is_mmc_boot()) {
-					std::cerr << "MCU_UPDATE denied: not booted from Main image" << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
-				}
-				base_dir = APP_BASE_DIR;
-				break;
-			default:
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
+				is_mounted = true;
+			}
+			break;
+		case FileTransferType::FAILSAFE_UPDATE:
+			if (!is_mmc_boot()) {
+				std::cerr << "FAILSAFE_UPDATE denied: not booted from Main image" << std::endl;
+				return Status(StatusCode::PERMISSION_DENIED, "FAILSAFE_UPDATE requires MMC boot");
+			}
+			base_dir = APP_BASE_DIR;
+			break;
+		case FileTransferType::MCU_UPDATE:
+			if (!is_mmc_boot()) {
+				std::cerr << "MCU_UPDATE denied: not booted from Main image" << std::endl;
+				return Status(StatusCode::PERMISSION_DENIED, "MCU_UPDATE requires MMC boot");
+			}
+			base_dir = APP_BASE_DIR;
+			break;
+		default:
+			return Status(StatusCode::INVALID_ARGUMENT, "Unknown transfer type");
 		}
 
 		std::string file_full_path = base_dir + '/' + req->file_name();
@@ -295,8 +294,9 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
 			if (!output_file.is_open()) {
 				std::cerr << "Failed to open the file" << std::endl;
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
+				response->set_err(errno ? -errno : 1);
+				StatusCode sc = (errno == EACCES || errno == EPERM) ? StatusCode::PERMISSION_DENIED : StatusCode::INTERNAL;
+				return Status(sc, "Failed to open file");
 			}
 			file_map[file_full_path] = std::move(output_file);
 		}
@@ -305,8 +305,9 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		output_file.write(req->file_content().data(), req->file_content().size());
 		if (output_file.fail()) {
 			std::cerr << "Failed to write to file" << std::endl;
-			response->set_err(1);
-			return grpc::Status::CANCELLED;
+			response->set_err(errno ? -errno : 1);
+			StatusCode sc = (errno == ENOSPC) ? StatusCode::RESOURCE_EXHAUSTED : StatusCode::INTERNAL;
+			return Status(sc, "Failed to write file");
 		}
 
 		if (req->is_last_chunk()) {
@@ -316,10 +317,10 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 			std::string file_name = req->file_name();
 			for (char c : file_name) {
-				if (!std::isalnum(c) && c != '.' && c != '-' && c != '_') {
+				if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-' && c != '_') {
 					std::cerr << "Invalid character in filename" << std::endl;
-					response->set_err(1);
-					return grpc::Status::CANCELLED;
+					response->set_err(-EINVAL);
+					return Status(StatusCode::INVALID_ARGUMENT, "Invalid character in filename");
 				}
 			}
 
@@ -338,8 +339,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			if (system(command.c_str()) != 0) {
 				std::cerr << "Failed to execute update script" << std::endl;
 				std::remove(file_full_path.c_str());
-				response->set_err(1);
-				return grpc::Status::CANCELLED;
+				return Status(StatusCode::ABORTED, "Update script failed");
 			}
 		}
 		return Status::OK;
