@@ -15,6 +15,7 @@
 #include <grpcpp/server_context.h>
 
 #include <sys/wait.h>
+#include <sys/stat.h>
 
 #include "dao_card_grpc_server.h"
 #include <dao_card.grpc.pb.h>
@@ -23,13 +24,17 @@
 
 #define APP_BASE_DIR "/tmp"
 #define FW_BASE_DIR "/mnt/new_root"
-#define APP_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_app_update.sh"
-#define APP_FALLBACK_SCRIPT "/root/lc_service/scripts/lc_app_fallback.sh"
-#define BOOT_SRC_GET_SCRIPT "/root/lc_service/scripts/lc_boot_src_get.sh"
-#define FW_UPDATE_SCRIPT "/root/lc_service/scripts/lc_fw_update.sh"
-#define FW_MOUNT_SCRIPT "/root/lc_service/scripts/lc_fw_mount.sh"
-#define FAILSAFE_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_failsafe_update.sh"
-#define MCU_UPDATE_SCRIPT "/mnt/app/lc_service/scripts/lc_mcu_update.sh"
+#define LC_SCRIPT_BASE_MMC "/mnt/app/lc_service/scripts"
+#define LC_SCRIPT_BASE_ROOT "/root/lc_service/scripts"
+#define APP_UPDATE_SCRIPT "lc_app_update.sh"
+#define APP_FALLBACK_SCRIPT "lc_app_fallback.sh"
+#define BOOT_SRC_GET_SCRIPT "lc_boot_src_get.sh"
+#define FW_UPDATE_SCRIPT "lc_fw_update.sh"
+#define FW_MOUNT_SCRIPT "lc_fw_mount.sh"
+#define FAILSAFE_UPDATE_SCRIPT "lc_failsafe_update.sh"
+#define MCU_UPDATE_SCRIPT "lc_mcu_update.sh"
+#define MCU_ALL_CLEAR_SCRIPT "mcu_all_clear_signal.sh"
+
 #define LC_IP_ADDRESS_ENV_VAR "LC_IP_ADDRESS"
 #define LC_DEFAULT_PORT 50051
 #define LC_DEFAULT_IP_ADDRESS "192.168.1.1"
@@ -62,6 +67,30 @@ using lc_manager::Response;
 using lc_manager::Empty;
 
 struct dao_card_server_cbs *server_cbs;
+
+static bool
+is_mmc_boot()
+{
+	std::ifstream f("/proc/cmdline");
+	if (!f.is_open())
+		return false;
+	std::string line;
+	std::getline(f, line);
+	return line.find("root=/dev/mmcblk") != std::string::npos;
+}
+
+static inline std::string
+script_full_path(const std::string &script_name, bool prefer_mmc)
+{
+	/* Scripts that logically reside under MMC when available */
+	bool mmc_boot = is_mmc_boot();
+	std::string base;
+	if (mmc_boot && prefer_mmc)
+		base = LC_SCRIPT_BASE_MMC;
+	else
+		base = LC_SCRIPT_BASE_ROOT;
+	return base + "/" + script_name;
+}
 
 class DaoCardServiceImpl final : public DaoCardService::Service
 {
@@ -125,7 +154,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		response->set_nb_devs(info.nb_devs);
 		response->set_max_sessions(info.max_sessions);
 
-		std::string command = std::string(". ") + BOOT_SRC_GET_SCRIPT;
+		std::string command = std::string(". ") + script_full_path(BOOT_SRC_GET_SCRIPT, false);
 		status = system(command.c_str());
 		if (status == -1 || !WIFEXITED(status)) {
 			std::cerr << "Failed to execute get boot source script" << std::endl;
@@ -195,7 +224,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		(void)(context);
 		(void)(empty);
 
-		std::string command = std::string(". ") + APP_FALLBACK_SCRIPT;
+		std::string command = std::string(". ") + script_full_path(APP_FALLBACK_SCRIPT, false);
 		if (system(command.c_str()) != 0) {
 			std::cerr << "AppFallback: Script failed" << std::endl;
 			response->set_err(1);
@@ -213,12 +242,23 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 		switch (req->transfer_type()) {
 			case FileTransferType::APP_UPDATE:
+				if (!is_mmc_boot()) {
+					std::cerr << "APP_UPDATE denied: not booted from Main image" << std::endl;
+					response->set_err(1);
+					return grpc::Status::CANCELLED;
+				}
 				base_dir = APP_BASE_DIR;
 				break;
 			case FileTransferType::FW_UPDATE:
+				if (is_mmc_boot()) {
+					std::cerr << "FW_UPDATE denied: not booted from Failsafe" << std::endl;
+					response->set_err(1);
+					return grpc::Status::CANCELLED;
+				}
+
 				base_dir = FW_BASE_DIR;
 				if (!is_mounted) {
-					std::string command = std::string(". ") + FW_MOUNT_SCRIPT;
+					std::string command = std::string(". ") + script_full_path(FW_MOUNT_SCRIPT, false);
 					if (system(command.c_str()) != 0) {
 						std::cerr << "Failed to mount" << std::endl;
 						response->set_err(1);
@@ -228,9 +268,19 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 				}
 				break;
 			case FileTransferType::FAILSAFE_UPDATE:
+				if (!is_mmc_boot()) {
+					std::cerr << "FAILSAFE_UPDATE denied: not booted from Main image" << std::endl;
+					response->set_err(1);
+					return grpc::Status::CANCELLED;
+				}
 				base_dir = APP_BASE_DIR;
 				break;
 			case FileTransferType::MCU_UPDATE:
+				if (!is_mmc_boot()) {
+					std::cerr << "MCU_UPDATE denied: not booted from Main image" << std::endl;
+					response->set_err(1);
+					return grpc::Status::CANCELLED;
+				}
 				base_dir = APP_BASE_DIR;
 				break;
 			default:
@@ -275,15 +325,15 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 			std::string command;
 			if (req->transfer_type() == FileTransferType::APP_UPDATE) {
-				command = std::string(". ") + APP_UPDATE_SCRIPT + " " + file_name;
+				command = std::string(". ") + script_full_path(APP_UPDATE_SCRIPT, true) + " " + file_name;
 			} else if (req->transfer_type() == FileTransferType::FW_UPDATE) {
-				command = std::string(". ") + FW_UPDATE_SCRIPT + " " + file_name;
+				command = std::string(". ") + script_full_path(FW_UPDATE_SCRIPT, false) + " " + file_name;
 				is_mounted = false;
 			} else if (req->transfer_type() == FileTransferType::FAILSAFE_UPDATE) {
 				std::string checksum = req->checksum();
-				command = std::string(". ") + FAILSAFE_UPDATE_SCRIPT + " " + file_name + " " + checksum;
+				command = std::string(". ") + script_full_path(FAILSAFE_UPDATE_SCRIPT, true) + " " + file_name + " " + checksum;
 			} else if (req->transfer_type() == FileTransferType::MCU_UPDATE) {
-				command = std::string(". ") + MCU_UPDATE_SCRIPT + " " + file_name;
+				command = std::string(". ") + script_full_path(MCU_UPDATE_SCRIPT, true) + " " + file_name;
 			}
 			if (system(command.c_str()) != 0) {
 				std::cerr << "Failed to execute update script" << std::endl;
@@ -520,6 +570,20 @@ dao_card_grpc_server_run(void)
 	}
 	std::cout << "Server listening on " << server_address << std::endl;
 	std::cout << "Selected port: " << selected_port << std::endl;
+
+	/* Invoke MCU all-clear signal script before entering wait */
+	{
+		std::string base = is_mmc_boot() ? LC_SCRIPT_BASE_MMC : LC_SCRIPT_BASE_ROOT;
+		std::string full = base + "/" + MCU_ALL_CLEAR_SCRIPT;
+		struct stat st;
+		if (stat(full.c_str(), &st) == 0 && (st.st_mode & S_IXUSR)) {
+			int rc = system(full.c_str());
+			if (rc != 0)
+				std::cerr << "Warning: script " << full << " exited with code " << rc << std::endl;
+		} else {
+			std::cerr << "Info: script " << full << " not found or not executable" << std::endl;
+		}
+	}
 
 	server->Wait();
 
