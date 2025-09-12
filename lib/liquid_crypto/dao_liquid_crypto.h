@@ -435,7 +435,10 @@ enum dao_lc_fc_enc_cipher {
 	DAO_LC_FC_ENC_CIPHER_AES_GCM = 7,
 	/** Flexi Crypto Encryption Cipher Type = AES-XTS */
 	DAO_LC_FC_ENC_CIPHER_AES_XTS = 8,
-	/** Flexi Crypto Encryption Cipher Type = ChaCha */
+	/**
+	 * Flexi Crypto Encryption Cipher Type = ChaCha
+	 * Cipher Type ChaCha exclusively supports 256-bit keys only.
+	 */
 	DAO_LC_FC_ENC_CIPHER_CHACHA = 9,
 	/** Flexi Crypto Encryption Cipher Type = AES-CCM */
 	DAO_LC_FC_ENC_CIPHER_AES_CCM = 10,
