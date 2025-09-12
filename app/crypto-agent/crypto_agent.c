@@ -32,7 +32,9 @@ struct ca_global_ctx ca_glb_ctx;
 
 struct lcore_conf lcore_conf[CA_MAX_LCORE];
 
+#ifdef CA_STATS_PRINT
 static pthread_t stats_thread;
+#endif
 
 static bool card_initialized;
 
@@ -328,6 +330,7 @@ rcu_qsbr_fini(void)
 	ca_glb_ctx.qsbr = NULL;
 }
 
+#ifdef CA_STATS_PRINT
 static void
 print_stats(__rte_unused void *param)
 {
@@ -364,6 +367,7 @@ print_stats(__rte_unused void *param)
 	if (rte_eal_alarm_set(5000000, print_stats, NULL) < 0)
 		CA_ERR("Could not set alarm for stats");
 }
+#endif /* CA_STATS_PRINT */
 
 static int
 worker_thread(__rte_unused void *arg)
@@ -441,6 +445,7 @@ worker_thread(__rte_unused void *arg)
 	return 0;
 }
 
+#ifdef CA_STATS_PRINT
 static void *
 stats_thread_cb(void *arg)
 {
@@ -454,6 +459,7 @@ stats_thread_cb(void *arg)
 
 	return NULL;
 }
+#endif /* CA_STATS_PRINT */
 
 static int
 card_init(struct dao_card_config *config)
@@ -524,18 +530,22 @@ card_init(struct dao_card_config *config)
 	/* Launch on every worker lcore */
 	rte_eal_mp_remote_launch(worker_thread, NULL, SKIP_MAIN);
 
+#ifdef CA_STATS_PRINT
 	/* Create a separate thread for printing stats */
 	if (pthread_create(&stats_thread, NULL, stats_thread_cb, NULL) != 0) {
 		CA_ERR("Could not create stats thread");
 		goto qsbr_fini;
 	}
+#endif /* CA_STATS_PRINT */
 
 	card_initialized = true;
 
 	return 0;
 
+#ifdef CA_STATS_PRINT
 qsbr_fini:
 	rcu_qsbr_fini();
+#endif /* CA_STATS_PRINT */
 host_dev_fini:
 	host_dev_fini();
 cdev_fini:
@@ -561,8 +571,10 @@ card_fini(void)
 	force_quit = true;
 	CA_INFO("Cleaning up DAO card");
 
+#ifdef CA_STATS_PRINT
 	/* Wait for the stats thread to finish */
 	pthread_join(stats_thread, NULL);
+#endif /* CA_STATS_PRINT */
 
 	/* Wait for all cores to return */
 	rte_eal_mp_wait_lcore();
