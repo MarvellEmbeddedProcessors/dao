@@ -59,6 +59,11 @@ function dao_virtio_setup()
 		ep_device_op unbind_driver pci $EP_DEVICE_EXT_IFACE
 
 		echo "Setting up EP remote for virtio tests"
-		ep_remote_op hugepage_setup 524288 24 6
+		remote_arch=$(ep_remote_ssh_cmd "uname -m")
+		if [[ "$remote_arch" == "x86_64" ]]; then
+			ep_remote_op hugepage_setup 2048 8192 8192
+		else
+			ep_remote_op hugepage_setup 524288 24 6
+		fi
 	fi
 }

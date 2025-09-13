@@ -61,7 +61,7 @@ function virtio_l2fwd_perf()
 			"("${DAO_TEST}"_${list[0]})########################\n"
 
 		# Launch virtio l2fwd
-		if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "${list[1]}" "-p 0x1 -v 0x1 -P"; then
+		if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "${list[1]}" "-p 0x1 -v 0x1 -P -s"; then
 			echo "Failed to launch virtio l2fwd"
 
 			# Quit l2fwd app
@@ -77,10 +77,13 @@ function virtio_l2fwd_perf()
 		l2fwd_remote_start_traffic $remote_testpmd_pfx $re_if0
 
 		sleep 3
-
+		l2fwd_app_display_log $l2fwd_pfx
+		ep_host_op testpmd_pps $host_testpmd_pfx 0
+		ep_remote_op testpmd_pps $remote_testpmd_pfx 0
 		# Check the performance
 		ref_pps=$(l2fwd_device_ref_pps l2fwd "${DAO_TEST}"_${list[0]})
 		pass_pps=$(l2fwd_device_expected_pps $ref_pps $TOLERANCE)
+		l2fwd_host_perf_validate_perf_pps $host_testpmd_pfx $ref_pps $pass_pps
 		l2fwd_remote_validate_perf_pps $remote_testpmd_pfx $ref_pps $pass_pps
 		k=$?
 		if [[ "$k" != "0" ]]; then

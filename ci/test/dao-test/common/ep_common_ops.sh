@@ -295,6 +295,15 @@ function ep_common_unbind_driver()
 {
 	local s=$1
 	local dev=$2
+	local vendor_id
+
+	if [[ "$s" == "pci" ]]; then
+		vendor_id=$(cat /sys/bus/pci/devices/$dev/vendor 2>/dev/null || echo "")
+		# Mellanox device needs no unbinding
+		if [[ "$vendor_id" == "0x15b3" ]]; then
+			return 0
+		fi
+	fi
 
 	if [[ -e /sys/bus/$s/devices/$dev/driver/unbind ]]; then
 		echo $dev > /sys/bus/$s/devices/$dev/driver/unbind
@@ -309,6 +318,15 @@ function ep_common_bind_driver()
 	local s=$1
 	local dev=$2
 	local driver=$3
+	local vendor_id
+
+	if [[ "$s" == "pci" ]]; then
+		vendor_id=$(cat /sys/bus/pci/devices/$dev/vendor 2>/dev/null || echo "")
+		# Mellanox device needs no binding
+		if [[ "$vendor_id" == "0x15b3" ]]; then
+			return 0
+		fi
+	fi
 
 	ep_common_unbind_driver $s $dev
 	echo $driver > /sys/bus/$s/devices/$dev/driver_override

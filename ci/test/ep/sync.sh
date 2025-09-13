@@ -48,6 +48,7 @@ function remote_sync()
 {
 	local sync="rsync -azzh --delete"
 	local plat
+	local arch
 
 	if [[ -z ${EP_REMOTE:-} ]]; then
 		echo "EP_REMOTE is not set, skipping remote sync"
@@ -66,11 +67,18 @@ function remote_sync()
 		/tmp/ep_files
 	$sync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_REMOTE:$EP_DIR/ep_files
 
-	plat=$(ep_remote_ssh_cmd "$EP_REMOTE_SUDO cat /proc/device-tree/compatible | tr '\0' '\n'")
-	if [[ "$plat" == *"cn10k"* ]]; then
-		plat=cn10k
+	arch=$(ep_remote_ssh_cmd "uname -m")
+
+	if [[ "$arch" == "x86_64" ]]; then
+		$sync -e "$EP_SSH_CMD" -r /tmp/ep_host_files/* $EP_REMOTE:$EP_DIR/ep_host_files
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_host_files/dpdk-testpmd /usr/bin"
 	else
-		plat=cn9k
+		plat=$(ep_remote_ssh_cmd "$EP_REMOTE_SUDO cat /proc/device-tree/compatible | tr '\0' '\n'")
+		if [[ "$plat" == *"cn10k"* ]]; then
+			plat=cn10k
+		else
+			plat=cn9k
+		fi
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_files/perf/$plat/dpdk-testpmd /usr/bin"
 	fi
-	ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_files/perf/$plat/dpdk-testpmd /usr/bin"
 }

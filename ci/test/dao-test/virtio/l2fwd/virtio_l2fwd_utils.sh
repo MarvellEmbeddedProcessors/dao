@@ -110,6 +110,35 @@ function l2fwd_host_validate_perf_pps()
 	return 1
 }
 
+function l2fwd_host_perf_validate_perf_pps()
+{
+	local pfx=$1
+	local ref_pps=$2
+	local pass_pps=$3
+	local wait_time_sec=10
+
+	# dry run for pps
+	local rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+	sleep 1
+	local rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+	sleep 1
+	while [[ wait_time_sec -ne 0 ]]; do
+		rx_pps=$(ep_host_op testpmd_pps $pfx 0)
+
+		if [[ rx_pps -lt $pass_pps ]]; then
+			echo "Low PPS ($rx_pps < $pass_pps), Reference $ref_pps"
+		else
+			echo "Rx PPS $rx_pps as expected $pass_pps, Reference $ref_pps"
+			return 0
+		fi
+
+		sleep 1
+		wait_time_sec=$((wait_time_sec - 1))
+	done
+
+	return 0
+}
+
 function l2fwd_remote_validate_perf_pps()
 {
 	local pfx=$1
@@ -371,14 +400,16 @@ function l2fwd_app_launch_with_tap_dev()
 	local dpi_vfs=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 22)
 	local eal_args=$(form_split_args "-a" $dpi_vfs)
 	local args="-l $cores --vdev=net_tap0 -a $interface $eal_args -- $app_args"
+	local stats_log="virtio_l2fwd.${l2fwd_pfx}.stats"
 	local unbuffer
 
 	unbuffer="$(command -v stdbuf) -o 0" || unbuffer=
 	rm -rf $l2fwd_out
+	rm -rf $stats_log
 	echo "VIRTIO_L2FWD: $l2fwd_pfx: Launching dao-virtio-l2fwd"
 	echo "Args: '$args'"
 
-	$unbuffer $VIRTIO_L2FWD --file-prefix $l2fwd_pfx $args &>$l2fwd_out 2>&1 &
+	$unbuffer $VIRTIO_L2FWD --file-prefix $l2fwd_pfx $args &>$stats_log 2>$l2fwd_out &
 
 	# Wait for virtio_l2fwd to be up
 	local itr=0
@@ -405,6 +436,7 @@ function l2fwd_app_launch()
 	local dpi_vfs=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 22)
 	local eal_args=$(form_split_args "-a" $dpi_vfs)
 	local args="-l $cores -a $interface $eal_args -- $app_args"
+	local stats_log="virtio_l2fwd.${l2fwd_pfx}.stats"
 	local unbuffer
 
 	unbuffer="$(command -v stdbuf) -o 0" || unbuffer=
@@ -412,7 +444,8 @@ function l2fwd_app_launch()
 	echo "VIRTIO_L2FWD: $l2fwd_pfx: Launching dao-virtio-l2fwd"
 	echo "Args: '$args'"
 
-	$unbuffer $VIRTIO_L2FWD --file-prefix $l2fwd_pfx $args &>$l2fwd_out 2>&1 &
+	rm -rf $stats_log
+	$unbuffer $VIRTIO_L2FWD --file-prefix $l2fwd_pfx $args &>$stats_log 2>$l2fwd_out &
 
 	# Wait for virtio_l2fwd to be up
 	local itr=0
@@ -463,4 +496,23 @@ function l2fwd_app_quit()
 		continue
 	done
 	rm -f $log
+}
+
+function l2fwd_app_display_log()
+{
+       local pfx=$1
+       local stats_log="virtio_l2fwd.${pfx}.stats"
+
+       if [[ -f $stats_log ]]; then
+		echo "=== L2FWD APP STATS ==="
+		local last_header_line=$(grep -n "Node.*calls.*objs.*realloc_count" $stats_log | tail -1 | cut -d: -f1)
+		if [[ -n $last_header_line ]]; then
+			tail -n +$last_header_line $stats_log
+		else
+			tail -50 $stats_log
+		fi
+		echo "=== END STATS ==="
+       else
+		echo "No stats log found for $pfx at $stats_log"
+       fi
 }
