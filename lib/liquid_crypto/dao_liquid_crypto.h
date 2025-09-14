@@ -29,7 +29,7 @@
 /** Session ID returned as response if the session create is for HASH operation */
 #define DAO_LC_SESS_ID_HASH 1
 /** Maximum digest length */
-#define DAO_LC_MAX_DIGEST_LEN 64
+#define DAO_LC_MAX_DIGEST_LEN 255
 /** Maximum authentication key */
 #define DAO_LC_MAX_AUTH_KEY_LEN 1024
 
@@ -494,6 +494,10 @@ enum dao_lc_hash_type {
 	DAO_LC_HASH_TYPE_SHA3_SHA384 = 12,
 	/** Hash Type = SHA3-SHA512 */
 	DAO_LC_HASH_TYPE_SHA3_SHA512 = 13,
+	/** Hash Type = SHA3-SHAKE128 */
+	DAO_LC_HASH_TYPE_SHA3_SHAKE128 = 14,
+	/** Hash Type = SHA3-SHAKE256 */
+	DAO_LC_HASH_TYPE_SHA3_SHAKE256 = 15,
 	/** Hash Type = CMAC */
 	DAO_LC_HASH_TYPE_CMAC = 16,
 };

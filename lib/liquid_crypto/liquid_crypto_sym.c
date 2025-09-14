@@ -25,17 +25,19 @@ static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 static int
 sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 {
+	const uint8_t iv_len = ctx->iv_len;
+
 	switch (ctx->fc.enc_cipher) {
 	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
-		if (ctx->iv_len == 16)
+		if (iv_len == 16)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
-		if (ctx->iv_len == 12)
+		if (iv_len == 12)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
-		if (ctx->iv_len >= 7 && ctx->iv_len <= 13)
+		if (iv_len >= 7 && iv_len <= 13)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_CHACHA:
@@ -43,7 +45,7 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 			dao_err("Unsupported hash type for ChaCha cipher.");
 			return -ENOTSUP;
 		}
-		if (ctx->iv_len == 12)
+		if (iv_len == 12)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
@@ -51,7 +53,7 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 			dao_err("Unsupported hash type for NULL cipher.");
 			return -ENOTSUP;
 		}
-		if (ctx->iv_len == 12)
+		if (iv_len == 12)
 			return 0;
 		break;
 	default:
@@ -66,15 +68,17 @@ sym_sess_fc_iv_len_validate(const struct dao_lc_sym_ctx *ctx)
 static int
 sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 {
+	const uint16_t mac_len = (uint16_t)ctx->fc.mac_len;
+
 	switch (ctx->fc.enc_cipher) {
 	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
 		return 0;
 	case DAO_LC_FC_ENC_CIPHER_AES_GCM:
-		if (ctx->fc.mac_len == 16)
+		if (mac_len == 16)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_AES_CCM:
-		if (ctx->fc.mac_len == 8)
+		if (mac_len == 8)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_CHACHA:
@@ -82,7 +86,7 @@ sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 			dao_err("Unsupported hash type for ChaCha cipher.");
 			return -ENOTSUP;
 		}
-		if (ctx->fc.mac_len == 16)
+		if (mac_len == 16)
 			return 0;
 		break;
 	case DAO_LC_FC_ENC_CIPHER_NULL:
@@ -90,7 +94,7 @@ sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 			dao_err("Unsupported hash type for NULL cipher.");
 			return -ENOTSUP;
 		}
-		if (ctx->fc.mac_len == 16)
+		if (mac_len == 16)
 			return 0;
 		break;
 	default:
@@ -105,41 +109,37 @@ sym_sess_fc_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 static int
 sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 {
+	const uint16_t mac_len = (uint16_t)ctx->fc.mac_len;
+
 	switch (ctx->fc.hash_type) {
 	case DAO_LC_HASH_TYPE_SHA1:
-		if (ctx->fc.mac_len == 20)
+		if (mac_len == 20)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA224:
-		if (ctx->fc.mac_len == 28)
+	case DAO_LC_HASH_TYPE_SHA3_SHA224:
+		if (mac_len == 28)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA256:
-		if (ctx->fc.mac_len == 32)
+	case DAO_LC_HASH_TYPE_SHA3_SHA256:
+		if (mac_len == 32)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA384:
-		if (ctx->fc.mac_len == 48)
+	case DAO_LC_HASH_TYPE_SHA3_SHA384:
+		if (mac_len == 48)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA512:
-		if (ctx->fc.mac_len == 64)
-			return 0;
-		break;
-	case DAO_LC_HASH_TYPE_SHA3_SHA224:
-		if (ctx->fc.mac_len == 28)
-			return 0;
-		break;
-	case DAO_LC_HASH_TYPE_SHA3_SHA256:
-		if (ctx->fc.mac_len == 32)
-			return 0;
-		break;
-	case DAO_LC_HASH_TYPE_SHA3_SHA384:
-		if (ctx->fc.mac_len == 48)
-			return 0;
-		break;
 	case DAO_LC_HASH_TYPE_SHA3_SHA512:
-		if (ctx->fc.mac_len == 64)
+		if (mac_len == 64)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+		/* mac_len is uint8_t, so <= 255 is always true */
+		if ((mac_len >= 1) && (mac_len <= DAO_LC_MAX_DIGEST_LEN))
 			return 0;
 		break;
 	default:
@@ -154,29 +154,31 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 static int
 sym_sess_hmac_hash_validate(const struct dao_lc_sym_ctx *ctx)
 {
+	const uint8_t digest_len = ctx->hash.digest_len;
+
 	switch (ctx->hash.hmac_hash_type) {
 	case DAO_LC_HASH_TYPE_SHA1:
-		if (ctx->hash.digest_len == 20)
+		if (digest_len == 20)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA224:
 	case DAO_LC_HASH_TYPE_SHA3_SHA224:
-		if (ctx->hash.digest_len == 28)
+		if (digest_len == 28)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA256:
 	case DAO_LC_HASH_TYPE_SHA3_SHA256:
-		if (ctx->hash.digest_len == 32)
+		if (digest_len == 32)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA384:
 	case DAO_LC_HASH_TYPE_SHA3_SHA384:
-		if (ctx->hash.digest_len == 48)
+		if (digest_len == 48)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_SHA2_SHA512:
 	case DAO_LC_HASH_TYPE_SHA3_SHA512:
-		if (ctx->hash.digest_len == 64)
+		if (digest_len == 64)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_CMAC:
@@ -184,7 +186,7 @@ sym_sess_hmac_hash_validate(const struct dao_lc_sym_ctx *ctx)
 			dao_err("Invalid AES-CMAC key length.");
 			return -EINVAL;
 		}
-		if (ctx->hash.digest_len >= 1 && ctx->hash.digest_len <= 16)
+		if (digest_len >= 1 && digest_len <= 16)
 			return 0;
 		break;
 	default:
@@ -435,8 +437,9 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 static int
 sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 {
-	const struct dao_lc_sym_fc_ctx *fc_ctx;
 	const struct dao_lc_hmac_hash_ctx *hash_ctx;
+	const struct dao_lc_sym_fc_ctx *fc_ctx;
+	uint16_t digest_len = 0;
 
 	fc_ctx = &ctx->fc;
 	hash_ctx = &ctx->hash;
@@ -452,6 +455,8 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		case DAO_LC_HASH_TYPE_SHA3_SHA256:
 		case DAO_LC_HASH_TYPE_SHA3_SHA384:
 		case DAO_LC_HASH_TYPE_SHA3_SHA512:
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
 			break;
 		default:
 			dao_err("Unsupported hash type.");
@@ -475,7 +480,10 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 			return -EINVAL;
 		}
 
-		if (hash_ctx->digest_len == 0 || hash_ctx->digest_len > DAO_LC_MAX_DIGEST_LEN) {
+		/* hash_ctx->digest_len is uint8_t, so > DAO_LC_MAX_DIGEST_LEN (255) is always false
+		 */
+		digest_len = hash_ctx->digest_len;
+		if ((digest_len == 0) || (digest_len > DAO_LC_MAX_DIGEST_LEN)) {
 			dao_err("Invalid digest length for HMAC.");
 			return -EINVAL;
 		}
