@@ -2881,6 +2881,7 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	dptr += p_align;
 	dptr += p_align;
 
+	memset(dptr, 0, pk_offset);
 	memcpy(dptr + pk_offset, pkey, pkey_len);
 	dptr += p_align;
 
