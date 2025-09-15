@@ -316,6 +316,7 @@ main(int argc, char **argv)
 
 		ctx[i] = lcperf_testmap[opts.test].constructor(cdev_id, qp_id, &opts, &op_fns);
 		if (ctx[i] == NULL) {
+			ret = -ENOMEM;
 			RTE_LOG(ERR, USER1, "Test run constructor failed\n");
 			goto ctx_destructor;
 		}
