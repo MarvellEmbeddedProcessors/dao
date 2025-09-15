@@ -1477,6 +1477,12 @@ main(int argc, char **argv)
 		}
 	}
 
+	/* Require root privileges (simplified check) */
+	if (geteuid() != 0) {
+		dao_err("module reload & interface operations require root privilege)");
+		return EXIT_FAILURE;
+	}
+
 	switch (mgr_instance) {
 	case DAO_CARD_MGR_AS_CLIENT:
 		dao_info("Starting as client");
