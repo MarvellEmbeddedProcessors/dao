@@ -481,6 +481,40 @@ bring_up_octeon_ep_interface(const char *ip_addr)
 	}
 }
 
+/* Poll the gRPC card_info until ready or timeout.
+ * Returns 0 when ready, -ETIMEDOUT if timeout exceeded, or another negative
+ * error code if a non-transient failure occurs.
+ */
+static int
+dao_card_wait_ready(int timeout_ms, int interval_ms)
+{
+	struct dao_card_info info;
+	int waited = 0;
+	int rc;
+
+	if (timeout_ms <= 0)
+		return 0;
+
+	dao_info("Waiting for card to become ready (timeout=%d ms)...", timeout_ms);
+
+	while (waited < timeout_ms) {
+		rc = dao_card_info_get(card_ctx, &info);
+		if (rc == 0) {
+			dao_info("Card is ready (nb_devs=%d, max_sessions=%d)", info.nb_devs,
+				 info.max_sessions);
+			return 0;
+		}
+		if (rc != -EAGAIN) {
+			dao_err("Card readiness check failed: %d (%s)", rc, strerror(-rc));
+			return rc;
+		}
+		usleep(interval_ms * 1000);
+		waited += interval_ms;
+	}
+	dao_err("Timed out waiting for card readiness after %d ms", timeout_ms);
+	return -ETIMEDOUT;
+}
+
 static int
 reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, const char *ip_addr)
 {
@@ -499,6 +533,13 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 
 	bring_up_octeon_ep_interface(ip_addr);
 
+	/* Integrated readiness wait */
+	int wrc = dao_card_wait_ready(20000, 250);
+
+	if (wrc) {
+		DAO_CARD_ERR("Card did not become ready after reload: %d", wrc);
+		return wrc;
+	}
 	return 0;
 }
 
@@ -884,7 +925,7 @@ dao_card_mgr_app_update(cli_args *cmd)
 			reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
 
 		if (boot_rc != 0)
-			DAO_CARD_ERR("Boot exec failed after app update: %d", boot_rc);
+			DAO_CARD_ERR("Boot exec / readiness failed after app update: %d", boot_rc);
 	}
 
 req_free:
@@ -912,7 +953,7 @@ dao_card_mgr_fw_update(cli_args *cmd)
 			reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
 
 		if (boot_rc != 0)
-			DAO_CARD_ERR("Boot exec failed after fw update: %d", boot_rc);
+			DAO_CARD_ERR("Boot exec / readiness failed after fw update: %d", boot_rc);
 	}
 
 req_free:
@@ -929,8 +970,8 @@ dao_card_mgr_boot(cli_args *cmd)
 	int rc = 0;
 
 	if (cmd->argc < 3) {
-		DAO_CARD_ERR("card_boot command requires arguments: <main|failsafe>"
-			     " <path-to-mrvl-oct-boot>");
+		DAO_CARD_ERR(
+			"card_boot command requires arguments: <main|failsafe> <path-to-mrvl-oct-boot>");
 		return -EINVAL;
 	}
 
@@ -947,8 +988,12 @@ dao_card_mgr_boot(cli_args *cmd)
 		return -EINVAL;
 	}
 
-	rc = dao_card_mgr_boot_exec(boot_path, boot_arg);
-	return rc;
+	rc = reload_and_bringup_octeon_ep(boot_path, boot_arg, DAO_CARD_MGR_BOOT_IP);
+	if (rc != 0) {
+		DAO_CARD_ERR("Boot exec / readiness failed in card_boot: %d", rc);
+		return rc;
+	}
+	return 0;
 }
 
 static int
@@ -968,7 +1013,8 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 			reload_and_bringup_octeon_ep(boot_bin_path, "spi", DAO_CARD_MGR_BOOT_IP);
 
 		if (boot_rc != 0)
-			DAO_CARD_ERR("Boot exec failed after failsafe update: %d", boot_rc);
+			DAO_CARD_ERR("Boot exec / readiness failed after failsafe update: %d",
+				     boot_rc);
 	}
 
 req_free:
