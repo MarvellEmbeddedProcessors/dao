@@ -146,6 +146,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		struct dao_card_config cfg;
 		(void)(context);
 		int rc;
+		(void)response; // response unused
 
 		cfg.argc = config->argc();
 		cfg.argv = new char *[cfg.argc];
@@ -156,20 +157,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		cfg.crypto_nb_desc = config->crypto_nb_desc();
 
 		rc = server_cbs->init_cb(&cfg);
-		if (rc) {
-			response->set_err(rc);
-			StatusCode code = StatusCode::INTERNAL;
-			if (rc == -EINVAL)
-				code = StatusCode::INVALID_ARGUMENT;
-			else if (rc == -EAGAIN)
-				code = StatusCode::UNAVAILABLE;
-			else if (rc == -ENOTSUP)
-				code = StatusCode::UNIMPLEMENTED;
-			return Status(code, "Failed to initialize card");
-		}
-		response->set_err(0);
-
-		return Status::OK;
+		return status_from_rc(rc, "Failed to initialize card");
 	}
 
 	Status Fini(ServerContext *context, const Emp *empty, Emp *resp) override
@@ -231,7 +219,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			  << ", boot source: " << boot_source_to_string(response->boot_source())
 			  << std::endl;
 
-		return Status::OK;
+		return Status::OK; /* info RPC always succeeds; script errors mapped to boot_source */
 	}
 
 	Status Stats(ServerContext *context, const Emp *empty, CardStats *response) override
@@ -258,7 +246,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 		FILE *fp = popen("sensors", "r");
 		if (!fp)
-			return Status(StatusCode::INTERNAL, "Failed to execute sensors");
+			return Status(StatusCode::UNAVAILABLE, "Failed to execute sensors");
 
 		while (fgets(buf, sizeof(buf), fp)) {
 			out.append(buf);
@@ -277,19 +265,20 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 	{
 		(void)(context);
 		(void)(empty);
+		(void)response; // unused
 
 		std::string command = std::string(". ") + script_full_path(APP_FALLBACK_SCRIPT, false);
 		if (system(command.c_str()) != 0) {
 			std::cerr << "AppFallback: Script failed" << std::endl;
 			return Status(StatusCode::FAILED_PRECONDITION, "Fallback script failed");
 		}
-		response->set_err(0);
 		return Status::OK;
 	}
 
 	Status FileUpdate(ServerContext *context, const FileUpdateReq *req, CardResponse *response) override
 	{
 		(void)(context);
+		(void)response; // unused
 		std::string base_dir;
 		static bool is_mounted = false;
 
@@ -341,9 +330,8 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			std::ofstream output_file(file_full_path, std::ios::binary | std::ios::app);
 			if (!output_file.is_open()) {
 				std::cerr << "Failed to open the file" << std::endl;
-				response->set_err(errno ? -errno : 1);
-				StatusCode sc = (errno == EACCES || errno == EPERM) ? StatusCode::PERMISSION_DENIED : StatusCode::INTERNAL;
-				return Status(sc, "Failed to open file");
+				int rc2 = errno ? -errno : -1;
+				return status_from_rc(rc2, "Failed to open file");
 			}
 			file_map[file_full_path] = std::move(output_file);
 		}
@@ -352,9 +340,8 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		output_file.write(req->file_content().data(), req->file_content().size());
 		if (output_file.fail()) {
 			std::cerr << "Failed to write to file" << std::endl;
-			response->set_err(errno ? -errno : 1);
-			StatusCode sc = (errno == ENOSPC) ? StatusCode::RESOURCE_EXHAUSTED : StatusCode::INTERNAL;
-			return Status(sc, "Failed to write file");
+			int rcw = errno ? -errno : -1;
+			return status_from_rc(rcw, "Failed to write file");
 		}
 
 		if (req->is_last_chunk()) {
@@ -366,7 +353,6 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			for (char c : file_name) {
 				if (!std::isalnum(static_cast<unsigned char>(c)) && c != '.' && c != '-' && c != '_') {
 					std::cerr << "Invalid character in filename" << std::endl;
-					response->set_err(-EINVAL);
 					return Status(StatusCode::INVALID_ARGUMENT, "Invalid character in filename");
 				}
 			}
@@ -398,7 +384,7 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		/* Capture dmesg (recent portion). Limit to 64KB to avoid huge responses */
 		FILE *fp = popen("dmesg | tail -n 512", "r");
 		if (!fp) {
-			return Status(StatusCode::INTERNAL, "Failed to run dmesg");
+			return Status(StatusCode::UNAVAILABLE, "Failed to run dmesg");
 		}
 		std::string out;
 		char line[512];

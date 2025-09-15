@@ -46,7 +46,9 @@ message CardInfo {
 }
 
 message CardResponse {
-	int32 err = 1;
+	// Deprecated: server now reports failures via non-OK gRPC Status codes.
+	// Field kept only for backward compatibility; always unset/0 on success, undefined on error.
+	int32 err = 1 [deprecated = true];
 }
 
 message FileUpdateReq {
