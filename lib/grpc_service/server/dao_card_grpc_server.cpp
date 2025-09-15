@@ -67,6 +67,54 @@ using lc_manager::Empty;
 
 struct dao_card_server_cbs *server_cbs;
 
+static inline StatusCode
+status_code_from_rc(int rc)
+{
+	if (rc >= 0)
+		return StatusCode::OK;
+
+	rc = -rc; /* make positive errno */
+	switch (rc) {
+	case EINVAL:
+		return StatusCode::INVALID_ARGUMENT;
+	case ENOTSUP:
+		return StatusCode::UNIMPLEMENTED;
+	case EAGAIN:
+	case EINPROGRESS:
+		return StatusCode::UNAVAILABLE;
+	case ENOENT:
+		return StatusCode::NOT_FOUND;
+	case ENODEV:
+		return StatusCode::NOT_FOUND;
+	case EBUSY:
+		return StatusCode::FAILED_PRECONDITION; /* or ABORTED */
+	case EPERM:
+	case EACCES:
+		return StatusCode::PERMISSION_DENIED;
+	case ENOMEM:
+		return StatusCode::RESOURCE_EXHAUSTED;
+	case EEXIST:
+		return StatusCode::ALREADY_EXISTS;
+	case ETIMEDOUT:
+		return StatusCode::DEADLINE_EXCEEDED;
+	case ECONNRESET:
+	case EPIPE:
+		return StatusCode::UNAVAILABLE;
+	case ENOSPC:
+		return StatusCode::RESOURCE_EXHAUSTED;
+	default:
+		return StatusCode::INTERNAL;
+	}
+}
+
+static inline Status
+status_from_rc(int rc, const char *msg)
+{
+	if (rc == 0)
+		return Status::OK;
+	return Status(status_code_from_rc(rc), msg ? msg : "error");
+}
+
 static bool
 is_mmc_boot()
 {
@@ -405,67 +453,52 @@ class DaoLCServiceImpl final : public DaoLCService::Service
 	Status CreateDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
 		(void)(context);
+		(void)response; // unused
 		int rc;
 
 		rc = server_cbs->dev_create_cb(request->dev_id(), request->nb_queues());
-		if (rc) {
-			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to create device");
-		}
-		response->set_err(0);
 
-		return Status::OK;
+		return status_from_rc(rc, "Failed to create device");
 	}
 
 	Status DestroyDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
 		(void)(context);
+		(void)response; // unused
 		int rc;
 
 		rc = server_cbs->dev_destroy_cb(request->dev_id());
-		if (rc) {
-			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to destroy device");
-		}
-		response->set_err(0);
 
-		return Status::OK;
+		return status_from_rc(rc, "Failed to destroy device");
 	}
 
 	Status StartDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
 		(void)(context);
+		(void)response; // unused
 		int rc;
 
 		rc = server_cbs->dev_start_cb(request->dev_id());
-		if (rc) {
-			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to start device");
-		}
-		response->set_err(0);
 
-		return Status::OK;
+		return status_from_rc(rc, "Failed to start device");
 	}
 
 	Status StopDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
 		(void)(context);
+		(void)response; // unused
 		int rc;
 
 		rc = server_cbs->dev_stop_cb(request->dev_id());
-		if (rc) {
-			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to stop device");
-		}
-		response->set_err(0);
 
-		return Status::OK;
+		return status_from_rc(rc, "Failed to stop device");
 	}
 
 	Status ConfigureQP(ServerContext *context, const QpConf *q_conf, Response *response) override
 	{
 		struct dao_lc_eth_qconf conf;
 		(void)(context);
+		(void)response; // unused
 		int rc;
 
 		conf.dev_id = q_conf->dev_id();
@@ -475,28 +508,19 @@ class DaoLCServiceImpl final : public DaoLCService::Service
 		conf.max_seg_size = q_conf->max_seg_size();
 
 		rc = server_cbs->q_configure_cb(&conf);
-		if (rc) {
-			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to configure QP");
-		}
-		response->set_err(0);
 
-		return Status::OK;
+		return status_from_rc(rc, "Failed to configure QP");
 	}
 
 	Status DestroyQP(ServerContext *context, const QueuePairId *request, Response *response) override
 	{
 		(void)(context);
+		(void)response; // unused
 		int rc;
 
 		rc = server_cbs->q_destroy_cb(request->dev_id(), request->qp_id());
-		if (rc) {
-			response->set_err(rc);
-			return Status(StatusCode::INTERNAL, "Failed to destroy QP");
-		}
-		response->set_err(0);
 
-		return Status::OK;
+		return status_from_rc(rc, "Failed to destroy QP");
 	}
 };
 

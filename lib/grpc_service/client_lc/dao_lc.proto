@@ -34,7 +34,8 @@ message QueuePairId {
 }
 
 message Response {
-	int32 err = 1;
+	// Deprecated: use gRPC Status error_code()/error_message() for failures.
+	int32 err = 1 [deprecated = true];
 }
 
 message Empty {

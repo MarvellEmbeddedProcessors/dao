@@ -24,6 +24,38 @@ using lc_manager::Response;
 using lc_manager::QpConf;
 using lc_manager::Empty;
 
+static int grpc_status_to_errno(const grpc::Status &status)
+{
+	switch (status.error_code()) {
+	case grpc::StatusCode::UNIMPLEMENTED:
+		return -ENOTSUP;
+	case grpc::StatusCode::UNAVAILABLE:
+		return -EAGAIN;
+	case grpc::StatusCode::DEADLINE_EXCEEDED:
+		return -ETIMEDOUT;
+	case grpc::StatusCode::PERMISSION_DENIED:
+		return -EACCES;
+	case grpc::StatusCode::INVALID_ARGUMENT:
+		return -EINVAL;
+	case grpc::StatusCode::NOT_FOUND:
+		return -ENOENT;
+	case grpc::StatusCode::ALREADY_EXISTS:
+		return -EEXIST;
+	case grpc::StatusCode::RESOURCE_EXHAUSTED:
+		return -ENOSPC;
+	case grpc::StatusCode::FAILED_PRECONDITION:
+		return -EIO;
+	case grpc::StatusCode::ABORTED:
+		return -EFAULT;
+	case grpc::StatusCode::OUT_OF_RANGE:
+		return -ERANGE;
+	case grpc::StatusCode::UNAUTHENTICATED:
+		return -EACCES;
+	default:
+		return -EIO;
+	}
+}
+
 struct dao_lc_grpc_ctx {
 	std::unique_ptr<DaoLCService::Stub> stub;
 };
@@ -70,8 +102,8 @@ dao_lc_ethdev_create(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id, uint32_t nb_q
 	dev_id_msg.set_nb_queues(nb_queues);
 	status = ctx->stub->CreateDev(&context, dev_id_msg, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to create device: %s\n", status.error_message().c_str());
-		return resp.err();
+		fprintf(stderr, "Failed to create device: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
 	}
 
 	return 0;
@@ -91,8 +123,8 @@ dao_lc_ethdev_destroy(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id)
 	dev_id_msg.set_dev_id(dev_id);
 	status = ctx->stub->DestroyDev(&context, dev_id_msg, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to destroy device: %s\n", status.error_message().c_str());
-		return resp.err();
+		fprintf(stderr, "Failed to destroy device: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
 	}
 
 	return 0;
@@ -112,8 +144,8 @@ dao_lc_ethdev_start(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id)
 	dev_id_msg.set_dev_id(dev_id);
 	status = ctx->stub->StartDev(&context, dev_id_msg, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to start device: %s\n", status.error_message().c_str());
-		return resp.err();
+		fprintf(stderr, "Failed to start device: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
 	}
 
 	return 0;
@@ -133,8 +165,8 @@ dao_lc_ethdev_stop(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id)
 	dev_id_msg.set_dev_id(dev_id);
 	status = ctx->stub->StopDev(&context, dev_id_msg, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to stop device: %s\n", status.error_message().c_str());
-		return resp.err();
+		fprintf(stderr, "Failed to stop device: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
 	}
 
 	return 0;
@@ -158,8 +190,8 @@ dao_lc_ethdev_queue_configure(struct dao_lc_grpc_ctx *ctx, struct dao_lc_eth_qco
 	qp_conf_msg.set_out_of_order_delivery_en(q_conf->out_of_order_delivery_en);
 	status = ctx->stub->ConfigureQP(&context, qp_conf_msg, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to configure QP: %s\n", status.error_message().c_str());
-		return resp.err();
+		fprintf(stderr, "Failed to configure QP: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
 	}
 
 	return 0;
@@ -180,8 +212,8 @@ dao_lc_ethdev_queue_destroy(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id, uint32
 	qp_conf_msg.set_qp_id(qp_id);
 	status = ctx->stub->DestroyQP(&context, qp_conf_msg, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to destroy QP: %s\n", status.error_message().c_str());
-		return resp.err();
+		fprintf(stderr, "Failed to destroy QP: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
 	}
 
 	return 0;
