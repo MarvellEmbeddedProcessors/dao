@@ -294,6 +294,7 @@ main(int argc, char **argv)
 	if (nb_lcdevs == 0) {
 		RTE_LOG(ERR, USER1, "Failed to initialise liquid crypto device\n");
 		nb_lcdevs = 0;
+		ret = -ENODEV;
 		goto eal_cleanup;
 	}
 
