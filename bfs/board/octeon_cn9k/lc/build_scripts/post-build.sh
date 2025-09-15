@@ -44,6 +44,10 @@ if ls ${CPT_MC_DIR}/cpt02/ae.out* 1> /dev/null 2>&1; then
 	mv -f ${CPT_MC_DIR}/cpt02/ae.out* ${TARGET_DIR}/root/lc_service/mc/mrvl/cpt02/
 fi
 
+# Copy gpio_csr binary
+
+cp ${MRVL_FW_DIR}/gpio/gpio_csr ${TARGET_DIR}/usr/bin/
+
 # Copy CPT kernel modules
 
 MRVL_CPT_DIR=${TARGET_DIR}/lib/modules/6.1.67/kernel/drivers/crypto/marvell/octeontx2
