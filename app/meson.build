@@ -27,7 +27,6 @@ skip_app = false
 default_cflags = machine_args
 default_cflags += ['-DALLOW_EXPERIMENTAL_API']
 default_cflags += ['-g']
-default_cflags += ['-O0']
 default_cflags += ['-DALLOW_INTERNAL_API']
 default_cflags += ['-D_GNU_SOURCE']
 
