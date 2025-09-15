@@ -29,24 +29,12 @@ testsuite_teardown(void)
 int
 ut_setup(void)
 {
-	uint8_t dev_id = glb_params.dev_id;
-	int ret;
-
-	ret = dao_liquid_crypto_dev_start(dev_id);
-	if (ret < 0) {
-		TEST_LC_ERR("Could not start liquid crypto device %d with error %d", dev_id, ret);
-		return TEST_FAILED;
-	}
-
-	return TEST_SUCCESS;
+	return 0;
 }
 
 void
 ut_teardown(void)
 {
-	uint8_t dev_id = glb_params.dev_id;
-
-	dao_liquid_crypto_dev_stop(dev_id);
 }
 
 int

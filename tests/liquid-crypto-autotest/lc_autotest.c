@@ -168,6 +168,13 @@ main(int argc, char **argv)
 				goto dev_destroy;
 			}
 		}
+
+		ret = dao_liquid_crypto_dev_start(dev_id);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not start liquid crypto device");
+			info->nb_qp[dev_id] = dev_id;
+			goto dev_destroy;
+		}
 	}
 
 	ret = unit_test_suite_runner(&ts);
