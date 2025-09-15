@@ -151,6 +151,30 @@ following commands are available for diagnostics:
    empty result is returned (treated as success). Intended for quick inspection without direct file
    access to the card filesystem.
 
+* ``card_temperature``
+
+    This command retrieves sensor readings from the DAO card (temperature and voltage rails as
+    exposed by the underlying firmware / hardware monitoring subsystem). Internally it invokes the
+    card-side gRPC "Sensors" RPC which executes the standard Linux ``sensors`` utility and returns
+    its consolidated multi-line output.
+
+    The client truncates output to fit its internal buffer; the server currently caps captured
+    output (e.g. at ~16KB) to guard against pathological sizes. If truncation occurs the text
+    "[truncated]" may appear at the end of the output.
+
+**Example:**
+    .. code-block:: console
+
+      Card sensors output:
+      scmi_sensors-virtual-0
+      Adapter: Virtual device
+      vdd_core:     761.00 mV
+      vdd_sys:      861.00 mV
+      vdd_ddr:        1.20 V
+      Thrml_Margin:  +48.2 C
+      Chip_Temp:     +51.8 C
+      Chip_1s_Pwr:   16.56 W
+
 Above options are supported on all DAO cards where the underlying firmware exposes the respective RPCs.
 
 .. _firmware_management:
