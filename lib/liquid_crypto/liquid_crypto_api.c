@@ -269,8 +269,11 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 	}
 
 	if (dev->is_created) {
-		for (i = 0; i < dev->nb_qp; i++)
-			liquid_crypto_qp_free(dev_id, i);
+		for (i = 0; i < dev->nb_qp; i++) {
+			rc = liquid_crypto_qp_free(dev_id, i);
+			if (rc != 0)
+				dao_err("Could not destroy queue pair (%d. %d)", dev_id, i);
+		}
 	}
 
 	memset(dev, 0, sizeof(*dev));
@@ -525,6 +528,7 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
+	int rc = 0;
 
 	dev = &liquid_crypto_devs[dev_id];
 	qp = dev->qp[qp_id];
@@ -534,7 +538,9 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 
 	oct_qp_id = qp_id % dev->port_info.nb_queues;
 	oct_dev_id = dev->port_info.oct_dev_id[(qp_id / dev->port_info.nb_queues)];
-	dao_lc_ethdev_queue_destroy(lc_ctx, oct_dev_id, oct_qp_id);
+	rc = dao_lc_ethdev_queue_destroy(lc_ctx, oct_dev_id, oct_qp_id);
+	if (rc != 0)
+		dao_err("Could not destroy card queue.");
 
 	if (qp_id == dev->cmd_qp_idx) {
 		rte_bitmap_free(qp->cmd_req_bm);
@@ -550,7 +556,7 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 
 	dev->qp[qp_id] = NULL;
 
-	return 0;
+	return rc;
 }
 
 int
