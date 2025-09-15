@@ -590,9 +590,9 @@ test_ecdsa_sign(const void *data)
 	prime_length = res.ecdsa.ecc_rs_out_len / 2;
 
 	TEST_ASSERT(prime_length != 0, "Invalid prime length");
-	TEST_ASSERT(memcmp(rs_output, params->sign_r.data, prime_length) == 0, "Invalid result");
+	TEST_ASSERT(memcmp(rs_output, params->sign_r.data, prime_length) == 0, "Invalid r result");
 	TEST_ASSERT(memcmp(rs_output + prime_length, params->sign_s.data, prime_length) == 0,
-		    "Invalid result");
+		    "Invalid s result");
 
 	return TEST_SUCCESS;
 }
