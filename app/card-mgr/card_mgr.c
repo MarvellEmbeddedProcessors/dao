@@ -477,7 +477,8 @@ bring_up_octeon_ep_interface(const char *ip_addr)
 		char cmd[128];
 
 		snprintf(cmd, sizeof(cmd), "ifconfig %s %s up", iface, ip_addr);
-		system(cmd);
+		if (system(cmd) != 0)
+			dao_warn("%s execution failed", cmd);
 	}
 }
 
