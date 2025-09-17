@@ -279,6 +279,7 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 	memset(dev, 0, sizeof(*dev));
 
 	dev->is_destroyed = true;
+	dev->is_created = false;
 
 	return 0;
 }
