@@ -168,24 +168,9 @@ main(int argc, char **argv)
 				goto dev_destroy;
 			}
 		}
-
-		ret = dao_liquid_crypto_dev_start(dev_id);
-		if (ret < 0) {
-			TEST_LC_ERR("Could not start liquid crypto device");
-			info->nb_qp[dev_id] = dev_id;
-			goto dev_destroy;
-		}
 	}
 
 	ret = unit_test_suite_runner(&ts);
-
-	for (dev_id = 0; dev_id < info->nb_dev; dev_id++) {
-		if (info->nb_qp[dev_id] == 0)
-			continue;
-		ret = dao_liquid_crypto_dev_stop(dev_id);
-		if (ret < 0)
-			TEST_LC_ERR("Could not stop liquid crypto device: %u", dev_id);
-	}
 
 dev_destroy:
 	for (dev_id = 0; dev_id < info->nb_dev; dev_id++) {
