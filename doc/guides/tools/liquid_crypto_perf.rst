@@ -220,3 +220,14 @@ The following optional command-line options are available:
 * ``-h, --help``
 
   Display usage information and exit.
+
+
+Exit Codes
+----------
+
+The ``dao-liquid-crypto-perf-test`` application returns the following exit codes:
+
+- ``0`` (EXIT_SUCCESS): The application executed successfully and completed all requested operations without error.
+- ``1`` (EXIT_FAILURE): The application encountered an error that was correctly detected and handled (such as invalid arguments, resource allocation failure, or a runtime error during test execution).
+
+Any non-zero exit code indicates that an error occurred. For troubleshooting, review the application's output and logs for specific error messages.
