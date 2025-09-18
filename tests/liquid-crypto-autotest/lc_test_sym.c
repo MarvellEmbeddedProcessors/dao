@@ -804,6 +804,14 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("HMAC_SHA3-224 Digest Verify with 1024 byte key data",
 					  ut_setup, ut_teardown, test_hash_verify,
 					  &hmac_sha3_224_1024B_key),
+		TEST_CASE_NAMED_WITH_DATA("SHAKE128 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &shake128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHAKE128 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &shake128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHAKE256 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &shake256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("SHAKE256 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &shake256_test_data),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

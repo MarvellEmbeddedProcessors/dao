@@ -27,7 +27,7 @@
 /* Maximum length of AAD */
 #define TEST_LC_MAX_AAD_LEN 1024
 /* Maximum length of digest */
-#define TEST_LC_MAX_DIGEST_LEN 64
+#define TEST_LC_MAX_DIGEST_LEN 255
 /* Maximum offset length to test*/
 #define TEST_LC_MAX_OFFSET 32
 /* Minimum length of RSA sign modulus */
