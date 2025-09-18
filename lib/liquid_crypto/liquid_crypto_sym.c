@@ -230,8 +230,15 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 				sess_meta->pkt_iv_len = 16;
 		}
 
-		if ((ctx->fc.hash_type == DAO_LC_HASH_TYPE_GMAC) ||
-		    (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA)) {
+		if (ctx->fc.hash_type == DAO_LC_HASH_TYPE_GMAC) {
+			sess_meta->hash_type = ctx->fc.hash_type;
+			w4.s.opcode_minor |= DAO_LC_OPCODE_IV_LENGTH_MASK;
+			sess_meta->op_type = LC_SYM_OP_AUTH_ONLY;
+			if (sess_meta->alg_iv_len == 12)
+				sess_meta->pkt_iv_len = 16;
+		}
+
+		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_CHACHA) {
 			sess_meta->hash_type = ctx->fc.hash_type;
 			w4.s.opcode_minor |= DAO_LC_OPCODE_IV_LENGTH_MASK;
 			sess_meta->op_type = LC_SYM_OP_AEAD;
@@ -560,6 +567,13 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
+	if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
+		if (sess_meta->alg_iv_len != 12 || op->auth_iv == NULL) {
+			dao_err("Invalid auth IV pointer for GMAC operation.");
+			return -EINVAL;
+		}
+	}
+
 	return 0;
 }
 
@@ -574,7 +588,7 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (op->cipher_len == 0 && sess_meta->hash_type != DAO_LC_HASH_TYPE_GMAC) {
+	if (op->cipher_len == 0) {
 		dao_err("Invalid cipher length for AEAD operation.");
 		return -EINVAL;
 	}

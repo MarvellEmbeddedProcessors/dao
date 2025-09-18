@@ -25,7 +25,8 @@ struct __rte_packed __dao_lc_req_sym {
 	uint64_t w4;
 	uint64_t w7;
 	enum lc_crypto_op_type op_type;
-	uint64_t rsvd_align : 32;
+	uint64_t is_gmac : 1;
+	uint64_t rsvd_align : 31;
 	uint8_t dptr[];
 };
 

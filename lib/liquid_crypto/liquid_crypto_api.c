@@ -1723,11 +1723,13 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 		lc_buf_offset = req->lc_buf_offset;
 
 		if (req->digest == NULL) {
+			/* Case: Append Digest into the output buffer */
 			result_len = req->cipher_len + req->digest_len;
 			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
 								    req->data_out, lc_buf_offset,
 								    result_len);
 		} else {
+			/* Case: Copy Digest into separate digest buffer case */
 			result_len = req->cipher_len;
 			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
 								    req->data_out, lc_buf_offset,
@@ -1785,11 +1787,15 @@ static inline void
 dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_sym_op *op,
 		   uint8_t *dptr)
 {
+	const uint8_t ctr_blk[4] = {0x00, 0x00, 0x00, 0x01};
 	uint16_t alg_iv_len = sess_meta->alg_iv_len;
 
 	if (sess_meta->pkt_iv_len == alg_iv_len) {
 		/* Pass IV as is to microcode */
 		memcpy(dptr, op->cipher_iv, alg_iv_len);
+	} else if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
+		memcpy(dptr, op->auth_iv, alg_iv_len);
+		memcpy(dptr + alg_iv_len, ctr_blk, 4);
 	} else {
 		/* Adjust the IV passed to microcode */
 		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CCM) {
@@ -1797,10 +1803,7 @@ dao_lc_sym_copy_iv(const struct dao_lc_sym_sess_meta *sess_meta, struct dao_lc_s
 			*dptr = (uint8_t)(14 - sess_meta->alg_iv_len);
 			memcpy(dptr + 1, op->cipher_iv, alg_iv_len);
 		} else if ((sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_GCM) ||
-			   (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) ||
 			   (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_CHACHA)) {
-			const uint8_t ctr_blk[4] = {0x00, 0x00, 0x00, 0x01};
-
 			memcpy(dptr, op->cipher_iv, alg_iv_len);
 			memcpy(dptr + alg_iv_len, ctr_blk, 4);
 		}
@@ -1813,10 +1816,11 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 					const struct dao_lc_sym_sess_meta *sess_meta,
 					const enum lc_crypto_op_type op_type)
 {
-	uint32_t buf_len, auth_len, auth_offset = 0;
-	uint16_t hmac_aligned_key_len = 0, dlen;
+	uint32_t buf_len, auth_len, off_ctrl_len, auth_offset = 0;
+	uint16_t hmac_aligned_key_len = 0, pkt_iv_len = 0, dlen;
 	struct __dao_lc_req_sym *req;
 	uint16_t hmac_key_len = 0;
+	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
 
@@ -1827,6 +1831,10 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 		hmac_key_len = sess_meta->auth_key_len;
 		hmac_aligned_key_len = RTE_ALIGN_CEIL(hmac_key_len, 8);
 		dlen = auth_len + hmac_aligned_key_len;
+	} else if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
+		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+		pkt_iv_len = sess_meta->pkt_iv_len;
+		dlen = off_ctrl_len + pkt_iv_len + auth_len;
 	} else {
 		dlen = auth_len;
 	}
@@ -1856,13 +1864,31 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	/* Append transport header to mbuf */
 	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
-	req->hdr.trs_hdr.op_len = buf_len;
 	req->hdr.req_idx = req_idx;
 	req->op_type = LC_SYM_OP_AUTH_ONLY;
+	req->is_gmac = 0;
 	dptr = req->dptr;
 
 	w4.u64 = sess_meta->w4;
 	w4.s.dlen = dlen;
+
+	if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
+		req->is_gmac = 1;
+		w4.s.param1 = 0;
+		w4.s.param2 = auth_len;
+		w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
+		buf_len += sess_meta->digest_len;
+
+		offset_vaddr = (uint64_t *)dptr;
+		*(uint64_t *)offset_vaddr = rte_cpu_to_be_64(
+			((uint64_t)pkt_iv_len << 16) | ((uint64_t)0 << 8) | ((uint64_t)pkt_iv_len));
+		dptr += off_ctrl_len;
+
+		dao_lc_sym_copy_iv(sess_meta, op, dptr);
+		dptr += pkt_iv_len;
+	}
+
+	req->hdr.trs_hdr.op_len = buf_len;
 	req->w4 = w4.u64;
 	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 
@@ -1908,12 +1934,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		qp->req_queue[req_idx].digest = op->digest;
 		qp->req_queue[req_idx].digest_len = digest_len;
-
-		if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
-			auth_len = op->auth_len;
-			cipher_len = 0;
-			op->cipher_offset = op->auth_offset;
-		}
 	} else {
 		dao_err("Invalid operation type: %d", op_type);
 		rte_errno = EINVAL;
