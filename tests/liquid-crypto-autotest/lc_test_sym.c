@@ -47,6 +47,7 @@ test_hash_only(const void *data, const bool is_auth_gen)
 {
 	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN] = {0};
 	uint8_t digest[TEST_LC_MAX_DIGEST_LEN] = {0};
+	int ret, i, max_offset = TEST_LC_MAX_OFFSET;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
 	uint8_t dev_id = glb_params.dev_id;
@@ -54,7 +55,6 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	uint64_t sess_cookie = rte_rand();
 	struct dao_lc_buf in_buf[1] = {0};
 	struct dao_lc_sym_op op[1] = {0};
-	int ret, i, max_offset = 32;
 	struct dao_lc_cmd_event ev;
 	struct dao_lc_res res[1];
 	uint64_t op_cookie;
@@ -99,13 +99,13 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		op[0].auth_offset = params->auth_offset + i;
 		op[0].auth_len = params->plaintext.len;
 
-		if (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_GMAC)
-			op[0].cipher_iv = (uint8_t *)params->iv.data;
-
-		if (is_auth_gen)
-			memset(op[0].digest, 0, params->digest.len);
-		else
-			memcpy(op[0].digest, params->digest.data, params->digest.len);
+		if (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_GMAC) {
+			if (params->iv.len == 0) {
+				TEST_LC_ERR("Invalid IV data or length");
+				return -1;
+			}
+			op[0].auth_iv = (uint8_t *)params->iv.data;
+		}
 
 		ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
 		if (ret != 1) {
@@ -618,10 +618,16 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GCM Decrypt OOP", ut_setup, ut_teardown,
 					  test_block_cipher_only_decrypt_oop,
 					  &aes_gcm_256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-128-GMAC Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &aes_gmac_128_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-GMAC Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &aes_gmac_128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-192-GMAC Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &aes_gmac_192_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-192-GMAC Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &aes_gmac_192_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-256-GMAC Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &aes_gmac_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-256-GMAC Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &aes_gmac_256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("AES-128-CCM Encrypt", ut_setup, ut_teardown,
