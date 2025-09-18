@@ -9,7 +9,6 @@ IndentCaseLabels: false
 ColumnLimit: 100
 AllowShortFunctionsOnASingleLine: false
 AlwaysBreakAfterReturnType: AllDefinitions
-ColumnLimit: 100
 ConstructorInitializerAllOnOneLineOrOnePerLine: true
 ConstructorInitializerIndentWidth: 8
 ContinuationIndentWidth: 8
