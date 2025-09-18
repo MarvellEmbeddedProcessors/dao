@@ -76,10 +76,12 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
 			sym = (struct __dao_lc_req_sym *)req;
 			infl_req->op_type = sym->op_type;
+			infl_req->is_gmac = sym->is_gmac;
 			inst[i].w4.u64 = sym->w4;
 			inst[i].w5.u64 = (uint64_t)sym->dptr;
 			inst[i].w6.u64 = (uint64_t)sym->dptr; /* INPLACE*/
 			inst[i].w7.u64 = sym->w7;
+			infl_req->sym_param2 = inst[i].w4.s.param2;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			asym = (struct __dao_lc_req_asym *)req;

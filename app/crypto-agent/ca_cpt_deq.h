@@ -21,6 +21,8 @@
 #include "crypto_agent.h"
 
 #define CA_ETHDEV_TX_BURST 64
+#define CA_GMAC_IV_LEN     16
+#define CA_GMAC_DIGEST_LEN 16
 
 static inline void
 ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
@@ -110,7 +112,22 @@ ca_cpt_post_process_sym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *
 	switch (infl_req->op_type) {
 	case LC_SYM_OP_AUTH_ONLY:
 	case LC_SYM_OP_HMAC_AUTH_ONLY:
-		pkt_len = sizeof(struct __dao_lc_resp_sym) + DAO_LC_MAX_DIGEST_LEN;
+		if (infl_req->is_gmac) {
+			/* inflq_req->sym_param2 = GMAC input data length */
+			uint8_t *gmac_digest_ptr =
+				(uint8_t *)resp->rptr + infl_req->sym_param2 + CA_GMAC_IV_LEN;
+
+			if (gmac_digest_ptr + CA_GMAC_DIGEST_LEN > (uint8_t *)resp + mb->buf_len) {
+				CA_ERR("GMAC buffer overflow detected");
+				rte_errno = EINVAL;
+				return;
+			}
+			memcpy(resp->rptr, gmac_digest_ptr, CA_GMAC_DIGEST_LEN);
+			pkt_len = sizeof(struct __dao_lc_resp_sym) + CA_GMAC_DIGEST_LEN;
+		} else {
+			pkt_len = sizeof(struct __dao_lc_resp_sym) + (infl_req->sym_param2 & 0xFF);
+		}
+
 		pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
 		mb->pkt_len = pkt_len;
 		mb->data_len = pkt_len;
