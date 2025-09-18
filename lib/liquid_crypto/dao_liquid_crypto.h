@@ -33,7 +33,7 @@
 /** Maximum digest length */
 #define DAO_LC_MAX_DIGEST_LEN 64
 /** Maximum authentication key */
-#define DAO_LC_MAX_AUTH_KEY_LEN 128
+#define DAO_LC_MAX_AUTH_KEY_LEN 1024
 
 /**
  * The liquid crypto buffer

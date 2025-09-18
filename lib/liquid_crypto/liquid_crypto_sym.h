@@ -53,7 +53,7 @@ struct dao_lc_sym_sess_meta {
 	enum lc_crypto_op_type op_type;
 
 	/* HMAC authentication key length*/
-	uint8_t auth_key_len;
+	uint16_t auth_key_len;
 
 	/* HMAC authentication key */
 	uint8_t auth_key[DAO_LC_MAX_AUTH_KEY_LEN];
