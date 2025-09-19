@@ -305,7 +305,7 @@ static const uint8_t hmac_digest_sha1[] = {
 	0x3F, 0x91, 0x64, 0x59
 };
 
-static const struct test_sym_params hmac_sha1_test_data = {
+static const struct test_sym_params hmac_sha1_20B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -336,7 +336,7 @@ static const uint8_t hmac_digest_sha224[] = {
 	0x92, 0xF6, 0xAA, 0x19
 };
 
-static const struct test_sym_params hmac_sha224_test_data = {
+static const struct test_sym_params hmac_sha224_28B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -368,7 +368,7 @@ static const uint8_t hmac_digest_sha256[] = {
 	0x71, 0x83, 0x48, 0x71, 0x07, 0x02, 0x25, 0x17
 };
 
-static const struct test_sym_params hmac_sha256_test_data = {
+static const struct test_sym_params hmac_sha256_32B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -402,7 +402,7 @@ static const uint8_t hmac_digest_sha384[] = {
 	0x6F, 0xE6, 0x8C, 0x84, 0xD5, 0x03, 0xF8, 0x9E
 };
 
-static const struct test_sym_params hmac_sha384_test_data = {
+static const struct test_sym_params hmac_sha384_48B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -440,7 +440,7 @@ static const uint8_t hmac_digest_sha512[] = {
 	0xAF, 0x24, 0x27, 0x0C, 0x78, 0xBA, 0xBE, 0x20
 };
 
-static const struct test_sym_params hmac_sha512_test_data = {
+static const struct test_sym_params hmac_sha512_64B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -476,7 +476,7 @@ static const uint8_t hmac_digest_sha3_sha_224_with_28_byte_key_data[] = {
 	0xF9, 0x33, 0x05, 0x40
 };
 
-static const struct test_sym_params hmac_sha3_224_with_28_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_224_28B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -508,7 +508,7 @@ static const uint8_t hmac_digest_sha3_sha_256_with_32_byte_key_data[] = {
 	0x21, 0x48, 0xD5, 0x95, 0x6D, 0x37, 0x0E, 0x00
 };
 
-static const struct test_sym_params hmac_sha3_256_with_32_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_256_32B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -542,7 +542,7 @@ static const uint8_t hmac_digest_sha3_sha_384_with_48_byte_key_data[]  = {
 	0x7B, 0x70, 0xB1, 0x13, 0x08, 0xA8, 0x90, 0x07
 };
 
-static const struct test_sym_params hmac_sha3_384_with_48_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_384_48B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -580,7 +580,7 @@ static const uint8_t hmac_digest_sha3_sha_512_with_64_byte_key_data[] = {
 	0xE5, 0x41, 0x82, 0xE8, 0xC8, 0x41, 0x42, 0x3D
 };
 
-static const struct test_sym_params hmac_sha3_512_with_64_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_512_64B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -616,7 +616,7 @@ static const uint8_t hmac_digest_sha3_sha_224_with_128_byte_key_data[] = {
 	0x38, 0x2a, 0xa4, 0xd1
 };
 
-static const struct test_sym_params hmac_sha3_224_with_128_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_224_128B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -660,7 +660,7 @@ static const uint8_t hmac_digest_sha3_sha_256_with_128_byte_key_data[] = {
 	0x0a, 0x33, 0xb7, 0xb0, 0x6e, 0x54, 0xd4, 0xe7
 };
 
-static const struct test_sym_params hmac_sha3_256_with_128_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_256_128B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -706,7 +706,7 @@ static const uint8_t hmac_digest_sha3_sha_384_with_128_byte_key_data[] = {
 	0x8e, 0x27, 0x42, 0xc4, 0xcb, 0x90, 0xde, 0x58
 };
 
-static const struct test_sym_params hmac_sha3_384_with_128_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_384_128B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -754,7 +754,7 @@ static const uint8_t hmac_digest_sha3_sha_512_with_128_byte_key_data[] = {
 	0xbb, 0x29, 0x99, 0x90, 0x58, 0x65, 0x3a, 0x67
 };
 
-static const struct test_sym_params hmac_sha3_512_with_128_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_512_128B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -798,7 +798,7 @@ static const uint8_t hmac_digest_sha3_sha_224_with_358_byte_key_data[] = {
 	0xec, 0x54, 0x4c, 0xc4
 };
 
-static const struct test_sym_params hmac_sha3_224_with_358_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_224_358B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -871,7 +871,7 @@ static const uint8_t hmac_digest_sha3_sha_224_with_360_byte_key_data[] = {
 	0xed, 0x8d, 0xb6, 0x54
 };
 
-static const struct test_sym_params hmac_sha3_224_with_360_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_224_360B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -944,7 +944,7 @@ static const uint8_t hmac_digest_sha3_sha_224_with_1024_byte_key_data[] = {
 	0x40, 0x0e, 0x59, 0x27
 };
 
-static const struct test_sym_params hmac_sha3_224_with_1024_byte_key_test_data = {
+static const struct test_sym_params hmac_sha3_224_1024B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -1099,13 +1099,13 @@ static const uint8_t hmac_digest_sha1_with_1024_byte_key_data[] = {
 	0xd3, 0x66, 0x16, 0xef
 };
 
-static const struct test_sym_params hmac_sha1_with_1024_byte_key_test_data = {
+static const struct test_sym_params hmac_sha1_1024B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
 			.digest_len = 20,
 			.hmac_key_len = 1024,
-			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHA224,
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA1,
 			.hmac_auth_key = {
 				0x8d, 0x03, 0x52, 0xc4, 0x36, 0xdf, 0x65, 0x1f,
 				0x0c, 0xbc, 0xaa, 0x54, 0x7a, 0x3c, 0xeb, 0x8a,
@@ -1255,13 +1255,13 @@ static const uint8_t hmac_digest_sha256_with_1024_byte_key_data[] = {
 	0x3d, 0x86, 0xaa, 0x31, 0xc9, 0x84, 0xae, 0x53
 };
 
-static const struct test_sym_params hmac_sha256_with_1024_byte_key_test_data = {
+static const struct test_sym_params hmac_sha256_1024B_key = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
 			.digest_len = 32,
 			.hmac_key_len = 1024,
-			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHA224,
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
 			.hmac_auth_key = {
 				0x8d, 0x03, 0x52, 0xc4, 0x36, 0xdf, 0x65, 0x1f,
 				0x0c, 0xbc, 0xaa, 0x54, 0x7a, 0x3c, 0xeb, 0x8a,
