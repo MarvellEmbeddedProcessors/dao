@@ -68,6 +68,14 @@
 #define OCTEON_EP_INSMOD_TIMEOUT_MS 5000
 #define OCTEON_EP_POLL_INTERVAL_US  100000 /* 100ms */
 
+/* Time to wait after successful module unload before attempting re-load.
+ * Different settle windows depending on boot source:
+ *  - MMC (main image):  60s
+ *  - SPI (failsafe):   120s (slower bring-up path / extra init)
+ */
+#define OCTEON_EP_RELOAD_WAIT_MMC_MS 60000  /* 60 seconds */
+#define OCTEON_EP_RELOAD_WAIT_SPI_MS 120000 /* 120 seconds */
+
 static __thread char *dao_card_err_buf;
 static __thread size_t dao_card_err_buf_len;
 
@@ -302,8 +310,11 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 	struct stat st;
 	int rc;
 
-	if (cmd->argc < 2) {
-		DAO_CARD_ERR("Command requires a file to update");
+	/* Arguments format updated: <cmd> <file-to-update> <boot-binary-path>
+	 * Enforce presence of both file and boot path when a bootpath pointer is supplied.
+	 */
+	if (cmd->argc < 3) {
+		DAO_CARD_ERR("Command requires: <file-to-update> <boot-binary-path>");
 		return -EINVAL;
 	}
 	if (bootpath)
@@ -317,7 +328,8 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 		DAO_CARD_ERR("Failed to split path/filename for app update: %s", strerror(-rc));
 		return rc;
 	}
-	if (cmd->argc >= 3 && bootpath) {
+	/* Now mandatory (checked above) when bootpath != NULL */
+	if (bootpath) {
 		*bootpath = strdup(cmd->argv[2]);
 		if (!*bootpath)
 			return -ENOMEM;
@@ -337,8 +349,12 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
 	return 0;
 }
 
+/* Reload the octeon_ep module. The caller provides the boot_arg ("mmc" or "spi")
+ * that was used to invoke the boot binary so we can pick an appropriate settle
+ * wait after unload instead of relying on an environment variable.
+ */
 static int
-reload_octeon_ep_module(void)
+reload_octeon_ep_module(const char *boot_arg)
 {
 	const char *ko_path = getenv("OCTEON_EP_KO_PATH");
 	const char *name = OCTEON_EP_MODULE_NAME;
@@ -364,12 +380,16 @@ reload_octeon_ep_module(void)
 		}
 	}
 
-	/* If unloaded, wait 60s for card boot before loading again */
+	/* If unloaded, wait for settle window: choose duration based on boot_arg
+	 * provided by the caller.
+	 */
 	if (did_unload) {
-		const int total_ms = 60000; /* 60 seconds */
+		int target_ms = OCTEON_EP_RELOAD_WAIT_MMC_MS;
 		int waited = 0;
 
-		while (waited < total_ms) {
+		if (boot_arg && strcmp(boot_arg, "spi") == 0)
+			target_ms = OCTEON_EP_RELOAD_WAIT_SPI_MS;
+		while (waited < target_ms) {
 			if (force_quit)
 				return -EINTR;
 			usleep(200000); /* 200ms */
@@ -526,7 +546,7 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 		return boot_rc;
 	}
 
-	boot_rc = reload_octeon_ep_module();
+	boot_rc = reload_octeon_ep_module(boot_arg);
 	if (boot_rc != 0) {
 		DAO_CARD_ERR("unload and relod of octeon_ep failed: %d", boot_rc);
 		return boot_rc;
