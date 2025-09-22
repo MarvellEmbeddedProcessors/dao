@@ -749,51 +749,83 @@ dao_card_mgr_recv_card_sensors(int cli_fd)
 	}
 }
 
+/* Receive exactly len bytes (blocking) unless peer closes or a fatal error occurs.
+ * Returns 0 on success, -ECONNRESET if peer closed, or -errno on failure.
+ */
+static int
+recv_all(int fd, void *buf, size_t len)
+{
+	uint8_t *p = buf;
+	size_t off = 0;
+
+	while (off < len) {
+		ssize_t rc = recv(fd, p + off, len - off, 0);
+
+		if (rc == 0)
+			return -ECONNRESET; /* peer closed */
+		if (rc < 0) {
+			if (errno == EINTR)
+				continue;
+			if (errno == EAGAIN || errno == EWOULDBLOCK)
+				continue; /* unexpected in blocking mode but retry */
+			return -errno;
+		}
+		off += (size_t)rc;
+	}
+	return 0;
+}
+
 static void
 dao_card_mgr_send_to_server(int cli_fd, const char *line)
 {
-	int resp;
+	int resp = 0;
 
-	if (strstr(line, "help") != NULL) {
+	/* Trim trailing newline to avoid sending it as part of the command */
+	size_t len = strlen(line);
+
+	while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		len--;
+	if (len == 0)
+		return; /* empty line */
+
+	/* Handle help locally */
+	if (len == 4 && strncmp(line, "help", 4) == 0) {
 		dao_card_cmd_usage_print();
 		return;
 	}
 
-	/* Send command to server */
-	if (send(cli_fd, line, strlen(line), 0) == -1) {
+	if (send(cli_fd, line, len, 0) == -1) {
 		dao_err("sending cmd to server failed (server may have exited)");
 		force_quit = true;
 		return;
 	}
 
-	/* Wait for the response */
-	ssize_t n = recv(cli_fd, &resp, sizeof(int), 0);
+	int rc = recv_all(cli_fd, &resp, sizeof(resp));
 
-	if (n <= 0) {
-		dao_err("Server closed the connection. Exiting client.");
+	if (rc != 0) {
+		if (rc == -ECONNRESET)
+			dao_err("Server closed the connection. Exiting client.");
+		else
+			dao_err("recv error (%d) reading response", rc);
 		force_quit = true;
 		return;
 	}
+
 	if (resp) {
 		dao_card_mgr_process_error(cli_fd, resp);
 		return;
 	}
 
-	/* Dump card info */
-	if (!resp && strstr(line, "card_info") != NULL)
+	/* Success payload handling */
+	if (strstr(line, "card_info") != NULL)
 		dao_card_mgr_recv_card_info(cli_fd);
-
-	/* Dump card stats */
-	if (!resp && strstr(line, "card_stats") != NULL)
+	if (strstr(line, "card_stats") != NULL)
 		dao_card_mgr_recv_card_stats(cli_fd);
-
-	if (!resp && strstr(line, "card_dmesg") != NULL)
+	if (strstr(line, "card_dmesg") != NULL)
 		dao_card_mgr_recv_card_dmesg(cli_fd);
-
-	if (!resp && strstr(line, "card_applog") != NULL)
-		dao_card_mgr_recv_card_dmesg(cli_fd); /* same framing as dmesg */
-
-	if (!resp && strstr(line, "card_temperature") != NULL)
+	if (strstr(line, "card_applog") != NULL)
+		dao_card_mgr_recv_card_dmesg(cli_fd); /* same framing */
+	if (strstr(line, "card_temperature") != NULL)
 		dao_card_mgr_recv_card_sensors(cli_fd);
 }
 
