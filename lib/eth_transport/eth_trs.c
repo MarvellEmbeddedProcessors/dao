@@ -325,6 +325,9 @@ dao_eth_trs_dev_free(uint8_t dev_id)
 		return -EBUSY;
 	}
 
+	if (dev->state == ETH_TRS_DEV_STATE_DOWN)
+		goto dev_free;
+
 	for (i = 0; i < dev->nb_ports; i++) {
 		rc = rte_eth_dev_close(dev->port_id[i]);
 		if (rc < 0) {
@@ -334,6 +337,7 @@ dao_eth_trs_dev_free(uint8_t dev_id)
 		}
 	}
 
+dev_free:
 	rte_free(dev);
 	eth_trs->devs[dev_id] = NULL;
 
