@@ -20,15 +20,13 @@
 struct pem pem_devices[DAO_PEM_DEV_ID_MAX];
 
 static uint32_t
-dt_max_vfs_get(struct pem *pem)
+dt_max_vfs_get(void)
 {
 	uint32_t max_vfs = 0;
 	char path[PATH_MAX];
 	struct dirent *e;
 	DIR *dir;
 	FILE *f;
-
-	RTE_SET_USED(pem);
 
 	/* Read device tree to find out max SDP VF's */
 	dir = opendir(DT_PATH);
@@ -252,13 +250,9 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 		dao_dev_memset(bar4, 0, sz);
 
 	/* Divide host pages among all VF's equally */
-	pem->max_vfs = dt_max_vfs_get(pem);
+	pem->max_vfs = dao_pem_max_vfs_get(pem_devid);
 	if (!pem->max_vfs)
 		goto err;
-
-	/* Assuming max_vfs is power of 2 */
-	if (pem->max_vfs != 1)
-		pem->max_vfs >>= 1;
 
 	dao_info("Setting up %u VFs for PEM%u", pem->max_vfs, pem->pem_id);
 
@@ -384,17 +378,22 @@ int
 dao_pem_vf_region_info_get(uint16_t pem_devid, uint16_t dev_id, uint8_t bar_idx, uint64_t *addr,
 			   uint64_t *size)
 {
-	uint16_t pf = (dev_id & PEM_PFVF_DEV_ID_PF_MASK) >> PEM_PFVF_DEV_ID_PF_SHIFT;
-	uint16_t vf = (dev_id & PEM_PFVF_DEV_ID_VF_MASK) >> PEM_PFVF_DEV_ID_VF_SHIFT;
+	uint16_t max_vfs, pf, vf;
+
+	max_vfs = dao_pem_max_vfs_get(pem_devid);
+	pf = dev_id / max_vfs;
+	vf = dev_id % max_vfs;
 	struct pem *pem = &pem_devices[pem_devid];
 
 	/* Currently only BAR4 is supported */
 	if (bar_idx != 4)
 		return -ENOENT;
 
-	/* Check if we support that device */
-	if (pf > 0 || vf >= pem->max_vfs)
+	dao_dbg("PF %u VF %u", pf, vf);
+	if (pf > 1 || vf >= pem->max_vfs) {
+		dao_err("Invalid PF %u or VF %u", pf, vf);
 		return -ENOTSUP;
+	}
 
 	*addr = (uintptr_t)pem->bar4_pdev.mem[pem->bar4_pdev.mbar].addr +
 		(vf * pem->host_pages_per_dev * pem->host_page_sz);
@@ -534,11 +533,14 @@ dao_pem_host_dev_del(uint16_t pem_devid, int vfid)
 uint16_t
 dao_pem_max_vfs_get(uint16_t pem_devid)
 {
-	struct pem *pem;
+	uint16_t max_vfs;
 
 	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
 		return 0;
 
-	pem = &pem_devices[pem_devid];
-	return pem->max_vfs;
+	max_vfs = dt_max_vfs_get();
+	if (max_vfs != 1)
+		max_vfs >>= 1;
+
+	return max_vfs;
 }
