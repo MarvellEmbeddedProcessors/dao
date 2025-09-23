@@ -639,7 +639,7 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 static inline bool
 lc_sym_op_is_zero_len_auth_only(struct dao_lc_sym_op *op, enum lc_crypto_op_type op_type)
 {
-	if (op_type == LC_SYM_OP_AUTH_ONLY) {
+	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY)) {
 		if (op->in_buffer != NULL) {
 			if (op->in_buffer->total_len == 0)
 				return true;
