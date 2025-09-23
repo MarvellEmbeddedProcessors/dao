@@ -42,5 +42,13 @@
 #define TEST_LC_MAX_RANDOM_ITER 1024
 /* Maximum length of auth key */
 #define TEST_LC_MAX_AUTH_KEY_LEN 64
+/* Maximum length of ECC private/public key */
+#define TEST_LC_MAX_ECC_PKEY_LEN 66
+/* Maximum length of ECC signature */
+#define TEST_LC_MAX_ECC_SIGN_LEN 66
+/* Maximum length of ECC digest */
+#define TEST_LC_MAX_ECC_DIGEST_LEN 66
+/* Maximum nonce length */
+#define TEST_LC_MAX_NONCE_LEN 66
 
 #endif /* __LC_AUTOTEST_H__ */
