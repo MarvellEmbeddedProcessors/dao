@@ -4,6 +4,7 @@
 
 #include <rte_malloc.h>
 #include <rte_mempool.h>
+#include <rte_spinlock.h>
 
 #include <dao_eth_trs.h>
 #include <hw/cpt.h>
@@ -14,6 +15,7 @@
 
 TAILQ_HEAD(session_list, ca_sess_handle)
 sess_handle_list_head = TAILQ_HEAD_INITIALIZER(sess_handle_list_head);
+static rte_spinlock_t sess_handle_list_lock = RTE_SPINLOCK_INITIALIZER;
 
 static int
 ca_sess_handle_insert(uint64_t sess_id)
@@ -28,7 +30,9 @@ ca_sess_handle_insert(uint64_t sess_id)
 	}
 
 	new_session->sess_id = sess_id;
+	rte_spinlock_lock(&sess_handle_list_lock);
 	TAILQ_INSERT_HEAD(&sess_handle_list_head, new_session, next);
+	rte_spinlock_unlock(&sess_handle_list_lock);
 
 	return 0;
 }
@@ -39,6 +43,7 @@ ca_sess_handle_lookup(uint64_t sess_id)
 	struct ca_sess_handle *current_session;
 
 	/* Iterate through the list to find the session */
+	rte_spinlock_lock(&sess_handle_list_lock);
 	TAILQ_FOREACH(current_session, &sess_handle_list_head, next) {
 		if (current_session->sess_id == sess_id) {
 			/* Session found, remove it from the list */
@@ -46,9 +51,11 @@ ca_sess_handle_lookup(uint64_t sess_id)
 
 			/* Free the memory allocated for the session*/
 			rte_free(current_session);
+			rte_spinlock_unlock(&sess_handle_list_lock);
 			return 0;
 		}
 	}
+	rte_spinlock_unlock(&sess_handle_list_lock);
 
 	return -EINVAL;
 }
