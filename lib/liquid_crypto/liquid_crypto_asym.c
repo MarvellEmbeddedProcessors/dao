@@ -219,6 +219,18 @@ cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_
 }
 
 int
+cpt_ae_ecdsa_digest_len_check(uint16_t prime_len, uint16_t digest_len)
+{
+	if ((digest_len == 0) || (digest_len > prime_len)) {
+		dao_err("Invalid digest length. digest_len must be in between 1 to %u length bytes.",
+			prime_len);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int
 ecc_curve_id_to_prime_len(enum dao_liquid_crypto_ec_curve_type curve_id)
 {
 	switch (curve_id) {

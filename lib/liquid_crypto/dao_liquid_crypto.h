@@ -620,6 +620,34 @@ struct dao_lc_feature_params {
 		/** Random data length */
 		uint32_t rand_len;
 	} rng;
+
+	/**
+	 * ECDSA asymmetric parameters. The parameters are used to calculate the size of the maximum
+	 * segment size for ECDSA operations.
+	 *
+	 * For using following APIs the corresponding parameters must be set:
+	 * - `dao_liquid_crypto_enq_op_ecdsa_sign()`
+	 * - `dao_liquid_crypto_enq_op_ecdsa_verify()`
+	 */
+	struct {
+		/** Curve ID */
+		enum dao_liquid_crypto_ec_curve_type curve_id;
+		/** Private key length */
+		uint16_t pkey_len;
+		/** Public key x coordinate length */
+		uint16_t pubkey_x_len;
+		/** Public key y coordinate length */
+		uint16_t pubkey_y_len;
+		/** Digest length */
+		uint16_t digest_len;
+		/** Nonce length */
+		uint16_t nonce_len;
+		/** r sign component length */
+		uint16_t sign_r_len;
+		/** s sign component length */
+		uint16_t sign_s_len;
+	} ecc;
+
 	/**
 	 * Specifies whether the size calculation is for the command queue pair.
 	 * If true, the size is calculated specifically for the command queue pair, ignoring
@@ -1211,25 +1239,37 @@ uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_e
  *  The index of the queue pair on which the operation is to be enqueued.
  * @param curve_id
  *  The identifier of the elliptic curve to be used for ECDSA signing.
+ *  Supported curve types are:
+ *    - DAO_LC_AE_EC_ID_P192
+ *    - DAO_LC_AE_EC_ID_P224
+ *    - DAO_LC_AE_EC_ID_P256
+ *    - DAO_LC_AE_EC_ID_P384
+ *    - DAO_LC_AE_EC_ID_P521
  * @param nonce_len
- *  The length of the secret number in bytes.
+ *  The length of the ECDSA per-message secret number in bytes. nonce_len is between 1 to prime
+ * length bytes.
  * @param pkey_len
- *  The length of the private key in bytes.
+ *  The length of the ECDSA private key data  in bytes. pkey_len is between 1 to prime length bytes.
  * @param digest_len
- *  The length of the message digest in bytes.
+ *  The length of the message digest e in bytes. digest_len is between 1 to prime length bytes.
  * @param nonce
- *  The address of the buffer containing the secret number.
+ *  The address of the buffer containing the per-message secret number (nonce).
+ *  The nonce is an integer in the interval [1, n-1], where n is the order of the base point G of
+ * the elliptic curve. Length must be equal to the prime length of the curve.
  * @param pkey
- *  The address of the buffer containing the private key.
+ *  The address of the buffer containing the private key data.
+ *  The private key is an integer in the interval [1, n-1], where n is the order of the base point G
+ * of the elliptic curve. Length must be equal to the prime length of the curve.
  * @param digest_data
  *  The address of the buffer containing the message digest.
  * @param rs_outdata
- *  The address of the buffer where the ECDSA signature (r and s components) is to be stored.
- *  Length of this buffer must be at least twice the length of the order of the elliptic curve.
+ * The address of the buffer where the ECDSA signature (containing both r and s components) is to be
+ * stored. The buffer must be large enough to hold both components, with a length of at least twice
+ * the length of the order of the elliptic curve. The signature is stored as a single contiguous
+ * block, with the r component followed immediately by the s component.
  * @param op_cookie
- *  The cookie to be associated with the operation. This cookie is returned
- *  in the *dao_lc_res* structure when the operation is dequeued.
- *
+ * The cookie to be associated with the operation. This cookie is returned
+ * in the *dao_lc_res* structure when the operation is dequeued.
  * @return
  *  0 on success, negative value on failure.
  *   -EINVAL, indicating an invalid argument.
@@ -1250,17 +1290,25 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
  * @param qp_id
  *  The index of the queue pair on which the operation is to be enqueued.
  * @param curve_id
- *  The identifier of the elliptic curve to be used for ECDSA signing.
+ *  The identifier of the elliptic curve to be used for ECDSA verify.
+ *  Supported curve types are:
+ *    - DAO_LC_AE_EC_ID_P192
+ *    - DAO_LC_AE_EC_ID_P224
+ *    - DAO_LC_AE_EC_ID_P256
+ *    - DAO_LC_AE_EC_ID_P384
+ *    - DAO_LC_AE_EC_ID_P521
  * @param r_len
- *  The length of the ECDSA r component in bytes.
+ *  The length of the ECDSA r sign component in bytes and r_len is between 1 to prime length bytes.
  * @param s_len
- *  The length of the ECDSA s component in bytes.
+ *  The length of the ECDSA s sign component in bytes and s_len is between 1 to prime length bytes.
  * @param digest_len
- *  The length of the message digest in bytes.
+ *  The length of the message digest in bytes and digest_len is between 1 to prime length bytes.
  * @param qx_len
- *  The length of the x-coordinate of the public key in bytes.
+ *  The length of the x-coordinate of the public key in bytes and qx_len is between 1 to prime
+ * length bytes.
  * @param qy_len
- *  The length of the y-coordinate of the public key in bytes.
+ *  The length of the y-coordinate of the public key in bytes and qy_len is between 1 to prime
+ * length bytes.
  * @param r_data
  *  The address of the buffer containing the ECDSA r component.
  * @param s_data
@@ -1269,8 +1317,12 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
  *  The address of the buffer containing the message digest.
  * @param qx_data
  *  The address of the buffer containing the x-coordinate of the public key.
+ *  The public_x key is an integer in the interval [1, q-1], where q is the order of the base point
+ * G of the elliptic curve.
  * @param qy_data
  *  The address of the buffer containing the y-coordinate of the public key.
+ *  The public_y key is an integer in the interval [1, q-1], where q is the order of the base point
+ * G of the elliptic curve.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_lc_res* structure when the operation is dequeued.

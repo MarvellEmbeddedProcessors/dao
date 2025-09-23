@@ -77,4 +77,6 @@ void cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len);
 
 int cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len);
 
+int cpt_ae_ecdsa_digest_len_check(uint16_t prime_len, uint16_t digest_len);
+
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */

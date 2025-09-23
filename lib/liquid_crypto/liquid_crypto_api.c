@@ -752,10 +752,68 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			rng_seg_size = sizeof(struct __dao_lc_req_sym) + params->rng.rand_len;
 		}
 
+		if (params->ecc.curve_id) {
+			uint16_t prime_len;
+
+			rc = cpt_ec_curve_id_validate(params->ecc.curve_id);
+			if (rc != 0) {
+				dao_err("Invalid %d ECC curve ID.", params->ecc.curve_id);
+				return 0;
+			}
+
+			prime_len = ecc_curve_id_to_prime_len(params->ecc.curve_id);
+			if (prime_len == 0) {
+				dao_err("Could not get prime length for the given %d curve ID.",
+					params->ecc.curve_id);
+				return 0;
+			}
+
+			rc = cpt_ae_ecdsa_digest_len_check(prime_len, params->ecc.digest_len);
+			if (rc != 0) {
+				dao_err("Invalid %d ECC digest length.", params->ecc.digest_len);
+				return 0;
+			}
+
+			asym_seg_sz += params->ecc.digest_len;
+
+			rc = cpt_ae_ecdsa_nonce_len_check(prime_len, params->ecc.nonce_len);
+			if (rc != 0) {
+				dao_err("Invalid %d ECC nonce length.", params->ecc.nonce_len);
+				return 0;
+			}
+
+			asym_seg_sz += params->ecc.nonce_len;
+
+			rc = cpt_ae_ecdsa_pkey_len_check(prime_len, params->ecc.pkey_len);
+			if (rc != 0) {
+				dao_err("Invalid %d ECC private key length.", params->ecc.pkey_len);
+				return 0;
+			}
+
+			asym_seg_sz += params->ecc.pkey_len;
+
+			rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, params->ecc.pubkey_x_len,
+							   params->ecc.pubkey_y_len);
+			if (rc != 0) {
+				dao_err("Invalid ECC public key length.");
+				return 0;
+			}
+
+			asym_seg_sz += params->ecc.pubkey_x_len + params->ecc.pubkey_y_len;
+
+			rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, params->ecc.sign_r_len,
+							      params->ecc.sign_s_len);
+			if (rc != 0) {
+				dao_err("Invalid ECC signature length.");
+				return 0;
+			}
+
+			asym_seg_sz += params->ecc.sign_r_len + params->ecc.sign_s_len;
+		}
+
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 		max_seg_size = RTE_MAX(max_seg_size, rng_seg_size);
 	}
-
 	max_seg_size = RTE_MAX(max_seg_size, LIQUID_CRYPTO_SEG_SZ_MIN);
 
 	/* Make sure segment size is larger than min supported. */
@@ -2788,15 +2846,14 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (digest_len == 0) {
-		dao_err("Invalid digest length. digest_len cannot be zero.");
-		return -EINVAL;
-	}
-
 	if (cpt_ec_curve_id_validate(curve_id)) {
 		dao_err("Invalid argument. curve_id (%d) is not valid.", curve_id);
 		return -EINVAL;
 	}
+
+	rc = cpt_ae_ecdsa_digest_len_check(prime_len, digest_len);
+	if (rc != 0)
+		return rc;
 
 	rc = cpt_ae_ecdsa_nonce_len_check(prime_len, nonce_len);
 	if (rc != 0)
@@ -2831,9 +2888,13 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	qp->req_queue[req_idx].data_out = rs_outdata;
 	qp->req_queue[req_idx].ecc_op = DAO_LC_AE_ECDSA_SIGN;
 
-	if (digest_len > prime_len)
-		digest_len = prime_len;
+	if (digest_len > prime_len) {
+		dao_err("Invalid argument. digest_len (%d) cannot be greater than prime_len (%d).",
+			digest_len, prime_len);
+		return -EINVAL;
+	}
 
+	/* Calculate aligned lengths and offsets */
 	m_align = RTE_ALIGN_CEIL(digest_len, 8);
 	p_align = RTE_ALIGN_CEIL(prime_len, 8);
 	nonce_align = RTE_ALIGN_CEIL(nonce_len, 8);
@@ -2987,17 +3048,16 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (digest_len == 0) {
-		dao_err("Invalid digest length. digest_len cannot be zero.");
-		return -EINVAL;
-	}
-
 	if (cpt_ec_curve_id_validate(curve_id)) {
 		dao_err("Invalid argument. curve_id (%d) is not valid.", curve_id);
 		return -EINVAL;
 	}
 
 	rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, qx_len, qy_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_ecdsa_digest_len_check(prime_len, digest_len);
 	if (rc != 0)
 		return rc;
 
@@ -3029,9 +3089,13 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].ecc_op = DAO_LC_AE_ECDSA_VERIFY;
 
-	if (digest_len > prime_len)
-		digest_len = prime_len;
+	if (digest_len > prime_len) {
+		dao_err("Invalid argument. digest_len (%d) cannot be greater than prime_len (%d).",
+			digest_len, prime_len);
+		return -EINVAL;
+	}
 
+	/* Calculate aligned lengths and offsets */
 	m_align = RTE_ALIGN_CEIL(digest_len, 8);
 	p_align = RTE_ALIGN_CEIL(prime_len, 8);
 
