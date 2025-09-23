@@ -22,110 +22,109 @@ extern struct lcore_conf lcore_conf[CA_MAX_LCORE];
 static void ca_eth_flow_clear(uint8_t port_id);
 static int ca_eth_flow_create(uint8_t port_id, uint16_t nb_queue);
 
+struct pair {
+	uint8_t port;
+	uint16_t q;
+};
+
 int
 ca_eth_lcore_map_init(void)
 {
-	uint8_t nb_link_per_lcore, nb_eth_dev, extra_links, nb_link, port_id, nb_lcore;
-	uint16_t queue_id, nb_queue_list[RTE_MAX_ETHPORTS];
+	uint8_t main_lcore = rte_get_main_lcore();
+	uint16_t nb_queue_list[RTE_MAX_ETHPORTS];
 	uint8_t port_id_list[RTE_MAX_ETHPORTS];
+	uint8_t worker_ids[CA_MAX_LCORE];
 	struct ca_eth_dev_ctx *eth_ctx;
-	uint16_t nb_tot_queue, i, j;
+	uint32_t idx, k, total_pairs = 0;
+	uint8_t worker_count = 0;
+	uint8_t nb_eth_dev = 0;
+	uint8_t lc, d;
+	uint16_t p, q, min_q, max_q;
+	struct pair *pairs;
+	uint32_t wid, li, l;
 
-	nb_eth_dev = 0;
-	nb_tot_queue = 0;
-
-	nb_lcore = rte_lcore_count();
-	nb_lcore = RTE_MIN(nb_lcore, CA_MAX_LCORE);
-	if (nb_lcore == 0) {
-		CA_ERR("No lcore found.");
+	for (lc = 0; lc < CA_MAX_LCORE; lc++) {
+		if (!rte_lcore_is_enabled(lc))
+			continue;
+		if (lc == main_lcore)
+			continue;
+		worker_ids[worker_count++] = lc;
+	}
+	if (worker_count == 0) {
+		CA_ERR("No worker lcores available.");
 		return -ENODEV;
 	}
 
-	/* Exclude main lcore */
-	nb_lcore -= 1;
-
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		eth_ctx = ca_eth_dev_ctx_get(i);
-		if (eth_ctx == NULL)
+	for (p = 0; p < RTE_MAX_ETHPORTS; p++) {
+		eth_ctx = ca_eth_dev_ctx_get(p);
+		if (!eth_ctx || eth_ctx->nb_queue_avail == 0)
 			continue;
-
-		/* Found valid dev */
 		port_id_list[nb_eth_dev] = eth_ctx->port_id;
 		nb_queue_list[nb_eth_dev] = eth_ctx->nb_queue_avail;
+		total_pairs += eth_ctx->nb_queue_avail;
 		nb_eth_dev++;
-		nb_tot_queue += eth_ctx->nb_queue_avail;
 	}
-
-	if (nb_eth_dev == 0) {
-		CA_ERR("No valid ethdev found.");
+	if (nb_eth_dev == 0 || total_pairs == 0) {
+		CA_ERR("No usable ethdev queues found.");
 		return -ENODEV;
 	}
-
-	if (nb_tot_queue == 0) {
-		CA_ERR("No valid ethdev queue found.");
-		return -ENODEV;
-	}
-
-	nb_link_per_lcore = nb_tot_queue / nb_lcore;
-	extra_links = nb_tot_queue % nb_lcore;
 
 	memset(eth_map, 0, sizeof(eth_map));
 
-	for (i = 0; i < CA_MAX_LCORE; i++) {
-		if (rte_lcore_is_enabled(i) == 0)
-			continue;
-		if (rte_get_main_lcore() == i)
-			continue;
+	min_q = UINT16_MAX;
+	for (d = 0; d < nb_eth_dev; d++)
+		if (nb_queue_list[d] < min_q)
+			min_q = nb_queue_list[d];
 
-		eth_map[i].nb_links = nb_link_per_lcore;
+	pairs = calloc(total_pairs, sizeof(*pairs));
+	if (!pairs)
+		return -ENOMEM;
 
-		/* Give one extra link each to first 'extra_links' lcore. */
-		if (extra_links) {
-			eth_map[i].nb_links++;
-			extra_links--;
+	max_q = 0;
+	for (d = 0; d < nb_eth_dev; d++)
+		if (nb_queue_list[d] > max_q)
+			max_q = nb_queue_list[d];
+
+	idx = 0;
+	for (q = 0; q < max_q; q++) {
+		for (d = 0; d < nb_eth_dev; d++) {
+			if (q >= nb_queue_list[d])
+				continue;
+			pairs[idx].port = port_id_list[d];
+			pairs[idx].q = q;
+			idx++;
 		}
 	}
-
-	port_id = 0;
-	queue_id = 0;
-
-	for (i = 0; i < CA_MAX_LCORE; i++) {
-		if (eth_map[i].nb_links == 0)
-			continue;
-
-		nb_link = 0;
-
-		while (nb_link < eth_map[i].nb_links) {
-			eth_map[i].link[nb_link].port_id = port_id_list[port_id];
-			eth_map[i].link[nb_link].queue_id = queue_id;
-
-			nb_link++;
-			queue_id++;
-
-			if (queue_id == nb_queue_list[port_id]) {
-				queue_id = 0;
-				port_id++;
-			}
+	if (idx != total_pairs)
+		total_pairs = idx;
+	for (k = 0; k < total_pairs; k++) {
+		wid = worker_ids[k % worker_count];
+		li = eth_map[wid].nb_links;
+		if (li >= CA_MAX_QUEUE_PER_CORE) {
+			CA_ERR("Capacity exceeded on lcore %u", wid);
+			free(pairs);
+			return -E2BIG;
 		}
+		eth_map[wid].link[li].port_id = pairs[k].port;
+		eth_map[wid].link[li].queue_id = pairs[k].q;
+		eth_map[wid].nb_links++;
 	}
+	free(pairs);
 
-	/* Print the eth queue map */
-	for (i = 0; i < CA_MAX_LCORE; i++) {
-		if (rte_get_main_lcore() == i) {
-			CA_INFO("Lcore %u: Main lcore", i);
+	for (lc = 0; lc < CA_MAX_LCORE; lc++) {
+		if (lc == main_lcore) {
+			CA_INFO("Lcore %u: Main lcore", lc);
+			continue;
+		}
+		if (!rte_lcore_is_enabled(lc)) {
+			CA_INFO("Lcore %u: Not enabled", lc);
 			continue;
 		}
 
-		if (rte_lcore_is_enabled(i) == 0) {
-			CA_INFO("Lcore %u: Not enabled", i);
-			continue;
-		}
-
-		CA_INFO("Lcore %u: %u links", i, eth_map[i].nb_links);
-
-		for (j = 0; j < eth_map[i].nb_links; j++) {
-			CA_INFO("\t\tPort %u, Queue %u", eth_map[i].link[j].port_id,
-				eth_map[i].link[j].queue_id);
+		CA_INFO("Lcore %u: %u links", lc, eth_map[lc].nb_links);
+		for (l = 0; l < eth_map[lc].nb_links; l++) {
+			CA_INFO("\t\tPort %u, Queue %u", eth_map[lc].link[l].port_id,
+				eth_map[lc].link[l].queue_id);
 		}
 	}
 
