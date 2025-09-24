@@ -2882,6 +2882,18 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	rc = cpt_ae_ecdsa_pkey_len_check(prime_len, pkey_len);
 	if (rc != 0)
 		return rc;
+
+	rc = cpt_ae_ecdsa_pkey_validate(pkey_len, pkey, curve_id);
+	if (rc != 0) {
+		dao_err("Invalid ECC private key.");
+		return rc;
+	}
+
+	rc = cpt_ae_ecdsa_nonce_validate(nonce_len, nonce, curve_id);
+	if (rc != 0) {
+		dao_err("Invalid ECC nonce.");
+		return rc;
+	}
 #endif
 	qp = dev->qp[qp_id];
 
@@ -3084,6 +3096,12 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, r_len, s_len);
 	if (rc != 0)
 		return rc;
+
+	rc = cpt_ae_ecdsa_pubkey_validate(qx_len, qx_data, qy_len, qy_data, curve_id);
+	if (rc != 0) {
+		dao_err("Invalid ECC public key.");
+		return rc;
+	}
 #endif
 	qp = dev->qp[qp_id];
 

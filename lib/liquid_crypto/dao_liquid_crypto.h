@@ -16,8 +16,6 @@
 
 #include <dao_eth_trs.h>
 
-#include "liquid_crypto_asym.h"
-
 /** The version of the liquid crypto library */
 #define DAO_LC_VERSION "25.09.0"
 /** The maximum length of the version string. */
@@ -498,6 +496,34 @@ enum dao_lc_hash_type {
 	DAO_LC_HASH_TYPE_SHA3_SHA512 = 13,
 	/** Hash Type = CMAC */
 	DAO_LC_HASH_TYPE_CMAC = 16,
+};
+
+/**
+ * The liquid crypto supported elliptic curves
+ */
+enum dao_liquid_crypto_ec_curve_type {
+	/* Elliptic curve identifier for P-192 (secp192r1) */
+	DAO_LC_AE_EC_ID_P192 = 0,
+	/* Elliptic curve identifier for P-224 (secpr224r1) */
+	DAO_LC_AE_EC_ID_P224 = 1,
+	/* Elliptic curve identifier for P-256 (secpr256r1) */
+	DAO_LC_AE_EC_ID_P256 = 2,
+	/* Elliptic curve identifier for P-384 (secpr384r1) */
+	DAO_LC_AE_EC_ID_P384 = 3,
+	/* Elliptic curve identifier for P-521 (secpr521r1) */
+	DAO_LC_AE_EC_ID_P521 = 4,
+	/** Maximum value for elliptic curve identifier */
+	DAO_LC_AE_EC_ID_PMAX
+};
+
+/**
+ * The liquid crypto ECDSA operation type.
+ */
+enum dao_lc_ecdsa_sign_type {
+	/** ECDSA sign operation */
+	DAO_LC_AE_ECDSA_SIGN = 1,
+	/** ECDSA verify operation */
+	DAO_LC_AE_ECDSA_VERIFY = 2,
 };
 
 /**
@@ -1298,9 +1324,9 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
  *    - DAO_LC_AE_EC_ID_P384
  *    - DAO_LC_AE_EC_ID_P521
  * @param r_len
- *  The length of the ECDSA r sign component in bytes and r_len is between 1 to prime length bytes.
+ *  The length of the ECDSA r sign component in bytes and r_len is prime length bytes.
  * @param s_len
- *  The length of the ECDSA s sign component in bytes and s_len is between 1 to prime length bytes.
+ *  The length of the ECDSA s sign component in bytes and s_len is prime length bytes.
  * @param digest_len
  *  The length of the message digest in bytes and digest_len is between 1 to prime length bytes.
  * @param qx_len
@@ -1317,12 +1343,10 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
  *  The address of the buffer containing the message digest.
  * @param qx_data
  *  The address of the buffer containing the x-coordinate of the public key.
- *  The public_x key is an integer in the interval [1, q-1], where q is the order of the base point
- * G of the elliptic curve.
+ *  The public_x key is an integer in the interval [0, q-1], where q is prime number
  * @param qy_data
  *  The address of the buffer containing the y-coordinate of the public key.
- *  The public_y key is an integer in the interval [1, q-1], where q is the order of the base point
- * G of the elliptic curve.
+ *  The public_y key is an integer in the interval [0, q-1], where q is prime number
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_lc_res* structure when the operation is dequeued.

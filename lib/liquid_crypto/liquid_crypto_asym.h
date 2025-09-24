@@ -8,23 +8,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/**
- * The liquid crypto supported elliptic curves
- */
-enum dao_liquid_crypto_ec_curve_type {
-	/* Elliptic curve identifier for P-192 (secp192r1) */
-	DAO_LC_AE_EC_ID_P192 = 0,
-	/* Elliptic curve identifier for P-224 (secpr224r1) */
-	DAO_LC_AE_EC_ID_P224 = 1,
-	/* Elliptic curve identifier for P-256 (secpr256r1) */
-	DAO_LC_AE_EC_ID_P256 = 2,
-	/* Elliptic curve identifier for P-384 (secpr384r1) */
-	DAO_LC_AE_EC_ID_P384 = 3,
-	/* Elliptic curve identifier for P-521 (secpr521r1) */
-	DAO_LC_AE_EC_ID_P521 = 4,
-	/** Maximum value for elliptic curve identifier */
-	DAO_LC_AE_EC_ID_PMAX
-};
+#define CPT_AE_EC_DATA_MAX 66
 
 /**
  * Prime length (in bytes) for each supported EC curve type.
@@ -42,14 +26,18 @@ enum dao_lc_ec_curve_prime_len_bytes {
 	DAO_LC_PRIME_LEN_P521 = 66,
 };
 
-/**
- * The liquid crypto ECDSA operation type.
- */
-enum dao_lc_ecdsa_sign_type {
-	/** ECDSA sign operation */
-	DAO_LC_AE_ECDSA_SIGN = 1,
-	/** ECDSA verify operation */
-	DAO_LC_AE_ECDSA_VERIFY = 2,
+struct cpt_ae_ec_group {
+	struct {
+		/* P521 maximum length */
+		uint8_t data[CPT_AE_EC_DATA_MAX];
+		unsigned int length;
+	} prime;
+
+	struct {
+		/* P521 maximum length */
+		uint8_t data[CPT_AE_EC_DATA_MAX];
+		unsigned int length;
+	} order;
 };
 
 int cpt_ae_rsa_mod_len_check(uint16_t mod_len, bool is_crt);
@@ -78,5 +66,14 @@ void cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len);
 int cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len);
 
 int cpt_ae_ecdsa_digest_len_check(uint16_t prime_len, uint16_t digest_len);
+
+int cpt_ae_ecdsa_pkey_validate(uint16_t pkey_len, uint8_t *pkey,
+			       enum dao_liquid_crypto_ec_curve_type curve_id);
+
+int cpt_ae_ecdsa_nonce_validate(uint16_t nonce_len, uint8_t *nonce,
+				enum dao_liquid_crypto_ec_curve_type curve_id);
+
+int cpt_ae_ecdsa_pubkey_validate(uint16_t pubkey_x_len, uint8_t *pubkey_x, uint16_t pubkey_y_len,
+				 uint8_t *pubkey_y, enum dao_liquid_crypto_ec_curve_type curve_id);
 
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */
