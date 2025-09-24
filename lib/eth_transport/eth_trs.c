@@ -258,7 +258,7 @@ dao_eth_trs_dev_alloc(uint8_t dev_id, struct dao_eth_trs_dev_config *conf)
 	/* Calculate the number of ports and queues per port */
 	max_qs_per_port = eth_trs->nb_queues / eth_trs->nb_ports;
 	dev->nb_ports = (conf->nb_queues + max_qs_per_port - 1) / max_qs_per_port;
-	dev->qs_per_port = (conf->nb_queues + dev->nb_ports - 1) / dev->nb_ports;
+	dev->qs_per_port = max_qs_per_port;
 	dev->nb_queues = conf->nb_queues;
 
 	for (i = 0; i < dev->nb_ports; i++)
@@ -374,7 +374,7 @@ dao_eth_trs_info(struct dao_eth_trs_info *info)
 }
 
 int
-dao_eth_trs_port_info_get(struct dao_eth_trs_port_info *port_info)
+dao_eth_trs_port_info_get(uint8_t dev_id, struct dao_eth_trs_port_info *port_info)
 {
 	struct rte_eth_dev_info dev_info;
 	int ret, i;
@@ -409,8 +409,8 @@ dao_eth_trs_port_info_get(struct dao_eth_trs_port_info *port_info)
 		}
 	}
 
-	port_info->nb_ports = eth_trs->nb_ports;
-	port_info->nb_queues = dev_info.max_rx_queues;
+	port_info->nb_ports = eth_trs->devs[dev_id]->nb_ports;
+	port_info->nb_queues = eth_trs->devs[dev_id]->qs_per_port;
 
 	return 0;
 }

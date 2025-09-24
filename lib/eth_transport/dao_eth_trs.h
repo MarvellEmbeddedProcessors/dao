@@ -270,6 +270,9 @@ int dao_eth_trs_dev_free(uint8_t dev_id);
  * This function populates number of ports of ethernet transport device, max queues
  * supported by port and PCI device/function of each port.
  *
+ * @param dev_id
+ *  Device ID of the ethernet transport device.
+ *
  * @param port_info
  *  Pointer to a struct dao_eth_trs_port_info that will be filled with port details.
  *  The structure will be populated with:
@@ -282,5 +285,5 @@ int dao_eth_trs_dev_free(uint8_t dev_id);
  * -EINVAL if the port index is invalid or arguments are NULL,
  *  negative error code on other failures.
  */
-int dao_eth_trs_port_info_get(struct dao_eth_trs_port_info *port_info);
+int dao_eth_trs_port_info_get(uint8_t dev_id, struct dao_eth_trs_port_info *port_info);
 #endif /*  __DAO_ETH_TRANSPORT_H__ */

@@ -133,15 +133,13 @@ dao_liquid_crypto_info_get(struct dao_lc_info *info)
 int
 dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 {
-	uint16_t created_ports, remainder, ports_needed;
 	struct dao_eth_trs_port_info *port_info;
 	struct dao_eth_trs_dev_config trs_conf;
 	struct liquid_crypto_dev *dev;
 	uint16_t nb_qp, cmd_qp_idx;
-	uint16_t req_ports;
 	uint8_t dev_id;
+	uint32_t i;
 	int rc;
-	int i;
 
 	if (conf == NULL) {
 		dao_err("Invalid argument.");
@@ -192,45 +190,31 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 	}
 
 	port_info = &dev->port_info;
-	if (dao_eth_trs_port_info_get(port_info) != 0) {
+	if (dao_eth_trs_port_info_get(dev_id, port_info) != 0) {
 		dao_err("Failed to get port info");
 		goto dev_free;
 	}
 
-	req_ports = nb_qp / port_info->nb_queues;
-	remainder = nb_qp % port_info->nb_queues;
-	ports_needed = req_ports + (remainder ? 1 : 0);
+	for (i = 0; i < port_info->nb_ports; i++) {
+		int num_queues = port_info->nb_queues;
 
-	if (ports_needed > port_info->nb_ports)
-		goto dev_free;
+		if (i == port_info->nb_ports - 1)
+			num_queues = nb_qp - i * port_info->nb_queues;
 
-	created_ports = 0;
-	for (i = 0; i < req_ports; i++) {
-		rc = dao_lc_ethdev_create(lc_ctx, port_info->oct_dev_id[i], port_info->nb_queues);
+		rc = dao_lc_ethdev_create(lc_ctx, port_info->oct_dev_id[i], num_queues);
 		if (rc != 0) {
 			dao_err("Could not create card device.");
 			goto lc_eth_dev_destroy;
 		}
-		created_ports++;
 	}
 
-	if (remainder) {
-		rc = dao_lc_ethdev_create(lc_ctx, port_info->oct_dev_id[req_ports], remainder);
-		if (rc != 0) {
-			dao_err("Could not create card device.");
-			dao_lc_ethdev_destroy(lc_ctx, port_info->oct_dev_id[req_ports - 1]);
-			goto lc_eth_dev_destroy;
-		}
-		req_ports += 1;
-		created_ports++;
-	}
-	dev->nb_ports = ports_needed;
+	dev->nb_ports = port_info->nb_ports;
 	dev->is_created = true;
 
 	return 0;
 
 lc_eth_dev_destroy:
-	for (int j = created_ports; j >= 0; j--)
+	for (int j = i - 1; j >= 0; j--)
 		dao_lc_ethdev_destroy(lc_ctx, port_info->oct_dev_id[j]);
 dev_free:
 	dao_eth_trs_dev_free(dev_id);
