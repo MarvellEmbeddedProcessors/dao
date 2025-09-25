@@ -40,11 +40,15 @@ jobs:
         run: |
           mkdir -p "${PWD}/artifacts"
           git tag --points-at HEAD > /tmp/tags
-          [ -s /tmp/tags ] && PKG_POSTFIX= || PKG_POSTFIX=-devel
-          [ -s /tmp/tags ] && NIGHTLY=false || NIGHTLY=true
-
+          # Treat HEAD as "release" only if a release tag (YY.MM.0) points at it.
+          if git tag --points-at HEAD --list '[0-9][0-9].[0-9][0-9].0' | grep -q .; then
+            PKG_POSTFIX=
+            NIGHTLY=false
+          else
+            PKG_POSTFIX=-devel
+            NIGHTLY=true
+          fi
           echo "MRVL_PKG_VERSION=`cat VERSION`" >> "${PWD}/artifacts/env"
-
           echo "DPDK_PKG_VERSION=`cat DPDK_VERSION | grep RELEASE_VERSION | awk -F'=' '{print $2}'`" >> "${PWD}/artifacts/env"
           echo "DPDK_BASE_PKG_VERSION=`cat DPDK_VERSION | grep BASE_VERSION | awk -F'=' '{print $2}' | awk -F'.' '{print $1"."$2}'`" >> "${PWD}/artifacts/env"
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
