@@ -82,6 +82,8 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w6.u64 = (uint64_t)sym->dptr; /* INPLACE*/
 			inst[i].w7.u64 = sym->w7;
 			infl_req->sym_param2 = inst[i].w4.s.param2;
+			infl_req->stage = 0;
+			infl_req->max_stage = 1;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			asym = (struct __dao_lc_req_asym *)req;
@@ -94,6 +96,8 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			infl_req->op_type = asym->op_type;
 			ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
+			infl_req->stage = 0;
+			infl_req->max_stage = 1;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
 			rc = ca_sess_handle_create(rx_pkts[pkt_id]);
