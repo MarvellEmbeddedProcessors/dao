@@ -1739,6 +1739,11 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 		if (req->digest == NULL) {
 			/* Case: Append Digest into the output buffer */
 			result_len = req->cipher_len + req->digest_len + req->wrap_unwrap_key_len;
+			if ((!req->is_wrap) && req->is_wrap_pad)
+				result_len = *(uint16_t *)(resp->rptr + result_offset +
+							   req->cipher_len + req->digest_len +
+							   (req->wrap_unwrap_key_len - 2));
+
 			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
 								    req->data_out, lc_buf_offset,
 								    result_len);
@@ -2078,7 +2083,7 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 				      const struct dao_lc_sym_sess_meta *sess_meta,
 				      const enum lc_crypto_op_type op_type)
 {
-	uint32_t buf_len, dlen, kek_len, key_len;
+	uint32_t buf_len, dlen, kek_len, key_len, pad_key_len;
 	struct __dao_lc_req_sym *req;
 	uint32_t lc_buf_offset = 0;
 	union cpt_inst_w4 w4;
@@ -2087,6 +2092,7 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 	kek_len = sess_meta->kek_len;
 	lc_buf_offset = op->cipher_offset;
 	key_len = op->wrap_unwrap_key_len;
+	pad_key_len = key_len;
 	dlen = key_len + kek_len;
 
 	if (op->out_buffer != NULL)
@@ -2097,11 +2103,24 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 	qp->req_queue[req_idx].op_type = op_type;
 	qp->req_queue[req_idx].lc_buf_offset = lc_buf_offset;
 	qp->req_queue[req_idx].result_offset = 0;
+	qp->req_queue[req_idx].is_wrap = op->is_wrap;
+	qp->req_queue[req_idx].is_wrap_pad = op->is_wrap_pad;
+
+	if (op->is_wrap_pad) {
+		if (op->is_wrap)
+			/* Pad to next multiple of 8 bytes */
+			pad_key_len = RTE_ALIGN_CEIL(key_len, 8);
+		else
+			/* Reserve 2 extra bytes for AES KWP unwrap data length */
+			pad_key_len = pad_key_len + 2;
+	}
 
 	if (op->is_wrap)
-		qp->req_queue[req_idx].wrap_unwrap_key_len = key_len + DAO_LC_AES_KEY_WRAP_IV_LEN;
+		qp->req_queue[req_idx].wrap_unwrap_key_len =
+			pad_key_len + DAO_LC_AES_KEY_WRAP_IV_LEN;
 	else
-		qp->req_queue[req_idx].wrap_unwrap_key_len = key_len - DAO_LC_AES_KEY_WRAP_IV_LEN;
+		qp->req_queue[req_idx].wrap_unwrap_key_len =
+			pad_key_len - DAO_LC_AES_KEY_WRAP_IV_LEN;
 
 	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);

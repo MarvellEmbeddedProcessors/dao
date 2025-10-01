@@ -124,6 +124,8 @@ struct dao_lc_sym_op {
 	 * Ignored for non-key wrap operations.
 	 */
 	uint32_t wrap_unwrap_key_len;
+	/** Indicates if padding is used (for AES-KWP) */
+	bool is_wrap_pad;
 	/** Type of operation */
 	union {
 		/** Is encrypt operation or decrypt operation. */
@@ -206,7 +208,9 @@ enum dao_uc_comp_code {
 	/** Encrypt length unaligned when MAC_Select is valid. */
 	DAO_UC_ERR_GC_DATA_UNALIGNED = 0x4d,
 	/** Invalid key length; Applicable for HMAC and AES-KW and AES-KWP */
-	DAO_UC_ERR_GC_KEY_LEN_INVALID = 0x4e
+	DAO_UC_ERR_GC_KEY_LEN_INVALID = 0x4e,
+	/** Invalid key data length */
+	DAO_UC_ERR_GC_KEY_DATA_LEN_INVALID = 0x41,
 };
 
 /**
@@ -735,6 +739,8 @@ struct dao_lc_aes_key_wrap_ctx {
 	uint16_t kek_len;
 	/** The key encryption key (KEK) */
 	uint8_t kek[DAO_LC_AES_MAX_KEY_ENC_KEY_LEN];
+	/** Indicates if padding is used (for AES-KWP) */
+	bool is_wrap_pad;
 };
 
 /**

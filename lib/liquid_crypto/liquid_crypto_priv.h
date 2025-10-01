@@ -119,8 +119,16 @@ struct liquid_crypto_inflight_req {
 		struct dao_lc_sym_sess_meta *sess_meta;
 	};
 
-	/* Is auth generate operation */
-	bool is_auth_gen;
+	/** Indicates if padding is used (for AES-KWP) */
+	bool is_wrap_pad;
+
+	/** Type of operation */
+	union {
+		/* Is auth generate operation */
+		bool is_auth_gen;
+		/* Is AES key wrap operation */
+		bool is_wrap;
+	};
 };
 
 static inline uint32_t

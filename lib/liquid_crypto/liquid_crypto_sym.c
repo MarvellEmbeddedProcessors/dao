@@ -288,7 +288,9 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 
 		w4.s.opcode_major = DAO_LC_SYM_OPCODE_AES_KEY_WRAP;
 		w4.s.opcode_minor = ((ctx->aes_key_wrap.aes_kek_type & 0x03) << 2) |
-				    ((!ctx->aes_key_wrap.is_wrap) << 1);
+				    ((!ctx->aes_key_wrap.is_wrap) << 1) |
+				    ((ctx->aes_key_wrap.is_wrap_pad ? 1 : 0) << 0);
+
 		w4.s.param2 = 0;
 	} else {
 		dao_err("Unsupported opcode.");
@@ -715,15 +717,23 @@ lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (key_len < 16 || key_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {
-		dao_err("Invalid key length (%u). Key length must be between 16 and %u bytes.",
-			key_len, DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
-		return -EINVAL;
+	if (!op->is_wrap_pad) {
+		if (key_len < 8) {
+			dao_err("Invalid key length (%u). Key length is too small for AES-KW and minimum key length must be 8 bytes.",
+				key_len);
+			return -EINVAL;
+		}
+
+		if (key_len % 8 != 0) {
+			dao_err("Invalid key length (%u). Key length must be a multiple of 8 bytes.",
+				key_len);
+			return -EINVAL;
+		}
 	}
 
-	if (key_len % 8 != 0) {
-		dao_err("Invalid key length (%u). Key length must be a multiple of 8 bytes.",
-			key_len);
+	if (key_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {
+		dao_err("Invalid key length (%u). Key length exceeds maximum limit (%u bytes).",
+			key_len, DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
 		return -EINVAL;
 	}
 
