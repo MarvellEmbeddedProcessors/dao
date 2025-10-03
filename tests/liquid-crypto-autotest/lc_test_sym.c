@@ -200,11 +200,11 @@ static int
 test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop)
 {
 	uint8_t key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
-				TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
+			 TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
 	uint8_t wrap_key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET] = {0};
+	uint32_t key_data_len, wrap_key_len, pad_len = 0;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
-	uint32_t key_data_len, wrap_key_len;
 	uint8_t dev_id = glb_params.dev_id;
 	struct dao_lc_buf out_buf[1] = {0};
 	uint16_t qp_id = glb_params.qp_id;
@@ -240,6 +240,7 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 	/* Perform crypto operation */
 	op[0].sess_id = ev.sess_event.sess_id;
 	op[0].is_wrap = is_wrap;
+	op[0].is_wrap_pad = ctx.aes_key_wrap.is_wrap_pad;
 
 	for (i = 0; i < max_offset; i++) {
 		/* Clearing buffers for each iteration */
@@ -261,7 +262,6 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 		in_buf[0].frag_len = key_data_len + i;
 		in_buf[0].total_len = in_buf[0].frag_len;
 
-		op[0].is_wrap = is_wrap;
 		op[0].cipher_offset = params->cipher_offset + i;
 
 		if (is_wrap) {
@@ -283,8 +283,10 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 			op[0].out_buffer = NULL;
 			if (is_wrap) {
 				/* Append space for IV at the end of input buffer */
+				if (op[0].is_wrap_pad)
+					pad_len = RTE_ALIGN_CEIL(key_data_len, 8) - key_data_len;
 				iv_buf.data = key_data + key_data_len + i;
-				iv_buf.frag_len = TEST_LC_AES_KEY_WRAP_IV_LEN;
+				iv_buf.frag_len = TEST_LC_AES_KEY_WRAP_IV_LEN + pad_len;
 				iv_buf.total_len = iv_buf.frag_len;
 				in_buf[0].next = &iv_buf;
 			}
@@ -908,48 +910,40 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_hash_gen, &sha3_512_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHA3-512 Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &sha3_512_test_data),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Gen with 20 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_gen, &hmac_sha1_20B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Verify with 20 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_verify, &hmac_sha1_20B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC SHA1 Digest Gen with 1024 byte key data",
-					  ut_setup, ut_teardown, test_hash_gen,
-					  &hmac_sha1_1024B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Gen with 20 byte key data", ut_setup,
+					  ut_teardown, test_hash_gen, &hmac_sha1_20B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA1 Digest Verify with 20 byte key data", ut_setup,
+					  ut_teardown, test_hash_verify, &hmac_sha1_20B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC SHA1 Digest Gen with 1024 byte key data", ut_setup,
+					  ut_teardown, test_hash_gen, &hmac_sha1_1024B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC SHA1 Digest Verify with 1024 byte key data",
 					  ut_setup, ut_teardown, test_hash_verify,
 					  &hmac_sha1_1024B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA224 Digest Gen with 28 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_gen, &hmac_sha224_28B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA224 Digest Gen with 28 byte key data", ut_setup,
+					  ut_teardown, test_hash_gen, &hmac_sha224_28B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA224 Digest Verify with 28 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_verify, &hmac_sha224_28B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA256 Digest Gen with 32 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_gen, &hmac_sha256_32B_key),
+					  ut_setup, ut_teardown, test_hash_verify,
+					  &hmac_sha224_28B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA256 Digest Gen with 32 byte key data", ut_setup,
+					  ut_teardown, test_hash_gen, &hmac_sha256_32B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA256 Digest Verify with 32 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_verify, &hmac_sha256_32B_key),
+					  ut_setup, ut_teardown, test_hash_verify,
+					  &hmac_sha256_32B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC SHA256 Digest Gen with 1024 byte key data",
 					  ut_setup, ut_teardown, test_hash_gen,
 					  &hmac_sha256_1024B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC SHA256 Digest Verify with 1024 byte key data",
 					  ut_setup, ut_teardown, test_hash_verify,
 					  &hmac_sha256_1024B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA384 Digest Gen with 48 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_gen, &hmac_sha384_48B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA384 Digest Gen with 48 byte key data", ut_setup,
+					  ut_teardown, test_hash_gen, &hmac_sha384_48B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA384 Digest Verify with 48 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_verify, &hmac_sha384_48B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA512 Digest Gen with 64 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_gen, &hmac_sha512_64B_key),
-		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA512 Digest Verify 64 byte key data",
-					  ut_setup, ut_teardown,
-					  test_hash_verify, &hmac_sha512_64B_key),
+					  ut_setup, ut_teardown, test_hash_verify,
+					  &hmac_sha384_48B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA512 Digest Gen with 64 byte key data", ut_setup,
+					  ut_teardown, test_hash_gen, &hmac_sha512_64B_key),
+		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA512 Digest Verify 64 byte key data", ut_setup,
+					  ut_teardown, test_hash_verify, &hmac_sha512_64B_key),
 		TEST_CASE_NAMED_WITH_DATA("HMAC-SHA3-224 Digest Gen with 28 byte key data",
 					  ut_setup, ut_teardown, test_hash_gen,
 					  &hmac_sha3_224_28B_key),
@@ -1114,6 +1108,30 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("Unwrap 3064 bytes key data with 256 bit KEK OOP",
 					  ut_setup, ut_teardown, test_aes_key_unwrap_oop,
 					  &aes_keywrap_256B_kek_3064B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 20 bytes key data with 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_192B_kek_20B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 20 bytes key data and 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_192B_kek_20B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 20 bytes key data with 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_192B_kek_20B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 20 bytes key data and 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_192B_kek_20B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 7 bytes key data with 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_wrap,
+					  &aes_keywrap_192B_kek_7B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 7 bytes key data and 192 bit KEK", ut_setup,
+					  ut_teardown, test_aes_key_unwrap,
+					  &aes_keywrap_192B_kek_7B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 7 bytes key data with 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_wrap_oop,
+					  &aes_keywrap_192B_kek_7B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 7 bytes key data and 192 bit KEK OOP", ut_setup,
+					  ut_teardown, test_aes_key_unwrap_oop,
+					  &aes_keywrap_192B_kek_7B_key),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
