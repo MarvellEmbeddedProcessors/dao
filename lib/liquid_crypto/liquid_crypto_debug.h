@@ -20,7 +20,7 @@ lc_debug_enabled(void)
 }
 
 static inline int
-lc_buf_validate(struct dao_lc_buf *first_buf)
+lc_buf_validate(struct dao_lc_buf *first_buf, bool is_zero_len_allowed)
 {
 	struct dao_lc_buf *buf;
 	uint32_t pkt_len = 0;
@@ -31,8 +31,10 @@ lc_buf_validate(struct dao_lc_buf *first_buf)
 	}
 
 	if (first_buf->total_len == 0) {
-		dao_err("Invalid buffer total length.");
-		return -EINVAL;
+		if (!is_zero_len_allowed) {
+			dao_err("Invalid buffer total length.");
+			return -EINVAL;
+		}
 	}
 
 	buf = first_buf;

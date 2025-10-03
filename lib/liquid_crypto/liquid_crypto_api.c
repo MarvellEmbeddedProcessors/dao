@@ -1737,7 +1737,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 
 static inline uint32_t
 dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_t offset,
-				   uint32_t len)
+				   uint32_t len, bool is_zero_len_allowed)
 {
 	struct dao_lc_buf *tmp = src;
 	uint16_t copied = 0;
@@ -1749,7 +1749,11 @@ dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_
 		tmp = tmp->next;
 	}
 
-	if (!tmp) {
+	if (tmp == NULL) {
+		/* Zero-len input buffer is a valid case for auth only HASH/HMAC operations. */
+		if (len == 0 && is_zero_len_allowed)
+			return 0;
+
 		dao_err("Offset exceeds buffer length");
 		return 0;
 	}
@@ -1882,7 +1886,7 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 
 	/* Add data */
 	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr + hmac_aligned_key_len, auth_offset,
-					   auth_len);
+					   auth_len, true);
 
 	return 1;
 }
@@ -2030,7 +2034,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	}
 
 	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
-					   op->in_buffer->total_len - lc_buf_offset);
+					   op->in_buffer->total_len - lc_buf_offset, false);
 
 	if ((!op->encrypt) && (op->digest != NULL && digest_len != 0))
 		memcpy(dptr + op->in_buffer->total_len - lc_buf_offset, op->digest, digest_len);
@@ -2685,7 +2689,7 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 	}
 #endif
 	if (lc_debug_enabled()) {
-		rc = lc_buf_validate(op->out_buf);
+		rc = lc_buf_validate(op->out_buf, false);
 		if (rc != 0) {
 			dao_err("Invalid output buffer.");
 			return rc;
