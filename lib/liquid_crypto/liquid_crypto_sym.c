@@ -637,9 +637,18 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 }
 
 static inline bool
+lc_sym_op_is_auth_only(enum lc_crypto_op_type op_type)
+{
+	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY))
+		return true;
+
+	return false;
+}
+
+static inline bool
 lc_sym_op_is_zero_len_auth_only(struct dao_lc_sym_op *op, enum lc_crypto_op_type op_type)
 {
-	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY)) {
+	if (lc_sym_op_is_auth_only(op_type)) {
 		if (op->in_buffer != NULL) {
 			if (op->in_buffer->total_len == 0)
 				return true;
@@ -677,7 +686,7 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		}
 	}
 
-	if (op->out_buffer != NULL) {
+	if (!lc_sym_op_is_auth_only(op_type) && op->out_buffer != NULL) {
 		ret = lc_buf_validate(op->out_buffer);
 		if (ret != 0) {
 			dao_err("Invalid output buffer.");
