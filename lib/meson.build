@@ -22,7 +22,8 @@ libraries = [
 	'pal',
 	'featurearc',
 	'flow',
-	'pts_rdma'
+	'pts_rdma',
+  'rdma'
 ]
 
 always_enable = [

@@ -4,6 +4,13 @@
 #ifndef __INCLUDE_DAO_PTS_RDMA_DEV_H__
 #define __INCLUDE_DAO_PTS_RDMA_DEV_H__
 
+/* Required standard and DPDK headers for types and mbuf helpers */
+#include <rte_bitmap.h>
+#include <rte_mbuf.h>
+#include <rte_mempool.h>
+#include <stdbool.h>
+#include <stdint.h>
+
 #define DAO_PTS_RDMA_MAX_DEVS 128U
 #define DAO_PTS_RDMA_MAX_QPS  1024U
 #define DAO_PTS_RDMA_MAX_CQS  1024U
