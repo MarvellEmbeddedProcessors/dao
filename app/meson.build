@@ -18,7 +18,8 @@ apps = [
         'smart-nic',
         'virtio-crypto',
         'virtio-l2fwd',
-	'virtio-blkio',
+      	'virtio-blkio',
+        'rdma_graph',
 ]
 
 enabled = []
