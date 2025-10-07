@@ -590,7 +590,7 @@ LUCID (Lightweight, Usable CNN in DDoS Detection) is a deep learning framework d
 Training Model
 ~~~~~~~~~~~~~~
 
-The models were trained on the `CIC-DDoS-2019 dataset <https://www.unb.ca/cic/datasets/ddos-2019.html>`_ and compiled using the TVM compiler with ``INT8`` and ``FP16`` quantization to generate model binaries for the MLIP target architecture, as part of the DAO release. There are two model binaries available for running inference operations.
+The models were trained on the portion of CIC-DDoS-2019 dataset present in LUCID repository in the ``sample-dataset`` and were compiled using the TVM compiler with ``INT8`` and ``FP16`` quantization to generate model binaries for the MLIP target architecture, as part of the DAO release. There are two model binaries available for running inference operations.
 
 **Hyperparameters used for training:**
 
