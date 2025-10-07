@@ -536,5 +536,6 @@ The following API is used to dequeue liquid crypto operations:
 Known Limitations
 -----------------
 
-#. If the device is stopped & started without doing a device teardown (fini), then invalid results
-   can be received.
+#. The number of enqueue operations that can be pushed without performing a dequeue operation
+   is 12.5% less than the number of descriptors configured for the queue pair; the remaining
+   12.5% is reserved as slack for internal use to prevent any packet drops.
