@@ -651,6 +651,7 @@ uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
+	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
 	uint16_t req_resp_hdr_sz = 0;
 	int rc;
@@ -714,29 +715,17 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 
 			/* DAO LC ASYM header */
-			asym_seg_sz = sizeof(struct __dao_lc_req_asym);
+			rsa_seg_sz = sizeof(struct __dao_lc_req_asym);
 
 			if (is_crt)
-				asym_seg_sz += (params->rsa.mod_len / 2) * 5;
+				rsa_seg_sz += (params->rsa.mod_len / 2) * 5;
 			else
-				asym_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
+				rsa_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
 
-			asym_seg_sz += params->rsa.msg_len;
+			rsa_seg_sz += params->rsa.msg_len;
 		}
 
-		if (params->rng.rand_len) {
-			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
-
-			if (params->rng.rand_len > rand_len_max) {
-				dao_err("Invalid RNG length. rand_len should be at most %u.",
-					rand_len_max);
-				return 0;
-			}
-
-			rng_seg_size = sizeof(struct __dao_lc_req_sym) + params->rng.rand_len;
-		}
-
-		if (params->ecc.curve_id) {
+		if (params->ecc.is_ecc_enabled) {
 			uint16_t prime_len;
 
 			rc = cpt_ec_curve_id_validate(params->ecc.curve_id);
@@ -758,7 +747,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			asym_seg_sz += params->ecc.digest_len;
+			ecc_seg_sz += params->ecc.digest_len;
 
 			rc = cpt_ae_ecdsa_nonce_len_check(prime_len, params->ecc.nonce_len);
 			if (rc != 0) {
@@ -766,7 +755,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			asym_seg_sz += params->ecc.nonce_len;
+			ecc_seg_sz += params->ecc.nonce_len;
 
 			rc = cpt_ae_ecdsa_pkey_len_check(prime_len, params->ecc.pkey_len);
 			if (rc != 0) {
@@ -774,7 +763,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			asym_seg_sz += params->ecc.pkey_len;
+			ecc_seg_sz += params->ecc.pkey_len;
 
 			rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, params->ecc.pubkey_x_len,
 							   params->ecc.pubkey_y_len);
@@ -783,7 +772,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			asym_seg_sz += params->ecc.pubkey_x_len + params->ecc.pubkey_y_len;
+			ecc_seg_sz += params->ecc.pubkey_x_len + params->ecc.pubkey_y_len;
 
 			rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, params->ecc.sign_r_len,
 							      params->ecc.sign_s_len);
@@ -792,7 +781,27 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			asym_seg_sz += params->ecc.sign_r_len + params->ecc.sign_s_len;
+			ecc_seg_sz += params->ecc.sign_r_len + params->ecc.sign_s_len;
+
+			/* Prime Order ConstantA and ConstantB */
+			ecc_seg_sz += (prime_len * 4);
+
+			/* DAO LC ASYM header */
+			ecc_seg_sz += sizeof(struct __dao_lc_req_asym);
+		}
+
+		asym_seg_sz = RTE_MAX(rsa_seg_sz, ecc_seg_sz);
+
+		if (params->rng.rand_len) {
+			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
+
+			if (params->rng.rand_len > rand_len_max) {
+				dao_err("Invalid RNG length. rand_len should be at most %u.",
+					rand_len_max);
+				return 0;
+			}
+
+			rng_seg_size = sizeof(struct __dao_lc_req_sym) + params->rng.rand_len;
 		}
 
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);

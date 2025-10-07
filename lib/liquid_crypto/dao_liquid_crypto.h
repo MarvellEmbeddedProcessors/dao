@@ -660,6 +660,8 @@ struct dao_lc_feature_params {
 	 * - `dao_liquid_crypto_enq_op_ecdsa_verify()`
 	 */
 	struct {
+		/** Specifies whether ECC enabled or not */
+		bool is_ecc_enabled;
 		/** Curve ID */
 		enum dao_liquid_crypto_ec_curve_type curve_id;
 		/** Private key length */
