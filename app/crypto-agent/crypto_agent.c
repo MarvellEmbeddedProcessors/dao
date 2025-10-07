@@ -596,9 +596,19 @@ static int
 card_info(struct dao_card_info *info)
 {
 	struct rte_cryptodev_info dev_info;
+	uint16_t nb_devs;
+
+	/* If card_init has not been performed via card manager, nb_devs will be zero. */
+	nb_devs = rte_eth_dev_count_avail();
+	if (nb_devs == 0) {
+		info->nb_devs = 0;
+		info->max_sessions = 0;
+
+		return 0;
+	}
 
 	rte_cryptodev_info_get(ca_glb_ctx.cryptodev_ids[0], &dev_info);
-	info->nb_devs = rte_eth_dev_count_avail();
+	info->nb_devs = nb_devs;
 	info->max_sessions = dev_info.sym.max_nb_sessions;
 
 	/* If device has no limitation on max number of sessions,
