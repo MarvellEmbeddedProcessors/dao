@@ -144,6 +144,7 @@ main(int argc, char **argv)
 		feature_params.rsa.exp_len = TEST_LC_MAX_RSA_MOD_LEN;
 		feature_params.rsa.msg_len = TEST_LC_MAX_RSA_MOD_LEN - 11;
 		feature_params.rng.rand_len = TEST_LC_MAX_RANDOM_LEN;
+		feature_params.ecc.is_ecc_enabled = true;
 		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
 		feature_params.ecc.pkey_len = TEST_LC_MAX_ECC_PKEY_LEN;
 		feature_params.ecc.pubkey_x_len = TEST_LC_MAX_ECC_PKEY_LEN;
