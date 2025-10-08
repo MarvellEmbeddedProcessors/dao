@@ -446,7 +446,7 @@ dao_card_mgr_boot_exec(const char *boot_path, const char *boot_arg)
 	int rc = 0;
 
 	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
-		DAO_CARD_ERR("Invalid characters in boot binary path");
+		DAO_CARD_ERR("Invalid characters \";|&$<>(){}[]!#\" in boot binary path");
 		return -EINVAL;
 	}
 
