@@ -45,6 +45,7 @@ Crypto operations supported by the LiquidCrypto card include:
 #. RSA
 #. ECC
 #. SHA
+#. RNG
 
 Crypto operations supported by the LiquidCrypto card are exposed to the user application
 through DAO Liquid Crypto library. The library provides a set of APIs for performing

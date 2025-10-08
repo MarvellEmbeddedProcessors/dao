@@ -151,6 +151,24 @@ AEAD Algorithms
 | CHACHA-POLY1305 | 256 bits       | 16 bytes      | 12 bytes      | 0 - 1024 bytes  |
 +-----------------+----------------+---------------+---------------+-----------------+
 
+Random Number Generation (RNG)
+++++++++++++++++++++++++++++++
+
++------------------+-------------+------------------+------------------+
+| RNG Mode         | Input Data  | Max Random Data  | Notes            |
+|                  | Required    | Length           |                  |
++==================+=============+==================+==================+
+| HW_RANDOM        | None        | 32767 bytes      | Hardware-based   |
+|                  |             |                  | true random      |
+|                  |             |                  | number           |
+|                  |             |                  | generation       |
++------------------+-------------+------------------+------------------+
+
+.. note::
+   * Only HW RANDOM RNG mode is currently supported.
+   * The maximum random data length is limited by 32727 bytes.
+   * Hardware Random RNG provides "true" random numbers generated from RNG circuit with a high amount of entropy.
+
 Control Plane
 -------------
 
@@ -332,6 +350,13 @@ Enqueue API - Symmetric Crypto
 The following API is used to enqueue symmetric cryptographic operations:
 
 * ``dao_liquid_crypto_sym_enqueue_burst()``: Enqueue a burst of symmetric cryptographic operations.
+
+Enqueue API - Random Number Generation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following API is used to enqueue random number generation operations:
+
+* ``dao_liquid_crypto_enq_op_random()``: Enqueue a hardware-based random number generation operation.
 
 Buffer Usage
 ++++++++++++
