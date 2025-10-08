@@ -58,8 +58,10 @@
 #define DAO_CARD_MGR_DMESG            "card_dmesg"
 #define DAO_CARD_MGR_APPLOG           "card_applog"
 #define DAO_CARD_MGR_CARD_TEMPERATURE "card_temperature"
-#define DAO_CARD_MGR_MAX_ERR_MSG_LEN  256
-#define DAO_CARD_MGR_MAX_SENSORS_LEN  4096
+#define DAO_CMD_ARGS_ANY              -1 /* variable args */
+
+#define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256
+#define DAO_CARD_MGR_MAX_SENSORS_LEN 4096
 
 /* Module reload helpers */
 #define DAO_CARD_MGR_BOOT_IP        "192.168.1.2"
@@ -83,6 +85,73 @@ static __thread size_t dao_card_err_buf_len;
 static volatile bool force_quit;
 static struct dao_card_grpc_ctx *card_ctx;                   /* actual definition */
 static char remote_card_ip[INET_ADDRSTRLEN] = "192.168.1.1"; /* target card IP */
+
+#define DAO_CARD_ERR(fmt, ...) dao_card_log_err_internal((fmt), ##__VA_ARGS__)
+
+typedef enum dao_card_mgr_instance {
+	DAO_CARD_MGR_AS_SERVER,
+	DAO_CARD_MGR_AS_CLIENT,
+	DAO_CARD_MGR_AS_SERVER_CLI,
+	DAO_CARD_MGR_INVALID,
+} dao_card_mgr_instance;
+
+typedef struct {
+	int argc;
+	char **argv;
+	char *line;
+} cli_args;
+
+static struct dao_card_grpc_ctx *card_ctx;
+
+static struct option long_options[] = {
+	{"help", no_argument, 0, 'h'},
+	{"client", no_argument, 0, 'c'},
+	{"server", no_argument, 0, 's'},
+	{"server_cli", no_argument, 0, 'f'},
+	{"ip", required_argument, 0, 'i'},
+	{0, 0, 0, 0}
+};
+
+/* Command specification */
+struct dao_card_cmd_spec {
+	const char *name;  /* command string */
+	int min_args;      /* minimum argc (including command itself) */
+	int max_args;      /* maximum argc (including command itself), -1 for unlimited */
+	const char *usage; /* brief usage string (arguments only) */
+	const char *desc;  /* short description */
+};
+
+static const struct dao_card_cmd_spec dao_card_cmd_specs[] = {
+	{DAO_CARD_MGR_CARD_INIT, 1, DAO_CMD_ARGS_ANY, "[EAL args...]",
+	 "Initialize card (passes optional EAL args)"},
+	{DAO_CARD_MGR_CARD_FINI, 1, 1, "", "Stop card and free resources"},
+	{DAO_CARD_MGR_CARD_INFO, 1, 1, "", "Show card information"},
+	{DAO_CARD_MGR_CARD_STATS, 1, 1, "", "Show aggregated packet stats"},
+	{DAO_CARD_MGR_DMESG, 1, 1, "", "Fetch recent kernel dmesg lines"},
+	{DAO_CARD_MGR_APPLOG, 1, 1, "", "Fetch recent application log tail"},
+	{DAO_CARD_MGR_CARD_TEMPERATURE, 1, 1, "", "Show voltage/temperature sensors"},
+	{DAO_CARD_MGR_APP_FALLBACK, 1, 1, "", "Fallback to previous working application"},
+	{DAO_CARD_MGR_BOOT_SOURCE, 3, 3, "<main|failsafe> <absolute_path/mrv-oct-boot>",
+	 "Reboot the card from the specified boot source"},
+	{DAO_CARD_MGR_MCU_UPDATE, 2, 2, "<absolute_path/file>", "Update MCU firmware"},
+	{DAO_CARD_MGR_APP_UPDATE, 3, 3, "<absolute_path/file> <absolute_path/mrv-oct-boot>",
+	 "Update application image"},
+	{DAO_CARD_MGR_FW_UPDATE, 3, 3, "<absolute_path/file> <absolute_path/mrv-oct-boot>",
+	 "Update firmware image"},
+	{DAO_CARD_MGR_FAILSAFE_UPDATE, 3, 3, "<absolute_path/file> <absolute_path/mrv-oct-boot>",
+	 "Update failsafe image"},
+	{"help", 1, 1, "", "Show this help/command list"},
+};
+
+static const struct dao_card_cmd_spec *
+dao_card_lookup_cmd(const char *cmd)
+{
+	for (size_t i = 0; i < (sizeof(dao_card_cmd_specs) / sizeof(dao_card_cmd_specs[0])); i++) {
+		if (strcmp(cmd, dao_card_cmd_specs[i].name) == 0)
+			return &dao_card_cmd_specs[i];
+	}
+	return NULL;
+}
 
 /* Validate path for insmod: allow only a safe subset */
 static int
@@ -194,31 +263,6 @@ dao_card_log_err_internal(const char *fmt, ...)
 	}
 }
 
-#define DAO_CARD_ERR(fmt, ...) dao_card_log_err_internal((fmt), ##__VA_ARGS__)
-
-typedef enum dao_card_mgr_instance {
-	DAO_CARD_MGR_AS_SERVER,
-	DAO_CARD_MGR_AS_CLIENT,
-	DAO_CARD_MGR_AS_SERVER_CLI,
-	DAO_CARD_MGR_INVALID,
-} dao_card_mgr_instance;
-
-typedef struct {
-	int argc;
-	char **argv;
-	char *line;
-} cli_args;
-
-static struct dao_card_grpc_ctx *card_ctx;
-
-static struct option long_options[] = {
-		{"help", no_argument, 0, 'h'},
-		{"client", no_argument, 0, 'c'},
-		{"server", no_argument, 0, 's'},
-		{"server_cli", no_argument, 0, 'f'},
-		{"ip", required_argument, 0, 'i'},
-		{0, 0, 0, 0}};
-
 static void
 signal_handler(int signum)
 {
@@ -228,36 +272,6 @@ signal_handler(int signum)
 		dao_card_err_ctx_clear();
 		force_quit = true;
 	}
-}
-
-static void
-dao_card_cmd_usage_print(void)
-{
-	fprintf(stderr, "Supported commands:\n");
-	fprintf(stderr, " help: Display the usage\n");
-	fprintf(stderr, " card_init [--nb_desc <number of descriptors>] [EAL args]:"
-			"Initializes the DAO card\n");
-	fprintf(stderr, " card_fini: Frees any allocated resources and stops the DAO card\n");
-	fprintf(stderr, " card_info: Gets the information from the DAO card\n");
-	fprintf(stderr, " card_stats: Gets the stats from the DAO card\n");
-	fprintf(stderr, " card_dmesg: Fetch recent kernel dmesg lines (tail 512) from the card\n");
-	fprintf(stderr,
-		" card_applog: Fetch tail of application log (crypto agent) from the card\n");
-	fprintf(stderr, " card_app_fallback: Fallback to the working app when app update fails\n");
-	fprintf(stderr,
-		" card_temperature: Display card voltage / temperature sensors output (lm-sensors)\n");
-	fprintf(stderr, " card_boot_source <main|failsafe> [absolute path to mrvl-oct-boot]:"
-			" Boot from main or failsafe using the specified binary\n");
-	fprintf(stderr, " card_app_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
-			" Update the given file on to the card\n");
-	fprintf(stderr, " card_fw_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
-			" Update the image on to the DAO card.\n");
-	fprintf(stderr,
-		" card_mcu_update [absolute path of file]: Update MCU firmware on the card.\n");
-	fprintf(stderr,
-		" card_failsafe_update [absolute path of file] [absolute path to mrvl-oct-boot]:"
-		" Update the failsafe image on to the DAO card.\n");
-	fprintf(stderr, " quit: Exit the application\n");
 }
 
 static int
@@ -775,33 +789,178 @@ recv_all(int fd, void *buf, size_t len)
 	return 0;
 }
 
+/* --- Client command validation helper --- */
+static void
+dao_card_print_help(void)
+{
+	fprintf(stderr, "Supported commands:\n");
+	for (size_t i = 0; i < (sizeof(dao_card_cmd_specs) / sizeof(dao_card_cmd_specs[0])); i++) {
+		const struct dao_card_cmd_spec *s = &dao_card_cmd_specs[i];
+
+		fprintf(stderr, "  %-20s %-50s %s\n", s->name, s->usage, s->desc);
+	}
+}
+
+static bool
+dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
+{
+	const struct dao_card_cmd_spec *spec;
+	int needs_file_check = 0;
+	char *argv_local[128];
+	size_t len, argc = 0;
+	char *save = NULL;
+	char *tmp;
+	char *tok;
+
+	if (!line)
+		return false;
+
+	len = strlen(line);
+	while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
+		len--;
+
+	if (len == 0)
+		return false;
+
+	tmp = strndup(line, len);
+	if (!tmp)
+		return false;
+
+	tok = strtok_r(tmp, " \t", &save);
+	while (tok && argc < (sizeof(argv_local) / sizeof(argv_local[0]))) {
+		argv_local[argc++] = tok;
+		tok = strtok_r(NULL, " \t", &save);
+	}
+	if (argc == 0) {
+		free(tmp);
+		return false;
+	}
+
+	spec = dao_card_lookup_cmd(argv_local[0]);
+	if (!spec) {
+		fprintf(stderr, "Invalid command: %s\n", argv_local[0]);
+		fprintf(stderr, "Type 'help' for list of commands.\n");
+		free(tmp);
+		return false;
+	}
+
+	if (strcmp(spec->name, "help") == 0) {
+		dao_card_print_help();
+		free(tmp);
+		return false;
+	}
+
+	if (spec->min_args > 0 && (int)argc < spec->min_args) {
+		fprintf(stderr, "Error: '%s' missing arguments.\n Usage: %s %s -> %s\n", spec->name,
+			spec->name, spec->usage, spec->desc);
+		free(tmp);
+		return false;
+	}
+
+	if (spec->max_args != DAO_CMD_ARGS_ANY && (int)argc > spec->max_args) {
+		fprintf(stderr, "Error: '%s' too many arguments.\n Usage: %s %s -> %s\n",
+			spec->name, spec->name, spec->usage, spec->desc);
+		free(tmp);
+		return false;
+	}
+
+	/* File argument validation for update-like commands */
+	if (strcmp(spec->name, DAO_CARD_MGR_APP_UPDATE) == 0 ||
+	    strcmp(spec->name, DAO_CARD_MGR_FW_UPDATE) == 0 ||
+	    strcmp(spec->name, DAO_CARD_MGR_FAILSAFE_UPDATE) == 0 ||
+	    strcmp(spec->name, DAO_CARD_MGR_MCU_UPDATE) == 0) {
+		needs_file_check = 1;
+	}
+
+	if (needs_file_check) {
+		const char *file_arg = argv_local[1];
+		struct stat st;
+
+		if (file_arg[0] != '/') {
+			fprintf(stderr, "Error: file path must be absolute: %s\n", file_arg);
+			free(tmp);
+			return false;
+		}
+
+		if (stat(file_arg, &st) != 0) {
+			fprintf(stderr, "Error: cannot access file '%s': %s\n", file_arg,
+				strerror(errno));
+			free(tmp);
+			return false;
+		}
+
+		if (!S_ISREG(st.st_mode)) {
+			fprintf(stderr, "Error: path is not a regular file: %s\n", file_arg);
+			free(tmp);
+			return false;
+		}
+
+		if (access(file_arg, R_OK) != 0) {
+			fprintf(stderr, "Error: file not readable: %s (%s)\n", file_arg,
+				strerror(errno));
+			free(tmp);
+			return false;
+		}
+	}
+
+	/* second file (boot-bin) for some updates */
+	if (strcmp(spec->name, DAO_CARD_MGR_APP_UPDATE) == 0 ||
+	    strcmp(spec->name, DAO_CARD_MGR_FW_UPDATE) == 0 ||
+	    strcmp(spec->name, DAO_CARD_MGR_FAILSAFE_UPDATE) == 0) {
+		const char *boot_arg = argv_local[2];
+		struct stat st;
+
+		if (boot_arg[0] != '/') {
+			fprintf(stderr, "Error: boot-bin path must be absolute: %s\n", boot_arg);
+			free(tmp);
+			return false;
+		}
+
+		if (stat(boot_arg, &st) != 0) {
+			fprintf(stderr, "Error: cannot access boot file '%s': %s\n", boot_arg,
+				strerror(errno));
+			free(tmp);
+			return false;
+		}
+
+		if (!S_ISREG(st.st_mode)) {
+			fprintf(stderr, "Error: boot path is not a regular file: %s\n", boot_arg);
+			free(tmp);
+			return false;
+		}
+
+		if (access(boot_arg, R_OK) != 0) {
+			fprintf(stderr, "Error: boot file not readable: %s (%s)\n", boot_arg,
+				strerror(errno));
+			free(tmp);
+			return false;
+		}
+	}
+
+	*trimmed_len = len;
+	free(tmp);
+	return true;
+}
+
 static void
 dao_card_mgr_send_to_server(int cli_fd, const char *line)
 {
-	int resp = 0;
+	size_t trimmed_len = 0;
+	int rc, resp = 0;
 
-	/* Trim trailing newline to avoid sending it as part of the command */
-	size_t len = strlen(line);
-
-	while (len && (line[len - 1] == '\n' || line[len - 1] == '\r'))
-		len--;
-	if (len == 0)
-		return; /* empty line */
-
-	/* Handle help locally */
-	if (len == 4 && strncmp(line, "help", 4) == 0) {
-		dao_card_cmd_usage_print();
+	if (!dao_card_client_cmd_valid(line, &trimmed_len))
 		return;
-	}
 
-	if (send(cli_fd, line, len, 0) == -1) {
+	size_t send_len = trimmed_len;
+	const char *send_line = line;
+
+	if (send(cli_fd, send_line, send_len, 0) == -1) {
 		dao_err("sending cmd to server failed (server may have exited)");
 		force_quit = true;
 		return;
 	}
 
-	int rc = recv_all(cli_fd, &resp, sizeof(resp));
-
+	rc = recv_all(cli_fd, &resp, sizeof(resp));
 	if (rc != 0) {
 		if (rc == -ECONNRESET)
 			dao_err("Server closed the connection. Exiting client.");
@@ -817,15 +976,15 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	}
 
 	/* Success payload handling */
-	if (strstr(line, "card_info") != NULL)
+	if (strstr(send_line, "card_info") != NULL)
 		dao_card_mgr_recv_card_info(cli_fd);
-	if (strstr(line, "card_stats") != NULL)
+	if (strstr(send_line, "card_stats") != NULL)
 		dao_card_mgr_recv_card_stats(cli_fd);
-	if (strstr(line, "card_dmesg") != NULL)
+	if (strstr(send_line, "card_dmesg") != NULL)
 		dao_card_mgr_recv_card_dmesg(cli_fd);
-	if (strstr(line, "card_applog") != NULL)
+	if (strstr(send_line, "card_applog") != NULL)
 		dao_card_mgr_recv_card_dmesg(cli_fd); /* same framing */
-	if (strstr(line, "card_temperature") != NULL)
+	if (strstr(send_line, "card_temperature") != NULL)
 		dao_card_mgr_recv_card_sensors(cli_fd);
 }
 
