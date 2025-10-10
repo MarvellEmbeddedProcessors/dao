@@ -1699,6 +1699,9 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
 	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
 
+	if (res->res.cn9k.uc_compcode != DAO_UC_SUCCESS)
+		return;
+
 	/* Auth only post process involves simply copying the digest data to digest buffer. */
 	if ((req->sess_meta->op_type == LC_SYM_OP_AUTH_ONLY) ||
 	    (req->sess_meta->op_type == LC_SYM_OP_HMAC_AUTH_ONLY)) {
@@ -1708,7 +1711,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 			int diff = 0;
 
 			diff = memcmp(req->digest, resp->rptr, req->digest_len);
-			if (res->res.cn9k.uc_compcode == DAO_UC_SUCCESS && diff != 0)
+			if (diff != 0)
 				res->res.cn9k.uc_compcode = DAO_UC_ERR_GC_ICV_MISCOMPARE;
 		}
 	} else {
