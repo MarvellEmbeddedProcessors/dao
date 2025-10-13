@@ -44,7 +44,7 @@ Installing CMake
 
 Below are the steps to build and install ``CMake-3.27.8``:
 
-.. code-block:: console
+.. code-block:: bash
 
   # Get archives
   wget https://github.com/Kitware/CMake/releases/download/v3.27.8/cmake-3.27.8.tar.gz
@@ -60,7 +60,7 @@ Installing LLVM
 
 Below are the steps to install ``llvm-15``:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Add LLVM repo
     apt-get install python3-venv lsb-release software-properties-common
@@ -78,7 +78,7 @@ Setting up the Python Environment for TVM
 
 TVM and dependencies requires ``Python >= 3.8``. Recommended version of Python is ``3.10``.
 
-.. code-block:: console
+.. code-block:: bash
 
    # Create virtual environment
    python3.8 -m venv tvm-venv
@@ -110,7 +110,7 @@ Setting Up The Toolchain
 ~~~~~~~~~~~~~~~~~~~~~~~~
 Install the cross-compilation toolchain.
 
-.. code-block:: console
+.. code-block:: bash
 
     #install the toolchain
     apt-get install g++-aarch64-linux-gnu
@@ -139,7 +139,7 @@ Setup Base Environment
 
 To set up the common environment on x86_64 host machine, follow these steps:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Add libraries to PATH and LD_LIBRARY_PATH
     export PATH=${INSTALL_PREFIX_HOST}/bin:${PATH}
@@ -150,7 +150,7 @@ Cloning and Building TVM Sources
 
 Clone TVM source code and checkout v0.19.0 release tag from TVM's official GitHub repository.
 
-.. code-block:: console
+.. code-block:: bash
 
     git clone https://github.com/apache/tvm.git
     cd tvm
@@ -162,7 +162,7 @@ Clone TVM source code and checkout v0.19.0 release tag from TVM's official GitHu
 
 Configure and Build TVM:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Configure TVM
     cmake \
@@ -180,7 +180,7 @@ Configure and Build TVM:
 
 After building TVM, install the Python bindings to enable scripting and copy the configuration files required for target-specific settings:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Install Python module
     cd ${TVM_SOURCE_DIR}/python
@@ -195,7 +195,7 @@ Setting MMLC Binaries
 
 Clone MMLC binaries from the MarvellMLTools GitHub repository:
 
-.. code-block:: console
+.. code-block:: bash
 
     git clone "https://github.com/MarvellEmbeddedProcessors/MarvellMLTools"
     export ML_TOOLS_DIR=$(pwd)/MarvellMLTools
@@ -259,12 +259,12 @@ Compiler Options
 TVM, by default generates the compiled model in TAR format. Alternatively, the model's MRVL regions can be compiled and generated in a binary format. Set the environment variable MRVL_SAVE_MODEL_BIN=1 to enable saving the model in binary format also.
 You can then compile the model for MLIP along with LLVM targets using the following tvmc command:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Save model binaries for MLIP target
     export MRVL_SAVE_MODEL_BIN=1
 
-.. code-block:: console
+.. code-block:: bash
 
     # Compile model for MLIP (Simulator / Hardware) + LLVM (x86_64 / AArch64) target
     export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
@@ -305,7 +305,7 @@ The FP16 flow supports two compilation scenarios: MRVL-only FP16 Compilation Flo
 In MRVL-only flow, the entire model graph is compiled to run exclusively on the MLIP hardware accelerator. This means all supported layers are offloaded to MRVL (MLIP), and no CPU execution is involved. Similarly, in Hybrid Flow, only MLIP-compatible layers are executed on hardware, while the remaining layers are compiled using LLVM and run on the CPU. During compilation, MLIP-compatible and LLVM-only layers are identified, partitioned, and executed on the appropriate backend.
 If the model contains only MLIP-supported layers, it is executed entirely on MLIP; likewise, if only LLVM-supported layers are present, the model is executed fully on the CPU. When compiling LLVM layers for hardware execution, a suitable cross-compiler must be available on the host machine to generate compatible binaries from the host system.
 
-.. code-block::
+.. code-block:: bash
 
     export TARGET_TRIPLET=aarch64-linux-gnu
 
@@ -313,7 +313,7 @@ Use ``-quantize=fp16`` option in the ``--target-mrvl-mattr`` during compilation 
 
 Examples:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Compile model for cn10ka Hardware + LLVM AArch64 target, with fp16 quantization
     export MRVL_SAVE_MODEL_BIN=1
@@ -327,7 +327,7 @@ Examples:
         --output model.tar \
         model.onnx
 
-.. code-block:: console
+.. code-block:: bash
 
     # Compile model for cn10ka Simulator + LLVM x86_64 target, with fp16 quantization
     export MRVL_SAVE_MODEL_BIN=1
@@ -353,7 +353,7 @@ Use ``target= "llvm"`` to enable this compilation flow. Use only LLVM related op
 
 Examples :
 
-.. code-block:: console
+.. code-block:: bash
 
     # Compile model using Native LLVM AArch64 Compilation Flow for Hardware Execution
     export MRVL_SAVE_MODEL_BIN=1
@@ -361,11 +361,11 @@ Examples :
     export MRVL_ENABLE_WB_PIN_OCM=1
     python -m tvm.driver.tvmc compile \
         --target="llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
-        --cross-compiler="${TARGET_TRIPLET}" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
         --output model.tar \
         model.onnx
 
-.. code-block:: console
+.. code-block:: bash
 
     # Compile model using Native LLVM x86_64 Compilation Flow for Simulator Execution
     export MRVL_SAVE_MODEL_BIN=1
@@ -378,7 +378,7 @@ Examples :
 
 The compiler generates the following artifacts:
 
-.. code-block:: console
+.. code-block:: bash
 
     ├── bin_tvmgen_mrvl_main_0
     │   └── tvmgen_mrvl_main_0.bin
@@ -396,14 +396,14 @@ The Marvell ML Compiler (MMLC) backend requires ONNX models to have a static sha
 
 Additionally, running inference with MMLC involves preprocessing input data into .npz and .bin formats. The models as well as the scripts to execute these preprocessing steps are available in the ml-models branch of the MarvellMLTools GitHub repository under the models and utils folders respectively.
 
-.. code-block:: console
+.. code-block:: bash
 
     cd ${ML_TOOLS_DIR}
     git checkout ml-models
 
 To convert a dynamic shape model into a static shape model, you can use ``convert_shape_d2s.py`` script, which ensures the model's input and output shapes are explicitly defined, enabling compatibility with the MMLC backend.
 
-.. code-block:: console
+.. code-block:: bash
 
     python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
    --input_onnx input_model.onnx \
@@ -412,7 +412,7 @@ To convert a dynamic shape model into a static shape model, you can use ``conver
 
 Running inference on the MLIP Simulator requires input data in NPZ format. You can use the ``generate_npz.py`` script to convert ONNX model inputs from a JSON file into an NPZ file suitable for inference.
 
-.. code-block:: console
+.. code-block:: bash
 
     python ${ML_TOOLS_DIR}/utils/generate_npz.py \
     --model_onnx model.onnx \
@@ -421,7 +421,7 @@ Running inference on the MLIP Simulator requires input data in NPZ format. You c
 
 Binary input file can be generated using ``convert.py`` script.
 
-.. code-block:: console
+.. code-block:: bash
 
     python ${ML_TOOLS_DIR}/utils/convert.py \
     json2bin \
@@ -451,7 +451,7 @@ TVMC run command line options:
 
 Example:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Run inference on MLIP simulator for cn10ka target
     MRVL_ML_ARCH="cn10ka" \
@@ -466,7 +466,7 @@ DPDK ML Test Application Mode
 
 DPDK ML Test Application Mode is designed for running inference on actual hardware. Once the model is compiled, it is packaged into a model.tar archive. This archive can then be deployed using the DPDK ML test application, enabling inference on Marvell's hardware platforms.
 
-.. code-block:: console
+.. code-block:: bash
 
     # Enable hugepages
     mkdir -p /mnt/huge
@@ -486,7 +486,7 @@ DPDK ML Test Application Mode is designed for running inference on actual hardwa
 
 For models generated by TVM that have a single MRVL layer and zero LLVM layers, the ``tvmgen_mrvl_main_0.bin`` generated during the compilation stage can also be used to run inferences with DPDK test application.
 
-.. code-block:: console
+.. code-block:: bash
 
     # Enable hugepages
     mkdir -p /mnt/huge
@@ -519,7 +519,7 @@ The script supports following options:
 
 Examples:
 
-.. code-block:: console
+.. code-block:: bash
 
     # Compare output generated by TVM model with fp16 quantization
     python ${ML_TOOLS_DIR}/utils/compare_json.py \
@@ -532,32 +532,44 @@ Examples:
 Example Models/Usecases
 =======================
 
-Resnet50
---------
+Resnet50 Model Compilation using Jupyter Notebook
+-------------------------------------------------
 
-Introduction
-~~~~~~~~~~~~
+ResNet50 is a deep learning model used for image classification. It uses residual blocks to improve training efficiency and accuracy. This model is widely used for recognizing and categorizing objects in images.
 
-ResNet50 is a deep learning model used for image classification. It uses residual blocks to improve training efficiency and accuracy. This model is widely used for recognizing and categorizing objects in images. The release includes int8 ( ``resnet50_int8_t08_b01`` ) and fp16 ( ``resnet50_fp16_t08_b01`` ) quantized versions of Resnet50 model, which are optimized for running inference operations.
+Compilation and Inference on Software Simulator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+This section describes how to compile the ResNet50 ONNX model and run inference using a Jupyter notebook workflow. Begin by checking out the ``ml-models`` branch in the MarvellMLTools repository. Then, open the Resnet50.ipynb notebook located in the notebooks directory. Make sure to update any file paths in the notebook to match your local environment.
+
+Launch jupyter notebook:
+
+.. code-block:: bash
+
+    jupyter notebook Resnet50.ipynb
+
+.. note::
+
+    Ensure that TVM is compiled and ready before running the notebook. Refer to Section 10.2 for detailed setup instructions. To avoid path-related issues during execution, copy the notebook to the base directory that contains tvm, MarvellMLTools, and other related dependencies, and launch it from there.
 
 Preprocessing of Input
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Involves converting the input image format to a binary format that the model can accept as an input. This is done using the ``image2bin.py`` Python script.
 
-.. code-block:: console
+.. code-block:: bash
 
     # Convert input in Image format to binary format
     python image2bin.py \
     --image_file input.jpeg \
     --bin_file output.bin
 
-Model Execution
-~~~~~~~~~~~~~~~
+Model Execution on Hardware
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The preprocessed binary is given as an input to the model. The model processes the input, runs the inference operation, and generates the output in binary format.
 
-.. code-block:: console
+.. code-block:: bash
 
     # Run inferences with dpdk-test-mldev application
     dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
@@ -572,7 +584,7 @@ Postprocessing of Output
 
 The binary output generated by the model is converted into a JSON file for easier interpretation and analysis. This is done using the ``bin2json.py`` Python script.
 
-.. code-block:: console
+.. code-block:: bash
 
     # Convert output in binary format to JSON format
     python bin2json.py \
@@ -609,7 +621,7 @@ As part of the DAO release, we are providing a ``lucid_run.py`` script to test t
 
 To run inference using the ``lucid_run.py`` script with a sample dataset, use the following command line options .
 
-.. code-block:: console
+.. code-block:: bash
 
     python lucid_run.py [-h, --help]
                         -pl PCAP_FILE, --pcap_file PCAP_FILE
@@ -638,12 +650,92 @@ Confusion Matrix is printed in the following format:
 
 This example demonstrates how to predict network traffic from the ``CIC-DDoS-2019-DNS.pcap`` file using the ``10t-10n-lucid_fp16_t08_b01.bin`` model:
 
-.. code-block:: console
+.. code-block:: bash
 
     python lucid_run.py \
         --predict_live CIC-DDoS-2019-DNS.pcap \
         --model 10t-10n-lucid_fp16_t08_b01.bin
 
+Mnist-12
+--------
+
+The MNIST model is a convolutional neural network (CNN) trained to recognize handwritten digits using grayscale images resized to 28x28 pixels, with white digits on a black background and pixel values normalized to the [0.0, 1.0] range.
+
+Download the Mnist-12 ONNX Model dataset from Onnx models Github repository.
+
+.. code-block:: bash
+
+    wget https://github.com/onnx/models/raw/main/validated/vision/classification/mnist/model/mnist-12.onnx
+
+Use the ``convert_shape_d2s.py`` script from the ``ml-models`` branch of the MarvellMLTools repository to ensure the model has fixed input/output dimensions.
+
+.. code-block:: bash
+
+    cd ${ML_TOOLS_DIR}
+    git checkout ml-models
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx mnist-12.onnx \
+    --output_onnx model.onnx
+
+Any valid .jpg, .jpeg, or .png image with three color channels (RGB) can be used as input. The image will be converted to grayscale during preprocessing. The image can be of any resolution, as it will be resized to 32x32 pixels. The image should contain a clearly visible and centered subject(digit), without excessive background or noise. An example input image is shown below.
+
+.. figure:: ./img/input.jpg
+   :width: 80px
+   :align: center
+
+Preprocess input image to configure it for mnist model and convert input image to bin format for running inference on hardware.
+
+.. code-block:: bash
+
+    pip install opencv-python
+    python -c "import numpy as np, cv2; gray=cv2.cvtColor(cv2.imread('input.jpg'), cv2.COLOR_BGR2GRAY); gray=cv2.resize(gray,(32,32)).astype(np.float32)/255; input=np.reshape(gray,(1,1,32,32)); input.tofile('input.bin')"
+
+Set compilation environment variables and compile the model.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+        --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
+        --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=1' \
+        --target-mrvl-num_tiles=4 \
+        --output model.tar \
+        model.onnx
+
+Use the dpdk-test-mldev application to run inference with the compiled model and preprocessed input.
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+        --test inference_ordered \
+        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --tolerance 5 \
+        --stats \
+        --repetitions 1000
+
+Use the following Python snippet to interpret the predicted digit:
+
+.. code-block:: bash
+
+    python3 -c "import numpy as np; output = np.fromfile('output.bin', dtype=np.float32); print('Predicted digit:', np.argmax(output))"
+
+The following is an example output generated from the input image provided earlier:
+
+.. code-block:: bash
+
+    Predicted digit: 4
 
 References
 ----------
