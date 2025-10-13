@@ -521,16 +521,6 @@ enum dao_liquid_crypto_ec_curve_type {
 };
 
 /**
- * The liquid crypto ECDSA operation type.
- */
-enum dao_lc_ecdsa_sign_type {
-	/** ECDSA sign operation */
-	DAO_LC_AE_ECDSA_SIGN = 1,
-	/** ECDSA verify operation */
-	DAO_LC_AE_ECDSA_VERIFY = 2,
-};
-
-/**
  * The liquid crypto flexi crypto context.
  */
 struct dao_lc_sym_fc_ctx {
@@ -1369,5 +1359,112 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 					  uint16_t qx_len, uint16_t qy_len, uint8_t *r_data,
 					  uint8_t *s_data, uint8_t *digest, uint8_t *qx_data,
 					  uint8_t *qy_data, uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform RSA OAEP public encrypt operation on the crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param label
+ *  Optional label to be associated with the message. In RSA OAEP, this label is
+ *  used as an input to the mask generation function (MGF) and can provide additional
+ *  binding context for the encryption operation. If not required, it can be set to NULL.
+ * @param label_len
+ *  The length of the label in bytes. If no label is used, this should be set to 0.
+ * @param hash_type
+ *  The hash algorithm to be used in the OAEP padding scheme. Supported hash types are:
+ *   -DAO_LC_HASH_TYPE_SHA1
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA256
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA384
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA512
+ * @param mod_len
+ *  The length of the modulus. Value should be at least 17 bytes
+ *  and at most 1024 bytes.
+ * @param exp_len
+ *  The length of the exponent.
+ * @param msg_len
+ *  The length of the message. .
+ * @param mod
+ *  The address of the buffer containing the modulus.
+ *  Length of this buffer must be at most *mod_len* bytes.
+ * @param exp
+ *  The address of the buffer containing the exponent.
+ * @param msg
+ *  The address of the buffer containing the message. The length of the message (msg_len)
+ *  must satisfy: msg_len <= (mod_len - (2 * hlen) - 2), where hlen is the
+ *  length of the hash output used in OAEP.
+ * @param em
+ *  The address of the buffer where the encrypted message is to be stored.
+ *  Length of this buffer must be at least *mod_len* bytes.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ *
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
+					  uint16_t label_len, enum dao_lc_hash_type hash_type,
+					  uint16_t mod_len, uint16_t exp_len, uint16_t msg_len,
+					  uint8_t *mod, uint8_t *exp, uint8_t *msg, uint8_t *em,
+					  uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform RSA OAEP private decrypt operation on the crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param label
+ *  Optional label to be associated with the message. In RSA OAEP, this label is
+ *  used as an input to the mask generation function (MGF) and can provide additional
+ *  binding context for the decryption operation. If not required, it can be set to NULL.
+ * @param label_len
+ *  The length of the label in bytes. If no label is used, this should be set to 0.
+ * @param hash_type
+ *  The hash algorithm to be used in the OAEP padding scheme. Supported hash types are:
+ *   -DAO_LC_HASH_TYPE_SHA1
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA256
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA384
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA512
+ * @param mod_len
+ *  The length of the modulus. Value should be at least 17 bytes
+ * and at most LIQUID_CRYPTO_RSA_MOD_LEN_MAX bytes.
+ * @param exp_len
+ *  The length of the exponent.
+ * @param mod
+ *  The address of the buffer containing the modulus.
+ *  Length of this buffer must be *mod_len* bytes.
+ * @param exp
+ *  The address of the buffer containing the exponent.
+ * @param em
+ *  The address of the buffer containing the encrypted message. Length of this
+ *  buffer must be *mod_len* bytes.
+ *  @param em_len
+ *  The length of the encrypted message. This should be equal to *mod_len* bytes.
+ * @param msg
+ *  The address of the buffer where the decrypted message is to be stored.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
+					      uint16_t label_len, enum dao_lc_hash_type hash_type,
+					      uint16_t mod_len, uint16_t exp_len, uint16_t em_len,
+					      uint8_t *mod, uint8_t *exp, uint8_t *em, uint8_t *msg,
+					      uint64_t op_cookie);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

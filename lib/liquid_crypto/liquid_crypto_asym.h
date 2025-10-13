@@ -77,4 +77,22 @@ int cpt_ae_ecdsa_nonce_validate(uint16_t nonce_len, uint8_t *nonce,
 int cpt_ae_ecdsa_pubkey_validate(uint16_t pubkey_x_len, uint8_t *pubkey_x, uint16_t pubkey_y_len,
 				 uint8_t *pubkey_y, enum dao_liquid_crypto_ec_curve_type curve_id);
 
+int cpt_ae_rsa_oaep_msg_len_check(uint16_t mod_len, uint16_t msg_len,
+				  enum dao_lc_hash_type hash_type);
+
+int cpt_ae_rsa_oaep_label_len_check(uint8_t *label, uint16_t label_len);
+
+int cpt_ae_rsa_oaep_hash_type_check(enum dao_lc_hash_type hash_type);
+
+int cpt_ae_rsa_oaep_get_hash_len(enum dao_lc_hash_type hash_type);
+
+int cpt_ae_rsa_oaep_msg_len_check(uint16_t mod_len, uint16_t msg_len,
+				  enum dao_lc_hash_type hash_type);
+
+int cpt_ae_rsa_oaep_label_len_check(uint8_t *label, uint16_t label_len);
+
+int cpt_ae_rsa_oaep_em_len_check(uint16_t mod_len, uint16_t em_len);
+
+int cpt_ae_rsa_oaep_msg_len_max(uint16_t mod_len, enum dao_lc_hash_type hash_type);
+
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */
