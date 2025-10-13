@@ -61,7 +61,7 @@ function virtio_l2fwd_perf()
 			"("${DAO_TEST}"_${list[0]})########################\n"
 
 		# Launch virtio l2fwd
-		if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "${list[1]}" "-p 0x1 -v 0x1 -P -s"; then
+		if ! l2fwd_app_launch $if0 $l2fwd_pfx $l2fwd_out "${list[1]}" "-p 0x1 -v 0x1 -P -s --disable-tx-mseg"; then
 			echo "Failed to launch virtio l2fwd"
 
 			# Quit l2fwd app
