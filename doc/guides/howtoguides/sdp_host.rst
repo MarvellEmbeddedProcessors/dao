@@ -82,7 +82,7 @@ TAG and execute the following commands to build the drivers:
   git clone https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git -b <release_tag>
 
   Example:
-  # git clone https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git -b v25.05
+  # git clone https://github.com/MarvellEmbeddedProcessors/pcie_ep_octeon_host.git -b v25.09
   # cd pcie_ep_octeon_host
   # make
 

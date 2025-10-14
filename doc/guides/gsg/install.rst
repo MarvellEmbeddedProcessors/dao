@@ -22,7 +22,7 @@ Packages available for different distributions
    +-------------------------+-----------------------+-----------------------+
    |   Available Packages    |        Ubuntu         |        RHEL           |
    +=========================+=======================+=======================+
-   | DAO 25.05               | Yes                   | Planned               |
+   | DAO 25.10               | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
    | DPDK 24.11              | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
@@ -171,11 +171,11 @@ To check all available release versions of the package, user can run below comma
  # apt-cache policy dao-cn10k
  dao-cn10k:
   Installed: (none)
-  Candidate: 25.05.0
+  Candidate: 25.10.0
   Version table:
-     25.05.0 500
+     25.10.0 500
         500 https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release ./ Packages
-     25.01.0 500
+     25.05.0 500
         500 https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release ./ Packages
 
 By default it will install the latest version of the package. If user wants to
@@ -183,7 +183,7 @@ install a specific version, then user can specify the version as below:
 
 .. code-block:: console
 
- # apt-get install dao-cn10k=25.05.0
+ # apt-get install dao-cn10k=25.10.0
 
 .. note:: While installing an older package user may observe some dependency issues:
 
