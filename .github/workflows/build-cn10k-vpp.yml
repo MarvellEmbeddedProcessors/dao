@@ -167,8 +167,13 @@ jobs:
             CPT_PKG_VERSION=`cat DEP_PKG_VERSION | grep CPT_PKG_VERSION | awk -F'=' '{print $2}'`
             sudo APT_ARGS='-y -q' make install-deps
             [[ "$PKG_POSTFIX" == "-devel" ]] && TAG=devel || TAG=${MRVL_PKG_VERSION}
-            wget "https://github.com/MarvellEmbeddedProcessors/dao/releases/download/oct-ep-target-cn10k-${MRVL_PKG_VERSION}-${DISTRO}-${TAG}/oct-ep-target-cn10k${PKG_POSTFIX}_${MRVL_PKG_VERSION}_arm64.deb"
-            sudo apt-get install -y ./"oct-ep-target-cn10k${PKG_POSTFIX}_${MRVL_PKG_VERSION}_arm64.deb"
+            GH_REPO=MarvellEmbeddedProcessors/dao
+            BASE="${MRVL_PKG_VERSION%.*}"
+            BEST=$(curl -fsSL "https://api.github.com/repos/${GH_REPO}/releases?per_page=100" | jq -r '.[].tag_name' | grep -E "^oct-ep-target-cn10k-${BASE}\.[0-9]+-${DISTRO}-${TAG}$" | sort -V | tail -n1)
+            OCT_PKG_VERSION=$(echo "$BEST" | cut -d- -f5)
+            OCT_TAG=${BEST}
+            wget -q "https://github.com/MarvellEmbeddedProcessors/dao/releases/download/${OCT_TAG}/oct-ep-target-cn10k${PKG_POSTFIX}_${OCT_PKG_VERSION}_arm64.deb"
+            sudo apt-get install -y "./oct-ep-target-cn10k${PKG_POSTFIX}_${OCT_PKG_VERSION}_arm64.deb"
             make build-release VPP_PLATFORM=octeon10
             version_range() {
               local var="$1"
