@@ -43,6 +43,12 @@ struct __rte_packed __dao_lc_req_asym {
 	struct __dao_lc_hdr hdr;
 	enum lc_crypto_op_type op_type;
 	uint64_t w4;
+	union {
+		/* Used for OAEP Encode */
+		uint16_t exp_len;
+		/* Used for OAEP Decode */
+		uint16_t hash_type;
+	};
 	uint8_t dptr[];
 };
 

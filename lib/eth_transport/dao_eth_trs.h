@@ -60,6 +60,10 @@ enum dao_eth_trs_op_type {
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM,
 	/** Asymmetric crypto ops (RSA etc) */
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM,
+	/** RSA OAEP ENC */
+	DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_ENC,
+	/** RSA OAEP DEC */
+	DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC,
 	/** Random Number Generator ops (HW RNG etc) */
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG,
 	/** Session create */

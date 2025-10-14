@@ -8,7 +8,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define CPT_AE_EC_DATA_MAX 66
+#define CPT_AE_EC_DATA_MAX                66
+#define CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE 8
 
 /**
  * Prime length (in bytes) for each supported EC curve type.
