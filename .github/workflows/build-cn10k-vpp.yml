@@ -74,6 +74,7 @@ jobs:
             IS_DEVEL=true
           fi
           MRVL_PKG_VERSION="${BASE}.${MINOR}"
+          echo "IS_DEVEL=${IS_DEVEL}" >> "${PWD}/artifacts/env"
           echo "MRVL_PKG_VERSION=${MRVL_PKG_VERSION}" >> "${PWD}/artifacts/env"
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "${PWD}/artifacts/env"
           DPDK_PKG_VERSION=`cat DPDK_VERSION | grep RELEASE_VERSION | awk -F'=' '{print $2}'`
