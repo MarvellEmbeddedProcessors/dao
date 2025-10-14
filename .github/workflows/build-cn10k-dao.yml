@@ -165,7 +165,7 @@ jobs:
           export PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/bin:$PATH
           export LD_LIBRARY_PATH=$GRPC_BUILD_DIR/deps/deps-prefix/host/lib:$LD_LIBRARY_PATH
           export PKG_CONFIG_PATH="$GRPC_BUILD_DIR/deps/deps-prefix/ep/lib/pkgconfig:$GRPC_BUILD_DIR/deps/host/grpc/third_party/re2:${PKG_CONFIG_PATH:-}"
-          meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Dprefer_static_build=true --prefer-static -Ddisable_apps=crypto-agent
+          meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Dprefer_static_build=true --prefer-static
           ninja install -C build
           mkdir -p "${PWD}/install/DEBIAN"
           mkdir -p "${PWD}/install/debian"
@@ -173,7 +173,7 @@ jobs:
           echo 'Source: DAO' > debian/control
           echo 'Package: dao-cn10k'$PKG_POSTFIX >> DEBIAN/control
           echo 'Version: '$PKG_VERSION_NAME >> DEBIAN/control
-          echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O bin/dao-ovs-offload bin/dao-secgw-graph bin/dao-smart-nic bin/dao-virtio-l2fwd | awk -F'Depends=' '{print $2}'` , dpdk-${DPDK_BASE_PKG_VERSION}-cn10k (= ${DPDK_PKG_VERSION})" >> DEBIAN/control
+          echo "Depends: `dpkg-shlibdeps --ignore-missing-info -O bin/dao-crypto-agent bin/dao-ovs-offload bin/dao-secgw-graph bin/dao-smart-nic bin/dao-virtio-l2fwd | awk -F'Depends=' '{print $2}'` , dpdk-${DPDK_BASE_PKG_VERSION}-cn10k (= ${DPDK_PKG_VERSION})" >> DEBIAN/control
           echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
           echo "Architecture: arm64" >> DEBIAN/control
           echo "Homepage: https://www.dpdk.org/" >> DEBIAN/control
