@@ -8,5 +8,10 @@
     "version": "dao-25.05",
     "name": "25.05",
     "url": "/dao/guides/dao-25.05/"
+  },
+  {
+    "version": "dao-25.10",
+    "name": "25.10",
+    "url": "/dao/guides/dao-25.10/"
   }
 ]
