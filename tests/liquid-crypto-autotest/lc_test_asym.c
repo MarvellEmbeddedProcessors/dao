@@ -7,7 +7,6 @@
 #include <rte_cycles.h>
 #include <rte_random.h>
 
-#include <dao_liquid_crypto.h>
 #include <hw/cpt.h>
 
 #include "lc_autotest.h"
@@ -504,7 +503,7 @@ test_rsa_seg_size(void)
 		return TEST_FAILED;
 	}
 
-	TEST_ASSERT(ret == 1049, "Incorrect segment size");
+	TEST_ASSERT(ret == 1051, "Incorrect segment size");
 
 	/* Test CRT type */
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
@@ -516,7 +515,7 @@ test_rsa_seg_size(void)
 		return TEST_FAILED;
 	}
 
-	TEST_ASSERT(ret == 2584, "Incorrect segment size");
+	TEST_ASSERT(ret == 2586, "Incorrect segment size");
 
 	/* Test unsupported parameters */
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN + 1;
@@ -634,6 +633,68 @@ test_ecdsa_verify(const void *data)
 	return TEST_SUCCESS;
 }
 
+static int
+test_rsa_oaep_encrypt(const void *data)
+{
+	const struct test_rsa_oaep_params *params = data;
+	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(output, 0, sizeof(output));
+	memset(decrypt, 0, sizeof(decrypt));
+
+	/* RSA ENCRYPT */
+	ret = dao_liquid_crypto_enq_op_rsa_oaep_enc(
+		dev_id, qp_id, params->label.data, params->label.len, params->hash_type,
+		params->n.len, params->e.len, params->plaintext.len, params->n.data, params->e.data,
+		params->plaintext.data, output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA encrypt operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA encrypt operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
+
+	/* Validate encryption */
+	ret = dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(
+		dev_id, qp_id, params->label.data, params->label.len, params->hash_type,
+		params->n.len, params->d.len, params->cipher.len, params->n.data, params->d.data,
+		output, decrypt, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA decrypt operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
+	TEST_ASSERT(memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
+		    "Invalid result");
+
+	return TEST_SUCCESS;
+}
+
 struct unit_test_suite lc_testsuite_asym = {
 	.suite_name = "Liquid Crypto Asymmetric Test Suite",
 	.setup = testsuite_setup,
@@ -703,6 +764,9 @@ struct unit_test_suite lc_testsuite_asym = {
 					  test_ecdsa_sign, &ecdsa_param_secp521r1),
 		TEST_CASE_NAMED_WITH_DATA("ECDSA secp521r1 Verify", ut_setup, ut_teardown,
 					  test_ecdsa_verify, &ecdsa_param_secp521r1),
+		TEST_CASE_NAMED_WITH_DATA("RSA OAEP Encrypt/Decrypt with pvt exp (1024 bits)",
+					  ut_setup, ut_teardown, test_rsa_oaep_encrypt,
+					  &rsa_oaep_params),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
