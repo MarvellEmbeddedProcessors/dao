@@ -33,7 +33,10 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	uint16_t pkt_id, nb_cpt_bypass;
 	struct __dao_lc_req_sym *sym;
 	struct dao_eth_trs_pkt *req;
+	uint64_t ctrl_word_be;
 	union cpt_inst_w4 w4;
+	uint64_t ctrl_word;
+	uint16_t label_len;
 	uint64_t head;
 	uint16_t i;
 	int rc = 0;
@@ -98,6 +101,53 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
 			infl_req->stage = 0;
 			infl_req->max_stage = 1;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_ENC:
+			/* stage-0 will be OAEP Encode
+			 * stage-1 will be RSA Encrypt
+			 */
+			asym = (struct __dao_lc_req_asym *)req;
+			asym_resp = (struct __dao_lc_resp_asym *)req;
+			w4.u64 = asym->w4;
+			/* stage-0 will be OAEP */
+			infl_req->stage = 0;
+			infl_req->max_stage = 2;
+			infl_req->rsa_oaep.rsa_exp_len = asym->exp_len;
+			infl_req->rsa_mod_len = w4.s.param1;
+			inst[i].w4.u64 = asym->w4;
+			inst[i].w5.u64 =
+				(uint64_t)(asym->dptr + asym->exp_len + infl_req->rsa_mod_len);
+			inst[i].w6.u64 =
+				(uint64_t)(asym_resp->rptr + asym->exp_len + infl_req->rsa_mod_len);
+			inst[i].w7.u64 = 0;
+			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+			infl_req->op_type = asym->op_type;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
+			/* stage-0 will be RSA Decrypt
+			 * stage-1 will be OAEP Decode
+			 */
+			asym = (struct __dao_lc_req_asym *)req;
+			asym_resp = (struct __dao_lc_resp_asym *)req;
+			w4.u64 = asym->w4;
+			/* Extract label length from control word (bits 31:15 of dptr) */
+			ctrl_word = *(uint64_t *)(asym->dptr);
+			ctrl_word_be = rte_be_to_cpu_64(ctrl_word);
+			label_len = (ctrl_word_be >> 16) & 0xFFFF;
+			infl_req->oaep_label_len = label_len;
+
+			infl_req->rsa_oaep.hash_type = asym->hash_type;
+			infl_req->rsa_mod_len = w4.s.param1;
+			inst[i].w4.u64 = asym->w4;
+			inst[i].w5.u64 = (uint64_t)(asym->dptr + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE +
+						    label_len);
+			inst[i].w6.u64 = (uint64_t)((uint8_t *)asym_resp->rptr +
+						    CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len);
+			inst[i].w7.u64 = 0;
+			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
+			infl_req->op_type = asym->op_type;
+			infl_req->stage = 0;
+			infl_req->max_stage = 2;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
 			rc = ca_sess_handle_create(rx_pkts[pkt_id]);

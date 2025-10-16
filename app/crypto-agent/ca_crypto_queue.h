@@ -27,7 +27,12 @@ struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 	bool is_gmac;
 	uint8_t stage;
 	uint8_t max_stage;
-	uint8_t padding[83];
+	union {
+		uint16_t rsa_exp_len;
+		uint16_t hash_type;
+	} rsa_oaep;
+	uint16_t oaep_label_len;
+	uint8_t padding[79];
 };
 
 DAO_STATIC_ASSERT(sizeof(struct cpt_inflight_req) == 128);
