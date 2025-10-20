@@ -182,7 +182,8 @@ sym_sess_hmac_hash_validate(const struct dao_lc_sym_ctx *ctx)
 			return 0;
 		break;
 	case DAO_LC_HASH_TYPE_CMAC:
-		if (ctx->hash.hmac_key_len != 16) {
+		if ((ctx->hash.hmac_key_len != 16) && (ctx->hash.hmac_key_len != 24) &&
+		    (ctx->hash.hmac_key_len != 32)) {
 			dao_err("Invalid AES-CMAC key length.");
 			return -EINVAL;
 		}
