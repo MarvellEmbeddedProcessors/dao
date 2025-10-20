@@ -1073,12 +1073,12 @@ static struct test_sym_params chacha_poly_test_data = {
 
 /** AES-CMAC Test Vectors */
 
-static const uint8_t digest_aes_cmac[] = {
+static const uint8_t digest_aes128_cmac[] = {
 	0x4C, 0x77, 0x87, 0xA0, 0x78, 0x8E, 0xEA, 0x96,
 	0xC1, 0xEB, 0x1E, 0x4E, 0x95, 0x8F, 0xED, 0x27
 };
 
-static struct test_sym_params aes_cmac_12B_test_data = {
+static struct test_sym_params aes_cmac_128_12B_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -1098,12 +1098,12 @@ static struct test_sym_params aes_cmac_12B_test_data = {
 		.len = 512
 	},
 	.digest = {
-		.data = digest_aes_cmac,
+		.data = digest_aes128_cmac,
 		.len = 12,
 	},
 };
 
-static struct test_sym_params aes_cmac_16B_test_data = {
+static struct test_sym_params aes_cmac_128_16B_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HMAC,
 		.hash = {
@@ -1123,7 +1123,7 @@ static struct test_sym_params aes_cmac_16B_test_data = {
 		 .len = 512
 	},
 	.digest = {
-		.data = digest_aes_cmac,
+		.data = digest_aes128_cmac,
 		 .len = 16
 	},
 
