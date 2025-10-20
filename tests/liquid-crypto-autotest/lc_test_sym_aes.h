@@ -1090,7 +1090,6 @@ static struct test_sym_params aes_cmac_128_12B_test_data = {
 				0x4F, 0x3C
 			},
 			.digest_len = 12,
-
 		},
 	},
 	.plaintext = {
@@ -1115,7 +1114,6 @@ static struct test_sym_params aes_cmac_128_16B_test_data = {
 				0x4F, 0x3C
 			},
 			.digest_len = 16,
-
 			},
 	},
 	.plaintext = {
@@ -1127,5 +1125,117 @@ static struct test_sym_params aes_cmac_128_16B_test_data = {
 		 .len = 16
 	},
 
+};
+
+static const uint8_t digest_aes192_cmac[] = {
+	0x6C, 0x49, 0xC8, 0x9F, 0x32, 0x0E, 0x76, 0x58,
+	0xD6, 0x55, 0x92, 0xFF, 0x6A, 0x87, 0x5E, 0x19
+};
+
+static struct test_sym_params aes_cmac_192_12B_test_data = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HMAC,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_CMAC,
+			.hmac_key_len = 24,
+			.hmac_auth_key = {
+				0xF8, 0x2A, 0xC7, 0x54, 0xDB, 0x96, 0x18,
+				0xAA, 0xC3, 0xA1, 0x53, 0xF6, 0x1F, 0x17,
+				0x60, 0xBD, 0xDE, 0xF4, 0xDE, 0xAD, 0x26,
+				0xEB, 0xAB, 0x92
+			},
+			.digest_len = 12,
+		},
+	},
+	.plaintext = {
+		.data = plaintext_aes_common,
+		.len = 512
+	},
+	.digest = {
+		.data = digest_aes192_cmac,
+		.len = 12,
+	},
+};
+
+static struct test_sym_params aes_cmac_192_16B_test_data = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HMAC,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_CMAC,
+			.hmac_key_len = 24,
+			.hmac_auth_key = {
+				0xF8, 0x2A, 0xC7, 0x54, 0xDB, 0x96, 0x18,
+				0xAA, 0xC3, 0xA1, 0x53, 0xF6, 0x1F, 0x17,
+				0x60, 0xBD, 0xDE, 0xF4, 0xDE, 0xAD, 0x26,
+				0xEB, 0xAB, 0x92
+			},
+			.digest_len = 16,
+		},
+	},
+	.plaintext = {
+		.data = plaintext_aes_common,
+		.len = 512
+	},
+	.digest = {
+		.data = digest_aes192_cmac,
+		.len = 16,
+	},
+};
+
+static const uint8_t digest_aes256_cmac[] = {
+	0xD0, 0x97, 0xCE, 0x7B, 0xBC, 0x85, 0xE7, 0x1B,
+	0x61, 0x5C, 0x0F, 0xF4, 0xED, 0x5B, 0xD8, 0xCA
+};
+
+static struct test_sym_params aes_cmac_256_12B_test_data = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HMAC,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_CMAC,
+			.hmac_key_len = 32,
+			.hmac_auth_key = {
+				0xF8, 0x2A, 0xC7, 0x54, 0xDB, 0x96, 0x18,
+				0xAA, 0xC3, 0xA1, 0x53, 0xF6, 0x1F, 0x17,
+				0x60, 0xBD, 0xDE, 0xF4, 0xDE, 0xAD, 0x26,
+				0xEB, 0xAB, 0x92, 0xFB, 0xBF, 0xB0, 0x8C,
+				0x29, 0x87, 0x90, 0xAC
+			},
+			.digest_len = 12,
+		},
+	},
+	.plaintext = {
+		.data = plaintext_aes_common,
+		.len = 512
+	},
+	.digest = {
+		.data = digest_aes256_cmac,
+		.len = 12,
+	},
+};
+
+static struct test_sym_params aes_cmac_256_16B_test_data = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HMAC,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_CMAC,
+			.hmac_key_len = 32,
+			.hmac_auth_key = {
+				0xF8, 0x2A, 0xC7, 0x54, 0xDB, 0x96, 0x18,
+				0xAA, 0xC3, 0xA1, 0x53, 0xF6, 0x1F, 0x17,
+				0x60, 0xBD, 0xDE, 0xF4, 0xDE, 0xAD, 0x26,
+				0xEB, 0xAB, 0x92, 0xFB, 0xBF, 0xB0, 0x8C,
+				0x29, 0x87, 0x90, 0xAC
+			},
+			.digest_len = 16,
+		},
+	},
+	.plaintext = {
+		.data = plaintext_aes_common,
+		.len = 512
+	},
+	.digest = {
+		.data = digest_aes256_cmac,
+		.len = 16,
+	},
 };
 #endif /* __LC_TEST_SYM_H__ */
