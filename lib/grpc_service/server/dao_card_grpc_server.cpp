@@ -34,6 +34,7 @@
 #define FAILSAFE_UPDATE_SCRIPT "lc_failsafe_update.sh"
 #define MCU_UPDATE_SCRIPT "lc_mcu_update.sh"
 #define MCU_ALL_CLEAR_SCRIPT "mcu_all_clear_signal.sh"
+#define FW_READY_LED_ON_SCRIPT "fw_ready_led_signal.sh"
 
 #define LC_IP_ADDRESS_ENV_VAR "LC_IP_ADDRESS"
 #define LC_DEFAULT_PORT 50051
@@ -573,6 +574,7 @@ dao_card_grpc_server_run(void)
 	{
 		std::string base = is_mmc_boot() ? LC_SCRIPT_BASE_MMC : LC_SCRIPT_BASE_ROOT;
 		std::string full = base + "/" + MCU_ALL_CLEAR_SCRIPT;
+		std::string led_on = base + "/" + FW_READY_LED_ON_SCRIPT;
 		struct stat st;
 		if (stat(full.c_str(), &st) == 0 && (st.st_mode & S_IXUSR)) {
 			int rc = system(full.c_str());
@@ -580,6 +582,15 @@ dao_card_grpc_server_run(void)
 				std::cerr << "Warning: script " << full << " exited with code " << rc << std::endl;
 		} else {
 			std::cerr << "Info: script " << full << " not found or not executable" << std::endl;
+		}
+
+		memset(&st, 0, sizeof(struct stat));
+		if (stat(led_on.c_str(), &st) == 0 && (st.st_mode & S_IXUSR)) {
+			int rc = system(led_on.c_str());
+			if (rc != 0)
+				std::cerr << "Warning: script " << led_on << " exited with code " << rc << std::endl;
+		} else {
+			std::cerr << "Info: script " << led_on << " not found or not executable" << std::endl;
 		}
 	}
 
