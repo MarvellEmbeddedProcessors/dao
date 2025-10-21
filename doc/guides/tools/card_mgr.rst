@@ -79,6 +79,78 @@ Once the client is launched, various commands can be executed to manage DAO card
    Action recommended: always run both the server and client instances of ``dao_card_mgr`` as ``root``.
    Invoking the program as a non-root user will terminate immediately with an explanatory message.
 
+Environment Variables
+----------------------
+
+The following environment variables can be used to control the behavior of DAO Card Manager.
+
+.. note:: Server-Side Configuration
+
+   These environment variables must be set on the **server** side (where ``dao_card_mgr -s`` is
+   running), not on the client side. The server process is responsible for all card management
+   operations including module loading/unloading and boot processes. Setting these variables on
+   the client side will have no effect.
+
+OCTEON_EP_UNLOAD_BEFORE_BOOT
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Description:**
+
+Some Linux distributions require the ``octeon_ep`` kernel module to be unloaded before executing
+card boot operations and reloaded afterward to ensure proper driver initialization. When this
+environment variable is set, the card manager will:
+
+1. Unload the ``octeon_ep`` module before calling the boot executable
+2. Execute the boot process
+3. Reload the ``octeon_ep`` module after boot completion
+
+This behavior is particularly useful for distributions where the module may interfere with the boot
+process or where a clean module state is required after firmware updates.
+
+**Usage:** Set this environment variable to any non-empty value to enable the feature.
+
+**Default:** Not set (disabled)
+
+**Example:**
+
+.. code-block:: console
+
+    # Enable module unload/reload around boot operations
+    $ export OCTEON_EP_UNLOAD_BEFORE_BOOT=1
+    $ ./build/app/dao-card-mgr -s
+
+    # Disable the feature (default behavior)
+    $ unset OCTEON_EP_UNLOAD_BEFORE_BOOT
+    $ ./build/app/dao-card-mgr -s
+
+**Note:** This setting affects all boot-related operations including ``card_boot_source``,
+``card_app_update``, ``card_fw_update``, and ``card_failsafe_update`` commands.
+
+OCTEON_EP_KO_PATH
+~~~~~~~~~~~~~~~~~
+
+**Description:**
+
+When loading the ``octeon_ep`` kernel module, the card manager can use either ``insmod`` with a
+specific module path or ``modprobe`` to load from the system's module directory. Setting this
+variable allows you to specify a custom location for the kernel module.
+
+**Usage:** Set this environment variable to the absolute path of the kernel module.
+
+**Default:** If not set, the system will fall back to using ``modprobe octeon_ep``
+
+**Example:**
+
+.. code-block:: console
+
+    # Use a specific module path
+    $ export OCTEON_EP_KO_PATH=/usr/local/lib/modules/octeon_ep.ko
+    $ ./build/app/dao-card-mgr -s
+
+    # Use system modprobe (default)
+    $ unset OCTEON_EP_KO_PATH
+    $ ./build/app/dao-card-mgr -s
+
 Management Services
 -------------------
 

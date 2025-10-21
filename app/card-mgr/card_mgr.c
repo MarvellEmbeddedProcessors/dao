@@ -70,6 +70,12 @@
 #define OCTEON_EP_INSMOD_TIMEOUT_MS 5000
 #define OCTEON_EP_POLL_INTERVAL_US  100000 /* 100ms */
 
+/* Environment variable to control module unload before boot exec.
+ * When set, unloads octeon_ep module before dao_card_mgr_boot_exec and
+ * reloads it after. Required for some Linux distributions.
+ */
+#define OCTEON_EP_UNLOAD_BEFORE_BOOT_ENV "OCTEON_EP_UNLOAD_BEFORE_BOOT"
+
 /* Time to wait after successful module unload before attempting re-load.
  * Different settle windows depending on boot source:
  *  - MMC (main image):  60s
@@ -94,6 +100,12 @@ typedef enum dao_card_mgr_instance {
 	DAO_CARD_MGR_AS_SERVER_CLI,
 	DAO_CARD_MGR_INVALID,
 } dao_card_mgr_instance;
+
+typedef enum octeon_ep_module_op {
+	OCTEON_EP_MODULE_UNLOAD_ONLY,
+	OCTEON_EP_MODULE_LOAD_ONLY,
+	OCTEON_EP_MODULE_RELOAD, /* unload then load */
+} octeon_ep_module_op;
 
 typedef struct {
 	int argc;
@@ -368,7 +380,7 @@ validate_file(cli_args *cmd, struct dao_card_update_req *req, char **bootpath)
  * wait after unload instead of relying on an environment variable.
  */
 static int
-reload_octeon_ep_module(const char *boot_arg)
+reload_octeon_ep_module(const char *boot_arg, octeon_ep_module_op operation)
 {
 	const char *ko_path = getenv("OCTEON_EP_KO_PATH");
 	const char *name = OCTEON_EP_MODULE_NAME;
@@ -379,24 +391,27 @@ reload_octeon_ep_module(const char *boot_arg)
 	if (force_quit)
 		return -EINTR;
 
-	/* If present, attempt to remove */
-	if (module_present(name)) {
-		rc = run_cmd("rmmod " OCTEON_EP_MODULE_NAME);
-		if (rc != 0) {
-			DAO_CARD_ERR("rmmod %s failed (rc=%d)", name, rc);
-		} else {
-			rc = wait_for_module_absent(name, OCTEON_EP_RMMOD_TIMEOUT_MS);
+	/* Handle unload operation (for UNLOAD_ONLY and RELOAD) */
+	if (operation == OCTEON_EP_MODULE_UNLOAD_ONLY || operation == OCTEON_EP_MODULE_RELOAD) {
+		/* If present, attempt to remove */
+		if (module_present(name)) {
+			rc = run_cmd("rmmod " OCTEON_EP_MODULE_NAME);
 			if (rc != 0) {
-				DAO_CARD_ERR("Module %s did not unload in time (rc=%d)", name, rc);
+				DAO_CARD_ERR("rmmod %s failed (rc=%d)", name, rc);
 				return rc;
+			} else {
+				rc = wait_for_module_absent(name, OCTEON_EP_RMMOD_TIMEOUT_MS);
+				if (rc != 0) {
+					DAO_CARD_ERR("Module %s did not unload in time (rc=%d)",
+						     name, rc);
+					return rc;
+				}
+				did_unload = 1;
 			}
-			did_unload = 1;
 		}
 	}
 
-	/* If unloaded, wait for settle window: choose duration based on boot_arg
-	 * provided by the caller.
-	 */
+	/* Handle reload wait period */
 	if (did_unload) {
 		int target_ms = OCTEON_EP_RELOAD_WAIT_MMC_MS;
 		int waited = 0;
@@ -411,30 +426,39 @@ reload_octeon_ep_module(const char *boot_arg)
 		}
 	}
 
-	if (!ko_path) {
-		DAO_CARD_ERR("OCTEON_EP_KO_PATH not set; falling back to modprobe");
-		rc = run_cmd("modprobe " OCTEON_EP_MODULE_NAME);
+	/* If this was unload-only operation, we're done */
+	if (operation == OCTEON_EP_MODULE_UNLOAD_ONLY)
+		return 0;
+
+	/* Handle load operation (for LOAD_ONLY and RELOAD) */
+	if (operation == OCTEON_EP_MODULE_LOAD_ONLY || operation == OCTEON_EP_MODULE_RELOAD) {
+		if (!ko_path) {
+			DAO_CARD_ERR("OCTEON_EP_KO_PATH not set; falling back to modprobe");
+			rc = run_cmd("modprobe " OCTEON_EP_MODULE_NAME);
+			if (rc != 0) {
+				DAO_CARD_ERR("modprob failed (rc=%d)", rc);
+				return rc;
+			}
+			goto wait_for_module;
+		}
+
+		if (sanitize_module_path(ko_path) != 0) {
+			DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s", ko_path);
+			return -EINVAL;
+		}
+		snprintf(cmd, sizeof(cmd), "insmod %s", ko_path);
+		rc = run_cmd(cmd);
 		if (rc != 0) {
-			DAO_CARD_ERR("modprob failed (rc=%d)", rc);
+			DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s", name, rc, ko_path);
 			return rc;
 		}
-		goto wait_for_module;
-	}
 
-	if (sanitize_module_path(ko_path) != 0) {
-		DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s", ko_path);
-		return -EINVAL;
-	}
-	snprintf(cmd, sizeof(cmd), "insmod %s", ko_path);
-	rc = run_cmd(cmd);
-	if (rc != 0)
-		DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s", name, rc, ko_path);
-
-wait_for_module:
-	rc = wait_for_module_present(name, OCTEON_EP_INSMOD_TIMEOUT_MS);
-	if (rc != 0) {
-		DAO_CARD_ERR("Module %s not present after load (rc=%d)", name, rc);
-		return rc;
+	wait_for_module:
+		rc = wait_for_module_present(name, OCTEON_EP_INSMOD_TIMEOUT_MS);
+		if (rc != 0) {
+			DAO_CARD_ERR("Module %s not present after load (rc=%d)", name, rc);
+			return rc;
+		}
 	}
 
 	return 0;
@@ -553,17 +577,38 @@ dao_card_wait_ready(int timeout_ms, int interval_ms)
 static int
 reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, const char *ip_addr)
 {
-	int boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
+	const char *unload_before_boot = getenv(OCTEON_EP_UNLOAD_BEFORE_BOOT_ENV);
+	int boot_rc = 0;
 
+	/* For some Linux distributions, unload the module before boot exec */
+	if (unload_before_boot) {
+		boot_rc = reload_octeon_ep_module(boot_arg, OCTEON_EP_MODULE_UNLOAD_ONLY);
+		if (boot_rc != 0) {
+			DAO_CARD_ERR("unload of octeon_ep failed: %d", boot_rc);
+			return boot_rc;
+		}
+	}
+
+	boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
 	if (boot_rc != 0) {
 		DAO_CARD_ERR("Boot exec failed in %s: %d", __func__, boot_rc);
 		return boot_rc;
 	}
 
-	boot_rc = reload_octeon_ep_module(boot_arg);
-	if (boot_rc != 0) {
-		DAO_CARD_ERR("unload and relod of octeon_ep failed: %d", boot_rc);
-		return boot_rc;
+	/* If we unloaded before boot, reload the module in load-only mode */
+	if (unload_before_boot) {
+		boot_rc = reload_octeon_ep_module(boot_arg, OCTEON_EP_MODULE_LOAD_ONLY);
+		if (boot_rc != 0) {
+			DAO_CARD_ERR("load of octeon_ep failed: %d", boot_rc);
+			return boot_rc;
+		}
+	} else {
+		/* Normal reload behavior when no pre-boot unload was done */
+		boot_rc = reload_octeon_ep_module(boot_arg, OCTEON_EP_MODULE_RELOAD);
+		if (boot_rc != 0) {
+			DAO_CARD_ERR("unload and reload of octeon_ep failed: %d", boot_rc);
+			return boot_rc;
+		}
 	}
 
 	bring_up_octeon_ep_interface(ip_addr);
