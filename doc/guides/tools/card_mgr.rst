@@ -188,6 +188,25 @@ available:
       card_boot_source main /tmp/mrvl-oct-boot
       card_boot_source failsafe /tmp/mrvl-oct-boot
 
+* ``card_reboot``
+
+   This command reboots the DAO card using its current boot source. Unlike ``card_boot_source``,
+   this command automatically detects whether the card is currently running from the main (MMC) or
+   failsafe (SPI) image and reboots using the same source.
+
+   The command performs the following operations:
+
+   1. Unloads the ``octeon_ep`` kernel module to ensure a clean state
+   2. Reloads the driver and waits for card readiness
+
+   This is useful when you want to restart the card without changing the boot source, such as
+   after configuration changes or to recover from runtime issues while maintaining the current
+   firmware image.
+
+**Example:**
+   .. code-block:: console
+
+      card_reboot
 
 * ``card_fini``
 

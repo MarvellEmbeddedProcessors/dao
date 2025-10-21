@@ -53,6 +53,7 @@
 #define DAO_CARD_MGR_CARD_STATS       "card_stats"
 #define DAO_CARD_MGR_FW_UPDATE        "card_fw_update"
 #define DAO_CARD_MGR_BOOT_SOURCE      "card_boot_source"
+#define DAO_CARD_MGR_CARD_REBOOT      "card_reboot"
 #define DAO_CARD_MGR_FAILSAFE_UPDATE  "card_failsafe_update"
 #define DAO_CARD_MGR_MCU_UPDATE       "card_mcu_update"
 #define DAO_CARD_MGR_DMESG            "card_dmesg"
@@ -145,6 +146,7 @@ static const struct dao_card_cmd_spec dao_card_cmd_specs[] = {
 	{DAO_CARD_MGR_APP_FALLBACK, 1, 1, "", "Fallback to previous working application"},
 	{DAO_CARD_MGR_BOOT_SOURCE, 3, 3, "<main|failsafe> <absolute_path/mrv-oct-boot>",
 	 "Reboot the card from the specified boot source"},
+	{DAO_CARD_MGR_CARD_REBOOT, 1, 1, "Reboot the card using current boot source"},
 	{DAO_CARD_MGR_MCU_UPDATE, 2, 2, "<absolute_path/file>", "Update MCU firmware"},
 	{DAO_CARD_MGR_APP_UPDATE, 3, 3, "<absolute_path/file> <absolute_path/mrv-oct-boot>",
 	 "Update application image"},
@@ -589,10 +591,12 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 		}
 	}
 
-	boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
-	if (boot_rc != 0) {
-		DAO_CARD_ERR("Boot exec failed in %s: %d", __func__, boot_rc);
-		return boot_rc;
+	if (boot_bin_path) {
+		boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
+		if (boot_rc != 0) {
+			DAO_CARD_ERR("Boot exec failed in %s: %d", __func__, boot_rc);
+			return boot_rc;
+		}
 	}
 
 	/* If we unloaded before boot, reload the module in load-only mode */
@@ -1256,6 +1260,20 @@ dao_card_mgr_boot(cli_args *cmd)
 }
 
 static int
+dao_card_mgr_reboot(void)
+{
+	int rc;
+
+	rc = reload_and_bringup_octeon_ep(NULL, "spi", DAO_CARD_MGR_BOOT_IP);
+	if (rc != 0) {
+		DAO_CARD_ERR("Boot exec / readiness failed in card_reboot: %d", rc);
+		return rc;
+	}
+
+	return 0;
+}
+
+static int
 dao_card_mgr_failsafe_update(cli_args *cmd)
 {
 	struct dao_card_update_req update_req;
@@ -1443,6 +1461,8 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		rc = mrc;
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_BOOT_SOURCE) == 0) {
 		rc = dao_card_mgr_boot(cmd);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_REBOOT) == 0) {
+		rc = dao_card_mgr_reboot();
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FAILSAFE_UPDATE) == 0) {
 		rc = dao_card_mgr_failsafe_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_TEMPERATURE) == 0) {
