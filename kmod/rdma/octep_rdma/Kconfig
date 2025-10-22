@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0
+# Copyright (c) 2025 Marvell.
+
+config INFINIBAND_OCTEP_RA
+	tristate "Marvell Octeon EP RDMA Adapter (OCTEP_RA) support"
+	depends on PCI_MSI && 64BIT
+	depends on INFINIBAND_ADDR_TRANS
+	depends on INFINIBAND_USER_ACCESS
+	help
+	  This is a RDMA/RoCE driver for Marvell Octeon EP RDMA Adapter
+	  (OCTEP_RA) which supports RDMA features in cloud environment.
+
+	  To compile this driver as module, choose M here. The module will be
+	  called octep_ra.

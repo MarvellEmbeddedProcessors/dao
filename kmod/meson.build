@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: GPL-2.0
 # Copyright (c) 2023 Marvell.
 
-subdirs = ['vdpa']
+subdirs = [
+            'vdpa',
+]
 
 if host_build
    rdma_build = get_option('rdma_build')
@@ -22,6 +24,7 @@ if host_build
            ],
            )
        endif
+       subdirs += ['rdma']
    endif
 endif
 
