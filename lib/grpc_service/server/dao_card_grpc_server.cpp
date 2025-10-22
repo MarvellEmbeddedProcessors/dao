@@ -95,6 +95,8 @@ status_code_from_rc(int rc)
 		return StatusCode::RESOURCE_EXHAUSTED;
 	case EEXIST:
 		return StatusCode::ALREADY_EXISTS;
+	case EALREADY:
+		return StatusCode::ALREADY_EXISTS;
 	case ETIMEDOUT:
 		return StatusCode::DEADLINE_EXCEEDED;
 	case ECONNRESET:

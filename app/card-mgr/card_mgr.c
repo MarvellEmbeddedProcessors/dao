@@ -564,7 +564,7 @@ dao_card_wait_ready(int timeout_ms, int interval_ms)
 			return 0;
 		}
 		if (rc != -EAGAIN) {
-			dao_err("Card readiness check failed: %d (%s)", rc, strerror(-rc));
+			dao_err("Card readiness check failed: %s", strerror(-rc));
 			return rc;
 		}
 		usleep(interval_ms * 1000);
@@ -646,7 +646,7 @@ dao_card_mgr_process_error(int cli_fd, int resp)
 					     err_len :
 					     (DAO_CARD_MGR_MAX_ERR_MSG_LEN - 1)] = '\0';
 				/* Prefer server-provided message */
-				dao_err("%s (rc=%d)", emsg, resp);
+				dao_err("%s", emsg);
 				return;
 			}
 			/* Fall through to generic handling if payload read failed */
@@ -656,14 +656,16 @@ dao_card_mgr_process_error(int cli_fd, int resp)
 		if (resp == ENOTSUP || resp == -ENOTSUP)
 			dao_err("Command not supported by card (UNIMPLEMENTED)");
 		else if (resp == -EAGAIN)
-			dao_info("Card is not ready: %d (%s)", resp, strerror(-resp));
+			dao_info("Card is not ready: %s", strerror(-resp));
+		else if (resp == -EALREADY)
+			dao_info("Card is already initialized");
 		else
-			dao_err("Received error for the command: %d (%s)", resp, strerror(-resp));
+			dao_err("Received error for the command: (%s)", strerror(-resp));
 		return;
 	}
 
 	/* Positive resp treated as generic error */
-	dao_err("Received error for the command: %d", resp);
+	dao_err("Received unexpected error for the command");
 }
 
 static void
@@ -1010,7 +1012,7 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 		if (rc == -ECONNRESET)
 			dao_err("Server closed the connection. Exiting client.");
 		else
-			dao_err("recv error (%d) reading response", rc);
+			dao_err("Failed to receive response from server");
 		force_quit = true;
 		return;
 	}
@@ -1385,6 +1387,12 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 			card_cfg.argc = rc;
 			card_cfg.argv = (char **)new_argv;
 			rc = dao_card_init(card_ctx, &card_cfg);
+			/* Add specific error message for EALREADY */
+			if (rc == -EALREADY) {
+				strncpy(err_msg, "Card is already initialized",
+					sizeof(err_msg) - 1);
+				err_msg[sizeof(err_msg) - 1] = '\0';
+			}
 		}
 		free(new_argv);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_FINI) == 0) {

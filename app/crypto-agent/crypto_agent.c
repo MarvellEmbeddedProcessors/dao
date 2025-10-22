@@ -466,6 +466,12 @@ card_init(struct dao_card_config *config)
 {
 	int ret, i;
 
+	/* Check if card is already initialized */
+	if (card_initialized) {
+		CA_ERR("Card is already initialized");
+		return -EALREADY;
+	}
+
 	force_quit = false;
 
 	ret = rte_eal_init(config->argc, config->argv);

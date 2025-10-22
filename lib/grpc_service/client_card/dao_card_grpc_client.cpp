@@ -54,7 +54,7 @@ static int grpc_status_to_errno(const grpc::Status &status)
 	case grpc::StatusCode::NOT_FOUND:
 		return -ENOENT;
 	case grpc::StatusCode::ALREADY_EXISTS:
-		return -EEXIST;
+		return -EALREADY;
 	case grpc::StatusCode::RESOURCE_EXHAUSTED:
 		return -ENOSPC;
 	case grpc::StatusCode::FAILED_PRECONDITION:
