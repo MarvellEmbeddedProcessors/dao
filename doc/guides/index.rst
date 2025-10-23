@@ -14,6 +14,7 @@ Data Accelerator Offload (DAO) Documentation
    Introduction <intro>
    Guides <guides>
    Resources <resources>
+   Showcase <solutions_showcase>
    Community <community_lab/index>
 
 .. grid:: 1 1 2 2
@@ -69,6 +70,23 @@ Data Accelerator Offload (DAO) Documentation
          :click-parent:
 
          Open the resources hub
+
+   .. grid-item-card::
+      :text-align: center
+
+      **Solutions Showcase**
+      ^^^
+
+      Showcases and White-papers featuring Solution architectures and Performance highlights on Marvell platforms.
+
+      +++
+
+      .. button-ref:: solutions_showcase
+         :color: secondary
+         :expand:
+         :click-parent:
+
+         Explore the showcase
 
    .. grid-item-card::
       :text-align: center
