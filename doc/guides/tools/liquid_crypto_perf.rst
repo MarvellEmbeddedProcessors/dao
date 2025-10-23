@@ -34,7 +34,9 @@ with the ``dao-liquid-crypto-perf-test`` application:
 
 	Specify the cores to use for the application. The ``COREMASK`` is a
 	hexadecimal bitmask representing the cores, while the ``CORELIST`` is
-	a comma-separated list of core indices.
+	a comma-separated list of core indices. The performance application
+	dedicates one core for the control path (main thread) and uses the
+	remaining cores for worker threads that perform the actual crypto operations.
 
 
 Application Options
