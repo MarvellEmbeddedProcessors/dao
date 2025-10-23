@@ -2207,21 +2207,31 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 					const struct dao_lc_sym_sess_meta *sess_meta,
 					const enum lc_crypto_op_type op_type)
 {
+	uint16_t hmac_aligned_key_len = 0, pkt_iv_len = 0, digest_len = 0, custom_string_len = 0;
+	uint16_t hmac_key_len = 0, custom_string_aligned_len = 0, dlen;
 	uint32_t buf_len, auth_len, off_ctrl_len, auth_offset = 0;
-	uint16_t hmac_aligned_key_len = 0, pkt_iv_len = 0, dlen;
+	uint64_t *offset_vaddr, *ctrl_word_vaddr;
 	struct __dao_lc_req_sym *req;
-	uint16_t hmac_key_len = 0;
-	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
 
 	auth_len = op->auth_len;
 	auth_offset = op->auth_offset;
+	digest_len = sess_meta->digest_len;
 
 	if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) {
 		hmac_key_len = sess_meta->auth_key_len;
 		hmac_aligned_key_len = RTE_ALIGN_CEIL(hmac_key_len, 8);
-		dlen = auth_len + hmac_aligned_key_len;
+		if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
+		    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
+			custom_string_len = op->params.custom_string_len;
+			custom_string_aligned_len = RTE_ALIGN_CEIL(custom_string_len, 8);
+			digest_len = op->params.output_len;
+			dlen = ROC_SE_CTRL_WORD_LEN + auth_len + custom_string_aligned_len +
+				   hmac_aligned_key_len;
+		} else {
+			dlen = auth_len + hmac_aligned_key_len;
+		}
 	} else if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		pkt_iv_len = sess_meta->pkt_iv_len;
@@ -2231,7 +2241,7 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	}
 
 	qp->req_queue[req_idx].digest = op->digest;
-	qp->req_queue[req_idx].digest_len = sess_meta->digest_len;
+	qp->req_queue[req_idx].digest_len = digest_len;
 	qp->req_queue[req_idx].op_type = op_type;
 	qp->req_queue[req_idx].is_auth_gen = op->auth_gen;
 
@@ -2282,6 +2292,18 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	req->hdr.trs_hdr.op_len = buf_len;
 	req->w4 = w4.u64;
 	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
+
+	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128)  ||
+	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
+		ctrl_word_vaddr = (uint64_t *)dptr;
+		*(uint64_t *)ctrl_word_vaddr = rte_cpu_to_be_64(
+		((uint64_t)custom_string_len << 16) | ((uint64_t)digest_len << 32));
+		dptr += ROC_SE_CTRL_WORD_LEN;
+
+		/* Add Customization String for KMAC */
+		memcpy(dptr, op->params.custom_string, custom_string_len);
+		dptr += custom_string_aligned_len;
+	}
 
 	/* Add HMAC Authentication Key for HMAC ops */
 	if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY)

@@ -44,6 +44,21 @@
 #define DAO_LC_RSA_OAEP_MAX_LABEL_LEN 1024
 /** Maximum supported modulus length for RSA OAEP */
 #define DAO_LC_RSA_OAEP_MAX_MOD_LEN 989
+/** Maximum supported customisation-string length for KMAC */
+#define DAO_LC_KMAC_MAX_CUSTOM_STRING_LEN 511
+
+/**
+ * The params required for KMAC operations.
+ * Note: KMAC128 and KMAC256 are supported in XOF=False mode.
+ */
+struct dao_lc_sym_op_kmac_params {
+	/** Customized String. Utilized for KMAC. */
+	uint8_t *custom_string;
+	/** Length of Customized String. Utilized for KMAC. */
+	uint16_t custom_string_len;
+	/** Output Length. Utilized for KMAC. */
+	uint16_t output_len;
+};
 
 /**
  * The liquid crypto buffer
@@ -127,6 +142,10 @@ struct dao_lc_sym_op {
 	 * - Must not exceed DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN
 	 * Ignored for non-key wrap operations.
 	 */
+	union {
+		/** Params for KMAC. */
+		struct dao_lc_sym_op_kmac_params params;
+	};
 	uint32_t wrap_unwrap_key_len;
 	/** Indicates if padding is used (for AES-KWP) */
 	bool is_wrap_pad;
@@ -595,6 +614,10 @@ enum dao_lc_hash_type {
 	DAO_LC_HASH_TYPE_SHA3_SHAKE256 = 15,
 	/** Hash Type = CMAC */
 	DAO_LC_HASH_TYPE_CMAC = 16,
+	/** Hash Type = SHA3-KMAC128 */
+	DAO_LC_HASH_TYPE_SHA3_KMAC128 = 17,
+	/** Hash Type = SHA3-KMAC256 */
+	DAO_LC_HASH_TYPE_SHA3_KMAC256 = 18,
 };
 
 /**

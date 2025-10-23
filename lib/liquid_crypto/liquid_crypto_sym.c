@@ -18,6 +18,9 @@
 #include "mc/se.h"
 
 #define DAO_LC_OPCODE_IV_LENGTH_MASK (1 << 5)
+#define DAO_LC_PARAM_MASK 0x3
+#define DAO_LC_HASH_MASK  0xF
+#define DAO_LC_KMAC_PARAM2 (2 & DAO_LC_PARAM_MASK)
 
 static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 	sym_sess_list_head = TAILQ_HEAD_INITIALIZER(sym_sess_list_head);
@@ -148,6 +151,11 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 			return -EINVAL;
 		}
 		if (mac_len >= 1 && mac_len <= 16)
+			return 0;
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+		if (mac_len >= 1 && mac_len <= DAO_LC_MAX_DIGEST_LEN)
 			return 0;
 		break;
 	default:
@@ -286,7 +294,20 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		if (ctx->hash.hmac_hash_type == DAO_LC_HASH_TYPE_CMAC)
 			w4.s.opcode_minor |= (0x1 << 4);
 		w4.s.param1 = ctx->hash.hmac_key_len;
-		w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
+		switch (ctx->hash.hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+			w4.s.param2 = (uint16_t)(DAO_LC_KMAC_PARAM2 << 12) |
+			((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE128) << 8) |
+			ctx->hash.digest_len;
+			break;
+		case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+			w4.s.param2 = (uint16_t)(DAO_LC_KMAC_PARAM2 << 12) |
+			((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE256) << 8) |
+			ctx->hash.digest_len;
+			break;
+		default:
+			w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
+		}
 		sess_meta->digest_len = ctx->hash.digest_len;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_AES_KEY_WRAP) {
 		kek_len = sym_sess_get_aes_kek_len(ctx->aes_key_wrap.aes_kek_type);
@@ -520,6 +541,8 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_HASH_TYPE_CMAC:
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
 		break;
 	default:
 		dao_err("Unsupported HMAC/hash type.");
@@ -657,6 +680,25 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 	if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
 		if (sess_meta->alg_iv_len != 12 || op->auth_iv == NULL) {
 			dao_err("Invalid auth IV pointer for GMAC operation.");
+			return -EINVAL;
+		}
+	}
+
+	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
+	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
+		if (op->params.custom_string == NULL) {
+			dao_err("Invalid custom-string pointer for KMAC operation.");
+			return -EINVAL;
+		}
+		if ((op->params.output_len == 0) ||
+		    (op->params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
+			dao_err("Invalid output length for KMAC operation. output_len: %d.",
+				op->params.output_len);
+			return -EINVAL;
+		}
+		if (op->params.custom_string_len > DAO_LC_KMAC_MAX_CUSTOM_STRING_LEN) {
+			dao_err("Invalid custom-string length for KMAC operation. custom_string_len:%d.",
+				op->params.custom_string_len);
 			return -EINVAL;
 		}
 	}
