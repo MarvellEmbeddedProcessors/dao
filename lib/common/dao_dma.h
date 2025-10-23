@@ -138,6 +138,14 @@ RTE_DECLARE_PER_LCORE(struct dao_dma_vchan_info *, dao_dma_vchan_info);
 int dao_dma_flush_submit(void);
 
 /**
+ * Flush DMA requests and submit ops version 2
+ *
+ * @return
+ *   Zero on success.
+ */
+int dao_dma_flush_submit_v2(void);
+
+/**
  * Get DMA stats from DAO library
  *
  * @param lcore_id

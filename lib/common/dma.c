@@ -227,6 +227,46 @@ dao_dma_flush_submit(void)
 	return 0;
 }
 
+int
+dao_dma_flush_submit_v2(void)
+{
+	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	uint16_t i = 0, nb_dev2mem, nb_mem2dev;
+	struct dao_dma_vchan_state *state;
+
+	nb_dev2mem = vchan_info->nb_dev2mem;
+	nb_mem2dev = vchan_info->nb_mem2dev;
+
+	for (i = 0; i < nb_dev2mem; i++) {
+		state = &vchan_info->dev2mem[i];
+
+		dao_dma_flush(state, DAO_DMA_MAX_POINTER);
+
+		if (likely(state->pend_ops)) {
+			rte_dma_submit(state->devid, state->vchan);
+			state->pend_ops = 0;
+			if (dao_dma_has_stats_feature())
+				state->dbells++;
+			dao_dma_check_meta_compl_v2(state, 0 /* ATOMIC update */);
+		}
+	}
+
+	for (i = 0; i < nb_mem2dev; i++) {
+		state = &vchan_info->mem2dev[i];
+		dao_dma_flush(state, DAO_DMA_MAX_POINTER);
+
+		if (likely(state->pend_ops)) {
+			rte_dma_submit(state->devid, state->vchan);
+			state->pend_ops = 0;
+			if (dao_dma_has_stats_feature())
+				state->dbells++;
+			dao_dma_check_meta_compl_v2(state, 1 /* ATOMIC update */);
+		}
+	}
+
+	return 0;
+}
+
 void
 dao_dma_compl_wait(uint16_t vchan)
 {
