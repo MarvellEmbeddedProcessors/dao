@@ -13,6 +13,8 @@
 
 #include "test.h"
 
+extern volatile int force_quit;
+
 #define FOR_EACH_SUITE_TESTCASE(iter, suite, case)                                                 \
 	for (iter = 0, case = (suite)->unit_test_cases[0];                                         \
 	     (suite)->unit_test_cases[iter].testcase ||                                            \
@@ -104,6 +106,13 @@ unit_test_suite_runner(struct unit_test_suite *suite)
 	printf(" + ------------------------------------------------------- +\n");
 
 	FOR_EACH_SUITE_TESTCASE(suite->total, suite, tc) {
+		/* Check for signal interruption */
+		if (force_quit) {
+			printf("Test execution interrupted by signal\n");
+			suite->failed++;
+			break;
+		}
+
 		if (!tc.enabled) {
 			suite->skipped++;
 			continue;
@@ -162,6 +171,14 @@ unit_test_suite_runner(struct unit_test_suite *suite)
 	}
 
 	FOR_EACH_SUITE_TESTSUITE(i, suite, ts) {
+		/* Check for signal interruption before running sub-suites */
+		if (force_quit) {
+			printf("Sub-suite execution interrupted by signal\n");
+			sub_ts_failed++;
+			sub_ts_total++;
+			continue;
+		}
+
 		ret = unit_test_suite_runner(ts);
 		if (ret == TEST_SUCCESS)
 			sub_ts_succeeded++;

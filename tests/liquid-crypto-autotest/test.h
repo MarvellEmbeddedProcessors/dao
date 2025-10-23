@@ -87,4 +87,7 @@ struct unit_test_suite {
 
 int unit_test_suite_runner(struct unit_test_suite *suite);
 
+/* Signal handling support for graceful test termination */
+extern volatile int force_quit;
+
 #endif /* __TEST_H__ */

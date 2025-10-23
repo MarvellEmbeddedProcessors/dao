@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <signal.h>
 #include <string.h>
 
 #include <rte_eal.h>
@@ -24,6 +25,17 @@ struct unit_test_suite *test_suites[] = {
 	&lc_testsuite_rng,
 	NULL
 };
+
+volatile int force_quit;
+
+static void
+signal_handler(int signum)
+{
+	if (signum == SIGINT || signum == SIGTERM) {
+		TEST_LC_INFO("Signal %d received, initiating shutdown...", signum);
+		force_quit = 1;
+	}
+}
 
 static struct unit_test_suite ts = {
 	.suite_name = "Liquid Crypto Unit Test Suite",
@@ -46,6 +58,10 @@ main(int argc, char **argv)
 	int ret, i;
 
 	TEST_LC_INFO("Starting liquid crypto autotest");
+
+	force_quit = 0;
+	signal(SIGINT, signal_handler);
+	signal(SIGTERM, signal_handler);
 
 	ret = rte_eal_init(argc, argv);
 	if (ret < 0) {
