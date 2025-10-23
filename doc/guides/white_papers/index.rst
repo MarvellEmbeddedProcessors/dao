@@ -6,3 +6,6 @@ White Papers
 
 .. toctree::
     :maxdepth: 1
+
+    accelerated-nginx
+    accelerated-nginx-with-vpp
