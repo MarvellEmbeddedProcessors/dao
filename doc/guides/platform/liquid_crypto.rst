@@ -471,7 +471,7 @@ using the card manager.
 
 To configure the card, launch two instances of the `dao_card_mgr` application: one in client mode
 and the other in server mode. The client instance allows users to issue configuration commands,
-while the serv/er instance processes these commands to configure the LiquidCrypto card.
+while the server instance processes these commands to configure the LiquidCrypto card.
 
 .. code-block:: console
 
