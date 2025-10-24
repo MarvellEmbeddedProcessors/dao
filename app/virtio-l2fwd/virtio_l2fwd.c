@@ -217,6 +217,8 @@ static uint16_t virtio_netdev_dma_vchans[DAO_VIRTIO_DEV_MAX];
 static uint16_t virtio_netdev_reta_sz[DAO_VIRTIO_DEV_MAX];
 static bool virtio_netdev_autofree = true;
 static uint16_t pem_devid;
+static uint16_t num_vfs_per_pem;
+static uint16_t num_pem_devs;
 
 static bool ethdev_cgx_loopback;
 
@@ -245,6 +247,15 @@ is_virtio_dev_enabled(uint16_t virtio_devid)
 	if (i > 1)
 		return false;
 	return virtio_mask_ena[i] & RTE_BIT64(j);
+}
+
+static uint16_t
+get_pem_id_of_vf(uint16_t dev_id)
+{
+	if (num_vfs_per_pem == 0)
+		return pem_devid;
+
+	return dev_id / num_vfs_per_pem;
 }
 
 static int
@@ -2480,6 +2491,7 @@ setup_eth_devices(void)
 
 	RTE_ETH_FOREACH_DEV(portid) {
 		const char *edge_name = name;
+		uint16_t pem_id = get_pem_id_of_vf(portid);
 
 		local_port_conf = port_conf;
 
@@ -2504,7 +2516,7 @@ setup_eth_devices(void)
 		else
 			nb_rx_queue = RTE_MIN(
 				dev_info.max_rx_queues,
-				(dao_virtio_netdev_queue_count_max(pem_devid, eth_map[portid].id) /
+				(dao_virtio_netdev_queue_count_max(pem_id, eth_map[portid].id) /
 				 2));
 		nb_tx_queue = nb_rx_queue;
 		eth_dev_q_count[portid] = nb_rx_queue;
@@ -2822,14 +2834,33 @@ setup_dma_devices(void)
 static void
 setup_pem_device(void)
 {
+	uint16_t max_vfs_supported, n_pem;
 	struct dao_pem_dev_conf pem_dev_conf;
+	uint16_t n_virtio_devs = 0, i;
 	int rc;
 
-	/* Setup pem0 */
-	memset(&pem_dev_conf, 0, sizeof(pem_dev_conf));
-	rc = dao_pem_dev_init(pem_devid, &pem_dev_conf);
-	if (rc)
-		rte_exit(EXIT_FAILURE, "Error with pem init, rc=%d\n", rc);
+	for (i = 0; i < DAO_VIRTIO_DEV_MAX; i++) {
+		if (is_virtio_dev_enabled(i))
+			n_virtio_devs++;
+	}
+	max_vfs_supported = dao_pem_max_vfs_get(pem_devid);
+	if (!max_vfs_supported)
+		rte_exit(EXIT_FAILURE, "Error in getting VF info\n");
+
+	APP_INFO("Total virtio devices: %u, Max VFs per PEM: %u\n", n_virtio_devs,
+		 max_vfs_supported);
+	num_vfs_per_pem = max_vfs_supported;
+	n_pem = (n_virtio_devs + max_vfs_supported - 1) / max_vfs_supported;
+	num_pem_devs = n_pem;
+
+	for (i = 0; i < n_pem; i++) {
+		/* Setup pem */
+		APP_INFO("Initializing PEM%u\n", i);
+		memset(&pem_dev_conf, 0, sizeof(pem_dev_conf));
+		rc = dao_pem_dev_init(i, &pem_dev_conf);
+		if (rc)
+			rte_exit(EXIT_FAILURE, "Error with pem init, rc=%d\n", rc);
+	}
 }
 
 static void
@@ -2857,7 +2888,7 @@ setup_virtio_devices(void)
 		/* Populate netdev conf */
 		memset(&netdev_conf, 0, sizeof(netdev_conf));
 		netdev_conf.auto_free_en = virtio_netdev_autofree;
-		netdev_conf.pem_devid = pem_devid;
+		netdev_conf.pem_devid = get_pem_id_of_vf(virtio_devid);
 		netdev_conf.pool = per_port_pool ? v_pktmbuf_pool[virtio_devid] : v_pktmbuf_pool[0];
 		netdev_conf.dma_vchan = virtio_netdev_dma_vchans[virtio_devid];
 		netdev_conf.mtu = 0;
@@ -2986,8 +3017,12 @@ release_virtio_devices(void)
 static void
 release_pem_device(void)
 {
-	/* Close PEM */
-	dao_pem_dev_fini(pem_devid);
+	uint16_t i;
+
+	for (i = 0; i < num_pem_devs; i++) {
+		/* Close PEM */
+		dao_pem_dev_fini(i);
+	}
 }
 
 static void
