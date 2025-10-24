@@ -3419,7 +3419,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_oeap_hash_type_check(hash_type);
+	rc = cpt_ae_rsa_oaep_hash_type_check(hash_type);
 	if (rc != 0)
 		return rc;
 
@@ -3543,7 +3543,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 					  uint64_t op_cookie)
 {
 	uint32_t dlen = exp_len + mod_len + em_len;
-	uint32_t msg_len_max, total_bufdata_len;
+	int msg_len_max, total_bufdata_len;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
@@ -3614,7 +3614,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_oeap_hash_type_check(hash_type);
+	rc = cpt_ae_rsa_oaep_hash_type_check(hash_type);
 	if (rc != 0)
 		return rc;
 
