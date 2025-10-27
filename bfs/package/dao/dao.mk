@@ -41,4 +41,8 @@ ifeq ($(BR2_PACKAGE_GRPC),y)
 DAO_DEPENDENCIES += grpc
 endif
 
+ifeq ($(BR2_PACKAGE_LIBOQS),y)
+DAO_DEPENDENCIES += liboqs
+endif
+
 $(eval $(meson-package))

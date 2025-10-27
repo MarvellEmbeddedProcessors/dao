@@ -1,0 +1,148 @@
+# SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2025 Marvell.
+
+config BR2_PACKAGE_LIBOQS_ARCH_SUPPORTS
+	bool
+	# liboqs supports these architectures
+	default y if BR2_aarch64
+	default y if BR2_aarch64_be
+	default y if BR2_x86_64
+	default y if BR2_i386
+
+config BR2_PACKAGE_LIBOQS
+	bool "liboqs"
+	depends on BR2_PACKAGE_LIBOQS_ARCH_SUPPORTS
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	depends on BR2_USE_MMU
+	depends on BR2_TOOLCHAIN_GCC_AT_LEAST_4_9
+	depends on BR2_TOOLCHAIN_HAS_SYNC_4
+	depends on BR2_INSTALL_LIBSTDCPP
+	select BR2_PACKAGE_HOST_CMAKE
+	help
+	  liboqs is an open source C library for quantum-safe cryptographic
+	  algorithms. It provides implementations of key encapsulation mechanisms
+	  (KEMs) and digital signature schemes that are designed to resist attacks
+	  by both classical and quantum computers.
+
+	  The library includes implementations of quantum-safe algorithms that
+	  have been submitted to NIST's Post-Quantum Cryptography standardization
+	  process, including Kyber, Dilithium, Falcon, and SPHINCS+.
+
+	  https://github.com/open-quantum-safe/liboqs
+
+if BR2_PACKAGE_LIBOQS
+
+config BR2_PACKAGE_LIBOQS_ENABLE_OPENSSL
+	bool "Enable OpenSSL integration"
+	select BR2_PACKAGE_OPENSSL
+	default y
+	help
+	  Enable OpenSSL integration for additional cryptographic functions
+	  and performance optimizations.
+
+config BR2_PACKAGE_LIBOQS_BUILD_TESTS
+	bool "Build test programs"
+	default n
+	help
+	  Build liboqs test programs. Useful for validation and debugging.
+
+config BR2_PACKAGE_LIBOQS_BUILD_EXAMPLES
+	bool "Build example programs"
+	default n
+	help
+	  Build liboqs example programs demonstrating usage of quantum-safe
+	  cryptographic algorithms.
+
+comment "CPU Instruction Set Optimizations"
+
+config BR2_PACKAGE_LIBOQS_ENABLE_AES_NI
+	bool "Enable AES-NI instructions"
+	depends on BR2_x86_64 || BR2_i386
+	default y if BR2_x86_64
+	help
+	  Enable AES-NI instructions for x86/x86_64 platforms for better
+	  performance in AES operations.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_AVX
+	bool "Enable AVX instructions"
+	depends on BR2_x86_64 || BR2_i386
+	default y if BR2_x86_64
+	help
+	  Enable AVX instructions for x86/x86_64 platforms for better
+	  performance in cryptographic operations.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_AVX2
+	bool "Enable AVX2 instructions"
+	depends on BR2_x86_64 || BR2_i386
+	default y if BR2_x86_64
+	help
+	  Enable AVX2 instructions for x86/x86_64 platforms for better
+	  performance in cryptographic operations.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_NEON
+	bool "Enable ARM NEON instructions"
+	depends on BR2_aarch64 || BR2_aarch64_be || BR2_arm
+	default y if BR2_aarch64
+	help
+	  Enable ARM NEON instructions for ARM platforms for better
+	  performance in cryptographic operations.
+
+comment "Key Encapsulation Mechanisms (KEMs)"
+
+config BR2_PACKAGE_LIBOQS_ENABLE_KEM_CLASSIC_MCELIECE
+	bool "Enable Classic McEliece KEM"
+	default y
+	help
+	  Enable Classic McEliece key encapsulation mechanism.
+	  This is a code-based post-quantum cryptographic algorithm.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_KEM_KYBER
+	bool "Enable Kyber KEM"
+	default y
+	help
+	  Enable Kyber key encapsulation mechanism.
+	  This is a lattice-based post-quantum cryptographic algorithm
+	  that is part of NIST's selected algorithms.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_KEM_FRODOKEM
+	bool "Enable FrodoKEM"
+	default y
+	help
+	  Enable FrodoKEM key encapsulation mechanism.
+	  This is a lattice-based post-quantum cryptographic algorithm.
+
+comment "Digital Signature Algorithms"
+
+config BR2_PACKAGE_LIBOQS_ENABLE_SIG_DILITHIUM
+	bool "Enable Dilithium signatures"
+	default y
+	help
+	  Enable Dilithium digital signature algorithm.
+	  This is a lattice-based post-quantum signature scheme
+	  that is part of NIST's selected algorithms.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_SIG_FALCON
+	bool "Enable Falcon signatures"
+	default y
+	help
+	  Enable Falcon digital signature algorithm.
+	  This is a lattice-based post-quantum signature scheme
+	  that is part of NIST's selected algorithms.
+
+config BR2_PACKAGE_LIBOQS_ENABLE_SIG_SPHINCS
+	bool "Enable SPHINCS+ signatures"
+	default y
+	help
+	  Enable SPHINCS+ digital signature algorithm.
+	  This is a hash-based post-quantum signature scheme
+	  that is part of NIST's selected algorithms.
+
+endif
+
+comment "liboqs needs a toolchain w/ C++, threads, dynamic library, gcc >= 4.9"
+	depends on BR2_USE_MMU
+	depends on BR2_PACKAGE_LIBOQS_ARCH_SUPPORTS
+	depends on !BR2_TOOLCHAIN_HAS_THREADS || \
+		!BR2_INSTALL_LIBSTDCPP || \
+		!BR2_TOOLCHAIN_GCC_AT_LEAST_4_9 || \
+		!BR2_TOOLCHAIN_HAS_SYNC_4
