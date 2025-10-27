@@ -84,6 +84,11 @@ struct lcore_qp_mapping {
 
 static struct lcore_qp_mapping lcore_qp_map[RTE_MAX_LCORE];
 
+/* External references to throughput test results (defined in lcperf_test_throughput.c) */
+extern struct lcperf_throughput_worker_result worker_results[RTE_MAX_LCORE];
+/* Note: worker_count is accessed atomically by multiple threads */
+extern volatile uint8_t worker_count;
+
 volatile int force_quit;
 
 static void
@@ -336,6 +341,10 @@ main(int argc, char **argv)
 		ret |= rte_eal_wait_lcore(lcore_id);
 		i++;
 	}
+
+	/* Print throughput summary for throughput tests */
+	if (opts.test == LCPERF_TEST_TYPE_THROUGHPUT && worker_count > 0)
+		lcperf_print_throughput_summary(opts.test_buffer_size);
 
 ctx_destructor:
 

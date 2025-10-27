@@ -17,6 +17,10 @@
 
 extern volatile int force_quit;
 
+/* Worker results storage for summary calculation */
+struct lcperf_throughput_worker_result worker_results[RTE_MAX_LCORE];
+uint8_t volatile worker_count;
+
 struct lcperf_throughput_ctx {
 	uint8_t dev_id;
 	uint16_t qp_id;
@@ -275,8 +279,8 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint64_t remaining_ops;
 	uint64_t total_ops, j;
 	struct dao_lc_res res;
+	uint8_t dev_id, idx;
 	uint16_t qp_id;
-	uint8_t dev_id;
 	int ret;
 
 	ctx->lcore_id = lcore;
@@ -395,6 +399,19 @@ lcperf_throughput_test_runner(void *test_ctx)
 	       total_ops_enqd_failed, ops_deqd_failed, ops_per_second / 1000000, throughput_gbps,
 	       cycles_per_packet);
 
+	/* Store results for summary calculation */
+	idx = __sync_fetch_and_add(&worker_count, 1);
+	if (idx < RTE_MAX_LCORE) {
+		worker_results[idx].lcore_id = ctx->lcore_id;
+		worker_results[idx].ops_enqueued = ops_enqd_total;
+		worker_results[idx].ops_dequeued = ops_deqd_total;
+		worker_results[idx].ops_enq_retries = total_ops_enqd_failed;
+		worker_results[idx].ops_deq_retries = ops_deqd_failed;
+		worker_results[idx].mops = ops_per_second / 1000000;
+		worker_results[idx].gbps = throughput_gbps;
+		worker_results[idx].cycles_per_buf = cycles_per_packet;
+	}
+
 	return 0;
 }
 
@@ -425,4 +442,54 @@ lcperf_throughput_test_destructor(void *arg)
 	}
 
 	rte_free(ctx);
+}
+
+void
+lcperf_print_throughput_summary(uint32_t buffer_size)
+{
+	double total_mops = 0.0;
+	double total_gbps = 0.0;
+	uint64_t total_ops_enqueued = 0;
+	uint64_t total_ops_dequeued = 0;
+	uint64_t total_enq_retries = 0;
+	uint64_t total_deq_retries = 0;
+	double avg_cycles_per_buf = 0.0;
+	uint8_t i;
+
+	if (worker_count == 0)
+		return;
+
+	printf("\n");
+	printf("# Performance Summary\n");
+	printf("#\n");
+	printf("# Buffer size: %u bytes\n", buffer_size);
+	printf("# Total worker threads: %u\n", worker_count);
+	printf("#\n");
+
+	for (i = 0; i < worker_count; i++) {
+		total_mops += worker_results[i].mops;
+		total_gbps += worker_results[i].gbps;
+		total_ops_enqueued += worker_results[i].ops_enqueued;
+		total_ops_dequeued += worker_results[i].ops_dequeued;
+		total_enq_retries += worker_results[i].ops_enq_retries;
+		total_deq_retries += worker_results[i].ops_deq_retries;
+		avg_cycles_per_buf += worker_results[i].cycles_per_buf;
+	}
+
+	avg_cycles_per_buf /= worker_count;
+
+	printf("# Total Operations Enqueued: %12" PRIu64 "\n", total_ops_enqueued);
+	printf("# Total Operations Dequeued: %12" PRIu64 "\n", total_ops_dequeued);
+	printf("# Total Enqueue Retries:     %12" PRIu64 "\n", total_enq_retries);
+	printf("# Total Dequeue Retries:     %12" PRIu64 "\n", total_deq_retries);
+	printf("#\n");
+	printf("# TOTAL THROUGHPUT:\n");
+	printf("#   Total MOps:      %12.4f\n", total_mops);
+	printf("#   Total Gbps:      %12.4f\n", total_gbps);
+	printf("#   Avg Cycles/Buf:  %12.2f\n", avg_cycles_per_buf);
+	printf("#\n");
+	printf("# PER-WORKER AVERAGE:\n");
+	printf("#   Avg MOps/worker: %12.4f\n", total_mops / worker_count);
+	printf("#   Avg Gbps/worker: %12.4f\n", total_gbps / worker_count);
+	printf("#\n");
 }
