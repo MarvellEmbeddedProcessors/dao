@@ -359,7 +359,7 @@ Load Octeon EP Driver and Create VF on Debian/Red-Hat Based systems
     # or
     echo 1 > /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
 
-    # Allocate hugepages
+    # Allocate hugepages on NUMA node 0, and on any additional nodes if they are present.
     echo 1500 | sudo tee /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
 
     # Remove the EP VF driver
