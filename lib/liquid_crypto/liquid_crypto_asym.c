@@ -334,60 +334,121 @@ cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id)
 }
 
 int
-cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len)
+cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len,
+			     enum dao_liquid_crypto_ec_curve_type curve_id)
 {
-	if ((nonce_len == 0) || (nonce_len > prime_len)) {
-		dao_err("Invalid nonce length. nonce_len must be in between 1 to %u length bytes.",
-			prime_len);
+	if ((nonce_len == 0)) {
+		dao_err("Invalid nonce length. nonce_len cannot be zero.");
 		return -EINVAL;
+	}
+
+	if (curve_id == DAO_LC_AE_EC_ID_P521) {
+		/* For P-521, allow both 65 and 66 bytes as valid nonce_len */
+		if ((nonce_len != prime_len - 1) && (nonce_len != prime_len)) {
+			dao_err("Invalid nonce length for P-521. nonce_len must be %u or %u bytes.",
+				prime_len - 1, prime_len);
+			return -EINVAL;
+		}
+	} else {
+		if (nonce_len != prime_len) {
+			dao_err("Invalid nonce length. nonce_len must be equal to %u length bytes.",
+				prime_len);
+			return -EINVAL;
+		}
 	}
 
 	return 0;
 }
 
 int
-cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len)
+cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len,
+			    enum dao_liquid_crypto_ec_curve_type curve_id)
 {
-	if ((pkey_len == 0) || (pkey_len > prime_len)) {
-		dao_err("Invalid private key length. pkey_len must be in between 1 to %u length bytes.",
-			prime_len);
+	if ((pkey_len == 0)) {
+		dao_err("Invalid private key length. pkey_len cannot be zero.");
 		return -EINVAL;
+	}
+
+	if (curve_id == DAO_LC_AE_EC_ID_P521) {
+		/* For P-521, allow both 65 and 66 bytes as valid pkey_len */
+		if ((pkey_len != prime_len - 1) && (pkey_len != prime_len)) {
+			dao_err("Invalid private key length for P-521. pkey_len must be %u or %u bytes.",
+				prime_len - 1, prime_len);
+			return -EINVAL;
+		}
+	} else {
+		if (pkey_len != prime_len) {
+			dao_err("Invalid private key length. pkey_len must be equal to %u length bytes.",
+				prime_len);
+			return -EINVAL;
+		}
 	}
 
 	return 0;
 }
 
 int
-cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len)
+cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len,
+			      enum dao_liquid_crypto_ec_curve_type curve_id)
 {
-	if ((pubkey_x_len == 0) || (pubkey_x_len > prime_len)) {
-		dao_err("Invalid public key length. pubkey_x_len must be in between 1 to %u length bytes.",
-			prime_len);
+	if (pubkey_x_len == 0 || pubkey_y_len == 0) {
+		dao_err("Invalid public key length. pubkey_x_len and pubkey_y_len cannot be zero.");
 		return -EINVAL;
 	}
 
-	if ((pubkey_y_len == 0) || (pubkey_y_len > prime_len)) {
-		dao_err("Invalid public key length. pubkey_y_len must be in between 1 to %u length bytes.",
-			prime_len);
-		return -EINVAL;
+	if (curve_id == DAO_LC_AE_EC_ID_P521) {
+		/* For P-521, allow both 65 and 66 bytes as valid pubkey_x_len and pubkey_y_len */
+		if (((pubkey_x_len != prime_len - 1) && (pubkey_x_len != prime_len)) ||
+		    ((pubkey_y_len != prime_len - 1) && (pubkey_y_len != prime_len))) {
+			dao_err("Invalid public key length for P-521. pubkey_x_len and pubkey_y_len must be %u or %u bytes.",
+				prime_len - 1, prime_len);
+			return -EINVAL;
+		}
+	} else {
+		if (pubkey_x_len != prime_len) {
+			dao_err("Invalid public key length. pubkey_x_len must be equal to %u length bytes.",
+				prime_len);
+			return -EINVAL;
+		}
+
+		if (pubkey_y_len != prime_len) {
+			dao_err("Invalid public key length. pubkey_y_len must be equal to %u length bytes.",
+				prime_len);
+			return -EINVAL;
+		}
 	}
 
 	return 0;
 }
 
 int
-cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len)
+cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len,
+				 enum dao_liquid_crypto_ec_curve_type curve_id)
 {
-	if ((r_len == 0) || (r_len > prime_len)) {
-		dao_err("Invalid r sign component length. r length must be in between 1 to %u bytes.",
-			prime_len);
+	if ((r_len == 0) || (s_len == 0)) {
+		dao_err("Invalid sign component length. r_len and s_len cannot be zero.");
 		return -EINVAL;
 	}
 
-	if ((s_len == 0) || (s_len > prime_len)) {
-		dao_err("Invalid s sign component length. s length must be in between 1 to %u bytes.",
-			prime_len);
-		return -EINVAL;
+	if (curve_id == DAO_LC_AE_EC_ID_P521) {
+		/* For P-521, allow both (prime_len - 1) and prime_len as valid lengths */
+		if (((r_len != prime_len - 1) && (r_len != prime_len)) ||
+		    ((s_len != prime_len - 1) && (s_len != prime_len))) {
+			dao_err("Invalid sign component length for P-521. r_len and s_len must be %u or %u bytes.",
+				prime_len - 1, prime_len);
+			return -EINVAL;
+		}
+	} else {
+		if (r_len != prime_len) {
+			dao_err("Invalid r sign component length. r_len must be equal to %u bytes.",
+				prime_len);
+			return -EINVAL;
+		}
+		if (s_len != prime_len) {
+			dao_err("Invalid s sign component length. s_len must be equal to %u bytes.",
+				prime_len);
+			return -EINVAL;
+		}
 	}
 
 	return 0;
@@ -425,7 +486,7 @@ ecc_curve_id_to_prime_len(enum dao_liquid_crypto_ec_curve_type curve_id)
 }
 
 int
-cpt_ae_ecdsa_pkey_validate(uint16_t pkey_len, uint8_t *pkey,
+cpt_ae_ecdsa_pkey_validate(uint16_t pkey_len, const uint8_t *pkey,
 			   enum dao_liquid_crypto_ec_curve_type curve_id)
 {
 	const uint8_t *order = cpt_ae_ec_groups[curve_id].order.data;
@@ -469,53 +530,8 @@ cpt_ae_ecdsa_pkey_validate(uint16_t pkey_len, uint8_t *pkey,
 }
 
 int
-cpt_ae_ecdsa_nonce_validate(uint16_t nonce_len, uint8_t *nonce,
-			    enum dao_liquid_crypto_ec_curve_type curve_id)
-{
-	const uint8_t *order = cpt_ae_ec_groups[curve_id].order.data;
-	uint16_t order_len = cpt_ae_ec_groups[curve_id].order.length;
-	int cmp = -1;
-	int i;
-
-	/* Check if nonce is zero */
-	for (i = 0; i < nonce_len; i++) {
-		if (nonce[i] != 0)
-			break;
-	}
-
-	if (i == nonce_len) {
-		dao_err("Invalid ECC nonce. Nonce cannot be zero.");
-		return -EINVAL;
-	}
-
-	if (nonce_len == order_len) {
-		/* same length -> compare byte by byte (big-endian) */
-		for (i = 0; i < nonce_len; i++) {
-			if (nonce[i] < order[i]) {
-				cmp = -1;
-				break;
-			} else if (nonce[i] > order[i]) {
-				cmp = 1;
-				break;
-			}
-		}
-		/* exactly equal */
-		if (i == nonce_len)
-			cmp = 0;
-	}
-
-	/* If nonce_len < order_len, cmp stays -1 (always smaller) */
-	if (cmp >= 0) {
-		dao_err("Invalid ECC nonce. Nonce must be less than the order of the curve.");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-int
-cpt_ae_ecdsa_pubkey_validate(uint16_t pubkey_x_len, uint8_t *pubkey_x, uint16_t pubkey_y_len,
-			     uint8_t *pubkey_y, enum dao_liquid_crypto_ec_curve_type curve_id)
+cpt_ae_ecdsa_pubkey_validate(uint16_t pubkey_x_len, const uint8_t *pubkey_x, uint16_t pubkey_y_len,
+			     const uint8_t *pubkey_y, enum dao_liquid_crypto_ec_curve_type curve_id)
 {
 	const uint8_t *prime = cpt_ae_ec_groups[curve_id].prime.data;
 	uint16_t prime_len = cpt_ae_ec_groups[curve_id].prime.length;

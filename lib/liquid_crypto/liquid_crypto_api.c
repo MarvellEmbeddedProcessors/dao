@@ -765,7 +765,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 			ecc_seg_sz += params->ecc.digest_len;
 
-			rc = cpt_ae_ecdsa_nonce_len_check(prime_len, params->ecc.nonce_len);
+			rc = cpt_ae_ecdsa_nonce_len_check(prime_len, params->ecc.nonce_len,
+							  params->ecc.curve_id);
 			if (rc != 0) {
 				dao_err("Invalid %d ECC nonce length.", params->ecc.nonce_len);
 				return 0;
@@ -773,7 +774,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 			ecc_seg_sz += params->ecc.nonce_len;
 
-			rc = cpt_ae_ecdsa_pkey_len_check(prime_len, params->ecc.pkey_len);
+			rc = cpt_ae_ecdsa_pkey_len_check(prime_len, params->ecc.pkey_len,
+							 params->ecc.curve_id);
 			if (rc != 0) {
 				dao_err("Invalid %d ECC private key length.", params->ecc.pkey_len);
 				return 0;
@@ -782,7 +784,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			ecc_seg_sz += params->ecc.pkey_len;
 
 			rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, params->ecc.pubkey_x_len,
-							   params->ecc.pubkey_y_len);
+							   params->ecc.pubkey_y_len,
+							   params->ecc.curve_id);
 			if (rc != 0) {
 				dao_err("Invalid ECC public key length.");
 				return 0;
@@ -791,7 +794,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			ecc_seg_sz += params->ecc.pubkey_x_len + params->ecc.pubkey_y_len;
 
 			rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, params->ecc.sign_r_len,
-							      params->ecc.sign_s_len);
+							      params->ecc.sign_s_len,
+							      params->ecc.curve_id);
 			if (rc != 0) {
 				dao_err("Invalid ECC signature length.");
 				return 0;
@@ -2923,8 +2927,9 @@ int
 dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 				    enum dao_liquid_crypto_ec_curve_type curve_id,
 				    uint16_t nonce_len, uint16_t pkey_len, uint16_t digest_len,
-				    uint8_t *nonce, uint8_t *pkey, uint8_t *digest_data,
-				    uint8_t *rs_outdata, uint64_t op_cookie)
+				    const uint8_t *nonce, const uint8_t *pkey,
+				    const uint8_t *digest_data, uint8_t *rs_outdata,
+				    uint64_t op_cookie)
 {
 	uint32_t p_align, nonce_align, m_align;
 	struct __dao_lc_req_asym *req;
@@ -2998,23 +3003,17 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_ecdsa_nonce_len_check(prime_len, nonce_len);
+	rc = cpt_ae_ecdsa_nonce_len_check(prime_len, nonce_len, curve_id);
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_ecdsa_pkey_len_check(prime_len, pkey_len);
+	rc = cpt_ae_ecdsa_pkey_len_check(prime_len, pkey_len, curve_id);
 	if (rc != 0)
 		return rc;
 
 	rc = cpt_ae_ecdsa_pkey_validate(pkey_len, pkey, curve_id);
 	if (rc != 0) {
 		dao_err("Invalid ECC private key.");
-		return rc;
-	}
-
-	rc = cpt_ae_ecdsa_nonce_validate(nonce_len, nonce, curve_id);
-	if (rc != 0) {
-		dao_err("Invalid ECC nonce.");
 		return rc;
 	}
 #endif
@@ -3060,7 +3059,7 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	/* dlen = sum(sizeof(fpm address) + ROUNDUP8 (scalar_len) +  ROUNDUP8(digest_len) +
+	/* dlen = sum(sizeof(fpm address) + ROUNDUP8 (nonce_len) +  ROUNDUP8(digest_len) +
 	 * ROUNDUP8 (prime_len) + ROUNDUP8 (order_len) +
 	 * ROUNDUP8 (pkey_len) + ROUNDUP8 (consta_len) + ROUNDUP8 (constb_len)
 	 */
@@ -3092,10 +3091,13 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	*(uint64_t *)dptr = (uint64_t)curve_id;
 	dptr += sizeof(uint64_t);
 
+	/* Copy Nonce */
 	memcpy(dptr, nonce, nonce_len);
 	dptr += nonce_align;
 
+	/* Skip Prime */
 	dptr += p_align;
+	/* Skip Order */
 	dptr += p_align;
 
 	memset(dptr, 0, pk_offset);
@@ -3130,9 +3132,9 @@ int
 dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 				      enum dao_liquid_crypto_ec_curve_type curve_id, uint16_t r_len,
 				      uint16_t s_len, uint16_t digest_len, uint16_t qx_len,
-				      uint16_t qy_len, uint8_t *r_data, uint8_t *s_data,
-				      uint8_t *digest_data, uint8_t *qx_data, uint8_t *qy_data,
-				      uint64_t op_cookie)
+				      uint16_t qy_len, const uint8_t *r_data, const uint8_t *s_data,
+				      const uint8_t *digest_data, const uint8_t *qx_data,
+				      const uint8_t *qy_data, uint64_t op_cookie)
 {
 	int qx_offset, qy_offset, r_offset, s_offset;
 	struct __dao_lc_req_asym *req;
@@ -3142,8 +3144,8 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	uint32_t p_align, m_align;
 	struct rte_mbuf *mbuf;
 	union cpt_inst_w4 w4;
-	int prime_len;
 	uint16_t buf_len;
+	int prime_len;
 	uint8_t *dptr;
 	int rc;
 
@@ -3208,7 +3210,7 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, qx_len, qy_len);
+	rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, qx_len, qy_len, curve_id);
 	if (rc != 0)
 		return rc;
 
@@ -3216,7 +3218,7 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, r_len, s_len);
+	rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, r_len, s_len, curve_id);
 	if (rc != 0)
 		return rc;
 
@@ -3313,7 +3315,9 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	memcpy(dptr, digest_data, digest_len);
 	dptr += m_align;
 
+	/* Skip Order */
 	dptr += p_align;
+	/* Skip Prime */
 	dptr += p_align;
 
 	memcpy(dptr + qx_offset, qx_data, qx_len);

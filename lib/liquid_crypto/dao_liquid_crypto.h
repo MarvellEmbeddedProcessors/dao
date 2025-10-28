@@ -1331,27 +1331,32 @@ uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_e
  *    - DAO_LC_AE_EC_ID_P384
  *    - DAO_LC_AE_EC_ID_P521
  * @param nonce_len
- *  The length of the ECDSA per-message secret number in bytes. nonce_len is between 1 to prime
- * length bytes.
+ *  The length of the ECDSA per-message secret number in bytes. For all curves except P-521,
+ *  nonce_len must be equal to the prime length of the curve. For P-521, nonce_len can be either
+ *  the prime length or (prime length - 1) bytes.
  * @param pkey_len
- *  The length of the ECDSA private key data  in bytes. pkey_len is between 1 to prime length bytes.
+ *  The length of the ECDSA private key data in bytes. pkey_len must be equal to the prime
+ *  length of the curve. For P-521, pkey_len can be either the prime length or
+ *  (prime length - 1) bytes.
  * @param digest_len
- *  The length of the message digest e in bytes. digest_len is between 1 to prime length bytes.
+ *  The length of the message digest in bytes. The valid digest length and maximum supported
+ *  length must be equal to the prime length of the curve.
  * @param nonce
  *  The address of the buffer containing the per-message secret number (nonce).
- *  The nonce is an integer in the interval [1, n-1], where n is the order of the base point G of
- * the elliptic curve. Length must be equal to the prime length of the curve.
+ *  Length must be equal to the prime length of the curve.
  * @param pkey
  *  The address of the buffer containing the private key data.
  *  The private key is an integer in the interval [1, n-1], where n is the order of the base point G
- * of the elliptic curve. Length must be equal to the prime length of the curve.
+ *  of the elliptic curve. Length must be equal to the prime length of the curve.
  * @param digest_data
  *  The address of the buffer containing the message digest.
  * @param rs_outdata
- * The address of the buffer where the ECDSA signature (containing both r and s components) is to be
- * stored. The buffer must be large enough to hold both components, with a length of at least twice
- * the length of the order of the elliptic curve. The signature is stored as a single contiguous
- * block, with the r component followed immediately by the s component.
+ * The address of the buffer where the ECDSA signature (containing both r and s components)
+ * is to be stored. For all curves except P-521, the buffer must be exactly 2 * prime_length bytes
+ * in size, where prime_length is the prime length of the specified curve. For the P-521 curve,
+ * the buffer can be either 2 * prime_length bytes or 2 * (prime_length - 1) bytes in size.
+ * The signature is stored as a single contiguous block, with the r component (prime_length bytes)
+ * followed immediately by the s component (prime_length bytes).
  * @param op_cookie
  * The cookie to be associated with the operation. This cookie is returned
  * in the *dao_lc_res* structure when the operation is dequeued.
@@ -1364,8 +1369,9 @@ uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_e
 int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 					enum dao_liquid_crypto_ec_curve_type curve_id,
 					uint16_t nonce_len, uint16_t pkey_len, uint16_t digest_len,
-					uint8_t *nonce, uint8_t *pkey, uint8_t *digest_data,
-					uint8_t *rs_outdata, uint64_t op_cookie);
+					const uint8_t *nonce, const uint8_t *pkey,
+					const uint8_t *digest_data, uint8_t *rs_outdata,
+					uint64_t op_cookie);
 
 /**
  * Enqueue request to perform ECDSA verify operation on the crypto device.
@@ -1383,17 +1389,24 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
  *    - DAO_LC_AE_EC_ID_P384
  *    - DAO_LC_AE_EC_ID_P521
  * @param r_len
- *  The length of the ECDSA r sign component in bytes and r_len is prime length bytes.
+ *  The length of the ECDSA r sign component in bytes. For all curves except P-521,
+ *  r_len must be equal to the prime length of the curve. For P-521, r_len can be either
+ *  the prime length or (prime length - 1) bytes.
  * @param s_len
- *  The length of the ECDSA s sign component in bytes and s_len is prime length bytes.
+ *  The length of the ECDSA s sign component in bytes. For all curves except P-521,
+ *  s_len must be equal to the prime length of the curve. For P-521, s_len can be either
+ *  the prime length or (prime length - 1) bytes.
  * @param digest_len
- *  The length of the message digest in bytes and digest_len is between 1 to prime length bytes.
+ *  The length of the message digest in bytes. The valid digest length and maximum supported
+ *  length must be equal to the prime length of the curve.
  * @param qx_len
- *  The length of the x-coordinate of the public key in bytes and qx_len is between 1 to prime
- * length bytes.
+ *  The length of the x-coordinate of the public key in bytes. For all curves except P-521,
+ *  qx_len must be equal to the prime length of the curve. For P-521, qx_len can be either
+ *  the prime length or (prime length - 1) bytes.
  * @param qy_len
- *  The length of the y-coordinate of the public key in bytes and qy_len is between 1 to prime
- * length bytes.
+ *  The length of the y-coordinate of the public key in bytes. For all curves except P-521,
+ *  qy_len must be equal to the prime length of the curve. For P-521, qy_len can be either
+ *  the prime length or (prime length - 1) bytes.
  * @param r_data
  *  The address of the buffer containing the ECDSA r component.
  * @param s_data
@@ -1419,9 +1432,10 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 					  enum dao_liquid_crypto_ec_curve_type curve_id,
 					  uint16_t r_len, uint16_t s_len, uint16_t digest_len,
-					  uint16_t qx_len, uint16_t qy_len, uint8_t *r_data,
-					  uint8_t *s_data, uint8_t *digest, uint8_t *qx_data,
-					  uint8_t *qy_data, uint64_t op_cookie);
+					  uint16_t qx_len, uint16_t qy_len, const uint8_t *r_data,
+					  const uint8_t *s_data, const uint8_t *digest,
+					  const uint8_t *qx_data, const uint8_t *qy_data,
+					  uint64_t op_cookie);
 
 /**
  * Enqueue request to perform RSA OAEP public encrypt operation on the crypto device.
