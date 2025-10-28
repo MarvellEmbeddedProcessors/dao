@@ -1740,9 +1740,11 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 			/* Case: Append Digest into the output buffer */
 			result_len = req->cipher_len + req->digest_len + req->wrap_unwrap_key_len;
 			if ((!req->is_wrap) && req->is_wrap_pad)
-				result_len = *(uint16_t *)(resp->rptr + result_offset +
-							   req->cipher_len + req->digest_len +
-							   (req->wrap_unwrap_key_len - 2));
+				/* The length is stored in big-endian format, so convert it */
+				result_len = rte_be_to_cpu_16(
+					*(uint16_t *)(resp->rptr + result_offset + req->cipher_len +
+						      req->digest_len +
+						      (req->wrap_unwrap_key_len - 2)));
 
 			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
 								    req->data_out, lc_buf_offset,
