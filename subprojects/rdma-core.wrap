@@ -1,0 +1,5 @@
+[wrap-git]
+url = ssh://sa_ip-sw-jenkins@sj1git1.cavium.com:29418/IP/SW/dataplane/rdma-core
+revision = rdma-core-57.0-devel
+depth = 1
+diff_files = rdma-core-patches/0001-build-add-basic-meson-support-for-rdma-core.patch

@@ -3,6 +3,28 @@
 
 subdirs = ['vdpa']
 
+if host_build
+   rdma_build = get_option('rdma_build')
+   if rdma_build
+       fs = import('fs')
+       rdma_core_compiled = meson.project_source_root() + '/' + \
+			'subprojects/rdma-core/build/bin/ibv_devinfo'
+       if fs.exists(rdma_core_compiled)
+           message('rdma-core already compiled')
+       else
+           kernel_build_dir = get_option('kernel_dir')
+           message(kernel_build_dir)
+           # rdma-core
+           rdma_core_dep = dependency(
+           'rdma-core',
+           default_options: [
+                   'kernel_dir=' + get_option('kernel_dir')
+           ],
+           )
+       endif
+   endif
+endif
+
 kernel_build_dir = get_option('kernel_dir')
 kernel_source_dir = get_option('kernel_dir')
 cross_args = []

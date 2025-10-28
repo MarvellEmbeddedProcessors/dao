@@ -1,0 +1,84 @@
+From 7290715686c9b88f44ac9ee6285d6a1e0a90ca60 Mon Sep 17 00:00:00 2001
+From: Harman Kalra <hkalra@marvell.com>
+Date: Wed, 29 Oct 2025 15:07:46 +0530
+Subject: [PATCH] build: add basic meson support for rdma core
+
+Signed-off-by: Harman Kalra <hkalra@marvell.com>
+---
+ meson.build   | 50 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ meson.options |  6 ++++++
+ 2 files changed, 56 insertions(+)
+ create mode 100644 meson.build
+ create mode 100644 meson.options
+
+diff --git a/meson.build b/meson.build
+new file mode 100644
+index 0000000..77aaba4
+--- /dev/null
++++ b/meson.build
+@@ -0,0 +1,50 @@
++project(
++    'rdma-core',
++    'c',
++    meson_version: '>= 1.8.0',
++    default_options: ['warning_level=3'],
++)
++
++src_dir = meson.current_source_dir() + '/'
++build_script = src_dir + 'build.sh'
++
++kernel_dir = get_option('kernel_dir')
++rdma_core_kernel_header_src = src_dir + 'kernel-headers/rdma/'
++kernel_header_dst = kernel_dir + '/' + 'include/uapi/rdma/'
++message('Kernel headers: ' + kernel_dir)
++
++fs = import('fs')
++ib_user_header = rdma_core_kernel_header_src + 'ib_user_ioctl_verbs.h'
++if fs.exists(ib_user_header)
++    run_command(
++        'sudo',
++        'cp',
++        ib_user_header,
++        kernel_header_dst + 'ib_user_ioctl_verbs.h',
++        check: true
++    )
++else
++    message(ib_user_header + ' does not exist.')
++endif
++
++octep_abi_header = rdma_core_kernel_header_src + 'octep_rdma-abi.h'
++if fs.exists(octep_abi_header)
++    run_command(
++        'sudo',
++        'cp',
++	octep_abi_header,
++	kernel_header_dst,
++	check: true
++    )
++else
++    message(octep_abi_header + ' does not exist.')
++endif
++
++run_command(
++    'bash',
++    build_script,
++    check: true
++)
++
++rdma_core_dep = declare_dependency()
++meson.override_dependency('rdma-core', rdma_core_dep)
+diff --git a/meson.options b/meson.options
+new file mode 100644
+index 0000000..4f8cd64
+--- /dev/null
++++ b/meson.options
+@@ -0,0 +1,6 @@
++option(
++  'kernel_dir',
++  type: 'string',
++  value: '',
++  description: 'Kernel Header path',
++)
+-- 
+2.43.0
+

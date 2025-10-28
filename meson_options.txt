@@ -25,3 +25,5 @@ option('virtio_debug', type: 'boolean', value: false, description:
        'Enable virtio debug.')
 option('virtio_blk_debug', type: 'boolean', value: false, description:
        'Enable virtio blk debug.')
+option('rdma_build', type: 'boolean', value: true, description:
+         'RDMA kmod build')
