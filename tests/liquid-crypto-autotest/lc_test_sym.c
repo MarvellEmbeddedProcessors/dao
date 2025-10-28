@@ -107,6 +107,13 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		op[0].auth_offset = params->auth_offset + i;
 		op[0].auth_len = params->plaintext.len;
 
+		if ((ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
+		    (ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
+			op[0].params.output_len = params->output_len;
+			op[0].params.custom_string = (uint8_t *)params->custom_string.data;
+			op[0].params.custom_string_len = params->custom_string.len;
+		}
+
 		if (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_GMAC) {
 			if (params->iv.len == 0) {
 				TEST_LC_ERR("Invalid IV data or length");
@@ -1194,6 +1201,14 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_hash_gen, &shake256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("SHAKE256 Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &shake256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("KMAC128 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &kmac128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("KMAC128 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &kmac128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("KMAC256 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &kmac256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("KMAC256 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &kmac256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 128 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_wrap,
 					  &aes_keywrap_128B_kek_128B_key),

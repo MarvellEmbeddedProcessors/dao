@@ -34,6 +34,11 @@ struct test_sym_params {
 		const uint8_t *data;
 		uint16_t len;
 	} wrap_key;
+	struct {
+		const uint8_t *data;
+		uint16_t len;
+	} custom_string;
+	uint16_t output_len;
 	uint16_t cipher_offset;
 	uint16_t auth_offset;
 };
