@@ -201,7 +201,8 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 {
 	uint8_t key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
 			 TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
-	uint8_t wrap_key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET] = {0};
+	uint8_t wrap_key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
+			      TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
 	uint32_t key_data_len, wrap_key_len, pad_len = 0;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
