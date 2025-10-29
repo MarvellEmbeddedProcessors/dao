@@ -1973,7 +1973,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	lc_buf_offset = op->cipher_offset;
 	/* Input length starting from memory pointed by DPTR */
 	dlen = off_ctrl_len + pkt_iv_len + aad_len + op->in_buffer->total_len - lc_buf_offset;
-	if (op->digest != NULL)
+	if ((op->digest != NULL) || (op->digest == NULL && op->out_buffer != NULL && op->encrypt))
 		dlen += digest_len;
 	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
