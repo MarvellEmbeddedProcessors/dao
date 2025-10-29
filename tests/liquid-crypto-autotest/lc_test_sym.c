@@ -472,7 +472,6 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 
 		in_buf[0].data = in_buf_data;
 		in_buf[0].frag_len = in_data_len + i;
-		in_buf[0].total_len = in_buf[0].frag_len;
 		total_len = in_data_len + params->digest.len + i;
 
 		if (is_oop) {
@@ -491,7 +490,6 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 				out_data_len = params->plaintext.len;
 			dst_buf[0].data = out_buf_data;
 			dst_buf[0].frag_len = out_data_len + i;
-			dst_buf[0].total_len = dst_buf[0].frag_len;
 			op[0].out_buffer = out_buf;
 		} else {
 			max_len = TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
@@ -530,8 +528,9 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 						goto exit;
 					}
 					if (is_oop)
+						dst_buf[0].frag_len += params->digest.len;
+					else
 						in_buf[0].frag_len += params->digest.len;
-					dst_buf[0].frag_len += params->digest.len;
 				}
 			} else {
 				memcpy(in_buf_data + i, params->ciphertext.data,
@@ -549,9 +548,7 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 
 					memcpy(in_buf_data + params->ciphertext.len + i,
 					       params->digest.data, params->digest.len);
-					if (is_oop)
-						in_buf[0].frag_len += params->digest.len;
-					dst_buf[0].frag_len += params->digest.len;
+					in_buf[0].frag_len += params->digest.len;
 				}
 			}
 		} else {
