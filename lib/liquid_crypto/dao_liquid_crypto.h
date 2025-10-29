@@ -199,6 +199,9 @@ enum dao_uc_comp_code {
 	/**
 	 * Unsupported auth type or, if CRC32 is enabled, auth_type must be NULL, or when
 	 * auth_type is Poly1305, cipher select is other than ChaCha or Null.
+	 * PKCS21 encoding/decoding supports only the following hash types:
+	 * SHA1, SHA2-SHA256, SHA2-SHA384, and SHA2-SHA512.
+	 * Using any other hash type will result in this error.
 	 */
 	DAO_UC_ERR_GC_AUTH_UNSUPPORTED = 0x47,
 	/** Invalid offset. */
@@ -209,8 +212,21 @@ enum dao_uc_comp_code {
 	DAO_UC_ERR_GC_DATA_UNALIGNED = 0x4d,
 	/** Invalid key length; Applicable for HMAC and AES-KW and AES-KWP */
 	DAO_UC_ERR_GC_KEY_LEN_INVALID = 0x4e,
-	/** Invalid key data length */
+	/** Invalid key data length for KW/KWP, or invalid modulus length
+	 * for OAEP: Msg_Len > Mod_Len - 2*Hash_Len - 2
+	 */
 	DAO_UC_ERR_GC_KEY_DATA_LEN_INVALID = 0x41,
+	/**
+	 * Indicates an error during PKCS21 OAEP decoding.
+	 * This error may occur due to one or more of the following reasons:
+	 *  - The hash of the label (Hash(Label)) does not match the expected value
+	 *    (1Hash’ != Hash(Label)).
+	 *  - The leading byte of the decoded message is non-zero, which violates OAEP
+	 *    padding requirements.
+	 *  - The 0x01 byte delimiter, which separates padding from the message, is not
+	 *    found in the expected position.
+	 */
+	DAO_UC_ERR_PKCS_DECODING_ERROR = 0x51,
 };
 
 /**
@@ -530,6 +546,22 @@ enum dao_lc_hash_type {
 	DAO_LC_HASH_TYPE_SHA3_SHAKE256 = 15,
 	/** Hash Type = CMAC */
 	DAO_LC_HASH_TYPE_CMAC = 16,
+};
+
+/**
+ * Enum representing the digest sizes (in bytes) for supported hash algorithms.
+ */
+enum dao_lc_hash_digest_size {
+	/** Digest size for SHA1 */
+	DAO_LC_HASH_DIGEST_SIZE_SHA1 = 20,
+	/** Digest size for SHA2-SHA224 */
+	DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA224 = 28,
+	/** Digest size for SHA2-SHA256 */
+	DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA256 = 32,
+	/** Digest size for SHA2-SHA384 */
+	DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA384 = 48,
+	/** Digest size for SHA2-SHA512 */
+	DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA512 = 64,
 };
 
 /**
@@ -1039,8 +1071,8 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
 int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 					 enum dao_liquid_crypto_rsa_key_type key_type,
 					 uint16_t mod_len, uint16_t exp_len, uint16_t msg_len,
-					 uint8_t *mod, uint8_t *exp, uint8_t *msg, uint8_t *em,
-					 uint64_t op_cookie);
+					 const uint8_t *mod, const uint8_t *exp, const uint8_t *msg,
+					 uint8_t *em, uint64_t op_cookie);
 
 /**
  * Enqueue request to perform RSA decrypt operation on the crypto device.
@@ -1080,8 +1112,8 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
  */
 int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 					 enum dao_liquid_crypto_rsa_key_type key_type,
-					 uint16_t mod_len, uint16_t exp_len, uint8_t *mod,
-					 uint8_t *exp, uint8_t *em, uint8_t *msg,
+					 uint16_t mod_len, uint16_t exp_len, const uint8_t *mod,
+					 const uint8_t *exp, const uint8_t *em, uint8_t *msg,
 					 uint64_t op_cookie);
 
 /**
@@ -1128,8 +1160,9 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-					     uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
-					     uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
+					     uint16_t msg_len, const uint8_t *q, const uint8_t *dQ,
+					     const uint8_t *p, const uint8_t *dP,
+					     const uint8_t *qInv, const uint8_t *msg, uint8_t *em,
 					     uint64_t op_cookie);
 
 /**
@@ -1175,9 +1208,9 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uin
  *  - -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-					     uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
-					     uint8_t *qInv, uint8_t *em, uint8_t *msg,
-					     uint64_t op_cookie);
+					     const uint8_t *q, const uint8_t *dQ, const uint8_t *p,
+					     const uint8_t *dP, const uint8_t *qInv,
+					     const uint8_t *em, uint8_t *msg, uint64_t op_cookie);
 
 /**
  * Enqueue request to generate random data.
@@ -1449,9 +1482,10 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  * @param qp_id
  *  The index of the queue pair on which the operation is to be enqueued.
  * @param label
- *  Optional label to be associated with the message. In RSA OAEP, this label is
- *  used as an input to the mask generation function (MGF) and can provide additional
- *  binding context for the encryption operation. If not required, it can be set to NULL.
+ *  Optional label to be associated with the message. The label is hashed using the selected
+ *  hash function. In RSA OAEP, this label is used as an input to the mask generation
+ *  function (MGF) and can provide additional binding context for the encryption operation.
+ *  If not required, it can be set to NULL.
  * @param label_len
  *  The length of the label in bytes. If no label is used, this should be set to 0.
  * @param hash_type
@@ -1461,12 +1495,32 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  *   -DAO_LC_HASH_TYPE_SHA2_SHA384
  *   -DAO_LC_HASH_TYPE_SHA2_SHA512
  * @param mod_len
- *  The length of the modulus. Value should be at least 17 bytes
- *  and at most 1024 bytes.
+ *  The length of the RSA modulus in bytes. The minimum required modulus length is determined
+ *  by the message length (msg_len) and the hash output length (hash_len) when using
+ *  RSA OAEP padding. Specifically, the minimum modulus length must satisfy:
+ *      mod_len >= msg_len + 2 * hash_len + 2
+ *  This ensures there is sufficient space for the OAEP encoding, which includes the message,
+ *  two hash outputs, and padding.
+ *  Using a modulus smaller than this minimum will result in encoding errors or security
+ *  vulnerabilities.
+ *
+ *  Example: Calculating minimum modulus length for 1-byte message and various hash types:
+ *   - For SHA1 (hash output length = DAO_LC_HASH_DIGEST_SIZE_SHA1 bytes): mod_len >= 1 +
+ *     2*DAO_LC_HASH_DIGEST_SIZE_SHA1 + 2 = 43 bytes
+ *   - For SHA256 (hash output length = DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA256 bytes): mod_len >= 1 +
+ *     2*DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA256 + 2 = 67 bytes
+ *   - For SHA384 (hash output length = DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA384 bytes): mod_len >= 1 +
+ *     2*DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA384 + 2 = 99 bytes
+ *   - For SHA512 (hash output length = DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA512 bytes): mod_len >= 1 +
+ *     2*DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA512 + 2 = 131 bytes
+ *
+ *  Note: If msg_len increases, the minimum required mod_len must also increase accordingly.
+ *  The maximum supported mod_len is 1024 bytes.
  * @param exp_len
  *  The length of the exponent.
  * @param msg_len
- *  The length of the message. .
+ *  The length of the message. Value must satisfy: msg_len <= (mod_len - (2 * hlen) - 2),
+ *  where hlen is the length of the hash output used in OAEP.
  * @param mod
  *  The address of the buffer containing the modulus.
  *  Length of this buffer must be at most *mod_len* bytes.
@@ -1478,7 +1532,7 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  *  length of the hash output used in OAEP.
  * @param em
  *  The address of the buffer where the encrypted message is to be stored.
- *  Length of this buffer must be at least *mod_len* bytes.
+ *  Length of this buffer must be equal to *mod_len* bytes.
  * @param op_cookie
  *  The cookie to be associated with the operation. This cookie is returned
  *  in the *dao_lc_res* structure when the operation is dequeued.
@@ -1493,8 +1547,8 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
 					  uint16_t label_len, enum dao_lc_hash_type hash_type,
 					  uint16_t mod_len, uint16_t exp_len, uint16_t msg_len,
-					  uint8_t *mod, uint8_t *exp, uint8_t *msg, uint8_t *em,
-					  uint64_t op_cookie);
+					  const uint8_t *mod, const uint8_t *exp,
+					  const uint8_t *msg, uint8_t *em, uint64_t op_cookie);
 
 /**
  * Enqueue request to perform RSA OAEP private decrypt operation on the crypto device.
@@ -1504,9 +1558,10 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  * @param qp_id
  *  The index of the queue pair on which the operation is to be enqueued.
  * @param label
- *  Optional label to be associated with the message. In RSA OAEP, this label is
- *  used as an input to the mask generation function (MGF) and can provide additional
- *  binding context for the decryption operation. If not required, it can be set to NULL.
+ *  Optional label to be associated with the message. The label is hashed using the selected
+ *  hash function. In RSA OAEP, this label is used as an input to the mask generation
+ *  function (MGF) and can provide additional binding context for the decryption operation.
+ *  If not required, it can be set to NULL.
  * @param label_len
  *  The length of the label in bytes. If no label is used, this should be set to 0.
  * @param hash_type
@@ -1516,8 +1571,10 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *   -DAO_LC_HASH_TYPE_SHA2_SHA384
  *   -DAO_LC_HASH_TYPE_SHA2_SHA512
  * @param mod_len
- *  The length of the modulus. Value should be at least 17 bytes
- * and at most LIQUID_CRYPTO_RSA_MOD_LEN_MAX bytes.
+ *  The length of the RSA modulus in bytes. For RSA OAEP decryption, the modulus length (mod_len)
+ *  must match the length used during RSA OAEP encryption.
+ *  Note: The minimum required modulus length should be calculated at the encryption side and
+ *  must be matched at decryption. The maximum supported mod_len is 1024 bytes.
  * @param exp_len
  *  The length of the exponent.
  * @param mod
@@ -1527,9 +1584,7 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *  The address of the buffer containing the exponent.
  * @param em
  *  The address of the buffer containing the encrypted message. Length of this
- *  buffer must be *mod_len* bytes.
- *  @param em_len
- *  The length of the encrypted message. This should be equal to *mod_len* bytes.
+ *  buffer must be equal to *mod_len* bytes.
  * @param msg
  *  The address of the buffer where the decrypted message is to be stored.
  * @param op_cookie
@@ -1544,8 +1599,8 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  */
 int dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
 					      uint16_t label_len, enum dao_lc_hash_type hash_type,
-					      uint16_t mod_len, uint16_t exp_len, uint16_t em_len,
-					      uint8_t *mod, uint8_t *exp, uint8_t *em, uint8_t *msg,
-					      uint64_t op_cookie);
+					      uint16_t mod_len, uint16_t exp_len,
+					      const uint8_t *mod, const uint8_t *exp,
+					      const uint8_t *em, uint8_t *msg, uint64_t op_cookie);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

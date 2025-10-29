@@ -139,7 +139,7 @@ cpt_ae_rsa_exp_len_check(uint16_t mod_len, uint16_t exp_len)
 }
 
 int
-cpt_ae_rsa_msw_check(uint16_t plen, uint8_t *p)
+cpt_ae_rsa_msw_check(uint16_t plen, const uint8_t *p)
 {
 	uint8_t len = plen % 8;
 	uint64_t msw;
@@ -159,8 +159,8 @@ cpt_ae_rsa_msw_check(uint16_t plen, uint8_t *p)
 }
 
 int
-cpt_ae_rsa_crt_params_check(uint16_t mod_len, uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
-			    uint8_t *qInv)
+cpt_ae_rsa_crt_params_check(uint16_t mod_len, const uint8_t *q, const uint8_t *dQ, const uint8_t *p,
+			    const uint8_t *dP, const uint8_t *qInv)
 {
 	int i;
 
@@ -236,20 +236,21 @@ cpt_ae_rsa_oaep_get_hash_len(enum dao_lc_hash_type hash_type)
 {
 	switch (hash_type) {
 	case DAO_LC_HASH_TYPE_SHA1:
-		return 20;
+		return DAO_LC_HASH_DIGEST_SIZE_SHA1;
 	case DAO_LC_HASH_TYPE_SHA2_SHA256:
-		return 32;
+		return DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA256;
 	case DAO_LC_HASH_TYPE_SHA2_SHA384:
-		return 48;
+		return DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA384;
 	case DAO_LC_HASH_TYPE_SHA2_SHA512:
-		return 64;
+		return DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA512;
 	default:
 		return -EINVAL;
 	}
 }
 
 int
-cpt_ae_rsa_oaep_msg_len_check(uint16_t mod_len, uint16_t msg_len, enum dao_lc_hash_type hash_type)
+cpt_ae_oaep_msg_and_mod_len_check(uint16_t mod_len, uint16_t msg_len,
+				  enum dao_lc_hash_type hash_type)
 {
 	int hash_len;
 
@@ -263,6 +264,13 @@ cpt_ae_rsa_oaep_msg_len_check(uint16_t mod_len, uint16_t msg_len, enum dao_lc_ha
 
 	if (msg_len == 0) {
 		dao_err("Invalid message length. msg_len cannot be zero.");
+		return -EINVAL;
+	}
+
+	/* OAEP requires modulus length to be at least msg_len + 2 * hash_len + 2 */
+	if (mod_len < msg_len + 2 * hash_len + 2) {
+		dao_err("Invalid modulus length: mod_len=%u, msg_len=%u, hash_len=%u. Required minimum is %u bytes.",
+			mod_len, msg_len, hash_len, msg_len + 2 * hash_len + 2);
 		return -EINVAL;
 	}
 
@@ -283,23 +291,6 @@ cpt_ae_rsa_oaep_label_len_check(uint8_t *label, uint16_t label_len)
 		return -EINVAL;
 	} else if (label_len == 0 && label != NULL) {
 		dao_err("Invalid label. If label_len is zero, label must be NULL.");
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
-int
-cpt_ae_rsa_oaep_em_len_check(uint16_t mod_len, uint16_t em_len)
-{
-	if (em_len == 0) {
-		dao_err("Invalid encoded message length. em_len cannot be zero.");
-		return -EINVAL;
-	}
-
-	if (em_len != mod_len) {
-		dao_err("Invalid encrypted message length. em_len must be equal to mod_len (%u bytes).",
-			mod_len);
 		return -EINVAL;
 	}
 

@@ -672,8 +672,8 @@ test_rsa_oaep_encrypt(const void *data)
 	/* Validate encryption */
 	ret = dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(
 		dev_id, qp_id, params->label.data, params->label.len, params->hash_type,
-		params->n.len, params->d.len, params->cipher.len, params->n.data, params->d.data,
-		output, decrypt, op_cookie);
+		params->n.len, params->d.len, params->n.data, params->d.data, output, decrypt,
+		op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
 		return TEST_FAILED;

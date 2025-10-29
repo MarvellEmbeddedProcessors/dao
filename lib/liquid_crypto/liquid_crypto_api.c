@@ -963,8 +963,9 @@ idx_put:
 int
 dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 				     enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
-				     uint16_t exp_len, uint16_t msg_len, uint8_t *mod, uint8_t *exp,
-				     uint8_t *msg, uint8_t *em, uint64_t op_cookie)
+				     uint16_t exp_len, uint16_t msg_len, const uint8_t *mod,
+				     const uint8_t *exp, const uint8_t *msg, uint8_t *em,
+				     uint64_t op_cookie)
 {
 	uint32_t dlen = mod_len + exp_len + msg_len;
 	struct __dao_lc_req_asym *req;
@@ -1131,8 +1132,8 @@ idx_put:
 int
 dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 				     enum dao_liquid_crypto_rsa_key_type key_type, uint16_t mod_len,
-				     uint16_t exp_len, uint8_t *mod, uint8_t *exp, uint8_t *em,
-				     uint8_t *msg, uint64_t op_cookie)
+				     uint16_t exp_len, const uint8_t *mod, const uint8_t *exp,
+				     const uint8_t *em, uint8_t *msg, uint64_t op_cookie)
 {
 	uint32_t dlen = mod_len * 2 + exp_len;
 	struct __dao_lc_req_asym *req;
@@ -1298,9 +1299,9 @@ idx_put:
 
 int
 dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-					 uint16_t msg_len, uint8_t *q, uint8_t *dQ, uint8_t *p,
-					 uint8_t *dP, uint8_t *qInv, uint8_t *msg, uint8_t *em,
-					 uint64_t op_cookie)
+					 uint16_t msg_len, const uint8_t *q, const uint8_t *dQ,
+					 const uint8_t *p, const uint8_t *dP, const uint8_t *qInv,
+					 const uint8_t *msg, uint8_t *em, uint64_t op_cookie)
 {
 	uint32_t dlen = (mod_len / 2) * 5 + msg_len;
 	uint16_t comp_len = mod_len / 2;
@@ -1468,9 +1469,9 @@ idx_put:
 
 int
 dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
-					 uint8_t *q, uint8_t *dQ, uint8_t *p, uint8_t *dP,
-					 uint8_t *qInv, uint8_t *em, uint8_t *msg,
-					 uint64_t op_cookie)
+					 const uint8_t *q, const uint8_t *dQ, const uint8_t *p,
+					 const uint8_t *dP, const uint8_t *qInv, const uint8_t *em,
+					 uint8_t *msg, uint64_t op_cookie)
 {
 	uint32_t dlen = (mod_len / 2) * 5 + mod_len;
 	uint16_t comp_len = mod_len / 2;
@@ -3360,8 +3361,8 @@ int
 dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
 				      uint16_t label_len, enum dao_lc_hash_type hash_type,
 				      uint16_t mod_len, uint16_t exp_len, uint16_t msg_len,
-				      uint8_t *mod, uint8_t *exp, uint8_t *msg, uint8_t *em,
-				      uint64_t op_cookie)
+				      const uint8_t *mod, const uint8_t *exp, const uint8_t *msg,
+				      uint8_t *em, uint64_t op_cookie)
 {
 	/* dlen = label_len + msg_len + 8 (control word) */
 	uint32_t dlen = label_len + msg_len + 8;
@@ -3420,6 +3421,10 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 		return -EINVAL;
 	}
 
+	rc = cpt_ae_oaep_msg_and_mod_len_check(mod_len, msg_len, hash_type);
+	if (rc != 0)
+		return rc;
+
 	rc = cpt_ae_rsa_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
@@ -3435,10 +3440,6 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	}
 
 	rc = cpt_ae_rsa_oaep_hash_type_check(hash_type);
-	if (rc != 0)
-		return rc;
-
-	rc = cpt_ae_rsa_oaep_msg_len_check(mod_len, msg_len, hash_type);
 	if (rc != 0)
 		return rc;
 
@@ -3470,12 +3471,12 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	qp->req_queue[req_idx].data_out = em;
 	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_OAEP_ENCRYPT;
 
-	/* For RSA OAEP encryption stage 1 dlen = Label_len + msg_len*/
+	/* For RSA OAEP encryption stage 1 dlen = Label_len + msg_len + 8 (control word) */
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 
-	/* Check if the encoded message (EM) buffer overlaps with the mod or exp input buffers.
-	 * If so, reserve extra space in the mbuf for EM to avoid overwriting RSA parameters data.
-	 * The encoded message length is equal to the modulus length (mod_len).
+	/* If dlen(Label_len + msg_len + control word) is less than mod_len, reserve
+	 * additional space to accommodate the encoded message length is exactly equal
+	 * to the modulus length (mod_len).
 	 */
 
 	if (dlen < mod_len) {
@@ -3485,11 +3486,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 
 	/* Reserve 2 bytes for rptr offset */
 	buf_len += 2;
-
-	/* Reserve space for EM after the input data */
 	buf_len += mod_len + exp_len;
-	/* Reserve space for stage2 EM */
-	buf_len += mod_len;
 
 	rte_pktmbuf_append(mbuf, buf_len);
 	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -3553,11 +3550,11 @@ idx_put:
 int
 dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
 					  uint16_t label_len, enum dao_lc_hash_type hash_type,
-					  uint16_t mod_len, uint16_t exp_len, uint16_t em_len,
-					  uint8_t *mod, uint8_t *exp, uint8_t *em, uint8_t *msg,
+					  uint16_t mod_len, uint16_t exp_len, const uint8_t *mod,
+					  const uint8_t *exp, const uint8_t *em, uint8_t *msg,
 					  uint64_t op_cookie)
 {
-	uint32_t dlen = exp_len + mod_len + em_len;
+	uint32_t dlen = exp_len + (mod_len * 2);
 	int msg_len_max, total_bufdata_len;
 	struct __dao_lc_req_asym *req;
 	struct liquid_crypto_dev *dev;
@@ -3630,10 +3627,6 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	}
 
 	rc = cpt_ae_rsa_oaep_hash_type_check(hash_type);
-	if (rc != 0)
-		return rc;
-
-	rc = cpt_ae_rsa_oaep_em_len_check(mod_len, em_len);
 	if (rc != 0)
 		return rc;
 #endif
@@ -3728,8 +3721,8 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	memcpy(dptr, exp, exp_len);
 	dptr += exp_len;
 
-	memcpy(dptr, em, em_len);
-	dptr += em_len;
+	memcpy(dptr, em, mod_len);
+	dptr += mod_len;
 
 	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
