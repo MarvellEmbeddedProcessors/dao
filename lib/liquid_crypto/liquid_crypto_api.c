@@ -1736,20 +1736,29 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 			if (diff != 0)
 				res->res.cn9k.uc_compcode = DAO_UC_ERR_GC_ICV_MISCOMPARE;
 		}
+		return;
+	} else if (req->op_type == LC_SYM_OP_KEY_WRAP_UNWRAP) {
+		result_len = req->wrap_unwrap_key_len;
+		lc_buf_offset = req->lc_buf_offset;
+		result_offset = req->result_offset;
+		if ((!req->is_wrap) && req->is_wrap_pad)
+			/* The length is stored in big-endian format, so convert it
+			 */
+			result_len =
+				rte_be_to_cpu_16(*(uint16_t *)(resp->rptr + result_offset +
+							       (req->wrap_unwrap_key_len - 2)));
+
+		copied = dao_lc_buf_copy_to_offset_from_mem(
+			resp->rptr + result_offset, req->data_out, lc_buf_offset, result_len);
+
+		res->key_wrap.wrap_unwrap_key_len = result_len;
 	} else {
 		result_offset = req->result_offset;
 		lc_buf_offset = req->lc_buf_offset;
 
 		if (req->digest == NULL) {
 			/* Case: Append Digest into the output buffer */
-			result_len = req->cipher_len + req->digest_len + req->wrap_unwrap_key_len;
-			if ((!req->is_wrap) && req->is_wrap_pad)
-				/* The length is stored in big-endian format, so convert it */
-				result_len = rte_be_to_cpu_16(
-					*(uint16_t *)(resp->rptr + result_offset + req->cipher_len +
-						      req->digest_len +
-						      (req->wrap_unwrap_key_len - 2)));
-
+			result_len = req->cipher_len + req->digest_len;
 			copied = dao_lc_buf_copy_to_offset_from_mem(resp->rptr + result_offset,
 								    req->data_out, lc_buf_offset,
 								    result_len);
@@ -1762,18 +1771,18 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 			memcpy(req->digest, resp->rptr + result_offset + result_len,
 			       req->digest_len);
 		}
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		if (copied != result_len) {
-			dao_err("Failed to copy all data from response. "
-				"Copied %u bytes, expected %u bytes.",
-				copied, result_len);
-			rte_errno = EIO;
-			return;
-		}
-#else
-		RTE_SET_USED(copied);
-#endif
 	}
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (copied != result_len) {
+		dao_err("Failed to copy all data from response. "
+			"Copied %u bytes, expected %u bytes.",
+			copied, result_len);
+		rte_errno = EIO;
+		return;
+	}
+#else
+	RTE_SET_USED(copied);
+#endif
 }
 
 static inline uint32_t

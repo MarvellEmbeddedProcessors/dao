@@ -343,6 +343,10 @@ struct dao_lc_res {
 			/**< Length of the ECDSA r and s components */
 			uint16_t ecc_rs_out_len;
 		} ecdsa;
+		struct {
+			/** Length of the key data wrapped or unwrapped */
+			uint16_t wrap_unwrap_key_len;
+		} key_wrap;
 		/** Generic 64-bit metadata */
 		uint64_t u64;
 	};
