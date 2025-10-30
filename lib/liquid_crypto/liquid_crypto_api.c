@@ -1972,7 +1972,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		digest_len = sess_meta->digest_len;
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		qp->req_queue[req_idx].digest = op->digest;
-		qp->req_queue[req_idx].digest_len = digest_len;
+		if (op->encrypt)
+			qp->req_queue[req_idx].digest_len = digest_len;
 	} else {
 		dao_err("Invalid operation type: %d", op_type);
 		rte_errno = EINVAL;
