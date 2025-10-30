@@ -662,13 +662,20 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 	total_len_reqd = op->cipher_offset + op->cipher_len + digest_len_in_pkt;
 
 	if (op->out_buffer != NULL) {
-		if (op->out_buffer->total_len < total_len_reqd) {
-			dao_err("Output buffer total length is less than cipher length.");
-			return -EINVAL;
+		if (op->encrypt) {
+			if (op->out_buffer->total_len < total_len_reqd) {
+				dao_err("Output buffer total length is less than required length.");
+				return -EINVAL;
+			}
+		} else {
+			if (op->out_buffer->total_len < op->cipher_offset + op->cipher_len) {
+				dao_err("Output buffer total length is less than required length.");
+				return -EINVAL;
+			}
 		}
 	} else {
 		if (op->in_buffer->total_len < total_len_reqd) {
-			dao_err("Input buffer total length is less than cipher length.");
+			dao_err("Input buffer total length is less than required length.");
 			return -EINVAL;
 		}
 	}
