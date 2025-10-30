@@ -767,6 +767,9 @@ struct unit_test_suite lc_testsuite_asym = {
 		TEST_CASE_NAMED_WITH_DATA("RSA OAEP Encrypt/Decrypt with pvt exp (1024 bits)",
 					  ut_setup, ut_teardown, test_rsa_oaep_encrypt,
 					  &rsa_oaep_params),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt exp with label (1024 bits)", ut_setup,
+			ut_teardown, test_rsa_oaep_encrypt, &rsa_oaep_params_5B_label),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

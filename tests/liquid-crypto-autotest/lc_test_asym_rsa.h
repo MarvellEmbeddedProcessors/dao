@@ -1866,4 +1866,36 @@ struct test_rsa_oaep_params rsa_oaep_params = {
 	.hash_type = DAO_LC_HASH_TYPE_SHA1,
 };
 
+uint8_t hello_label[] = {
+	0x68, 0x65, 0x6c, 0x6c, 0x6f
+};
+
+struct test_rsa_oaep_params rsa_oaep_params_5B_label = {
+	.plaintext = {
+		.data = rsa_plaintext,
+		.len = sizeof(rsa_plaintext)
+	},
+	.cipher = {
+		.data = rsa_oaep_cipher,
+		.len = sizeof(rsa_oaep_cipher)
+	},
+	.n = {
+		.data = rsa_n,
+		.len = sizeof(rsa_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_d,
+		.len = sizeof(rsa_d)
+	},
+	.label = {
+		.data = hello_label,
+		.len = sizeof(hello_label)
+	},
+	.hash_type = DAO_LC_HASH_TYPE_SHA1,
+};
+
 #endif /* __LC_TEST_ASYM_RSA_H__ */
