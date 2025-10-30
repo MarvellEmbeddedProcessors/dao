@@ -3705,9 +3705,8 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	/* Add data */
 	dptr = req->dptr;
 
-	/* Set first 8 bytes: bits 0:15 = mod_len, bits 15:31 = label_len, rest = 0 */
-	/* Extract label_len and mod_len from control word (big endian) */
-	memset(dptr, 0, 8);
+	/* Control word: [63:48 Reserved][47:32 SLen][31:16 LLen][15:0 MLen] (big endian) */
+	*(uint64_t *)dptr = rte_cpu_to_be_64((uint64_t)label_len << 16);
 	dptr += 8;
 
 	if (label_len)
