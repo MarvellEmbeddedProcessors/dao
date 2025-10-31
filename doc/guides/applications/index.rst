@@ -22,3 +22,4 @@ Application User Guide
     snort
     k8s-cni-offload
     envoy
+    rdma
