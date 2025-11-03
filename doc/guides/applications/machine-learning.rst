@@ -661,7 +661,7 @@ Mnist-12
 
 The MNIST model is a convolutional neural network (CNN) trained to recognize handwritten digits using grayscale images resized to 28x28 pixels, with white digits on a black background and pixel values normalized to the [0.0, 1.0] range.
 
-Download the Mnist-12 ONNX Model dataset from Onnx models Github repository.
+Download the Mnist-12 ONNX Model from Onnx models Github repository.
 
 .. code-block:: bash
 
@@ -736,6 +736,241 @@ The following is an example output generated from the input image provided earli
 .. code-block:: bash
 
     Predicted digit: 4
+
+GoogLeNet
+---------
+
+GoogLeNet is a deep convolutional neural network architecture developed by Google for efficient and accurate image classification tasks. It introduced the Inception module, that enables the network to perform multiple convolution and pooling operations in parallel. This allows the model to capture features at various scales while maintaining computational efficiency.
+
+Download the GoogLeNet model from Onnx models Github repository and convert the dynamic shape into static to ensure compatibility with MMLC backend.
+
+.. code-block:: bash
+
+    wget https://github.com/onnx/models/raw/main/Computer_Vision/googlenet_Opset16_torch_hub/googlenet_Opset16.onnx -O googlenet.onnx
+
+    cd ${ML_TOOLS_DIR}
+    git checkout ml-models
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx googlenet.onnx \
+    --output_onnx model.onnx
+
+An example image is provided below to demonstrate the GoogLeNet model's capability in performing image classification.
+
+.. figure:: ./img/input2.jpg
+   :width: 250px
+   :align: center
+
+Preprocess the image to match the model's expected input format. The below script resizes the image to 224x224, normalizes pixel values, and saves it as input.bin.
+
+.. code-block:: bash
+
+    python -c "import numpy as np, cv2; img=cv2.resize(cv2.imread('input.jpg'), (224,224)); img=img.astype(np.float32)/255; img=np.transpose(img, (2,0,1)); input=np.expand_dims(img, axis=0); input.tofile('input.bin')"
+
+Set compilation environment variables and compile the model using TVMC package.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+        --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
+        --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=0' \
+        --target-mrvl-num_tiles=8 \
+        --output model.tar \
+        model.onnx
+
+Use the dpdk-test-mldev application to run inference with the compiled model and preprocessed input.
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+        --test inference_ordered \
+        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --tolerance 5 \
+        --stats \
+        --repetitions 1000
+
+To interpret the output, first download the imagenet class labels and use the given script. The labels map the 1000 numeric indices in the output vector to human-readable class names (e.g., 'goldfish', 'tabby cat'), allowing you to identify the predicted object.
+
+.. code-block:: bash
+
+    wget https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt -O imagenet_classes.txt
+
+    python -c "import numpy as np; labels=[l.strip() for l in open('imagenet_classes.txt')]; output=np.fromfile('output.bin', dtype=np.float32); print('Predicted:', labels[np.argmax(output)])"
+
+For the example input image, we get the following output after interpretation.
+
+.. code-block:: bash
+
+    Predicted: goldfish
+
+MobileNetv2-12
+--------------
+
+MobileNet models are image classification models that are trained on ImageNet dataset which contains images from 1000 classes. MobileNet models are very efficient in terms of speed and size and hence are ideal for embedded and mobile applications.
+
+Download the Mobilenetv2-12 model from Onnx models Github repository and convert it to static shape to ensure compatibility with MMLC backend.
+
+.. code-block:: bash
+
+    wget https://github.com/onnx/models/raw/main/validated/vision/classification/mobilenet/model/mobilenetv2-12.onnx
+
+    cd ${ML_TOOLS_DIR}
+    git checkout ml-models
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx mobilenetv2-12.onnx \
+    --output_onnx model.onnx
+
+
+An example image is provided below to demonstrate the MobileNet model's capability in performing image classification.
+
+.. figure:: ./img/input3.jpg
+   :width: 250px
+   :align: center
+
+Run the script to format the image for inference: resize, normalize, and save as input.bin.
+
+.. code-block:: bash
+
+    python -c "import numpy as np, cv2; img=cv2.resize(cv2.imread('input.jpg'), (224,224)); img=img.astype(np.float32)/255; img=np.transpose(img, (2,0,1)); input=np.expand_dims(img, axis=0); input.tofile('input.bin')"
+
+Compile the model for execution on hardware.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+        --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
+        --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=0' \
+        --target-mrvl-num_tiles=8 \
+        --output model.tar \
+        model.onnx
+
+Run inference on hardware using dpdk-test-mldev with the compiled model and input.
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+        --test inference_ordered \
+        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --tolerance 5 \
+        --stats \
+        --repetitions 1000
+
+To interpret the output, first download the imagenet class labels and use the given script.
+
+.. code-block:: bash
+
+    wget https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt -O imagenet_classes.txt
+
+    python -c "import numpy as np; labels=[l.strip() for l in open('imagenet_classes.txt')]; output=np.fromfile('output.bin', dtype=np.float32); print('Predicted:', labels[np.argmax(output)])"
+
+For the example input image, we get the following output after interpretation.
+
+.. code-block:: bash
+
+    Predicted: starfish
+
+VGG11
+-----
+
+VGG11 is an 11-layer deep convolutional neural network architecture from the VGGNet family. It is used for image classification tasks and are trained on the ImageNet dataset. VGG models provide very high accuracies but at the cost of increased model sizes. They are ideal for cases when high accuracy of classification is essential and there are limited constraints on model sizes.
+
+Download the VGG11 model from the ONNX models GitHub repository and convert it to static shape for compatibility.
+
+.. code-block:: bash
+
+    wget http://github.com/onnx/models/raw/main/Computer_Vision/vgg11_Opset16_timm/vgg11_Opset16.onnx -O vgg11.onnx
+
+    cd ${ML_TOOLS_DIR}
+    git checkout ml-models
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx vgg11.onnx \
+    --output_onnx model.onnx
+
+Any valid .jpg, .jpeg, or .png image with three color channels (RGB) can be used as input. The below image is used as an example to show the working of the model.
+
+.. figure:: ./img/input4.jpg
+   :width: 250px
+   :align: center
+
+Resize the image to 224×224, normalize it, and save as input.bin using the script below.
+
+.. code-block:: bash
+
+    python -c "import numpy as np, cv2; img=cv2.resize(cv2.imread('input.jpg'), (224,224)); img=img.astype(np.float32)/255; img=np.transpose(img, (2,0,1)); input=np.expand_dims(img, axis=0); input.tofile('input.bin')"
+
+Configure the environment and compile the model with TVMC.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+        --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
+        --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=0' \
+        --target-mrvl-num_tiles=8 \
+        --output model.tar \
+        model.onnx
+
+Run inference on hardware using dpdk-test-mldev with the compiled model and input.
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+        --test inference_ordered \
+        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --tolerance 5 \
+        --stats \
+        --repetitions 1000
+
+Download the ImageNet label file and run the script to map numeric predictions to class names.
+
+.. code-block:: bash
+
+    wget https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt -O imagenet_classes.txt
+
+    python -c "import numpy as np; labels=[l.strip() for l in open('imagenet_classes.txt')]; output=np.fromfile('output.bin', dtype=np.float32); print('Predicted:', labels[np.argmax(output)])"
+
+For the example input image, we get the following output after interpretation.
+
+.. code-block:: bash
+
+    Predicted: lesser panda
 
 References
 ----------
