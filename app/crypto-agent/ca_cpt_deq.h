@@ -24,6 +24,9 @@
 #define CA_GMAC_IV_LEN     16
 #define CA_GMAC_DIGEST_LEN 16
 
+#define CA_ETHDEV_RX_BURST 32
+#define CA_CPT_OOO_WINDOW  64
+
 static inline void
 ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
 {
@@ -385,7 +388,7 @@ ca_cpt_process_multistage(struct cpt_inflight_req *req, struct cpt_inst_s *inst_
 	return 1;                    /* final stage, ready for post-processing */
 }
 
-static inline uint16_t
+uint16_t
 ca_cpt_deq(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 {
 	struct rte_mbuf *mb_tx[CA_ETHDEV_TX_BURST];
@@ -444,6 +447,109 @@ ca_cpt_deq(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 	pq->tail = tail;
 
 	return nb_tx;
+}
+
+/* Common multi-stage processing function (OOO variant)
+ * Returns: 0 = needs resubmit (keep slot), 1 = final stage ready for post-processing
+ */
+static inline int
+ca_cpt_process_multistage_ooo(struct cpt_inflight_req *req, struct cpt_inst_s *inst_resub,
+			      uint16_t *n_resub, uint16_t max_resub)
+{
+	/* Decide if more stages required */
+	if (ca_cpt_need_resubmit(req)) {
+		if (*n_resub < max_resub) {
+			ca_cpt_build_next_stage(req, &inst_resub[*n_resub]);
+			(*n_resub)++;
+			return 0; /* keep slot, not final yet */
+		}
+		/* resubmit array full: force finalize */
+		req->stage = req->max_stage; /* treat as final */
+	}
+
+	return 1; /* final stage, ready for post-processing */
+}
+
+uint16_t
+ca_cpt_deq_ooo(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
+{
+	const uint64_t mask = pq->pq_mask;
+	uint64_t head = pq->head;
+	uint64_t tail = pq->tail;
+	uint64_t infl;
+
+	infl = pending_queue_infl_cnt(head, tail, mask);
+	if (!infl)
+		return 0;
+
+	uint16_t scan = RTE_MIN((uint16_t)infl, (uint16_t)CA_CPT_OOO_WINDOW);
+	struct cpt_inst_s inst_resub[CA_ETHDEV_RX_BURST];
+	struct rte_mbuf *tx_batch[CA_ETHDEV_TX_BURST];
+	uint16_t batch_cnt = 0;
+	uint16_t n_resub = 0;
+	uint16_t sent = 0;
+	uint64_t now = 0; /* Cache timer for lazy timeout check */
+
+	/* First pass: scan window, post-process completions, collect TX */
+	for (uint16_t off = 0; off < scan; off++) {
+		struct cpt_inflight_req *req = &pq->req_queue[(tail + off) & mask];
+		union dao_cpt_res_s res;
+
+		/* Prefetch next request to reduce cache misses */
+		if (likely(off + 1 < scan))
+			rte_prefetch0(&pq->req_queue[(tail + off + 1) & mask]);
+
+		/* If already marked done (final stage processed earlier) skip processing */
+		if (req->ooo_done)
+			continue;
+
+		res.u64[0] = __atomic_load_n(&req->res.u64[0], __ATOMIC_ACQUIRE);
+
+		if (res.cn9k.compcode == DAO_CPT_COMP_NOT_DONE) {
+			/* Lazy timeout check: only call timer once */
+			if (unlikely(now == 0))
+				now = rte_get_timer_cycles();
+			if (unlikely(now > pq->time_out)) {
+				CA_ERR("Request timed out");
+				pq->time_out = now + DEFAULT_COMMAND_TIMEOUT * rte_get_timer_hz();
+			}
+			continue;
+		}
+
+		ca_cpt_post_process(req, &res);
+
+		/* Process multi-stage logic */
+		if (!ca_cpt_process_multistage_ooo(req, inst_resub, &n_resub, CA_ETHDEV_RX_BURST))
+			continue; /* needs resubmit, keep slot */
+
+		/* Final stage: mark done and collect for TX */
+		req->ooo_done = 1;
+		tx_batch[batch_cnt] = req->mbuf;
+		batch_cnt++;
+	}
+
+	if (batch_cnt)
+		sent = rte_eth_tx_burst(pq->eth_port_id, pq->eth_queue_id, tx_batch, batch_cnt);
+
+	/* Submit any collected resubmits after TX to minimize latency */
+	if (n_resub)
+		rte_pmd_cnxk_crypto_submit(cpt_qptr, inst_resub, n_resub);
+
+	/* Tail reclamation: advance tail past completed packets */
+	while (infl) {
+		struct cpt_inflight_req *req = &pq->req_queue[tail & mask];
+
+		/* Can only reclaim if processing is done */
+		if (!req->ooo_done)
+			break;
+
+		/* Packet successfully processed and transmitted - reclaim the slot */
+		req->ooo_done = 0;
+		pending_queue_advance(&tail, mask);
+		infl--;
+	}
+	pq->tail = tail;
+	return sent;
 }
 
 #endif /* __CA_CPT_DEQ_H__ */

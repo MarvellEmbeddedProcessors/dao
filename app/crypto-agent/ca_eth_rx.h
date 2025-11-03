@@ -62,6 +62,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		switch (req->hdr.op_type) {
 		case DAO_ETH_TRS_OP_TYPE_REFLECT:
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
+			infl_req->ooo_done = 0;
 			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
@@ -74,6 +75,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			inst[i].w5.u64 = (uint64_t)sym->dptr;
 			inst[i].w7.u64 = 0;
 			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+			infl_req->ooo_done = 0;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
@@ -87,6 +89,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			infl_req->sym_param2 = inst[i].w4.s.param2;
 			infl_req->stage = 0;
 			infl_req->max_stage = 1;
+			infl_req->ooo_done = 0;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
 			asym = (struct __dao_lc_req_asym *)req;
@@ -101,6 +104,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
 			infl_req->stage = 0;
 			infl_req->max_stage = 1;
+			infl_req->ooo_done = 0;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_ENC:
 			/* stage-0 will be OAEP Encode
@@ -148,23 +152,27 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			infl_req->op_type = asym->op_type;
 			infl_req->stage = 0;
 			infl_req->max_stage = 2;
+			infl_req->ooo_done = 0;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
 			rc = ca_sess_handle_create(rx_pkts[pkt_id]);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 			if (rc != 0)
 				CA_INFO("Could not create session: rc: %d", rc);
+			infl_req->ooo_done = 0;
 			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY:
 			rc = ca_sess_handle_destroy(rx_pkts[pkt_id]);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
+			infl_req->ooo_done = 0;
 			if (rc != 0)
 				CA_INFO("Could not destroy session: rc: %d", rc);
 			nb_cpt_bypass++;
 			break;
 		default:
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
+			infl_req->ooo_done = 0;
 			nb_cpt_bypass++;
 			CA_INFO("Invalid DAO ETH opcode %d", req->hdr.op_type);
 			req->hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_END;

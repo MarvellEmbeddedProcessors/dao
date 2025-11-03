@@ -369,6 +369,8 @@ cpt_pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
 	memset(pq, 0, sizeof(struct pending_queue));
 	pq->req_queue = req_queue;
 	pq->pq_mask = (len / sizeof(struct cpt_inflight_req)) - 1;
+	pq->eth_port_id = port_id;
+	pq->eth_queue_id = qp_id;
 
 	return 0;
 }
@@ -474,6 +476,13 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		CA_ERR("Could not initialize CPT PQ: %d, %d.", conf->dev_id, conf->qp_id);
 		goto mp_free;
 	}
+
+	/* Set dequeue function pointer based on configuration */
+	eth_ctx->cpt_pq[conf->qp_id].out_of_order_delivery_en = conf->out_of_order_delivery_en;
+	if (conf->out_of_order_delivery_en)
+		eth_ctx->cpt_pq[conf->qp_id].deq_fn = ca_cpt_deq_ooo;
+	else
+		eth_ctx->cpt_pq[conf->qp_id].deq_fn = ca_cpt_deq;
 
 	ret = ca_eth_lcore_map_pq_save(conf->dev_id, conf->qp_id, &eth_ctx->cpt_pq[conf->qp_id]);
 	if (ret) {

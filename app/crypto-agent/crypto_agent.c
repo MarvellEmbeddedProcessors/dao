@@ -434,7 +434,7 @@ worker_thread(__rte_unused void *arg)
 			lconf->rx_packets += nb_pkts;
 			nb_allowed -= nb_pkts;
 
-			nb_pkts = ca_cpt_deq(lconf->pq[i], cpt_qptr);
+			nb_pkts = lconf->pq[i]->deq_fn(lconf->pq[i], cpt_qptr);
 			lconf->tx_packets += nb_pkts;
 			nb_allowed += nb_pkts;
 		}

@@ -16,6 +16,9 @@
 
 #define CA_CPT_MIN_QUEUE_DEPTH 2048
 
+/* Forward declarations */
+struct rte_pmd_cnxk_crypto_qptr;
+
 struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 {
 	union dao_cpt_res_s res;
@@ -32,7 +35,8 @@ struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 		uint16_t hash_type;
 	} rsa_oaep;
 	uint16_t oaep_label_len;
-	uint8_t padding[79];
+	uint8_t ooo_done;
+	uint8_t padding[78];
 };
 
 DAO_STATIC_ASSERT(sizeof(struct cpt_inflight_req) == 128);
@@ -52,7 +56,15 @@ struct pending_queue {
 	uint16_t eth_port_id;
 	/** Ethdev queue ID this pending queue is associated with */
 	uint16_t eth_queue_id;
+	/** Enable out of order delivery */
+	bool out_of_order_delivery_en;
+	/** Dequeue function pointer - set at configuration time */
+	uint16_t (*deq_fn)(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
 };
+
+/* Function declarations for dequeue function pointers */
+uint16_t ca_cpt_deq(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
+uint16_t ca_cpt_deq_ooo(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
 
 static __rte_always_inline void
 pending_queue_advance(uint64_t *index, const uint64_t mask)
