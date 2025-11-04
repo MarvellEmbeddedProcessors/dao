@@ -637,11 +637,6 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (op->cipher_len == 0) {
-		dao_err("Invalid cipher length for AEAD operation.");
-		return -EINVAL;
-	}
-
 	if (op->cipher_offset + op->cipher_len > op->in_buffer->total_len) {
 		dao_err("Cipher offset and length exceed input buffer total length.");
 		return -EINVAL;
@@ -685,9 +680,10 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 }
 
 static inline bool
-lc_sym_op_is_auth_only(enum lc_crypto_op_type op_type)
+lc_sym_op_is_empty_buf_allowed(enum lc_crypto_op_type op_type)
 {
-	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY))
+	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) ||
+	    (op_type == LC_SYM_OP_AEAD))
 		return true;
 
 	return false;
@@ -789,13 +785,13 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 	sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
 	op_type = sess_meta->op_type;
 
-	ret = lc_buf_validate(op->in_buffer, lc_sym_op_is_auth_only(op_type));
+	ret = lc_buf_validate(op->in_buffer, lc_sym_op_is_empty_buf_allowed(op_type));
 	if (ret != 0) {
 		dao_err("Invalid input buffer.");
 		return ret;
 	}
 
-	if (!lc_sym_op_is_auth_only(op_type) && op->out_buffer != NULL) {
+	if (!lc_sym_op_is_empty_buf_allowed(op_type) && op->out_buffer != NULL) {
 		ret = lc_buf_validate(op->out_buffer, false);
 		if (ret != 0) {
 			dao_err("Invalid output buffer.");

@@ -1668,6 +1668,9 @@ dao_lc_buf_copy_to_offset_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint16_
 	uint16_t copied = 0;
 	uint16_t to_copy;
 
+	if (len == 0)
+		return 0;
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (offset >= dst->total_len) {
 		dao_err("Offset (%u) exceeds buffer total length (%u)", offset, dst->total_len);
@@ -1801,7 +1804,7 @@ dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_
 	}
 
 	if (tmp == NULL) {
-		/* Zero-len input buffer is a valid case for auth only HASH/HMAC operations. */
+		/* Zero-len input buffer is a valid case for HASH/HMAC and AEAD operations. */
 		if (len == 0 && is_zero_len_allowed)
 			return 0;
 
@@ -1953,6 +1956,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	uint32_t buf_len, lc_buf_offset = 0;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
+	bool is_aead_op_type = false;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
@@ -1965,6 +1969,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		digest_len = 0;
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 	} else if (op_type == LC_SYM_OP_AEAD) {
+		is_aead_op_type = true;
 		aad_len = op->aad_len;
 		cipher_len = op->cipher_len;
 		auth_len = cipher_len + aad_len;
@@ -2086,7 +2091,8 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	}
 
 	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
-					   op->in_buffer->total_len - lc_buf_offset, false);
+					   op->in_buffer->total_len - lc_buf_offset,
+					   is_aead_op_type);
 
 	if ((!op->encrypt) && (op->digest != NULL && digest_len != 0))
 		memcpy(dptr + op->in_buffer->total_len - lc_buf_offset, op->digest, digest_len);
