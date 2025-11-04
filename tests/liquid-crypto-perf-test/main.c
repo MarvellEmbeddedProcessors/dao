@@ -18,9 +18,6 @@
 #include "lcperf_test_latency.h"
 #include "lcperf_test_throughput.h"
 
-/* Maximum length of output buffer */
-#define LCPERF_MAX_OUTPUT_LEN 5120
-
 #define LCPERF_MAX_DEVS 1
 
 const char *lcperf_test_type_strs[] = {
@@ -224,7 +221,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 
 		qp_conf.nb_desc = opts->nb_descriptors;
 		qp_conf.out_of_order_delivery_en = false;
-		qp_conf.max_seg_size = LCPERF_MAX_OUTPUT_LEN;
+		qp_conf.max_seg_size = TEST_LC_MAX_OUTPUT_LEN;
 
 		for (j = 0; j < info.nb_qp[cdev_id]; j++) {
 			ret = dao_liquid_crypto_qp_configure(cdev_id, j, &qp_conf);

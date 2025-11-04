@@ -9,12 +9,12 @@
 
 #include "lcperf_options.h"
 
-#define LC_PERF_MAX_OUTPUT_LEN 5120
-
 /* Maximum length of IV */
 #define TEST_LC_MAX_IV_LEN 16
 /* Maximum length of plaintext */
 #define TEST_LC_MAX_PLAINTEXT_LEN 2048
+/* Maximum length of output buffer */
+#define TEST_LC_MAX_OUTPUT_LEN 5120
 /* Maximum burst size */
 #define TEST_LC_MAX_BURST_SIZE 8192
 

@@ -42,8 +42,8 @@ lcperf_enqueue_ops_asym_rsa(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_d
 			    const struct lcperf_options *options)
 {
 	const struct lcperf_rsa_test_data *params = options->rsa_data;
-	uint8_t message[LC_PERF_MAX_OUTPUT_LEN];
-	uint8_t output[LC_PERF_MAX_OUTPUT_LEN];
+	uint8_t message[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
 	int ops_enqd = 0;
 	int ret = -1;
 
