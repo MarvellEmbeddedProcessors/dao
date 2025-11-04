@@ -318,9 +318,11 @@ dao_card_image_version_get(struct dao_card_grpc_ctx *ctx,
 	set_context_timeout(&context, GRPC_TIMEOUT_MS);
 	status = ctx->stub->ImageVersion(&context, empty, &resp);
 	if (!status.ok()) {
-		fprintf(stderr, "Failed to get image version: %s (code=%d)\n",
-			status.error_message().c_str(), status.error_code());
-		fprintf(stderr, "gRPC error details: %s\n", status.error_details().c_str());
+		/* Only print detailed errors for non-UNIMPLEMENTED cases */
+		if (status.error_code() != grpc::StatusCode::UNIMPLEMENTED) {
+			fprintf(stderr, "Failed to get image version: %s (code=%d)\n",
+				status.error_message().c_str(), status.error_code());
+		}
 		return grpc_status_to_errno(status);
 	}
 

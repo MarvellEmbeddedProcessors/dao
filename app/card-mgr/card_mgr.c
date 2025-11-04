@@ -86,6 +86,7 @@
 #define OCTEON_EP_RELOAD_WAIT_MMC_MS 60000  /* 60 seconds */
 #define OCTEON_EP_RELOAD_WAIT_SPI_MS 120000 /* 120 seconds */
 
+#define IMAGE_VERSION_LEN_MAX 64
 static __thread char *dao_card_err_buf;
 static __thread size_t dao_card_err_buf_len;
 
@@ -1291,16 +1292,179 @@ dao_card_mgr_app_fallback(void)
 	return rc;
 }
 
+/* Get image version from card via gRPC */
+static int
+image_version_get(char *image_ver_buf, size_t image_ver_len)
+{
+	char app_ver_buf[IMAGE_VERSION_LEN_MAX] = {0};
+	int rc;
+
+	/* Validate input */
+	if (!image_ver_buf || image_ver_len == 0)
+		return -EINVAL;
+
+	/* Initialize version string */
+	image_ver_buf[0] = '\0';
+
+	/* Get both versions from card via gRPC, but only use image version */
+	rc = dao_card_image_version_get(card_ctx, image_ver_buf, image_ver_len, app_ver_buf,
+					sizeof(app_ver_buf));
+	if (rc == 0)
+		return 0;
+
+	/* Backward compatibility: If gRPC fails, assume image version is not implemented */
+	/* Use a placeholder version for backward compatibility */
+	strncpy(image_ver_buf, "unknown-image-version", image_ver_len - 1);
+	image_ver_buf[image_ver_len - 1] = '\0';
+
+	return 0; /* Return success for backward compatibility */
+}
+
+/* Check compatibility between new app_version (from tar) and image */
+static int
+image_compatibility_check(const char *tar_file_path, const char *image_ver_buf)
+{
+	char extract_cmd[PATH_MAX + IMAGE_VERSION_LEN_MAX];
+	char temp_dir[] = "/tmp/app_update_XXXXXX";
+	char version_file_path[PATH_MAX];
+	int found_image_section = 0;
+	FILE *version_file = NULL;
+	int image_compatible = 0;
+	int rc = -EINVAL;
+	char line[512];
+
+	/* Create temporary directory */
+	if (!mkdtemp(temp_dir))
+		return -errno;
+
+	/* Extract tar file to temporary directory */
+	snprintf(extract_cmd, sizeof(extract_cmd), "tar -xf %s -C %s", tar_file_path, temp_dir);
+	rc = run_cmd(extract_cmd);
+	if (rc != 0)
+		goto cleanup;
+
+	/* Look for compatibility matrix file in the extracted tar */
+	snprintf(version_file_path, sizeof(version_file_path),
+		 "%s/lc_service/compatibility_matrix.txt", temp_dir);
+	version_file = fopen(version_file_path, "r");
+
+	/* Backward compatibility: If compatibility matrix is missing, allow update with
+	 * warning */
+	if (!version_file) {
+		DAO_CARD_ERR(
+			"Comaptibility matrix not found. Proceeding app update in backward comaptibility");
+		rc = 0;
+		goto cleanup;
+	}
+
+	/* Parse the compatibility matrix file */
+	while (fgets(line, sizeof(line), version_file)) {
+		/* Remove newline and whitespace */
+		char *p = line;
+
+		while (*p && (*p == ' ' || *p == '\t'))
+			p++;
+		char *end = p + strlen(p) - 1;
+
+		while (end > p && (*end == '\n' || *end == '\r' || *end == ' ' || *end == '\t')) {
+			*end = '\0';
+			end--;
+		}
+
+		/* Skip empty lines and comments */
+		if (!*p || *p == '#')
+			continue;
+
+		/* Check for IMAGE_VERSIONS section */
+		if (strncmp(p, "[IMAGE_VERSIONS]", 17) == 0) {
+			found_image_section = 1;
+			continue;
+		} else if (*p == '[') {
+			/* Other section found, exit image section */
+			found_image_section = 0;
+			continue;
+		}
+
+		/* Check if current image version is listed in the IMAGE_VERSIONS section */
+		if (found_image_section && strcmp(p, image_ver_buf) == 0) {
+			image_compatible = 1;
+			break;
+		}
+	}
+
+	fclose(version_file);
+	version_file = NULL;
+
+	/* Determine compatibility result */
+	if (found_image_section) {
+		if (image_compatible) {
+			rc = 0;
+		} else {
+			DAO_CARD_ERR(
+				"The app update package is not compatible with the current image version");
+			rc = -EINVAL;
+		}
+	} else {
+		/* Compatibility matrix exists but no IMAGE_VERSIONS section found - FAIL */
+		DAO_CARD_ERR("The compatibility matrix file is invalid or malformed");
+		rc = -EINVAL;
+	}
+
+cleanup:
+	if (version_file)
+		fclose(version_file);
+
+	/* Clean up temporary directory */
+	snprintf(extract_cmd, sizeof(extract_cmd), "rm -rf %s", temp_dir);
+	run_cmd(extract_cmd);
+
+	return rc;
+}
+
 static int
 dao_card_mgr_app_update(cli_args *cmd)
 {
+	char image_version[IMAGE_VERSION_LEN_MAX];
 	struct dao_card_update_req update_req;
 	char *boot_bin_path = NULL;
+	char fullpath[PATH_MAX];
 	int rc;
 
 	rc = validate_file(cmd, &update_req, &boot_bin_path);
 	if (rc != 0)
 		goto req_free;
+
+	/* Get current image version from card via gRPC */
+	rc = image_version_get(image_version, sizeof(image_version));
+	if (rc != 0) {
+		DAO_CARD_ERR("Failed to get image version for compatibility check: %d", rc);
+		goto req_free;
+	}
+
+	/* Special handling for backward compatibility mode */
+	if (strcmp(image_version, "unknown-image-version") == 0 ||
+	    strcmp(image_version, "unknown") == 0) {
+		DAO_CARD_ERR("Image version is unknown. Aborting app update");
+		goto req_free;
+	}
+
+	/* Check version compatibility before proceeding with update */
+	snprintf(fullpath, PATH_MAX, "%s/%s", update_req.filepath, update_req.filename);
+
+	/* Only check compatibility if the file is a tar archive */
+	if (strstr(update_req.filename, ".tar") != NULL ||
+	    strstr(update_req.filename, ".tgz") != NULL ||
+	    strstr(update_req.filename, ".tar.gz") != NULL) {
+		rc = image_compatibility_check(fullpath, image_version);
+		if (rc != 0) {
+			DAO_CARD_ERR("App update rejected due to version incompatibility");
+			goto req_free;
+		}
+	} else {
+		DAO_CARD_ERR("Provided file is not a tar file");
+		rc = -EINVAL;
+		goto req_free;
+	}
 
 	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_APP_UPDATE);
 	if (rc == 0 && boot_bin_path != NULL) {
@@ -1499,13 +1663,13 @@ static void
 dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 {
 	char sensors_output[DAO_CARD_MGR_MAX_SENSORS_LEN];
+	char err_msg[DAO_CARD_MGR_MAX_ERR_MSG_LEN] = {0};
 	struct dao_card_stats card_stats;
 	struct dao_card_config card_cfg;
 	struct dao_card_info card_info;
-	char version_buf[160];
+	char version_buf[160] = {0};
 	uint32_t sensors_len = 0;
 	int rc = 0;
-	char err_msg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
 
 	/* Set thread-local error capture buffer */
 	dao_card_err_ctx_set(err_msg, sizeof(err_msg));
@@ -1547,9 +1711,14 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 						    app_ver_buf, sizeof(app_ver_buf), version_buf,
 						    sizeof(version_buf));
 		if (rc != 0) {
-			strncpy(err_msg, "Failed to get image version from card",
-				sizeof(err_msg) - 1);
-			err_msg[sizeof(err_msg) - 1] = '\0';
+			if (rc == -ENOTSUP) {
+				snprintf(
+					err_msg, sizeof(err_msg),
+					"Image version command not supported by card firmware (server needs update)");
+			} else {
+				snprintf(err_msg, sizeof(err_msg),
+					 "Failed to get image version from card (error: %d)", rc);
+			}
 		}
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_UPDATE) == 0) {
 		rc = dao_card_mgr_app_update(cmd);

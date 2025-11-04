@@ -1,0 +1,5 @@
+# Compatibility Matrix for App Updates
+# This file specifies compatible image versions for app updates
+
+[IMAGE_VERSIONS]
+25.10.0

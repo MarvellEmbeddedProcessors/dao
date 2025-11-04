@@ -268,7 +268,7 @@ following commands are available for diagnostics:
 
 * ``card_image_version``
 
-    This command retrieves both rootfs and application version information from the DAO card.
+    This command retrieves both image and application version information from the DAO card.
     It provides essential version details that help users understand the current software versions
     running on the card, which is useful for compatibility checking, troubleshooting, and
     update planning.
@@ -323,6 +323,70 @@ available for managing firmware:
    Supported only when the card is booted with the 'main' image. After a successful update, the
    manager automatically reloads the firmware helper (``mrvl-oct-boot``) and waits
    (up to ~20 seconds) for the card to become ready before returning to the CLI prompt.
+
+Enhanced Compatibility Check for App Updates
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``card_app_update`` command includes an enhanced compatibility checking system that validates
+app update packages against the current image version before installation. This prevents
+incompatible updates and ensures system stability.
+
+**Compatibility Matrix File Format**
+
+App update packages would include a compatibility matrix file at ``lc_service/compatibility_matrix.txt``
+that specifies compatible image versions:
+
+.. code-block:: text
+
+   # Compatibility Matrix for App Updates
+   # This file specifies compatible image versions for app updates
+
+   [Image_VERSIONS]
+   25.10.0
+   25.09.1
+   25.09.0
+
+**Version Sources**
+
+* **Current Image version**: Retrieved from card via gRPC (server reads ``/etc/image_version``)
+* **App version information**: Retrieved via gRPC from card (uses ``DAO_CARD_VERSION``)
+* **Compatibility matrix**: From tar file at ``lc_service/compatibility_matrix.txt``
+
+**Compatibility Logic**
+
+The compatibility check follows this process:
+
+1. Extract app update tar file to temporary directory
+2. Read ``lc_service/compatibility_matrix.txt`` from extracted content
+3. Parse ``[Image_VERSIONS]`` section for compatible versions
+4. Check if current image version is listed as compatible
+5. Allow update only if image version is compatible, otherwise reject with error
+
+**Backward Compatibility Support**
+
+To ensure proper version control and prevent incompatible updates:
+
+* **Unknown image version**: Update is **rejected** if image version is unknown or cannot be determined
+* **Missing compatibility matrix**: Allows update with warning (assumes compatible)
+* **Valid image version**: Update proceeds only if image version matches compatibility matrix
+
+This ensures that app updates are only applied to compatible image versions, preventing
+potential system failures from incompatible combinations.
+
+**Using card_image_version Command**
+
+The ``card_image_version`` command retrieves both image and app version information from the card:
+
+.. code-block:: console
+
+   card_image_version
+
+This command displays:
+
+* **Image version**: Current operating system version on the card
+* **App version**: Current application version running on the card
+
+Both versions are retrieved via a single gRPC call for efficiency.
 
    This command is supported on LiquidCrypto (LC) cards.
 

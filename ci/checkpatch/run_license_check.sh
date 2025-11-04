@@ -13,6 +13,7 @@ IGNORE_FILES=(
 	"VERSION"
 	"bfs/README.md"
 	"bfs/board/octeon_cn9k/lc/octeon_cn9k_defconfig_extra"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/compatibility_matrix.txt"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/README.md"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/dma_config.ini"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/lc_env"
