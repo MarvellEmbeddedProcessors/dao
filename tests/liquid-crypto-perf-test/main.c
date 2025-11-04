@@ -203,6 +203,9 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 
 	/* Create and start liquid crypto devices */
 	for (cdev_id = 0; cdev_id < required_cdev_cnt; cdev_id++) {
+		struct dao_lc_feature_params feature_params;
+		uint16_t max_seg_size, cmd_seg_sz;
+
 		memset(&dev_conf, 0, sizeof(dev_conf));
 		dev_conf.dev_id = cdev_id;
 		dev_conf.nb_qp = info.nb_qp[cdev_id];
@@ -217,13 +220,49 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 			goto dev_destroy;
 		}
 
+		if (dev_conf.cmd_qp_idx != DAO_CMD_QP_IDX_INVALID) {
+			memset(&feature_params, 0, sizeof(feature_params));
+			feature_params.cmd_qp = true;
+			cmd_seg_sz = dao_liquid_crypto_seg_size_calc(&feature_params);
+			if (cmd_seg_sz == 0) {
+				printf("Could not calculate command queue pair segment size");
+				goto dev_destroy;
+			}
+
+			/* Configure command queue pair */
+			qp_conf.nb_desc = 2048;
+			qp_conf.out_of_order_delivery_en = false;
+			qp_conf.max_seg_size = cmd_seg_sz;
+
+			ret = dao_liquid_crypto_qp_configure(cdev_id, dev_conf.cmd_qp_idx,
+							     &qp_conf);
+			if (ret < 0) {
+				printf("Could not configure command queue pair");
+				goto dev_destroy;
+			}
+		}
+
+		memset(&feature_params, 0, sizeof(feature_params));
+		feature_params.sym.cipher_auth_payload_len = TEST_LC_MAX_OUTPUT_LEN;
+		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
+		feature_params.sym.digest_len = DAO_LC_MAX_DIGEST_LEN;
+
+		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
+		if (max_seg_size == 0) {
+			printf("Could not calculate maximum segment size");
+			goto dev_destroy;
+		}
+
 		memset(&qp_conf, 0, sizeof(qp_conf));
 
 		qp_conf.nb_desc = opts->nb_descriptors;
 		qp_conf.out_of_order_delivery_en = false;
-		qp_conf.max_seg_size = TEST_LC_MAX_OUTPUT_LEN;
+		qp_conf.max_seg_size = max_seg_size;
 
 		for (j = 0; j < info.nb_qp[cdev_id]; j++) {
+			if (j == dev_conf.cmd_qp_idx)
+				continue;
+
 			ret = dao_liquid_crypto_qp_configure(cdev_id, j, &qp_conf);
 			if (ret < 0) {
 				printf("Failed to setup queue pair %u on liquid crypto device %u",
