@@ -270,12 +270,13 @@ lcperf_throughput_test_runner(void *test_ctx)
 {
 	uint64_t ops_enqd = 0, ops_enqd_total = 0, ops_enqd_failed = 0, total_ops_enqd_failed = 0;
 	uint64_t ops_deqd = 0, ops_deqd_total = 0, ops_deqd_failed = 0;
+	uint64_t tsc_start, tsc_end, tsc_duration, drain_tsc_start;
+	uint64_t time_limit_tsc, drain_time_limit_tsc;
 	struct lcperf_throughput_ctx *ctx = test_ctx;
-	uint64_t tsc_start, tsc_end, tsc_duration;
 	uint32_t burst_size, curr_burst_sz;
 	uint32_t lcore = rte_lcore_id();
 	struct lcperf_test_data *tdata;
-	uint64_t time_limit_tsc;
+	bool timeout_occurred = false;
 	uint64_t remaining_ops;
 	uint64_t total_ops, j;
 	struct dao_lc_res res;
@@ -358,22 +359,37 @@ lcperf_throughput_test_runner(void *test_ctx)
 		ops_deqd_total += ops_deqd;
 	}
 
+	drain_time_limit_tsc = rte_get_tsc_hz() * 10; /* 10 seconds */
+	drain_tsc_start = rte_rdtsc_precise();
 	/* Dequeue any remaining operations */
 	for (j = 0; ops_deqd_total < ops_enqd_total; j++) {
 		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, &res, 1);
-		if (ret > 0) {
+		if (ret == 1) {
 			ops_deqd_total++;
 			if (res.op_cookie != 0) {
 				rte_mempool_put(ctx->buf_pool, (void *)(uintptr_t)res.op_cookie);
 				res.op_cookie = 0;
 			}
-		} else if (ret < 0) {
+		} else {
 			ops_deqd_failed++;
+			if (drain_tsc_start + drain_time_limit_tsc < rte_rdtsc_precise()) {
+				RTE_LOG(ERR, USER1,
+					"Time limit reached during drain. Breaking loop.\n");
+				timeout_occurred = true;
+				break;
+			}
 		}
 	}
 
 	tsc_end = rte_rdtsc_precise();
 	tsc_duration = (tsc_end - tsc_start);
+
+	/* Skip performance reporting if timeout occurred */
+	if (timeout_occurred) {
+		RTE_LOG(ERR, USER1, "Lcore %u: Skipping performance report due to timeout\n",
+			ctx->lcore_id);
+		return -1;
+	}
 
 	/* Calculate average operations processed per second */
 	double ops_per_second = ((double)ctx->options->total_ops / tsc_duration) * rte_get_tsc_hz();
