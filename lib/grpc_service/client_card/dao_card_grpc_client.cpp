@@ -2,6 +2,7 @@
  * Copyright(C) 2025 Marvell.
  */
 
+#include <chrono>
 #include <stdio.h>
 #include <fstream>
 #include <string>
@@ -20,6 +21,8 @@
 
 /* Set max chunk size as 3MB for file transfer */
 #define MAX_CHUNK_SIZE 3 * 1024 * 1024
+/* gRPC timeout in milliseconds */
+#define GRPC_TIMEOUT_MS 5000
 
 using grpc::Channel;
 using grpc::ClientContext;
@@ -37,6 +40,15 @@ using dao_card_manager::CardStats;
 using dao_card_manager::DmesgLogs;
 using dao_card_manager::CardSensors;
 using dao_card_manager::AppLogs;
+using dao_card_manager::ImageVersionInfo;
+
+/* Helper function to set gRPC context timeout */
+static void set_context_timeout(ClientContext *context, int timeout_ms)
+{
+	std::chrono::system_clock::time_point deadline =
+		std::chrono::system_clock::now() + std::chrono::milliseconds(timeout_ms);
+		context->set_deadline(deadline);
+}
 
 static int grpc_status_to_errno(const grpc::Status &status)
 {
@@ -260,6 +272,7 @@ dao_card_applogs_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
 	if (!ctx || !buf || len == 0)
 		return -EINVAL;
 
+	set_context_timeout(&context, GRPC_TIMEOUT_MS);
 	status = ctx->stub->AppLog(&context, empty, &resp);
 	if (!status.ok()) {
 		fprintf(stderr, "Failed to get application logs: %s (code=%d)\n",
@@ -275,6 +288,63 @@ dao_card_applogs_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len)
 	memcpy(buf, text.data(), text.size());
 	buf[text.size()] = '\0';
 	return (int)text.size();
+}
+
+int
+dao_card_image_version_get(struct dao_card_grpc_ctx *ctx,
+			   char *image_ver_buf, size_t image_ver_len,
+			   char *app_ver_buf, size_t app_ver_len)
+{
+	ClientContext context;
+	grpc::Status status;
+	ImageVersionInfo resp;
+	Emp empty;
+
+	if (!ctx) {
+		fprintf(stderr, "dao_card_image_version_get: ctx is NULL\n");
+		return -EINVAL;
+	}
+	if (!image_ver_buf || image_ver_len == 0) {
+		fprintf(stderr, "dao_card_image_version_get: Invalid image version buffer (buf=%p, len=%zu)\n",
+			image_ver_buf, image_ver_len);
+		return -EINVAL;
+	}
+	if (!app_ver_buf || app_ver_len == 0) {
+		fprintf(stderr, "dao_card_image_version_get: Invalid app version buffer (buf=%p, len=%zu)\n",
+			app_ver_buf, app_ver_len);
+		return -EINVAL;
+	}
+
+	set_context_timeout(&context, GRPC_TIMEOUT_MS);
+	status = ctx->stub->ImageVersion(&context, empty, &resp);
+	if (!status.ok()) {
+		fprintf(stderr, "Failed to get image version: %s (code=%d)\n",
+			status.error_message().c_str(), status.error_code());
+		fprintf(stderr, "gRPC error details: %s\n", status.error_details().c_str());
+		return grpc_status_to_errno(status);
+	}
+
+	/* Copy main image version */
+	std::string image_version = resp.version();
+	if (image_version.size() >= image_ver_len) {
+		memcpy(image_ver_buf, image_version.data(), image_ver_len - 1);
+		image_ver_buf[image_ver_len - 1] = '\0';
+	} else {
+		memcpy(image_ver_buf, image_version.data(), image_version.size());
+		image_ver_buf[image_version.size()] = '\0';
+	}
+
+	/* Copy app version */
+	std::string app_version = resp.app_version();
+	if (app_version.size() >= app_ver_len) {
+		memcpy(app_ver_buf, app_version.data(), app_ver_len - 1);
+		app_ver_buf[app_ver_len - 1] = '\0';
+	} else {
+		memcpy(app_ver_buf, app_version.data(), app_version.size());
+		app_ver_buf[app_version.size()] = '\0';
+	}
+
+	return 0;
 }
 
 int

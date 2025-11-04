@@ -266,6 +266,37 @@ following commands are available for diagnostics:
       Chip_Temp:     +51.8 C
       Chip_1s_Pwr:   16.56 W
 
+* ``card_image_version``
+
+    This command retrieves both rootfs and application version information from the DAO card.
+    It provides essential version details that help users understand the current software versions
+    running on the card, which is useful for compatibility checking, troubleshooting, and
+    update planning.
+
+    The command returns:
+
+    * **Image version**: The current operating system version running on the card (read from ``/etc/image_version`` on the card)
+    * **App version**: The current application version running on the card (from ``DAO_CARD_VERSION``)
+
+    Both versions are retrieved via a single efficient gRPC call to the card.
+
+**Example:**
+    .. code-block:: console
+
+      card_image_version
+      Image version: 25.10.0
+      App version: 25.09.0
+
+    This command is particularly useful when:
+
+    * Planning application updates to verify compatibility
+    * Troubleshooting version-related issues
+    * Auditing deployed software versions
+    * Determining update requirements
+
+    The command supports backward compatibility - if the card's server doesn't support version
+    retrieval, it will display appropriate messages indicating the limitation.
+
 Above options are supported on all DAO cards where the underlying firmware exposes the respective RPCs.
 
 .. _firmware_management:

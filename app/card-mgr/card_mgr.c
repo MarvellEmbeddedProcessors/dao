@@ -48,6 +48,7 @@
 #define DAO_CARD_MGR_CARD_INIT        "card_init"
 #define DAO_CARD_MGR_CARD_FINI        "card_fini"
 #define DAO_CARD_MGR_CARD_INFO        "card_info"
+#define DAO_CARD_MGR_IMAGE_VERSION    "card_image_version"
 #define DAO_CARD_MGR_APP_UPDATE       "card_app_update"
 #define DAO_CARD_MGR_APP_FALLBACK     "card_app_fallback"
 #define DAO_CARD_MGR_CARD_STATS       "card_stats"
@@ -139,6 +140,7 @@ static const struct dao_card_cmd_spec dao_card_cmd_specs[] = {
 	 "Initialize card (passes optional EAL args)"},
 	{DAO_CARD_MGR_CARD_FINI, 1, 1, "", "Stop card and free resources"},
 	{DAO_CARD_MGR_CARD_INFO, 1, 1, "", "Show card information"},
+	{DAO_CARD_MGR_IMAGE_VERSION, 1, 1, "", "Show rootfs and app version from card"},
 	{DAO_CARD_MGR_CARD_STATS, 1, 1, "", "Show aggregated packet stats"},
 	{DAO_CARD_MGR_DMESG, 1, 1, "", "Fetch recent kernel dmesg lines"},
 	{DAO_CARD_MGR_APPLOG, 1, 1, "", "Fetch recent application log tail"},
@@ -748,6 +750,59 @@ dao_card_mgr_recv_card_info(int cli_fd)
 		dao_info("Card boot source: UNSUPPORTED by dao-crypto-agent");
 }
 
+static int
+dao_card_mgr_get_image_version(char *image_ver_buf, size_t image_ver_len, char *app_ver_buf,
+			       size_t app_ver_len, char *combined_buf, size_t combined_len)
+{
+	int rc;
+
+	/* Validate inputs */
+	if (!image_ver_buf || image_ver_len == 0 || !app_ver_buf || app_ver_len == 0)
+		return -EINVAL;
+
+	/* Check if card_ctx is initialized */
+	if (card_ctx == NULL) {
+		dao_err("card_ctx is NULL - card may not be initialized. Run card_init first.");
+		return -EINVAL;
+	}
+
+	/* Get both rootfs and app version from card via single gRPC call */
+	rc = dao_card_image_version_get(card_ctx, image_ver_buf, image_ver_len, app_ver_buf,
+					app_ver_len);
+	if (rc != 0) {
+		const char *error_type = "unknown";
+
+		switch (rc) {
+		case -EINVAL:
+			error_type = "invalid argument";
+			break;
+		case -ENOENT:
+			error_type = "rootfs version file not found on card";
+			break;
+		case -EAGAIN:
+			error_type = "service unavailable (card may not be ready)";
+			break;
+		case -ETIMEDOUT:
+			error_type = "request timed out";
+			break;
+		case -ENOTSUP:
+			error_type = "operation not supported by card";
+			break;
+		}
+
+		dao_err("Failed to get image versions: %d (%s)", rc, error_type);
+		return rc;
+	}
+
+	/* Optionally combine both versions into a single string */
+	if (combined_buf && combined_len > 0) {
+		snprintf(combined_buf, combined_len, "Main Image: %s, App: %s", image_ver_buf,
+			 app_ver_buf);
+	}
+
+	return 0;
+}
+
 static void
 dao_card_mgr_recv_card_stats(int cli_fd)
 {
@@ -1082,6 +1137,18 @@ dao_card_mgr_send_to_server(int cli_fd, const char *line)
 	/* Success payload handling */
 	if (strstr(send_line, "card_info") != NULL)
 		dao_card_mgr_recv_card_info(cli_fd);
+	if (strstr(send_line, "card_image_version") != NULL) {
+		/* Receive version string from server */
+		char version_buf[160];
+		ssize_t n = recv(cli_fd, version_buf, sizeof(version_buf), 0);
+
+		if (n > 0) {
+			version_buf[sizeof(version_buf) - 1] = '\0';
+			dao_info("Card image version - %s", version_buf);
+		} else {
+			dao_err("Failed to receive image version from server");
+		}
+	}
 	if (strstr(send_line, "card_stats") != NULL)
 		dao_card_mgr_recv_card_stats(cli_fd);
 	if (strstr(send_line, "card_dmesg") != NULL)
@@ -1435,6 +1502,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	struct dao_card_stats card_stats;
 	struct dao_card_config card_cfg;
 	struct dao_card_info card_info;
+	char version_buf[160];
 	uint32_t sensors_len = 0;
 	int rc = 0;
 	char err_msg[DAO_CARD_MGR_MAX_ERR_MSG_LEN];
@@ -1470,6 +1538,19 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		dao_card_fini(card_ctx);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0) {
 		rc = dao_card_info_get(card_ctx, &card_info);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_IMAGE_VERSION) == 0) {
+		/* Get image version using reusable function */
+		char image_ver_buf[64];
+		char app_ver_buf[64];
+
+		rc = dao_card_mgr_get_image_version(image_ver_buf, sizeof(image_ver_buf),
+						    app_ver_buf, sizeof(app_ver_buf), version_buf,
+						    sizeof(version_buf));
+		if (rc != 0) {
+			strncpy(err_msg, "Failed to get image version from card",
+				sizeof(err_msg) - 1);
+			err_msg[sizeof(err_msg) - 1] = '\0';
+		}
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_UPDATE) == 0) {
 		rc = dao_card_mgr_app_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_FALLBACK) == 0) {
@@ -1544,6 +1625,9 @@ send_resp:
 	if (!rc) {
 		if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0) {
 			send(cli_fd, &card_info, sizeof(struct dao_card_info), 0);
+		} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_IMAGE_VERSION) == 0) {
+			/* Send the version string to client */
+			send(cli_fd, version_buf, strlen(version_buf) + 1, 0);
 		} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
 			send(cli_fd, &card_stats, sizeof(struct dao_card_stats), 0);
 		} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_DMESG) == 0) {

@@ -131,6 +131,19 @@ int dao_card_dmesg_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len);
 int dao_card_applogs_get(struct dao_card_grpc_ctx *ctx, char *buf, size_t len);
 
 /**
+ * Get both rootfs and app version from the card via gRPC
+ *
+ * @param ctx - gRPC context
+ * @param image_ver_buf - Buffer to store main image version
+ * @param image_ver_len - Size of image version buffer
+ * @param app_ver_buf - Buffer to store app version
+ * @param app_ver_len - Size of app version buffer
+ * @return 0 on success, negative error code on failure
+ */
+int dao_card_image_version_get(struct dao_card_grpc_ctx *ctx, char *image_ver_buf,
+			       size_t image_ver_len, char *app_ver_buf, size_t app_ver_len);
+
+/**
  * Update the image in liquid crypto card.
  *
  * This function need to be called from management daemon.

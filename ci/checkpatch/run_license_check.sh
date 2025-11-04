@@ -18,6 +18,7 @@ IGNORE_FILES=(
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/root/lc_service/config/lc_env"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/etc/fw_mmc_env.config"
 	"bfs/board/octeon_cn9k/lc/rootfs_overlay/etc/fw_spi_env.config"
+	"bfs/board/octeon_cn9k/lc/rootfs_overlay/etc/image_version"
 	"bfs/external.desc"
 	"ci/build/env/deps/dpdk.env"
 	"ci/checkpatch/checkpatch.conf"

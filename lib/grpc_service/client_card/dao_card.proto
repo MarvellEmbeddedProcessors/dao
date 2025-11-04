@@ -16,6 +16,7 @@ service DaoCardService {
 	rpc FileUpdate(FileUpdateReq) returns (CardResponse) {}
 	rpc Dmesg(Emp) returns (DmesgLogs) {}
 	rpc AppLog(Emp) returns (AppLogs) {}
+	rpc ImageVersion(Emp) returns (ImageVersionInfo) {}
 }
 
 enum FileTransferType {
@@ -74,6 +75,11 @@ message AppLogs {
 
 message CardSensors {
 	string output = 1; // Consolidated multi-line output from 'sensors'
+}
+
+message ImageVersionInfo {
+	string version = 1; // Image version from /etc/image_version
+	string app_version = 2; // App version from DAO_CARD_VERSION
 }
 
 message Emp {

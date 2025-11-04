@@ -58,6 +58,7 @@ using dao_card_manager::Emp;
 using dao_card_manager::DmesgLogs;
 using dao_card_manager::CardSensors;
 using dao_card_manager::AppLogs;
+using dao_card_manager::ImageVersionInfo;
 
 using lc_manager::DaoLCService;
 using lc_manager::DeviceId;
@@ -433,6 +434,42 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		}
 		fclose(fp);
 		response->set_text(out);
+		return Status::OK;
+	}
+
+	Status ImageVersion(ServerContext *context, const Emp *empty, ImageVersionInfo *response) override
+	{
+		(void)context; (void)empty;
+
+		/* Read image version from /etc/image_version */
+		const char *version_path = "/etc/image_version";
+		FILE *fp = fopen(version_path, "r");
+		if (!fp) {
+			/* If missing, use "unknown" as the image version */
+			response->set_version("unknown");
+		} else {
+			char version_buf[256];
+			if (fgets(version_buf, sizeof(version_buf), fp)) {
+				/* Remove newline if present */
+				char *p = strchr(version_buf, '\n');
+				if (p) *p = '\0';
+				/* Remove trailing whitespace */
+				p = version_buf + strlen(version_buf) - 1;
+				while (p > version_buf && (*p == ' ' || *p == '\t' || *p == '\r')) {
+					*p = '\0';
+					p--;
+				}
+				response->set_version(version_buf);
+			} else {
+				/* Failed to read, use "unknown" */
+				response->set_version("unknown");
+			}
+			fclose(fp);
+		}
+
+		/* Set app version from DAO_CARD_VERSION */
+		response->set_app_version(DAO_CARD_VERSION);
+
 		return Status::OK;
 	}
 };
