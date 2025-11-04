@@ -201,12 +201,13 @@ is_aead_algo(const struct test_sym_params *params)
 }
 
 static int
-test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop)
+test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop,
+			 const bool is_invalid_keydata, const bool is_iv_error)
 {
 	uint8_t key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
-			 TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
+			 TEST_LC_AES_KEY_WRAP_IV_LEN + TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
 	uint8_t wrap_key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
-			      TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
+			      TEST_LC_AES_KEY_WRAP_IV_LEN + TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
 	uint32_t key_data_len, wrap_key_len, pad_len = 0;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
@@ -219,11 +220,17 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 	struct dao_lc_res res[1] = {0};
 	struct dao_lc_buf iv_buf = {0};
 	uint8_t *result_buffer = NULL;
+	uint32_t expected_err_code;
 	struct dao_lc_buf *dst_buf;
 	struct dao_lc_cmd_event ev;
 	int max_offset = 32;
 	uint64_t op_cookie;
 	int ret, i;
+
+#ifdef TEST_LC_DEBUG_BUILD
+	if (is_invalid_keydata)
+		return TEST_SKIPPED;
+#endif
 
 	ctx.aes_key_wrap.is_wrap = is_wrap;
 	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
@@ -323,8 +330,32 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 		result_buffer = (uint8_t *)dst_buf[0].data + i;
 		if (is_wrap) {
 			if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
+				if (is_invalid_keydata || is_iv_error) {
+					expected_err_code =
+						is_invalid_keydata ?
+							DAO_UC_ERR_GC_KEY_DATA_LEN_INVALID :
+							DAO_UC_ERR_GC_ICV_MISCOMPARE;
+
+					TEST_LC_INFO(
+						"Key wrap verification is expected to fail with uc_compcode %u",
+						res[0].res.cn9k.uc_compcode);
+					TEST_ASSERT(res[0].res.cn9k.uc_compcode ==
+							    expected_err_code,
+						    "Expected error code %d but got %d (%s)",
+						    expected_err_code, res[0].res.cn9k.uc_compcode,
+						    is_invalid_keydata ? "Invalid keydata" :
+									 "Default IV invalid");
+					goto exit_success;
+				}
 				TEST_LC_ERR("Key wrap failed with uc_compcode %u",
 					    res[0].res.cn9k.uc_compcode);
+				goto exit;
+			}
+
+			if (res[0].key_wrap.wrap_unwrap_key_len != params->wrap_key.len) {
+				TEST_LC_ERR("Wrapped key length mismatch. Expected: %u, Got: %u",
+					    params->wrap_key.len,
+					    res[0].key_wrap.wrap_unwrap_key_len);
 				goto exit;
 			}
 
@@ -340,16 +371,35 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 			}
 		} else {
 			if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
-				TEST_LC_ERR(
-					"Expected key unwrap verification is failed with uc_compcode %u",
-					res[0].res.cn9k.uc_compcode);
-				rte_hexdump(stdout, "UNWRAPPED KEY: ", result_buffer,
-					    params->plaintext.len);
-				rte_hexdump(stdout,
-					    "EXPECTED UNWRAPPED KEY: ", params->plaintext.data,
-					    params->plaintext.len);
+				if (is_invalid_keydata || is_iv_error) {
+					expected_err_code =
+						is_invalid_keydata ?
+							DAO_UC_ERR_GC_KEY_DATA_LEN_INVALID :
+							DAO_UC_ERR_GC_ICV_MISCOMPARE;
+					TEST_LC_INFO(
+						"Key unwrap verification is expected to fail with uc_compcode %u",
+						res[0].res.cn9k.uc_compcode);
+					TEST_ASSERT(res[0].res.cn9k.uc_compcode ==
+							    expected_err_code,
+						    "Expected error code %d but got %d (%s)",
+						    expected_err_code, res[0].res.cn9k.uc_compcode,
+						    is_invalid_keydata ? "Invalid keydata" :
+									 "Default IV invalid");
+					goto exit_success;
+				}
+
+				TEST_LC_ERR("Key unwrap verification is failed with uc_compcode %u",
+					    res[0].res.cn9k.uc_compcode);
 				goto exit;
 			}
+
+			if (res[0].key_wrap.wrap_unwrap_key_len != params->plaintext.len) {
+				TEST_LC_ERR("Unwrapped key length meismatch. Expected: %u, Got: %u",
+					    params->plaintext.len,
+					    res[0].key_wrap.wrap_unwrap_key_len);
+				goto exit;
+			}
+
 			if (memcmp(result_buffer, params->plaintext.data, params->plaintext.len) !=
 			    0) {
 				TEST_LC_ERR(
@@ -364,6 +414,7 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 		}
 	}
 
+exit_success:
 	sess_cookie = rte_rand();
 	ret = dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id,
 						 sess_cookie);
@@ -393,25 +444,43 @@ exit:
 static int
 test_aes_key_wrap(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, true, false);
+	return test_aes_key_wrap_unwrap(data, true, false, false, false);
 }
 
 static int
 test_aes_key_unwrap(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, false, false);
+	return test_aes_key_wrap_unwrap(data, false, false, false, false);
 }
 
 static int
 test_aes_key_wrap_oop(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, true, true);
+	return test_aes_key_wrap_unwrap(data, true, true, false, false);
 }
 
 static int
 test_aes_key_unwrap_oop(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, false, true);
+	return test_aes_key_wrap_unwrap(data, false, true, false, false);
+}
+
+static int
+test_aes_key_unwrap_invalid_keydata(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, false, false, true, false);
+}
+
+static int
+test_aes_key_wrap_invalid_keydata(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, true, false, true, false);
+}
+
+static int
+test_aes_key_unwrap_invalid_iv_case(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, false, false, false, true);
 }
 
 static int
@@ -1104,7 +1173,7 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 128 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_wrap,
 					  &aes_keywrap_128B_kek_128B_key),
-		TEST_CASE_NAMED_WITH_DATA("Unwrap 128 bit key data and 128 bit KEK", ut_setup,
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 136 bit key data and 128 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_unwrap,
 					  &aes_keywrap_128B_kek_128B_key),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 192 bit KEK", ut_setup,
@@ -1140,6 +1209,13 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("Wrap 3072 bytes key data with 256 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_wrap,
 					  &aes_keywrap_256B_kek_3072B_key),
+		TEST_CASE_NAMED_WITH_DATA("Unwrap 3072 bytes invalid key data with 256 bit KEK",
+					  ut_setup, ut_teardown,
+					  test_aes_key_unwrap_invalid_keydata,
+					  &aes_keywrap_256B_kek_3072B_key),
+		TEST_CASE_NAMED_WITH_DATA("Wrap 3080 bytes invalid key data with 256 bit KEK",
+					  ut_setup, ut_teardown, test_aes_key_wrap_invalid_keydata,
+					  &aes_keywrap_256B_kek_3080B_key),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 3064 bytes key data with 256 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_wrap,
 					  &aes_keywrap_256B_kek_3064B_key),
@@ -1215,6 +1291,42 @@ struct unit_test_suite lc_testsuite_sym = {
 		TEST_CASE_NAMED_WITH_DATA("Unwrap 7 bytes key data and 192 bit KEK OOP", ut_setup,
 					  ut_teardown, test_aes_key_unwrap_oop,
 					  &aes_keywrap_192B_kek_7B_key),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Unwrap 16 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_unwrap_invalid_iv_case,
+			&aes_keywrap_192_kek_16B_wrapkey_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Unwrap 32 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_unwrap_invalid_iv_case,
+			&aes_keywrap_192_kek_32B_wrapkey_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Unwrap 2408 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_unwrap_invalid_iv_case,
+			&aes_keywrap_192_kek_2408B_wrapkey_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Wrap 16 bytes(0XA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_wrap,
+			&aes_keywrap_192_kek_16B_key_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Unwrap 16 bytes(0xA6 original) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_unwrap,
+			&aes_keywrap_192_kek_16B_key_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Wrap 1KB bytes(0XA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_wrap,
+			&aes_keywrap_192_kek_1KB_key_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Unwrap 1KB bytes(0xA6 original) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_unwrap,
+			&aes_keywrap_192_kek_1KB_key_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Wrap 2400 bytes(0XA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_wrap,
+			&aes_keywrap_192_kek_2400B_key_with_A6),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Unwrap 2400 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
+			ut_setup, ut_teardown, test_aes_key_unwrap,
+			&aes_keywrap_192_kek_2400B_key_with_A6),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
