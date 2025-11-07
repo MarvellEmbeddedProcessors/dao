@@ -10,4 +10,5 @@ deployment best practices, and benchmark performance results achieved on Marvell
 .. toctree::
    :maxdepth: 1
 
-   white_papers/index
+   white_papers/accelerated-nginx
+   white_papers/accelerated-nginx-with-vpp
