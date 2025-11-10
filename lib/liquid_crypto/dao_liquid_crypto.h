@@ -765,8 +765,13 @@ struct dao_lc_hmac_hash_ctx {
 
 /**
  * The liquid crypto AES key wrap context.
- * This structure is used to store the context for AES key wrap operations.
- * It contains the key length and the key encryption key (KEK).
+ * This structure is used to store the context for AES key wrap operations,
+ * including the key length and the key encryption key (KEK).
+ *
+ * Note: The default IV will be used for both AES Key Wrap (AES-KW) and
+ * AES Key Wrap with Padding (AES-KWP) operations.
+ * - For AES-KW (RFC 3394), the default IV is 0xA6A6A6A6A6A6A6A6.
+ * - For AES-KWP (RFC 5649), the default IV is 0xA65959A6.
  */
 struct dao_lc_aes_key_wrap_ctx {
 	/** Set to true for key wrap operation, false for unwrap operation. */
