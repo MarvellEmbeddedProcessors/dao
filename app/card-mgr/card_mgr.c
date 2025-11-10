@@ -434,24 +434,31 @@ reload_octeon_ep_module(const char *boot_arg, octeon_ep_module_op operation)
 
 	/* Handle load operation (for LOAD_ONLY and RELOAD) */
 	if (operation == OCTEON_EP_MODULE_LOAD_ONLY || operation == OCTEON_EP_MODULE_RELOAD) {
-		if (!ko_path) {
+		if (!ko_path || *ko_path == '\0') {
 			DAO_CARD_ERR("OCTEON_EP_KO_PATH not set; falling back to modprobe");
-			rc = run_cmd("modprobe " OCTEON_EP_MODULE_NAME);
-			if (rc != 0) {
-				DAO_CARD_ERR("modprob failed (rc=%d)", rc);
-				return rc;
-			}
-			goto wait_for_module;
+			goto fallback_modprobe;
 		}
 
 		if (sanitize_module_path(ko_path) != 0) {
-			DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s", ko_path);
-			return -EINVAL;
+			DAO_CARD_ERR(
+				"Invalid characters in OCTEON_EP_KO_PATH: %s; falling back to modprobe",
+				ko_path);
+			goto fallback_modprobe;
 		}
+
 		snprintf(cmd, sizeof(cmd), "insmod %s", ko_path);
 		rc = run_cmd(cmd);
 		if (rc != 0) {
-			DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s", name, rc, ko_path);
+			DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s; falling back to modprobe",
+				     name, rc, ko_path);
+			goto fallback_modprobe;
+		}
+		goto wait_for_module;
+
+	fallback_modprobe:
+		rc = run_cmd("modprobe " OCTEON_EP_MODULE_NAME);
+		if (rc != 0) {
+			DAO_CARD_ERR("modprobe failed (rc=%d)", rc);
 			return rc;
 		}
 
@@ -460,6 +467,14 @@ reload_octeon_ep_module(const char *boot_arg, octeon_ep_module_op operation)
 		if (rc != 0) {
 			DAO_CARD_ERR("Module %s not present after load (rc=%d)", name, rc);
 			return rc;
+		}
+
+		/* Insmod of a custom module needs time for full device probe.
+		 * Wait 2 seconds for device probe and interface creation.
+		 */
+		if (ko_path) {
+			dao_info("Waiting for custom module device initialization...");
+			usleep(2000000);
 		}
 	}
 
@@ -505,41 +520,79 @@ dao_card_mgr_boot_exec(const char *boot_path, const char *boot_arg)
 static void
 bring_up_octeon_ep_interface(const char *ip_addr)
 {
-	FILE *fp = popen("dmesg | grep 'octeon_ep' | grep 'renamed from' | tail -1", "r");
-
-	if (!fp)
-		return;
-
 	char iface[32] = {0};
-	char buf[256];
+	int max_retries = 10; /* Try for up to 5 seconds */
+	int retry_count = 0;
+	int found = 0;
 
-	if (fgets(buf, sizeof(buf), fp)) {
-		/* Example line: octeon_ep 0000:01:00.0 enp1s0f0: renamed from eth0 */
-		char *p = strstr(buf, ": renamed from");
+	/* Wait for the interface to appear and be renamed */
+	while (retry_count < max_retries && !found) {
+		FILE *fp = popen("dmesg | grep 'octeon_ep' | grep 'renamed from' | tail -1", "r");
 
-		if (p) {
-			/* Find the interface name before ': renamed from' */
-			char *end = p;
-			size_t len;
+		if (!fp) {
+			usleep(500000); /* Wait 500ms before retry */
+			retry_count++;
+			continue;
+		}
 
-			while (end > buf && *(end - 1) != ' ')
-				end--;
-			len = p - end;
-			if (len < sizeof(iface)) {
-				strncpy(iface, end, len);
-				iface[len] = '\0';
+		char buf[256];
+
+		if (fgets(buf, sizeof(buf), fp)) {
+			/* Example line: octeon_ep 0000:01:00.0 enp1s0f0: renamed from eth0 */
+			char *p = strstr(buf, ": renamed from");
+
+			if (p) {
+				/* Find the interface name before ': renamed from' */
+				char *end = p;
+				size_t len;
+
+				while (end > buf && *(end - 1) != ' ')
+					end--;
+				len = p - end;
+				if (len < sizeof(iface)) {
+					strncpy(iface, end, len);
+					iface[len] = '\0';
+					found = 1;
+				}
 			}
 		}
-	}
-	pclose(fp);
+		pclose(fp);
 
-	if (iface[0]) {
-		char cmd[128];
-
-		snprintf(cmd, sizeof(cmd), "ifconfig %s %s up", iface, ip_addr);
-		if (system(cmd) != 0)
-			dao_warn("%s execution failed", cmd);
+		if (!found) {
+			usleep(500000); /* Wait 500ms before retry */
+			retry_count++;
+		}
 	}
+
+	if (!iface[0]) {
+		dao_warn("Failed to find octeon_ep interface after %d retries", retry_count);
+		return;
+	}
+
+	/* Verify the interface actually exists before trying to configure it */
+	char check_cmd[128];
+
+	snprintf(check_cmd, sizeof(check_cmd), "ip link show %s > /dev/null 2>&1", iface);
+
+	retry_count = 0;
+	while (retry_count < max_retries) {
+		if (system(check_cmd) == 0) {
+			/* Interface exists, configure it */
+			char cmd[128];
+
+			snprintf(cmd, sizeof(cmd), "ifconfig %s %s up", iface, ip_addr);
+			if (system(cmd) != 0)
+				dao_warn("%s execution failed", cmd);
+			else
+				dao_info("Successfully configured interface %s with IP %s", iface,
+					 ip_addr);
+			return;
+		}
+		usleep(500000); /* Wait 500ms before retry */
+		retry_count++;
+	}
+
+	dao_warn("Interface %s not found after %d retries", iface, retry_count);
 }
 
 /* Poll the gRPC card_info until ready or timeout.
