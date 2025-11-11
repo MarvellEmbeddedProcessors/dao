@@ -87,12 +87,46 @@ extern struct lcperf_throughput_worker_result worker_results[RTE_MAX_LCORE];
 extern volatile uint8_t worker_count;
 
 volatile int force_quit;
+static volatile int nb_lcdevs_global;
+static volatile int in_signal_handler;
 
 static void
 signal_handler(int signum)
 {
-	if (signum == SIGINT || signum == SIGTERM)
+	if (signum == SIGINT || signum == SIGTERM) {
 		force_quit = 1;
+	} else if (signum == SIGSEGV) {
+		int i;
+
+		/* Prevent recursive signal handling - if we're already in the handler
+		 * and get another segfault (e.g., during cleanup), just abort immediately */
+		if (in_signal_handler) {
+			fprintf(stderr,
+				"\nRecursive segfault detected during cleanup! Aborting immediately.\n");
+			signal(SIGSEGV, SIG_DFL);
+			raise(SIGSEGV);
+			return;
+		}
+
+		in_signal_handler = 1;
+
+		/* Perform emergency cleanup on segfault */
+		fprintf(stderr, "\nSegmentation fault detected. Performing emergency cleanup...\n");
+
+		/* Attempt cleanup, but if any of these segfault, the guard above will catch it */
+		for (i = 0; i < nb_lcdevs_global; i++) {
+			dao_liquid_crypto_dev_stop(i);
+			dao_liquid_crypto_dev_destroy(i);
+		}
+		dao_liquid_crypto_fini();
+		rte_eal_cleanup();
+
+		fprintf(stderr, "Emergency cleanup completed.\n");
+
+		/* Re-raise the signal with default handler to generate core dump */
+		signal(SIGSEGV, SIG_DFL);
+		raise(SIGSEGV);
+	}
 }
 
 static int
@@ -307,8 +341,11 @@ main(int argc, char **argv)
 	int ret = 0;
 
 	force_quit = 0;
+	nb_lcdevs_global = 0;
+	in_signal_handler = 0;
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
+	signal(SIGSEGV, signal_handler);
 
 	/* Initialise DPDK EAL */
 	ret = rte_eal_init(argc, argv);
@@ -332,9 +369,11 @@ main(int argc, char **argv)
 	}
 
 	nb_lcdevs = lcperf_initialize_liquid_crypto(&opts);
-	if (nb_lcdevs == 0) {
+	nb_lcdevs_global = nb_lcdevs; /* Update global for signal handler */
+	if (nb_lcdevs <= 0) {
 		RTE_LOG(ERR, USER1, "Failed to initialise liquid crypto device\n");
 		nb_lcdevs = 0;
+		nb_lcdevs_global = 0;
 		ret = -ENODEV;
 		goto eal_cleanup;
 	}
@@ -403,6 +442,7 @@ dev_stop_destroy:
 	}
 
 	dao_liquid_crypto_fini();
+	nb_lcdevs_global = 0; /* Reset after cleanup */
 	printf("\n");
 
 eal_cleanup:

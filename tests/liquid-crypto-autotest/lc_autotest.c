@@ -27,13 +27,45 @@ struct unit_test_suite *test_suites[] = {
 };
 
 volatile int force_quit;
+static volatile int nb_lcdevs_global;
+static volatile int in_signal_handler;
 
 static void
 signal_handler(int signum)
 {
+	uint8_t dev_id;
+
 	if (signum == SIGINT || signum == SIGTERM) {
 		TEST_LC_INFO("Signal %d received, initiating shutdown...", signum);
 		force_quit = 1;
+	} else if (signum == SIGSEGV) {
+		/* Prevent recursive signal handling - if we're already in the handler
+		 * and get another segfault (e.g., during cleanup), just abort immediately */
+		if (in_signal_handler) {
+			fprintf(stderr,
+				"\nRecursive segfault detected during cleanup! Aborting immediately.\n");
+			signal(SIGSEGV, SIG_DFL);
+			raise(SIGSEGV);
+			return;
+		}
+
+		in_signal_handler = 1;
+
+		/* Perform emergency cleanup on segfault */
+		fprintf(stderr, "\nSegmentation fault detected. Performing emergency cleanup...\n");
+
+		/* Attempt cleanup, but if any of these segfault, the guard above will catch it */
+		for (dev_id = 0; dev_id < nb_lcdevs_global; dev_id++)
+			dao_liquid_crypto_dev_destroy(dev_id);
+
+		dao_liquid_crypto_fini();
+		rte_eal_cleanup();
+
+		fprintf(stderr, "Emergency cleanup completed.\n");
+
+		/* Re-raise the signal with default handler to generate core dump */
+		signal(SIGSEGV, SIG_DFL);
+		raise(SIGSEGV);
 	}
 }
 
@@ -60,8 +92,11 @@ main(int argc, char **argv)
 	TEST_LC_INFO("Starting liquid crypto autotest");
 
 	force_quit = 0;
+	nb_lcdevs_global = 0;
+	in_signal_handler = 0;
 	signal(SIGINT, signal_handler);
 	signal(SIGTERM, signal_handler);
+	signal(SIGSEGV, signal_handler);
 
 	ret = rte_eal_init(argc, argv);
 	if (ret < 0) {
@@ -127,6 +162,7 @@ main(int argc, char **argv)
 			TEST_LC_ERR("Could not create liquid crypto device");
 			goto fini;
 		}
+		nb_lcdevs_global = dev_id + 1; /* Update global for signal handler */
 
 		memset(&feature_params, 0, sizeof(feature_params));
 		feature_params.cmd_qp = true;
@@ -213,6 +249,7 @@ dev_destroy:
 	}
 fini:
 	dao_liquid_crypto_fini();
+	nb_lcdevs_global = 0; /* Reset after cleanup */
 
 eal_cleanup:
 	rte_eal_cleanup();
