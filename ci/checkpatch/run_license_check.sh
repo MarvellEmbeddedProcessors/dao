@@ -54,6 +54,7 @@ IGNORE_DIRECTORIES=(
         "doc/guides/white_papers/img"
 	"license/"
 	"patches/"
+	"subprojects/"
 )
 
 BSD_LICENSE_FILES=(
