@@ -194,7 +194,7 @@ jobs:
             echo 'Package: vpp-'$PKG_VERSION_NAME'-cn10k'$PKG_POSTFIX >> DEBIAN/control
             echo 'Version: '$MRVL_PKG_VERSION >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
-            echo 'Depends: python3, python3-ply, dpdk-'$DPDK_BASE_PKG_VERSION'-cn10k (= '$DPDK_PKG_VERSION'), cpt-firmware-cn10k (= '$CPT_PKG_VERSION'), oct-ep-target-cn10k'$PKG_POSTFIX' (>= '$MRVL_PKG_VERSION_BASE'), oct-ep-target-cn10k'$PKG_POSTFIX' (<< '$MRVL_PKG_VERSION_UPPER')' >> DEBIAN/control
+            echo 'Depends: python3, python3-ply, dpdk-${DPDK_BASE_PKG_VERSION}-cn10k${PKG_POSTFIX} (>= ${DPDK_PKG_VERSION}), cpt-firmware-cn10k (= '$CPT_PKG_VERSION'), oct-ep-target-cn10k'$PKG_POSTFIX' (>= '$MRVL_PKG_VERSION_BASE'), oct-ep-target-cn10k'$PKG_POSTFIX' (<< '$MRVL_PKG_VERSION_UPPER')' >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Homepage: https://wiki.fd.io/view/VPP" >> DEBIAN/control
             echo "Description: Vector Packet Processing (VPP) for Octeon10" >> DEBIAN/control
@@ -254,7 +254,7 @@ jobs:
             https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "vpp",
             "tag": "vpp-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-cn10k-${{ steps.artifacts.outputs.MRVL_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
-            "dpdk_tag" : "dpdk-cn10k-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.version.outputs.DPDK_PKG_VERSION }}",
+            "dpdk_tag" : "dpdk-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.version.outputs.DPDK_PKG_VERSION }}",
             "has_dpdk" : "true", "distro" : "${{ steps.artifacts.outputs.DISTRO }}",
             "platform" : "cn10k",
             "devel": "${{ steps.artifacts.outputs.IS_DEVEL }}"}}'
