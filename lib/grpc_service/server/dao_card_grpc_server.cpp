@@ -439,6 +439,10 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 class DaoLCServiceImpl final : public DaoLCService::Service
 {
+private:
+	std::mutex start_stop_mutex_;
+
+public:
 	Status CreateDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
 		(void)(context);
@@ -463,6 +467,7 @@ class DaoLCServiceImpl final : public DaoLCService::Service
 
 	Status StartDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
+		std::lock_guard<std::mutex> lock(start_stop_mutex_);
 		(void)(context);
 		(void)response; // unused
 		int rc;
@@ -474,6 +479,7 @@ class DaoLCServiceImpl final : public DaoLCService::Service
 
 	Status StopDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
+		std::lock_guard<std::mutex> lock(start_stop_mutex_);
 		(void)(context);
 		(void)response; // unused
 		int rc;
