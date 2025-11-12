@@ -656,6 +656,7 @@ ca_eth_dev_start(uint32_t port_id)
 			nb_pq++;
 		}
 
+		rte_smp_wmb();
 		lconf->nb_pq = nb_pq;
 	}
 
@@ -734,11 +735,9 @@ ca_eth_dev_stop(uint32_t dev_id)
 			nb_pq++;
 		}
 
+		rte_smp_wmb();
 		lconf->nb_pq = nb_pq;
 	}
-
-	/* Synchronize RCU QSBR */
-	rte_rcu_qsbr_synchronize(qsbr, RTE_QSBR_THRID_INVALID);
 
 	ca_eth_flow_clear(dev_id);
 

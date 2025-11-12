@@ -424,8 +424,10 @@ worker_thread(__rte_unused void *arg)
 		/* Update quiet state */
 		rte_rcu_qsbr_quiescent(qsbr, lcore_id);
 
-		if (lconf->nb_pq == 0)
+		if (lconf->nb_pq == 0) {
+			rte_smp_rmb();
 			continue;
+		}
 
 		for (i = 0; i < lconf->nb_pq; i++) {
 			nb_pkts = ca_eth_rx(lconf->pq[i], cpt_qptr, nb_allowed);
