@@ -404,10 +404,7 @@ static struct test_sym_params aes_gcm_128_test_data = {
 		.data = aad_aes_gcm,
 		.len = 12
 	},
-	 .digest = {
-		.data = digest_aes128gcm,
-		.len = 16
-	},
+	.digest_data = digest_aes128gcm,
 };
 
 static const uint8_t digest_aes128gcm_empty[] = {
@@ -449,10 +446,7 @@ static struct test_sym_params aes_gcm_128_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	 .digest = {
-		.data = digest_aes128gcm_empty,
-		.len = 16
-	},
+	.digest_data = digest_aes128gcm_empty,
 };
 
 static const uint8_t digest_aes192gcm[] = {
@@ -506,10 +500,7 @@ static struct test_sym_params aes_gcm_192_test_data = {
 		.data = aad_aes_gcm,
 		.len = 12
 	},
-	 .digest = {
-		.data = digest_aes192gcm,
-		.len = 16
-	},
+	.digest_data = digest_aes192gcm,
 };
 
 static const uint8_t digest_aes192gcm_empty[] = {
@@ -552,10 +543,7 @@ static struct test_sym_params aes_gcm_192_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	 .digest = {
-		.data = digest_aes192gcm_empty,
-		.len = 16
-	},
+	.digest_data = digest_aes192gcm_empty,
 };
 
 static const uint8_t digest_aes256gcm[] = {
@@ -610,10 +598,7 @@ static struct test_sym_params aes_gcm_256_test_data = {
 		.data = aad_aes_gcm,
 		.len = 12
 	},
-	 .digest = {
-		.data = digest_aes256gcm,
-		.len = 16
-	},
+	.digest_data = digest_aes256gcm,
 };
 
 static const uint8_t digest_aes256gcm_empty[] = {
@@ -657,10 +642,7 @@ static struct test_sym_params aes_gcm_256_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	 .digest = {
-		.data = digest_aes256gcm_empty,
-		.len = 16
-	},
+	.digest_data = digest_aes256gcm_empty,
 };
 
 /** AES-GMAC Test Vectors */
@@ -697,10 +679,7 @@ static struct test_sym_params aes_gmac_128_test_data = {
 		.data = plaintext_aes_gcm,
 		.len = 60
 	},
-	.digest = {
-		.data = digest_aes128gmac,
-		.len = 16
-	},
+	.digest_data = digest_aes128gmac,
 };
 
 static const uint8_t digest_aes192gmac[] = {
@@ -736,10 +715,7 @@ static struct test_sym_params aes_gmac_192_test_data = {
 		.data = plaintext_aes_gcm,
 		.len = 60
 	},
-	.digest = {
-		.data = digest_aes192gmac,
-		.len = 16
-	},
+	.digest_data = digest_aes192gmac,
 };
 
 static const uint8_t digest_aes256gmac[] = {
@@ -776,10 +752,7 @@ static struct test_sym_params aes_gmac_256_test_data = {
 		.data = plaintext_aes_gcm,
 		.len = 60
 	},
-	.digest = {
-		.data = digest_aes256gmac,
-		.len = 16
-	},
+	.digest_data = digest_aes256gmac,
 };
 
 /** AES-CCM Test Vectors */
@@ -840,10 +813,7 @@ static struct test_sym_params aes_ccm_128_test_data = {
 		.data = aad_aes_ccm,
 		.len = 22
 	},
-	 .digest = {
-		.data = digest_aes128ccm,
-		.len = 8
-	},
+	.digest_data = digest_aes128ccm,
 };
 
 static const uint8_t digest_aes128ccm_empty[] = {
@@ -884,10 +854,7 @@ static struct test_sym_params aes_ccm_128_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	 .digest = {
-		.data = digest_aes128ccm_empty,
-		.len = 8
-	},
+	.digest_data = digest_aes128ccm_empty,
 };
 
 unsigned char long_aad_aes_ccm[] = {
@@ -1059,10 +1026,7 @@ static struct test_sym_params aes_ccm_128_long_aad_test_data = {
 		.data = long_aad_aes_ccm,
 		.len = 1024
 	},
-	 .digest = {
-		.data = long_aad_digest_aes128ccm,
-		.len = 8
-	},
+	.digest_data = long_aad_digest_aes128ccm,
 };
 
 static const uint8_t digest_aes192ccm[] = {
@@ -1110,10 +1074,7 @@ static struct test_sym_params aes_ccm_192_test_data = {
 		.data = aad_aes_ccm,
 		.len = 22
 	},
-	 .digest = {
-		.data = digest_aes192ccm,
-		.len = 8
-	},
+	.digest_data = digest_aes192ccm,
 };
 
 static const uint8_t digest_aes192ccm_empty[] = {
@@ -1155,10 +1116,7 @@ static struct test_sym_params aes_ccm_192_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	 .digest = {
-		.data = digest_aes192ccm_empty,
-		.len = 8
-	},
+	.digest_data = digest_aes192ccm_empty,
 };
 
 static const uint8_t digest_aes256ccm[] = {
@@ -1207,10 +1165,7 @@ static struct test_sym_params aes_ccm_256_test_data = {
 		.data = aad_aes_ccm,
 		.len = 22
 	},
-	 .digest = {
-		.data = digest_aes256ccm,
-		.len = 8
-	},
+	.digest_data = digest_aes256ccm,
 };
 
 static const uint8_t digest_aes256ccm_empty[] = {
@@ -1253,10 +1208,7 @@ static struct test_sym_params aes_ccm_256_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	 .digest = {
-		.data = digest_aes256ccm_empty,
-		.len = 8
-	},
+	.digest_data = digest_aes256ccm_empty,
 };
 
 static const uint8_t plaintext_chacha_poly[] = {
@@ -1340,10 +1292,7 @@ static struct test_sym_params chacha_poly_test_data = {
 		.data = aad_chacha_poly,
 		.len = 12
 	},
-	.digest = {
-		.data = digest_chacha_poly,
-		.len = 16
-	},
+	.digest_data = digest_chacha_poly,
 };
 
 static const uint8_t digest_chacha_poly_empty[] = {
@@ -1386,10 +1335,7 @@ static struct test_sym_params chacha_poly_empty_test_data = {
 		.data = empty_data,
 		.len = 0
 	},
-	.digest = {
-		.data = digest_chacha_poly_empty,
-		.len = 16
-	},
+	.digest_data = digest_chacha_poly_empty,
 };
 
 /** AES-CMAC Test Vectors */
@@ -1417,10 +1363,7 @@ static struct test_sym_params aes_cmac_128_12B_test_data = {
 		.data = plaintext_aes_common,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_aes128_cmac,
-		.len = 12,
-	},
+	.digest_data = digest_aes128_cmac,
 };
 
 static struct test_sym_params aes_cmac_128_16B_test_data = {
@@ -1441,10 +1384,7 @@ static struct test_sym_params aes_cmac_128_16B_test_data = {
 		.data = plaintext_aes_common,
 		 .len = 512
 	},
-	.digest = {
-		.data = digest_aes128_cmac,
-		 .len = 16
-	},
+	.digest_data = digest_aes128_cmac,
 
 };
 
@@ -1472,10 +1412,7 @@ static struct test_sym_params aes_cmac_192_12B_test_data = {
 		.data = plaintext_aes_common,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_aes192_cmac,
-		.len = 12,
-	},
+	.digest_data = digest_aes192_cmac,
 };
 
 static struct test_sym_params aes_cmac_192_16B_test_data = {
@@ -1497,10 +1434,7 @@ static struct test_sym_params aes_cmac_192_16B_test_data = {
 		.data = plaintext_aes_common,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_aes192_cmac,
-		.len = 16,
-	},
+	.digest_data = digest_aes192_cmac,
 };
 
 static const uint8_t digest_aes256_cmac[] = {
@@ -1528,10 +1462,7 @@ static struct test_sym_params aes_cmac_256_12B_test_data = {
 		.data = plaintext_aes_common,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_aes256_cmac,
-		.len = 12,
-	},
+	.digest_data = digest_aes256_cmac,
 };
 
 static struct test_sym_params aes_cmac_256_16B_test_data = {
@@ -1554,9 +1485,6 @@ static struct test_sym_params aes_cmac_256_16B_test_data = {
 		.data = plaintext_aes_common,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_aes256_cmac,
-		.len = 16,
-	},
+	.digest_data = digest_aes256_cmac,
 };
 #endif /* __LC_TEST_SYM_H__ */

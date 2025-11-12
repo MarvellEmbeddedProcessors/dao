@@ -29,10 +29,7 @@ struct test_sym_params {
 		const uint8_t *data;
 		uint16_t len;
 	} aad;
-	struct {
-		const uint8_t *data;
-		uint16_t len;
-	} digest;
+	const uint8_t *digest_data;
 	struct {
 		const uint8_t *data;
 		uint16_t len;

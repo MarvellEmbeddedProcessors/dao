@@ -58,6 +58,7 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	struct dao_lc_sym_op op[1] = {0};
 	struct dao_lc_cmd_event ev;
 	struct dao_lc_res res[1];
+	uint16_t digest_len = 0;
 	uint64_t op_cookie;
 
 	ctx.iv_len = params->iv.len;
@@ -84,11 +85,16 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	op[0].digest = digest;
 	op[0].auth_gen = is_auth_gen;
 
+	if (params->ctx.opcode == DAO_LC_SYM_OPCODE_HMAC)
+		digest_len = params->ctx.hash.digest_len;
+	else
+		digest_len = params->ctx.fc.mac_len;
+
 	for (i = 0; i < max_offset; i++) {
 		if (is_auth_gen)
 			memset(digest, 0, sizeof(digest));
 		else
-			memcpy(op[0].digest, params->digest.data, params->digest.len);
+			memcpy(op[0].digest, params->digest_data, digest_len);
 
 		memset(in_buf_data, 0, i);
 		memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
@@ -130,22 +136,19 @@ test_hash_only(const void *data, const bool is_auth_gen)
 					    res[0].res.cn9k.uc_compcode, i);
 				return -1;
 			}
-
-			ret = memcmp(op[0].digest, params->digest.data, params->digest.len);
+			ret = memcmp(op[0].digest, params->digest_data, digest_len);
 			if (ret != 0) {
 				TEST_LC_ERR("Digest Gen failed for offset %d", i);
-				rte_hexdump(stdout, "RESULT digest: ", op[0].digest,
-					    params->digest.len);
-				rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
-					    params->digest.len);
+				rte_hexdump(stdout, "RESULT digest: ", op[0].digest, digest_len);
+				rte_hexdump(stdout, "EXPECTED digest: ", params->digest_data,
+					    digest_len);
 				return -1;
 			}
 		} else {
 			if (res[0].res.cn9k.uc_compcode == DAO_UC_ERR_GC_ICV_MISCOMPARE) {
 				TEST_LC_ERR("Expected digest verification to succeed for offset %d",
 					    i);
-				rte_hexdump(stdout, "PROVIDED digest: ", op[0].digest,
-					    params->digest.len);
+				rte_hexdump(stdout, "PROVIDED digest: ", op[0].digest, digest_len);
 				return -1;
 			} else if (res[0].res.cn9k.uc_compcode != DAO_UC_SUCCESS) {
 				TEST_LC_ERR("Auth verify failed with uc_compcode %u for offset %d",
@@ -433,6 +436,7 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 	struct dao_lc_cmd_event ev;
 	struct dao_lc_buf *dst_buf;
 	size_t max_len, total_len;
+	uint16_t digest_len = 0;
 	struct dao_lc_res res[1];
 
 	ctx.iv_len = params->iv.len;
@@ -456,6 +460,11 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 	/* Perform crypto operation */
 	op[0].sess_id = ev.sess_event.sess_id;
 
+	if (params->ctx.opcode == DAO_LC_SYM_OPCODE_HMAC)
+		digest_len = params->ctx.hash.digest_len;
+	else
+		digest_len = params->ctx.fc.mac_len;
+
 	for (i = 0; i < max_offset; i++) {
 		/* Clearing buffers for each iteration */
 		memset(in_buf_data, 0, sizeof(in_buf_data));
@@ -472,7 +481,7 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 
 		in_buf[0].data = in_buf_data;
 		in_buf[0].frag_len = in_data_len + i;
-		total_len = in_data_len + params->digest.len + i;
+		total_len = in_data_len + digest_len + i;
 
 		if (is_oop) {
 			/*
@@ -528,16 +537,16 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 						goto exit;
 					}
 					if (is_oop)
-						dst_buf[0].frag_len += params->digest.len;
+						dst_buf[0].frag_len += digest_len;
 					else
-						in_buf[0].frag_len += params->digest.len;
+						in_buf[0].frag_len += digest_len;
 				}
 			} else {
 				memcpy(in_buf_data + i, params->ciphertext.data,
 				       params->ciphertext.len);
 				op[0].encrypt = false;
 				if (is_digest_separate) {
-					memcpy(digest_buf, params->digest.data, params->digest.len);
+					memcpy(digest_buf, params->digest_data, digest_len);
 					op[0].digest = digest_buf;
 				} else {
 					if (total_len > max_len) {
@@ -547,8 +556,8 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 					}
 
 					memcpy(in_buf_data + params->ciphertext.len + i,
-					       params->digest.data, params->digest.len);
-					in_buf[0].frag_len += params->digest.len;
+					       params->digest_data, digest_len);
+					in_buf[0].frag_len += digest_len;
 				}
 			}
 		} else {
@@ -616,13 +625,12 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 			else
 				digest_result = result_buffer + params->ciphertext.len;
 
-			ret = memcmp(digest_result, params->digest.data, params->digest.len);
+			ret = memcmp(digest_result, params->digest_data, digest_len);
 			if (ret != 0) {
 				TEST_LC_ERR("Invalid digest for offset %d", i);
-				rte_hexdump(stdout, "RESULT digest: ", digest_result,
-					    params->digest.len);
-				rte_hexdump(stdout, "EXPECTED digest: ", params->digest.data,
-					    params->digest.len);
+				rte_hexdump(stdout, "RESULT digest: ", digest_result, digest_len);
+				rte_hexdump(stdout, "EXPECTED digest: ", params->digest_data,
+					    digest_len);
 				return -1;
 			}
 		} else {

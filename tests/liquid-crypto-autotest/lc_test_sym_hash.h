@@ -54,10 +54,7 @@ static const struct test_sym_params sha1_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha1,
-		.len = 20,
-	}
+	.digest_data = digest_sha1,
 };
 
 static const uint8_t digest_sha224[] = {
@@ -79,10 +76,7 @@ static const struct test_sym_params sha224_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha224,
-		.len = 28,
-	}
+	.digest_data = digest_sha224,
 };
 
 static const uint8_t digest_sha256[] = {
@@ -104,10 +98,7 @@ static const struct test_sym_params sha256_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha256,
-		.len = 32,
-	}
+	.digest_data = digest_sha256,
 };
 
 static const uint8_t digest_sha384[] = {
@@ -131,10 +122,7 @@ static const struct test_sym_params sha384_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha384,
-		.len = 48,
-	}
+	.digest_data = digest_sha384,
 };
 
 static const uint8_t digest_sha512[] = {
@@ -160,10 +148,7 @@ static const struct test_sym_params sha512_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha512,
-		.len = 64,
-	}
+	.digest_data = digest_sha512,
 };
 
 static const uint8_t digest_sha3_224[] = {
@@ -185,10 +170,7 @@ static const struct test_sym_params sha3_224_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha3_224,
-		.len = 28,
-	}
+	.digest_data = digest_sha3_224,
 };
 
 static const uint8_t digest_sha3_256[] = {
@@ -210,10 +192,7 @@ static const struct test_sym_params sha3_256_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha3_256,
-		.len = 32,
-	}
+	.digest_data = digest_sha3_256,
 };
 
 static const uint8_t digest_sha3_384[] = {
@@ -233,11 +212,11 @@ static const struct test_sym_params sha3_384_test_data = {
 			.digest_len = 48,
 		},
 	},
-	.plaintext = {.data = plaintext_hash, .len = 512},
-	.digest = {
-		.data = digest_sha3_384,
-		.len = 48,
-	}
+	.plaintext = {
+		.data = plaintext_hash,
+		.len = 512
+	},
+	.digest_data = digest_sha3_384,
 };
 
 static const uint8_t digest_sha3_512[] = {
@@ -263,10 +242,7 @@ static const struct test_sym_params sha3_512_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_sha3_512,
-		.len = 64,
-	}
+	.digest_data = digest_sha3_512,
 };
 
 static const uint8_t hmac_digest_sha1[] = {
@@ -293,10 +269,7 @@ static const struct test_sym_params hmac_sha1_20B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha1,
-		.len = 20,
-	},
+	.digest_data = hmac_digest_sha1,
 };
 
 static const uint8_t hmac_digest_sha224[] = {
@@ -325,10 +298,8 @@ static const struct test_sym_params hmac_sha224_28B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha224,
-		.len = 28,
-	},
+	.digest_data = hmac_digest_sha224,
+
 };
 
 static const uint8_t hmac_digest_sha256[] = {
@@ -357,10 +328,8 @@ static const struct test_sym_params hmac_sha256_32B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha256,
-		.len = 32,
-	},
+	.digest_data = hmac_digest_sha256,
+
 };
 
 static const uint8_t hmac_digest_sha384[] = {
@@ -393,10 +362,8 @@ static const struct test_sym_params hmac_sha384_48B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha384,
-		.len = 48,
-	},
+	.digest_data = hmac_digest_sha384,
+
 };
 
 static const uint8_t hmac_digest_sha512[] = {
@@ -433,10 +400,8 @@ static const struct test_sym_params hmac_sha512_64B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha512,
-		.len = 64,
-	},
+	.digest_data = hmac_digest_sha512,
+
 };
 
 static const uint8_t hmac_digest_sha3_sha_224_with_28_byte_key_data[] = {
@@ -465,10 +430,7 @@ static const struct test_sym_params hmac_sha3_224_28B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_224_with_28_byte_key_data,
-		.len = 28,
-	},
+	.digest_data = hmac_digest_sha3_sha_224_with_28_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_256_with_32_byte_key_data[] = {
@@ -497,10 +459,7 @@ static const struct test_sym_params hmac_sha3_256_32B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_256_with_32_byte_key_data,
-		.len = 32,
-	},
+	.digest_data = hmac_digest_sha3_sha_256_with_32_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_384_with_48_byte_key_data[]  = {
@@ -533,10 +492,7 @@ static const struct test_sym_params hmac_sha3_384_48B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_384_with_48_byte_key_data,
-		.len = 48,
-	},
+	.digest_data = hmac_digest_sha3_sha_384_with_48_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_512_with_64_byte_key_data[] = {
@@ -573,10 +529,7 @@ static const struct test_sym_params hmac_sha3_512_64B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_512_with_64_byte_key_data,
-		.len = 64,
-	},
+	.digest_data = hmac_digest_sha3_sha_512_with_64_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_224_with_128_byte_key_data[] = {
@@ -617,10 +570,7 @@ static const struct test_sym_params hmac_sha3_224_128B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_224_with_128_byte_key_data,
-		.len = 28,
-	},
+	.digest_data = hmac_digest_sha3_sha_224_with_128_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_256_with_128_byte_key_data[] = {
@@ -661,10 +611,7 @@ static const struct test_sym_params hmac_sha3_256_128B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_256_with_128_byte_key_data,
-		.len = 32,
-	},
+	.digest_data = hmac_digest_sha3_sha_256_with_128_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_384_with_128_byte_key_data[] = {
@@ -707,10 +654,8 @@ static const struct test_sym_params hmac_sha3_384_128B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_384_with_128_byte_key_data,
-		.len = 48,
-	},
+	.digest_data = hmac_digest_sha3_sha_384_with_128_byte_key_data,
+
 };
 
 static const uint8_t hmac_digest_sha3_sha_512_with_128_byte_key_data[] = {
@@ -755,10 +700,7 @@ static const struct test_sym_params hmac_sha3_512_128B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_512_with_128_byte_key_data,
-		.len = 64,
-	},
+	.digest_data = hmac_digest_sha3_sha_512_with_128_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_224_with_358_byte_key_data[] = {
@@ -828,10 +770,7 @@ static const struct test_sym_params hmac_sha3_224_358B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_224_with_358_byte_key_data,
-		.len = 28,
-	},
+	.digest_data = hmac_digest_sha3_sha_224_with_358_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_224_with_360_byte_key_data[] = {
@@ -901,10 +840,7 @@ static const struct test_sym_params hmac_sha3_224_360B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_224_with_360_byte_key_data,
-		.len = 28,
-	},
+	.digest_data = hmac_digest_sha3_sha_224_with_360_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha3_sha_224_with_1024_byte_key_data[] = {
@@ -1057,10 +993,7 @@ static const struct test_sym_params hmac_sha3_224_1024B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha3_sha_224_with_1024_byte_key_data,
-		.len = 28,
-	},
+	.digest_data = hmac_digest_sha3_sha_224_with_1024_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha1_with_1024_byte_key_data[] = {
@@ -1212,10 +1145,7 @@ static const struct test_sym_params hmac_sha1_1024B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha1_with_1024_byte_key_data,
-		.len = 20,
-	},
+	.digest_data = hmac_digest_sha1_with_1024_byte_key_data,
 };
 
 static const uint8_t hmac_digest_sha256_with_1024_byte_key_data[] = {
@@ -1368,10 +1298,7 @@ static const struct test_sym_params hmac_sha256_1024B_key = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = hmac_digest_sha256_with_1024_byte_key_data,
-		.len = 32,
-	},
+	.digest_data = hmac_digest_sha256_with_1024_byte_key_data,
 };
 
 static const uint8_t digest_shake128[] = {
@@ -1397,10 +1324,7 @@ static const struct test_sym_params shake128_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_shake128,
-		.len = 64,
-	}
+	.digest_data = digest_shake128,
 };
 
 static const uint8_t digest_shake256[] = {
@@ -1426,9 +1350,6 @@ static const struct test_sym_params shake256_test_data = {
 		.data = plaintext_hash,
 		.len = 512
 	},
-	.digest = {
-		.data = digest_shake256,
-		.len = 64,
-	}
+	.digest_data = digest_shake256,
 };
 #endif /* __LC_TEST_SYM_HASH_H__ */
