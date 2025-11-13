@@ -491,6 +491,16 @@ enum dao_lc_fc_enc_cipher {
 };
 
 /**
+ * The liquid crypto flexi crypto chain cipher order
+ */
+enum dao_lc_fc_chain_order {
+	/* Encrypt first, then authenticate */
+	DAO_LC_FC_CIPHER_THEN_AUTH = 0,
+	/* Authenticate first, then encrypt */
+	DAO_LC_FC_AUTH_THEN_CIPHER = 1
+};
+
+/**
  * The liquid crypto flexi crypto authentication input type.
  */
 enum dao_lc_fc_auth_input_type {
@@ -821,6 +831,10 @@ struct dao_lc_sym_ctx {
 	enum dao_lc_sym_opcode opcode;
 	/** IV length */
 	uint16_t iv_len;
+	/** Chained cipher */
+	bool is_chained_cipher;
+	/** Chained cipher order */
+	enum dao_lc_fc_chain_order chain_order;
 	union {
 		/** Flexi Crypto context */
 		struct dao_lc_sym_fc_ctx fc;

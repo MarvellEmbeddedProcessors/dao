@@ -159,6 +159,25 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 	return -EINVAL;
 }
 
+static int
+sym_sess_cipher_auth_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
+{
+	const uint16_t mac_len = (uint16_t)ctx->fc.mac_len;
+
+	switch (ctx->fc.hash_type) {
+	case DAO_LC_HASH_TYPE_SHA1:
+		if (mac_len == 20)
+			return 0;
+		break;
+	default:
+		dao_err("Unsupported hash type.");
+		return -ENOTSUP;
+	}
+
+	dao_err("Invalid digest length for cipher-auth operation.");
+	return -EINVAL;
+}
+
 struct dao_lc_sym_sess_meta *
 liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
@@ -185,6 +204,15 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		sess_meta->pkt_iv_len = ctx->iv_len;
 		sess_meta->cipher_type = ctx->fc.enc_cipher;
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_FC;
+
+		if (ctx->is_chained_cipher) {
+			if (sym_sess_cipher_auth_digest_len_validate(ctx))
+				goto sess_meta_free;
+
+			w4.s.opcode_minor |= (ctx->chain_order << 4);
+			sess_meta->hash_type = ctx->fc.hash_type;
+			sess_meta->op_type = LC_SYM_OP_CIPHER_AUTH;
+		}
 
 		if (ctx->fc.enc_cipher == DAO_LC_FC_ENC_CIPHER_AES_GCM) {
 			w4.s.opcode_minor |= DAO_LC_OPCODE_IV_LENGTH_MASK;
@@ -330,6 +358,48 @@ sym_sess_fc_aes_key_len_verify(const struct dao_lc_sym_fc_ctx *fc_ctx)
 }
 
 static int
+sym_cipher_auth_fc_verify(const struct dao_lc_sym_ctx *ctx)
+{
+	const struct dao_lc_sym_fc_ctx *fc_ctx;
+	int ret;
+
+	fc_ctx = &ctx->fc;
+
+	if (ctx->chain_order != DAO_LC_FC_CIPHER_THEN_AUTH) {
+		dao_err("Invalid chained cipher order.");
+		return -EINVAL;
+	}
+
+	switch (fc_ctx->enc_cipher) {
+	case DAO_LC_FC_ENC_CIPHER_AES_CBC:
+		break;
+	default:
+		dao_err("Unsupported chained cipher type.");
+		return -EINVAL;
+	}
+
+	ret = sym_sess_fc_aes_key_len_verify(fc_ctx);
+	if (ret)
+		return ret;
+
+	/* For now, auth input type must be Key */
+	if (fc_ctx->auth_input_type != DAO_LC_FC_AUTH_INPUT_KEY) {
+		dao_err("Invalid authentication input type. Must be set to KEY.");
+		return -EINVAL;
+	}
+
+	switch (fc_ctx->hash_type) {
+	case DAO_LC_HASH_TYPE_SHA1:
+		break;
+	default:
+		dao_err("Unsupported hash type for chained cipher.");
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static int
 sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 {
 	const struct dao_lc_sym_fc_ctx *fc_ctx;
@@ -342,6 +412,14 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 		dao_err("Invalid IV source.");
 		return -EINVAL;
 	}
+
+	if (fc_ctx->auth_key_src != DAO_LC_FC_AUTH_KEY_SRC_CTX) {
+		dao_err("Invalid authentication key source. Must be set to CTX.");
+		return -EINVAL;
+	}
+
+	if (ctx->is_chained_cipher)
+		return sym_cipher_auth_fc_verify(ctx);
 
 	is_aes = false;
 
@@ -377,11 +455,6 @@ sym_sess_fc_verify(const struct dao_lc_sym_ctx *ctx)
 
 	if (fc_ctx->auth_input_type != DAO_LC_FC_AUTH_INPUT_OPAD_IPAD) {
 		dao_err("Invalid authentication input type. Must be set to OPAD-IPAD.");
-		return -EINVAL;
-	}
-
-	if (fc_ctx->auth_key_src != DAO_LC_FC_AUTH_KEY_SRC_CTX) {
-		dao_err("Invalid authentication key source. Must be set to CTX.");
 		return -EINVAL;
 	}
 
@@ -566,6 +639,93 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 }
 
 static int
+lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
+			       const struct dao_lc_sym_sess_meta *sess_meta)
+{
+	uint16_t cipher_offset = op->cipher_offset, auth_offset = op->auth_offset;
+	uint16_t cipher_len = op->cipher_len, auth_len = op->auth_len;
+	uint16_t digest_len_in_pkt = 0, total_len_reqd = 0;
+
+	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
+		dao_err("Invalid cipher IV pointer for cipher auth operation.");
+		return -EINVAL;
+	}
+
+	if (cipher_len & 0xf) {
+		if (sess_meta->cipher_type == DAO_LC_FC_ENC_CIPHER_AES_CBC) {
+			dao_err("Invalid cipher length. cipher_len = %u", cipher_len);
+			return -EINVAL;
+		}
+	}
+
+	if (cipher_offset < auth_offset) {
+		dao_err("Cipher offset is less than auth offset.");
+		return -EINVAL;
+	}
+
+	if ((cipher_offset - auth_offset) > 1024) {
+		dao_err("Cipher and auth offsets difference exceed 1024 bytes.");
+		return -EINVAL;
+	}
+
+	if ((cipher_offset - auth_offset) & 0x7) {
+		dao_err("Cipher and auth offsets difference is not multiple of 8 bytes.");
+		return -EINVAL;
+	}
+
+	if ((auth_offset + auth_len) < (cipher_offset + cipher_len)) {
+		dao_err("Cipher end offset is more than auth end offset.");
+		return -EINVAL;
+	}
+
+	if ((auth_offset + auth_len) - (cipher_offset + cipher_len) > 56) {
+		dao_err("Auth end offset is more than 56 bytes after cipher end offset.");
+		return -EINVAL;
+	}
+
+	if (auth_offset + auth_len > op->in_buffer->total_len) {
+		dao_err("Auth offset and length exceed input buffer total length.");
+		return -EINVAL;
+	}
+
+	if (op->aad_len != 0) {
+		dao_err("AAD length must be zero for cipher auth operation.");
+		return -EINVAL;
+	}
+
+	if ((sess_meta->digest_len != 0) && (op->digest == NULL))
+		digest_len_in_pkt = sess_meta->digest_len;
+
+	total_len_reqd = auth_offset + auth_len + digest_len_in_pkt;
+
+	if (op->out_buffer != NULL) {
+		if (op->encrypt) {
+			if (op->in_buffer->total_len != auth_offset + auth_len) {
+				dao_err("Auth region and input region (without digest) must end at the same point.");
+				return -EINVAL;
+			}
+		} else {
+			if (op->in_buffer->total_len < total_len_reqd) {
+				dao_err("Input buffer total length is less than required length.");
+				return -EINVAL;
+			}
+		}
+
+		if (op->out_buffer->total_len < auth_offset + auth_len) {
+			dao_err("Output buffer total length is less than required length.");
+			return -EINVAL;
+		}
+	} else {
+		if (op->in_buffer->total_len != total_len_reqd) {
+			dao_err("Auth region and input region (without digest) must end at the same point.");
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+static int
 lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 			const struct dao_lc_sym_sess_meta *sess_meta)
 {
@@ -622,7 +782,7 @@ static inline bool
 lc_sym_op_is_empty_buf_allowed(enum lc_crypto_op_type op_type)
 {
 	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) ||
-	    (op_type == LC_SYM_OP_AEAD))
+	    (op_type == LC_SYM_OP_AEAD) || (op_type == LC_SYM_OP_CIPHER_AUTH))
 		return true;
 
 	return false;
@@ -751,6 +911,9 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 			return ret;
 		break;
 	case LC_SYM_OP_CIPHER_AUTH:
+		ret = lc_sym_op_cipher_auth_validate(op, sess_meta);
+		if (ret)
+			return ret;
 		break;
 	case LC_SYM_OP_AEAD:
 		ret = lc_sym_op_aead_validate(op, sess_meta);

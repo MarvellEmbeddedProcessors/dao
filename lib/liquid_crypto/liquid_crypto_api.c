@@ -2030,14 +2030,139 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 }
 
 static inline uint16_t
+dao_lc_sym_prepare_ops_single_cipher_auth(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
+					  struct rte_mbuf *mbuf, uint32_t req_idx,
+					  const struct dao_lc_sym_sess_meta *sess_meta,
+					  const enum lc_crypto_op_type op_type)
+{
+	uint32_t buf_len, lc_buf_offset = 0, off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len;
+	uint16_t pkt_iv_len, digest_len;
+	const uint32_t iv_offset = 0;
+	struct __dao_lc_req_sym *req;
+	uint64_t *offset_vaddr;
+	union cpt_inst_w4 w4;
+	uint8_t *dptr;
+
+	cipher_len = op->cipher_len;
+	auth_len = op->auth_len;
+	cipher_offset = op->cipher_offset;
+	auth_offset = op->auth_offset;
+	pkt_iv_len = sess_meta->pkt_iv_len;
+	digest_len = sess_meta->digest_len;
+	qp->req_queue[req_idx].digest = op->digest;
+	if (op->encrypt)
+		qp->req_queue[req_idx].digest_len = digest_len;
+
+	qp->req_queue[req_idx].op_type = op_type;
+
+	if (op->out_buffer != NULL)
+		qp->req_queue[req_idx].data_out = op->out_buffer;
+	else
+		qp->req_queue[req_idx].data_out = op->in_buffer;
+
+	lc_buf_offset = op->auth_offset;
+	/* Input length starting from memory pointed by DPTR */
+	dlen = off_ctrl_len + pkt_iv_len + op->in_buffer->total_len - lc_buf_offset;
+	if ((op->digest != NULL) || (op->digest == NULL && op->out_buffer != NULL && op->encrypt))
+		dlen += digest_len;
+	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rte_errno = ENOMEM;
+		return 0;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data too large. buf_len = %u", buf_len);
+		rte_errno = ENOMEM;
+		return 0;
+	}
+#endif
+
+	/* Append transport header to mbuf */
+	req = (struct __dao_lc_req_sym *)rte_pktmbuf_append(mbuf, buf_len);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+	req->op_type = op_type;
+
+	/* Add instruction */
+	w4.u64 = sess_meta->w4;
+	w4.s.param1 = cipher_len;
+	w4.s.param2 = auth_len;
+
+	if (op->encrypt)
+		w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_ENCRYPT;
+	else
+		w4.s.opcode_minor |= ROC_SE_FC_MINOR_OP_DECRYPT;
+
+	if (op->encrypt) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		if (dlen < digest_len) {
+			dao_err("dlen is less than digest_len. dlen = %u, digest_len = %u", dlen,
+				digest_len);
+			rte_errno = EINVAL;
+			return 0;
+		}
+#endif
+		w4.s.dlen = dlen - digest_len;
+	} else {
+		w4.s.dlen = dlen;
+	}
+
+	req->w4 = w4.u64;
+	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
+
+	/* Add data */
+	dptr = req->dptr;
+
+	qp->req_queue[req_idx].lc_buf_offset = cipher_offset;
+	qp->req_queue[req_idx].cipher_len = cipher_len;
+
+	cipher_offset = iv_offset + pkt_iv_len + (cipher_offset - auth_offset);
+	auth_offset = iv_offset + pkt_iv_len;
+
+	qp->req_queue[req_idx].result_offset = cipher_offset;
+
+	if (off_ctrl_len != 0) {
+		offset_vaddr = (uint64_t *)dptr;
+
+		/**
+		 * TODO: For some algorithms, IV length can be specified as part of
+		 * OFFSET_CTRL_WORD Bits 36:32
+		 */
+		*(uint64_t *)offset_vaddr =
+			rte_cpu_to_be_64(((uint64_t)cipher_offset << 16) |
+					 ((uint64_t)iv_offset << 8) | ((uint64_t)auth_offset));
+		dptr += off_ctrl_len;
+	}
+	dptr += iv_offset;
+
+	dao_lc_sym_copy_iv(sess_meta, op, dptr);
+	dptr += pkt_iv_len;
+
+	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
+					   op->in_buffer->total_len - lc_buf_offset, true);
+
+	if ((!op->encrypt) && (op->digest != NULL && digest_len != 0))
+		memcpy(dptr + op->in_buffer->total_len - lc_buf_offset, op->digest, digest_len);
+
+	return 1;
+}
+
+static inline uint16_t
 dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *op,
 			      struct rte_mbuf *mbuf, uint32_t req_idx,
 			      const struct dao_lc_sym_sess_meta *sess_meta,
 			      const enum lc_crypto_op_type op_type)
 {
-	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len, off_ctrl_len;
+	uint32_t buf_len, lc_buf_offset = 0, off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
+	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len;
 	uint16_t pkt_iv_len, aad_len, digest_len;
-	uint32_t buf_len, lc_buf_offset = 0;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
 	bool is_aead_op_type = false;
@@ -2051,7 +2176,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		auth_len = 0;
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = 0;
-		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 	} else if (op_type == LC_SYM_OP_AEAD) {
 		is_aead_op_type = true;
 		aad_len = op->aad_len;
@@ -2059,7 +2183,6 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		auth_len = cipher_len + aad_len;
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = sess_meta->digest_len;
-		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 		qp->req_queue[req_idx].digest = op->digest;
 		if (op->encrypt)
 			qp->req_queue[req_idx].digest_len = digest_len;
@@ -2107,7 +2230,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 
 	/* Add instruction */
 	w4.u64 = sess_meta->w4;
-	w4.s.param1 = op->cipher_len;
+	w4.s.param1 = cipher_len;
 	w4.s.param2 = auth_len;
 
 	if (op->encrypt)
@@ -2312,8 +2435,8 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 				qp, op, mbufs[i], req_idx, sess_meta, LC_SYM_OP_AUTH_ONLY);
 			break;
 		case LC_SYM_OP_CIPHER_AUTH:
-			ret = dao_lc_sym_prepare_ops_single(qp, op, mbufs[i], req_idx, sess_meta,
-							    LC_SYM_OP_CIPHER_AUTH);
+			ret = dao_lc_sym_prepare_ops_single_cipher_auth(
+				qp, op, mbufs[i], req_idx, sess_meta, LC_SYM_OP_CIPHER_AUTH);
 			break;
 		case LC_SYM_OP_HMAC_AUTH_ONLY:
 			ret = dao_lc_sym_prepare_ops_single_auth_only(

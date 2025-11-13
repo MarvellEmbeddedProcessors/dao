@@ -165,6 +165,23 @@ AEAD Algorithms
 | CHACHA-POLY1305 | 256 bits       | 16 bytes      | 12 bytes      | 0 - 1024 bytes  |
 +-----------------+----------------+---------------+---------------+-----------------+
 
+Chained Cipher Auth Algorithms
+++++++++++++++++++++++++++++++
+
++-------------------+----------------+---------------+---------------+
+| Cipher Algorithm  | Authentication | Key Size      | IV Length     |
+|                   | Algorithm      |               |               |
++===================+================+===============+===============+
+| AES-CBC           | SHA1-HMAC      | 128 bits      | 16 bytes      |
+|                   |                +---------------+               +
+|                   |                | 192 bits      |               |
+|                   |                +---------------+               +
+|                   |                | 256 bits      |               |
++-------------------+----------------+---------------+---------------+
+
+.. note::
+   * Only encrypt-then-authenticate mode is currently supported.
+
 Random Number Generation (RNG)
 ++++++++++++++++++++++++++++++
 
