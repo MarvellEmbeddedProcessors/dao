@@ -41,6 +41,8 @@ struct test_sym_params {
 	uint16_t output_len;
 	uint16_t cipher_offset;
 	uint16_t auth_offset;
+	uint16_t cipher_len;
+	uint16_t auth_len;
 };
 
 #endif /* __LC_TEST_SYM_H__ */

@@ -218,6 +218,7 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 	uint32_t key_data_len, wrap_key_len, pad_len = 0;
 	const struct test_sym_params *params = data;
 	struct dao_lc_sym_ctx ctx = params->ctx;
+	int max_offset = TEST_LC_MAX_OFFSET;
 	uint8_t dev_id = glb_params.dev_id;
 	struct dao_lc_buf out_buf[1] = {0};
 	uint16_t qp_id = glb_params.qp_id;
@@ -230,7 +231,6 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 	uint32_t expected_err_code;
 	struct dao_lc_buf *dst_buf;
 	struct dao_lc_cmd_event ev;
-	int max_offset = 32;
 	uint64_t op_cookie;
 	int ret, i;
 
@@ -537,8 +537,8 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 	struct dao_lc_cmd_event ev;
 	struct dao_lc_buf *dst_buf;
 	size_t max_len, total_len;
-	uint16_t digest_len = 0;
 	struct dao_lc_res res[1];
+	uint16_t digest_len = 0;
 
 	ctx.iv_len = params->iv.len;
 	sess_cookie = rte_rand();
@@ -679,6 +679,8 @@ test_block_cipher_only(const void *data, bool is_encrypt, bool is_oop, bool is_d
 
 		op[0].cipher_offset = params->cipher_offset + i;
 		op[0].cipher_len = params->ciphertext.len;
+		op[0].auth_offset = params->auth_offset + i;
+		op[0].auth_len = params->ciphertext.len;
 
 		if (params->iv.len == 0) {
 			TEST_LC_ERR("Invalid IV data or length");
@@ -872,6 +874,309 @@ test_block_cipher_only_decrypt_oop(const void *data)
 	}
 
 	return test_block_cipher_only(data, false, true, false);
+}
+
+static int
+test_block_cipher_auth(const void *data, bool is_encrypt, bool is_oop, bool is_digest_separate)
+{
+	uint8_t out_buf_data[TEST_LC_MAX_CIPHERTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+			     TEST_LC_MAX_OFFSET] = {0};
+	uint8_t in_buf_data[TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+			    TEST_LC_MAX_OFFSET] = {0};
+	uint32_t in_data_len, out_data_len, decrypt_result_len;
+	uint8_t digest_buf[TEST_LC_MAX_DIGEST_LEN] = {0};
+	int ret, i, max_offset = TEST_LC_MAX_OFFSET;
+	const struct test_sym_params *params = data;
+	struct dao_lc_sym_ctx ctx = params->ctx;
+	uint8_t dev_id = glb_params.dev_id;
+	struct dao_lc_buf out_buf[1] = {0};
+	uint16_t qp_id = glb_params.qp_id;
+	struct dao_lc_buf in_buf[1] = {0};
+	struct dao_lc_sym_op op[1] = {0};
+	uint64_t sess_cookie, op_cookie;
+	uint8_t *result_buffer = NULL;
+	uint8_t *digest_result = NULL;
+	struct dao_lc_cmd_event ev;
+	struct dao_lc_buf *dst_buf;
+	size_t max_len, total_len;
+	struct dao_lc_res res[1];
+	uint16_t digest_len = 0;
+
+	ctx.is_chained_cipher = true;
+	ctx.iv_len = params->iv.len;
+	sess_cookie = rte_rand();
+	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not create session");
+		return -1;
+	}
+
+	ret = sess_event_dequeue(dev_id, &ev);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue session event");
+		return -1;
+	}
+
+	TEST_ASSERT(ev.event_type == DAO_LC_CMD_EVENT_SESS_CREATE, "Invalid event type");
+	TEST_ASSERT(ev.sess_event.sess_id != DAO_LC_SESS_ID_INVALID, "Invalid session ID");
+	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
+
+	/* Perform crypto operation */
+	op[0].sess_id = ev.sess_event.sess_id;
+	digest_len = params->ctx.fc.mac_len;
+
+	for (i = 0; i < max_offset; i++) {
+		/* Clearing buffers for each iteration */
+		memset(in_buf_data, 0, sizeof(in_buf_data));
+		memset(out_buf_data, 0, sizeof(out_buf_data));
+
+		if (is_encrypt)
+			in_data_len = i + params->plaintext.len;
+		else
+			in_data_len = i + params->cipher_offset + params->ciphertext.len;
+
+		if (in_data_len > TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_OFFSET) {
+			TEST_LC_ERR("Input buffer size exceeded for offset %d", i);
+			goto exit;
+		}
+
+		in_buf[0].data = in_buf_data;
+		in_buf[0].frag_len = in_data_len;
+		op[0].in_buffer = in_buf;
+		total_len = in_data_len + digest_len;
+
+		if (is_oop) {
+			if (is_encrypt)
+				out_data_len = i + params->cipher_offset + params->ciphertext.len;
+			else
+				out_data_len = i + params->plaintext.len;
+
+			dst_buf = out_buf;
+			dst_buf[0].data = out_buf_data;
+			dst_buf[0].frag_len = out_data_len;
+			op[0].out_buffer = out_buf;
+
+			/*
+			 * As, in-place digest is stored in in_buf_data[] and in OOP
+			 * it is stored in out_buf_data[] and each buffer has
+			 * different capacity different limit checks are used.
+			 */
+			max_len = TEST_LC_MAX_CIPHERTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+				  TEST_LC_MAX_OFFSET;
+		} else {
+			dst_buf = in_buf;
+			op[0].out_buffer = NULL;
+			max_len = TEST_LC_MAX_PLAINTEXT_LEN + TEST_LC_MAX_DIGEST_LEN +
+				  TEST_LC_MAX_OFFSET;
+		}
+
+		if (is_encrypt) {
+			op[0].encrypt = true;
+			memcpy(in_buf_data + i, params->plaintext.data, params->plaintext.len);
+
+			if (is_digest_separate) {
+				memset(digest_buf, 0, TEST_LC_MAX_DIGEST_LEN);
+				op[0].digest = digest_buf;
+			} else {
+				if (total_len > max_len) {
+					TEST_LC_ERR("Digest buffer too small for offset %d", i);
+					goto exit;
+				}
+				if (is_oop)
+					dst_buf[0].frag_len += digest_len;
+				else
+					in_buf[0].frag_len += digest_len;
+			}
+		} else {
+			op[0].encrypt = false;
+			/*
+			 * Copy plaintext from auth offset to cipher offset - Needed for
+			 * authentication
+			 */
+			memcpy(in_buf_data + i + params->auth_offset,
+			       params->plaintext.data + params->auth_offset,
+			       params->cipher_offset - params->auth_offset);
+			/* Copy ciphertext */
+			memcpy(in_buf_data + i + params->cipher_offset, params->ciphertext.data,
+			       params->ciphertext.len);
+
+			if (is_digest_separate) {
+				memcpy(digest_buf, params->digest_data, digest_len);
+				op[0].digest = digest_buf;
+			} else {
+				if (total_len > max_len) {
+					TEST_LC_ERR("Digest buffer too small for offset %d", i);
+					goto exit;
+				}
+
+				memcpy(in_buf_data + i + params->cipher_offset +
+					       params->ciphertext.len,
+				       params->digest_data, digest_len);
+				in_buf[0].frag_len += digest_len;
+			}
+		}
+
+		in_buf[0].total_len = in_buf[0].frag_len;
+		dst_buf[0].total_len = dst_buf[0].frag_len;
+
+		op[0].cipher_offset = params->cipher_offset + i;
+		op[0].cipher_len = params->cipher_len ? params->cipher_len : params->ciphertext.len;
+		op[0].auth_offset = params->auth_offset + i;
+		op[0].auth_len = params->auth_len ? params->auth_len : params->ciphertext.len;
+
+		if (params->iv.len == 0) {
+			TEST_LC_ERR("Invalid IV data or length");
+			return -1;
+		}
+		op[0].cipher_iv = (uint8_t *)params->iv.data;
+
+		op_cookie = rte_rand();
+		op[0].op_cookie = op_cookie;
+
+		ret = dao_liquid_crypto_sym_enqueue_burst(dev_id, qp_id, op, 1);
+		if (ret != 1) {
+			TEST_LC_ERR("Could not enqueue symmetric crypto operation");
+			return -1;
+		}
+
+		ret = op_dequeue(dev_id, qp_id, res);
+		if (ret < 0) {
+			TEST_LC_ERR("Could not dequeue symmetric crypto operation");
+			return -1;
+		}
+
+		TEST_ASSERT(res[0].op_cookie == op_cookie, "Invalid operation cookie");
+		TEST_ASSERT(res[0].res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+			    "Crypto operation failed");
+		TEST_ASSERT(res[0].res.cn9k.uc_compcode == DAO_UC_SUCCESS,
+			    "Symmetric operation failed");
+
+		result_buffer = (uint8_t *)dst_buf[0].data + i + params->cipher_offset;
+		if (is_encrypt) {
+			ret = memcmp(result_buffer, params->ciphertext.data,
+				     params->ciphertext.len);
+			if (ret != 0) {
+				TEST_LC_ERR("Invalid result for offset %d", i);
+				rte_hexdump(stdout, "RESULT: ", result_buffer,
+					    params->ciphertext.len);
+				rte_hexdump(stdout, "EXPECTED: ", params->ciphertext.data,
+					    params->ciphertext.len);
+				return -1;
+			}
+
+			if (is_digest_separate)
+				digest_result = op[0].digest;
+			else
+				digest_result = result_buffer + params->ciphertext.len;
+
+			ret = memcmp(digest_result, params->digest_data, digest_len);
+			if (ret != 0) {
+				TEST_LC_ERR("Invalid digest for offset %d", i);
+				rte_hexdump(stdout, "RESULT digest: ", digest_result, digest_len);
+				rte_hexdump(stdout, "EXPECTED digest: ", params->digest_data,
+					    digest_len);
+				return -1;
+			}
+		} else {
+			if (params->cipher_len > 0)
+				decrypt_result_len = params->cipher_len;
+			else
+				decrypt_result_len = params->plaintext.len - params->cipher_offset;
+
+			ret = memcmp(result_buffer, params->plaintext.data + params->cipher_offset,
+				     decrypt_result_len);
+			if (ret != 0) {
+				TEST_LC_ERR("Invalid result for offset %d", i);
+				rte_hexdump(stdout, "RESULT: ", result_buffer, decrypt_result_len);
+				rte_hexdump(stdout, "EXPECTED: ",
+					    params->plaintext.data + params->cipher_offset,
+					    decrypt_result_len);
+				return -1;
+			}
+		}
+	}
+
+	sess_cookie = rte_rand();
+	ret = dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id,
+						 sess_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not destroy session");
+		return -1;
+	}
+
+	ret = sess_event_dequeue(dev_id, &ev);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue session event");
+		return -1;
+	}
+
+	TEST_ASSERT(ev.event_type == DAO_LC_CMD_EVENT_SESS_DESTROY, "Invalid event type");
+	TEST_ASSERT(ev.sess_event.sess_cookie == sess_cookie, "Invalid operation cookie");
+
+	return 0;
+
+exit:
+	/* clean-up path in case of early error */
+	dao_liquid_crypto_sym_sess_destroy(glb_params.dev_id, ev.sess_event.sess_id, sess_cookie);
+	sess_event_dequeue(dev_id, &ev);
+	return -1;
+}
+
+static int
+test_block_cipher_auth_encrypt(const void *data)
+{
+	int ret = 0;
+
+	ret = test_block_cipher_auth(data, true, false, true);
+
+	if (ret < 0) {
+		TEST_LC_ERR("Chained Cipher test failed for separate digest mode");
+		return ret;
+	}
+
+	return test_block_cipher_auth(data, true, false, false);
+}
+
+static int
+test_block_cipher_auth_decrypt(const void *data)
+{
+	int ret = 0;
+
+	ret = test_block_cipher_auth(data, false, false, true);
+	if (ret < 0) {
+		TEST_LC_ERR("Chained Cipher test failed for separate digest mode");
+		return ret;
+	}
+
+	return test_block_cipher_auth(data, false, false, false);
+}
+
+static int
+test_block_cipher_auth_encrypt_oop(const void *data)
+{
+	int ret = 0;
+
+	ret = test_block_cipher_auth(data, true, true, true);
+	if (ret < 0) {
+		TEST_LC_ERR("Chained Cipher test failed for separate digest mode");
+		return ret;
+	}
+
+	return test_block_cipher_auth(data, true, true, false);
+}
+
+static int
+test_block_cipher_auth_decrypt_oop(const void *data)
+{
+	int ret = 0;
+
+	ret = test_block_cipher_auth(data, false, true, true);
+	if (ret < 0) {
+		TEST_LC_ERR("Chained Cipher test failed for separate digest mode");
+		return ret;
+	}
+
+	return test_block_cipher_auth(data, false, true, false);
 }
 
 struct unit_test_suite lc_testsuite_sym = {
@@ -1366,6 +1671,42 @@ struct unit_test_suite lc_testsuite_sym = {
 			"Unwrap 2400 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
 			ut_setup, ut_teardown, test_aes_key_unwrap_pad,
 			&aes_keywrap_192_kek_2400B_key_with_A6),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Encrypt", ut_setup, ut_teardown,
+					  test_block_cipher_auth_encrypt,
+					  &aes_cbc_128_sha1_hmac_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Decrypt", ut_setup, ut_teardown,
+					  test_block_cipher_auth_decrypt,
+					  &aes_cbc_128_sha1_hmac_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Encrypt OOP", ut_setup,
+					  ut_teardown, test_block_cipher_auth_encrypt_oop,
+					  &aes_cbc_128_sha1_hmac_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Decrypt OOP", ut_setup,
+					  ut_teardown, test_block_cipher_auth_decrypt_oop,
+					  &aes_cbc_128_sha1_hmac_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Zero Length Encrypt", ut_setup,
+					  ut_teardown, test_block_cipher_auth_encrypt,
+					  &aes_cbc_128_sha1_hmac_empty_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Zero Length Decrypt", ut_setup,
+					  ut_teardown, test_block_cipher_auth_decrypt,
+					  &aes_cbc_128_sha1_hmac_empty_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Zero Length Encrypt OOP", ut_setup,
+					  ut_teardown, test_block_cipher_auth_encrypt_oop,
+					  &aes_cbc_128_sha1_hmac_empty_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Zero Length Decrypt OOP", ut_setup,
+					  ut_teardown, test_block_cipher_auth_decrypt_oop,
+					  &aes_cbc_128_sha1_hmac_empty_test_data),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Encrypt Offset", ut_setup,
+					  ut_teardown, test_block_cipher_auth_encrypt,
+					  &aes_cbc_128_sha1_hmac_offsets_test_data_1),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Decrypt Offset", ut_setup,
+					  ut_teardown, test_block_cipher_auth_decrypt,
+					  &aes_cbc_128_sha1_hmac_offsets_test_data_1),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Encrypt OOP Offset", ut_setup,
+					  ut_teardown, test_block_cipher_auth_encrypt_oop,
+					  &aes_cbc_128_sha1_hmac_offsets_test_data_1),
+		TEST_CASE_NAMED_WITH_DATA("AES-CBC-128_HMAC-SHA1 Decrypt OOP Offset", ut_setup,
+					  ut_teardown, test_block_cipher_auth_decrypt_oop,
+					  &aes_cbc_128_sha1_hmac_offsets_test_data_1),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
