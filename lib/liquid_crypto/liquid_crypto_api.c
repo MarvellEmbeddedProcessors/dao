@@ -3364,6 +3364,18 @@ idx_put:
 	return rc;
 }
 
+static inline int
+cpt_ae_rsa_oaep_label_len_validate(uint16_t label_len)
+{
+	if (label_len > DAO_LC_RSA_OAEP_MAX_LABEL_LEN) {
+		dao_err("Invalid label length. label_len=%u (maximum allowed: %u).", label_len,
+			DAO_LC_RSA_OAEP_MAX_LABEL_LEN);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 int
 dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
 				      uint16_t label_len, enum dao_lc_hash_type hash_type,
@@ -3383,6 +3395,12 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	uint16_t buf_len;
 	uint8_t *dptr;
 	int rc;
+
+	rc = cpt_ae_rsa_oaep_label_len_validate(label_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. label_len exceeds maximum allowed length.");
+		return rc;
+	}
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
@@ -3443,14 +3461,14 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	rc = cpt_ae_rsa_msw_check(mod_len, mod);
 	if (rc != 0) {
 		dao_err("Invalid argument. MSW of modulus must be non-zero.");
-		return -EINVAL;
+		return rc;
 	}
 
 	rc = cpt_ae_rsa_oaep_hash_type_check(hash_type);
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_rsa_oaep_label_len_check(label, label_len);
+	rc = cpt_ae_rsa_oaep_label_validate(label, label_len);
 	if (rc != 0)
 		return rc;
 #endif
@@ -3574,6 +3592,12 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	uint8_t *dptr;
 	int rc;
 
+	rc = cpt_ae_rsa_oaep_label_len_validate(label_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. label_len exceeds maximum allowed length.");
+		return rc;
+	}
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
@@ -3630,10 +3654,14 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	rc = cpt_ae_rsa_msw_check(mod_len, mod);
 	if (rc != 0) {
 		dao_err("Invalid argument. MSW of modulus must be non-zero.");
-		return -EINVAL;
+		return rc;
 	}
 
 	rc = cpt_ae_rsa_oaep_hash_type_check(hash_type);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_oaep_label_validate(label, label_len);
 	if (rc != 0)
 		return rc;
 #endif
@@ -3647,6 +3675,20 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 #endif
 		return -ENOSPC;
 	}
+
+	/* Reserve extra space in the mbuf for the output message because we do not know
+	 * the actual length of the data. The reserved space is based on the
+	 * maximum possible message length.
+	 */
+	msg_len_max = cpt_ae_rsa_oaep_msg_len_max(mod_len, hash_type);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (msg_len_max < 0) {
+		dao_err("Failed to get maximum message length.");
+		rc = -EINVAL;
+		goto idx_put;
+	}
+#endif
+
 	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (unlikely(mbuf == NULL)) {
@@ -3671,18 +3713,6 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	/* RSA decrypt */
 	buf_len += dlen;
 	total_bufdata_len = dlen + label_len + 8;
-	/* Reserve extra space in the mbuf for the output message because we do not know
-	 * the actual length of the data. The reserved space is based on the
-	 * maximum possible message length.
-	 */
-	msg_len_max = cpt_ae_rsa_oaep_msg_len_max(mod_len, hash_type);
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (msg_len_max < 0) {
-		dao_err("Failed to get maximum message length.");
-		rc = msg_len_max;
-		goto idx_put;
-	}
-#endif
 
 	if (msg_len_max > total_bufdata_len) {
 		rsvd_space = msg_len_max - total_bufdata_len;

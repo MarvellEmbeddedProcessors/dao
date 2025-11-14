@@ -40,6 +40,8 @@
 #define DAO_LC_AES_MAX_KEY_ENC_KEY_LEN 32
 /** AES Key Wrap IV length */
 #define DAO_LC_AES_KEY_WRAP_IV_LEN 8
+/** Maximum supported label length for RSA OAEP */
+#define DAO_LC_RSA_OAEP_MAX_LABEL_LEN 1024
 
 /**
  * The liquid crypto buffer
@@ -1488,6 +1490,7 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  *  If not required, it can be set to NULL.
  * @param label_len
  *  The length of the label in bytes. If no label is used, this should be set to 0.
+ *  Maximum supported label length is DAO_LC_RSA_OAEP_MAX_LABEL_LEN bytes.
  * @param hash_type
  *  The hash algorithm to be used in the OAEP padding scheme. Supported hash types are:
  *   -DAO_LC_HASH_TYPE_SHA1
@@ -1564,6 +1567,7 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *  If not required, it can be set to NULL.
  * @param label_len
  *  The length of the label in bytes. If no label is used, this should be set to 0.
+ *  Maximum supported label length is DAO_LC_RSA_OAEP_MAX_LABEL_LEN bytes.
  * @param hash_type
  *  The hash algorithm to be used in the OAEP padding scheme. Supported hash types are:
  *   -DAO_LC_HASH_TYPE_SHA1

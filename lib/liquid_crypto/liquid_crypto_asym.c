@@ -284,7 +284,7 @@ cpt_ae_oaep_msg_and_mod_len_check(uint16_t mod_len, uint16_t msg_len,
 }
 
 int
-cpt_ae_rsa_oaep_label_len_check(uint8_t *label, uint16_t label_len)
+cpt_ae_rsa_oaep_label_validate(uint8_t *label, uint16_t label_len)
 {
 	if (label_len > 0 && label == NULL) {
 		dao_err("Invalid label. If label_len > 0, label cannot be NULL.");
