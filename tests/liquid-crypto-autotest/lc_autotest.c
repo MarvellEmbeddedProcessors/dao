@@ -171,6 +171,12 @@ main(int argc, char **argv)
 		feature_params.ecc.sign_s_len = TEST_LC_MAX_ECC_SIGN_LEN;
 		feature_params.sym.key_wrap_len = TEST_LC_MAX_KEY_DATA_LEN;
 		feature_params.sym.kek_len = TEST_LC_MAX_KEK_LEN;
+		feature_params.rsa_oaep.is_rsa_oaep_enabled = 1;
+		feature_params.rsa_oaep.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
+		feature_params.rsa_oaep.exp_len = TEST_LC_MAX_RSA_MOD_LEN;
+		feature_params.rsa_oaep.msg_len = TEST_LC_RSA_OAEP_MAX_MSG_LEN_FOR_SHA1;
+		feature_params.rsa_oaep.label_len = TEST_LC_RSA_OAEP_MAX_LABEL_LEN;
+		feature_params.rsa_oaep.hash_type = DAO_LC_HASH_TYPE_SHA1;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {
