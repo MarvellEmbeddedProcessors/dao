@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <rte_alarm.h>
 #include <rte_common.h>
@@ -44,10 +45,9 @@ static int host_dev_fini(void);
 static void
 signal_handler(int signum)
 {
-	CA_INFO("\n");
+	/* Only set flag in signal handler - do NOT call non-async-signal-safe functions */
 	if (signum == SIGINT || signum == SIGTERM) {
-		CA_INFO("Signal %d received, preparing to exit...\n", signum);
-		dao_card_grpc_server_stop();
+		force_quit = true;
 	}
 }
 
@@ -738,9 +738,23 @@ static struct dao_card_server_cbs card_cbs = {
 	.q_destroy_cb = ca_eth_dev_q_destroy,
 };
 
+static void *
+signal_monitor_thread(__rte_unused void *arg)
+{
+	/* Monitor force_quit flag and trigger graceful shutdown */
+	while (!force_quit)
+		usleep(100000); /* Check every 100ms */
+
+	CA_INFO("\nSignal received, preparing to exit...\n");
+	dao_card_grpc_server_stop();
+
+	return NULL;
+}
+
 int
 main(int argc, char **argv)
 {
+	pthread_t monitor_thread;
 	int rc;
 
 	(void)argc;
@@ -757,12 +771,23 @@ main(int argc, char **argv)
 		return rc;
 	}
 
-	/* This is blocking call. We need another thread to stop the server. */
+	/* Create a monitoring thread to handle shutdown gracefully */
+	if (pthread_create(&monitor_thread, NULL, signal_monitor_thread, NULL) != 0) {
+		CA_ERR("Could not create signal monitor thread");
+		return -1;
+	}
+
+	/* This is blocking call. The monitor thread will stop the server on signal. */
 	rc = dao_card_grpc_server_run();
 	if (rc) {
 		CA_ERR("Could not run grpc server: %d", rc);
+		force_quit = true;
+		pthread_join(monitor_thread, NULL);
 		return rc;
 	}
+
+	/* Wait for monitor thread to complete */
+	pthread_join(monitor_thread, NULL);
 
 	card_fini();
 
