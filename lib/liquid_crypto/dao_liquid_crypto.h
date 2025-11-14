@@ -740,6 +740,33 @@ struct dao_lc_feature_params {
 	} ecc;
 
 	/**
+	 * RSA OAEP asymmetric parameters. The parameters are used to calculate the size of the
+	 * maximum segment size for RSA OAEP operations.
+	 *
+	 * For using following APIs the corresponding parameters must be set:
+	 * - `dao_liquid_crypto_enq_op_rsa_oaep_enc()`
+	 * - `dao_liquid_crypto_enq_op_rsa_oaep_exp_dec()`
+	 * For valid RSA OAEP operations:
+	 *   - msg_len must satisfy: msg_len <= mod_len - 2*hash_length - 2
+	 *   - mod_len must satisfy: mod_len >= msg_len + 2*hash_length + 2
+	 *   - Only certain hash types are valid for OAEP operations (SHA-1, SHA-256, etc.)
+	 */
+	struct {
+		/** Specifies whether RSA OAEP enabled or not */
+		uint8_t is_rsa_oaep_enabled;
+		/** Modulus length in bytes */
+		uint16_t mod_len;
+		/** Exponent length in bytes */
+		uint16_t exp_len;
+		/** Message length in bytes (must follow OAEP constraints) */
+		uint16_t msg_len;
+		/** Label length */
+		uint16_t label_len;
+		/** Hash type used in OAEP (must be a supported hash algorithm for OAEP) */
+		enum dao_lc_hash_type hash_type;
+	} rsa_oaep;
+
+	/**
 	 * Specifies whether the size calculation is for the command queue pair.
 	 * If true, the size is calculated specifically for the command queue pair, ignoring
 	 * the symmetric and RSA asymmetric parameters.

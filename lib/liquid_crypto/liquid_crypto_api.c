@@ -651,7 +651,7 @@ uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
-	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0;
+	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
 	uint16_t req_resp_hdr_sz = 0;
 	int rc;
@@ -810,7 +810,66 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			ecc_seg_sz += sizeof(struct __dao_lc_req_asym);
 		}
 
+		if (params->rsa_oaep.is_rsa_oaep_enabled) {
+			rc = cpt_ae_oaep_msg_and_mod_len_check(params->rsa_oaep.mod_len,
+							       params->rsa_oaep.msg_len,
+							       params->rsa_oaep.hash_type);
+			if (rc != 0) {
+				dao_err("Invalid %d RSA-OAEP message length.",
+					params->rsa_oaep.msg_len);
+				return 0;
+			}
+
+			/* Message */
+			rsa_oaep_seg_sz += params->rsa_oaep.msg_len;
+
+			rc = cpt_ae_rsa_mod_len_check(params->rsa_oaep.mod_len, false);
+			if (rc != 0) {
+				dao_err("Invalid %d RSA-OAEP modulus length.",
+					params->rsa_oaep.mod_len);
+				return 0;
+			}
+
+			/* Modulus */
+			rsa_oaep_seg_sz += params->rsa_oaep.mod_len;
+
+			rc = cpt_ae_rsa_exp_len_check(params->rsa_oaep.mod_len,
+						      params->rsa_oaep.exp_len);
+			if (rc != 0) {
+				dao_err("Invalid %d RSA-OAEP exponent length.",
+					params->rsa_oaep.exp_len);
+				return 0;
+			}
+
+			/* Exponent */
+			rsa_oaep_seg_sz += params->rsa_oaep.exp_len;
+
+			rc = cpt_ae_rsa_oaep_label_len_validate(params->rsa_oaep.label_len);
+			if (rc != 0) {
+				dao_err("Invalid RSA-OAEP label length (%d). Maximum supported is %u.",
+					params->rsa_oaep.label_len, DAO_LC_RSA_OAEP_MAX_LABEL_LEN);
+				return 0;
+			}
+
+			/* OAEP Label */
+			rsa_oaep_seg_sz += params->rsa_oaep.label_len;
+
+			rc = cpt_ae_rsa_oaep_hash_type_check(params->rsa_oaep.hash_type);
+			if (rc != 0) {
+				dao_err("Invalid RSA-OAEP hash type %d.",
+					params->rsa_oaep.hash_type);
+				return 0;
+			}
+
+			/* OAEP Hash type */
+			rsa_oaep_seg_sz += sizeof(params->rsa_oaep.hash_type);
+
+			/* DAO LC ASYM header */
+			rsa_oaep_seg_sz = sizeof(struct __dao_lc_req_asym);
+		}
+
 		asym_seg_sz = RTE_MAX(rsa_seg_sz, ecc_seg_sz);
+		asym_seg_sz = RTE_MAX(asym_seg_sz, rsa_oaep_seg_sz);
 
 		if (params->rng.rand_len) {
 			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
