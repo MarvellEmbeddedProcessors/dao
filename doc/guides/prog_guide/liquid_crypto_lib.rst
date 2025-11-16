@@ -48,6 +48,10 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
+| RSA-OAEP       | max: 1024 bytes  |
+|                +------------------+
+|                | Encrypt, decrypt |
++----------------+------------------+
 | RSA-CRT        | 34 - 1024 bytes  |
 |                +------------------+
 |                | Encrypt, decrypt |
@@ -58,6 +62,12 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Sign, verify     |
 +----------------+------------------+
+
+.. note::
+
+	* For RSA-OAEP operations, the modulus length must be at least twice the hash length used in OAEP padding,
+	  and not less than the minimum required for secure encryption. Ensure the input data length does not exceed
+	  the maximum allowed by the selected modulus and padding scheme.
 
 Symmetric Cryptography
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -347,6 +357,8 @@ The following APIs are used to enqueue asymmetric cryptographic operations:
 #. ``dao_liquid_crypto_enq_op_pkcs1v15dec_crt`` : Enqueue PKCS1v15 CRT decryption operation.
 #. ``dao_liquid_crypto_enq_op_ecdsa_sign`` : Enqueue ECDSA signing operation.
 #. ``dao_liquid_crypto_enq_op_ecdsa_verify`` : Enqueue ECDSA verification operation.
+#. ``dao_liquid_crypto_enq_op_rsa_oaep_enc`` : Enqueue RSA OAEP encryption operation.
+#. ``dao_liquid_crypto_enq_op_rsa_oaep_exp_dec`` : Enqueue RSA OAEP decryption (exponent method) operation.
 
 Enqueue API - Symmetric Crypto
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
