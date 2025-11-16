@@ -183,6 +183,30 @@ Random Number Generation (RNG)
    * The maximum random data length is limited by 32727 bytes.
    * Hardware Random RNG provides "true" random numbers generated from RNG circuit with a high amount of entropy.
 
+AES Key Wrap (KW) and AES Key Wrap with Padding (KWP) Algorithms
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
++-----------------+----------------+-----------------+-----------------+-------------------+-------------------+
+| Algorithm       | KEK Size       | Key Data Length | Min Data Length | Max Data Length   | Padding Support   |
++=================+================+=================+=================+===================+===================+
+| AES-KW          | 128 bits       | 8 - 3072 bytes  | 8 bytes         | 3072 bytes        | No                |
+|                 +----------------+                 +                 +                   +                   +
+|                 | 192 bits       |                 |                 |                   |                   |
+|                 +----------------+                 +                 +                   +                   +
+|                 | 256 bits       |                 |                 |                   |                   |
++-----------------+----------------+-----------------+-----------------+-------------------+-------------------+
+| AES-KWP         | 128 bits       | 1 - 3072 bytes  | 1 byte          | 3072 bytes        | Yes               |
+|                 +----------------+                 +                 +                   +                   +
+|                 | 192 bits       |                 |                 |                   |                   |
+|                 +----------------+                 +                 +                   +                   +
+|                 | 256 bits       |                 |                 |                   |                   |
++-----------------+----------------+-----------------+-----------------+-------------------+-------------------+
+
+.. note::
+
+	* AES Key Wrap (KW) algorithm does not support padding; the input data length must be a multiple of 8 bytes.
+	* Padding is supported by the AES Key Wrap with Padding (KWP) algorithm; input data can be any length from 1 to 3072 bytes.
+
 Control Plane
 -------------
 
