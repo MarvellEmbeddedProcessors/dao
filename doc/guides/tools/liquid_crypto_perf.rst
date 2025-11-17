@@ -178,6 +178,13 @@ The following are the application-specific command-line options:
 
 	The default buffer size is 64 bytes.
 
+* ``--enable-ooo``
+        Enable out-of-order completion of crypto operations.
+        out-of_order can significantly improve throughput by eliminating head-of-line blocking.
+        Particularly beneficial for variable-latency operations and high-throughput scenarios.
+        when enabled, operations may complete in a different order than they were submitted.
+        Applications must be designed to handle out-of-order completion correctly
+
 Examples
 --------
 

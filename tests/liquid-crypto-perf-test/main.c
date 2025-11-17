@@ -290,8 +290,8 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		memset(&qp_conf, 0, sizeof(qp_conf));
 
 		qp_conf.nb_desc = opts->nb_descriptors;
-		qp_conf.out_of_order_delivery_en = false;
 		qp_conf.max_seg_size = max_seg_size;
+		qp_conf.out_of_order_delivery_en = opts->enable_ooo;
 
 		for (j = 0; j < info.nb_qp[cdev_id]; j++) {
 			if (j == dev_conf.cmd_qp_idx)

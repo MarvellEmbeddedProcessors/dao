@@ -27,6 +27,7 @@
 #define LCPERF_SYM_AUTH_OP       ("auth-op")
 #define LCPERF_SYM_AUTH_ALGO     ("auth-algo")
 #define LCPERF_BUFFER_SIZE       ("buffer-size")
+#define LCPERF_ENABLE_OOO        ("enable-ooo")
 
 #define MAX_LIST 1
 
@@ -103,6 +104,9 @@ struct lcperf_options {
 
 	enum lcperf_crypto_sym_auth_op_type auth_op;
 	enum dao_lc_hash_type auth_algo;
+
+	/** Enable out-of-order delivery for performance testing */
+	bool enable_ooo;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

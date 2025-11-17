@@ -39,8 +39,12 @@ usage(char *progname)
 	       " --auth-op generate : set symmetric authentication operation type\n"
 	       " --buffer-size N : set buffer size for operations (1-%u bytes, AES requires"
 	       " multiple of %u bytes)\n"
-	       " -h: prints this help\n",
-	       progname, TEST_LC_MAX_PLAINTEXT_LEN, AES_BLOCK_SIZE);
+	       " --enable-ooo : enable out-of-order delivery for improved performance\n"
+	       "                (reduces head-of-line blocking, increases throughput)\n"
+	       " -h: prints this help\n"
+	       "\n"
+	       "Example: %s --enable-ooo --total-ops 1000000 --ptest throughput\n",
+	       progname, TEST_LC_MAX_PLAINTEXT_LEN, AES_BLOCK_SIZE, progname);
 }
 
 static int
@@ -390,6 +394,13 @@ parse_buffer_size(struct lcperf_options *opts, const char *arg)
 	return 0;
 }
 
+static int
+parse_enable_ooo(struct lcperf_options *opts, const char *arg __rte_unused)
+{
+	opts->enable_ooo = true;
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -414,6 +425,8 @@ lcperf_options_default(struct lcperf_options *opts)
 
 	opts->auth_op = LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE;
 	opts->auth_algo = DAO_LC_HASH_TYPE_SHA1;
+
+	opts->enable_ooo = false;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -438,6 +451,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_SYM_AUTH_ALGO, required_argument, 0, 0},
 				 {LCPERF_SYM_AUTH_OP, required_argument, 0, 0},
 				 {LCPERF_BUFFER_SIZE, required_argument, 0, 0},
+				 {LCPERF_ENABLE_OOO, no_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -459,6 +473,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_SYM_AUTH_ALGO, parse_sym_auth_algo},
 		{LCPERF_SYM_AUTH_OP, parse_sym_auth_op},
 		{LCPERF_BUFFER_SIZE, parse_buffer_size},
+		{LCPERF_ENABLE_OOO, parse_enable_ooo},
 	};
 	unsigned int i;
 
@@ -544,6 +559,8 @@ lcperf_options_dump(struct lcperf_options *opts)
 		}
 	}
 
+	printf("#\n");
+	printf("# Out-of-order delivery: %s\n", opts->enable_ooo ? "enabled" : "disabled");
 	printf("#\n");
 }
 
