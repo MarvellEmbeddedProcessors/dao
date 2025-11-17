@@ -688,7 +688,7 @@ uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
-	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0;
+	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0, pqc_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
 	uint16_t req_resp_hdr_sz = 0;
 	int rc;
@@ -923,9 +923,16 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 			rng_seg_size = sizeof(struct __dao_lc_req_sym) + params->rng.rand_len;
 		}
+		pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_KEM_1024_PRIV_KEY_LEN +
+							 DAO_LC_ML_KEM_SHARED_SECRET_LEN +
+							 DAO_LC_ML_KEM_1024_CIPHERTEXT_LEN);
+		pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_DSA_87_PRIV_KEY_LEN +
+							 DAO_LC_ML_DSA_87_PUB_KEY_LEN +
+							 DAO_LC_ML_DSA_87_SIGNATURE_LEN);
 
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 		max_seg_size = RTE_MAX(max_seg_size, rng_seg_size);
+		max_seg_size = RTE_MAX(max_seg_size, pqc_seg_sz);
 	}
 	max_seg_size = RTE_MAX(max_seg_size, LIQUID_CRYPTO_SEG_SZ_MIN);
 
@@ -1731,6 +1738,241 @@ idx_put:
 	return rc;
 #endif
 	RTE_SET_USED(rc);
+}
+
+int
+dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_op *op,
+			      uint64_t op_cookie)
+{
+	struct __dao_lc_req_pqc *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint8_t *dptr;
+	int rc = 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+	dev = &liquid_crypto_devs[dev_id];
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+#endif
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+
+	if (sizeof(struct __dao_lc_req_pqc) > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (op->alg >= DAO_LC_ML_PQC_ALG_END || op->alg == 0) {
+		dao_err("Unsupported PQC algorithm: %d", op->alg);
+		rc = -EINVAL;
+		goto mbuf_free;
+	}
+
+#endif
+
+	rte_pktmbuf_append(mbuf, sizeof(struct __dao_lc_req_pqc));
+
+	/* Append payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_pqc *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC;
+	req->hdr.req_idx = req_idx;
+
+	qp->req_queue[req_idx].op_cookie = op_cookie;
+
+	/* Add instruction */
+	switch (op->op_type) {
+	case DAO_LC_ML_KEM_OP_KEYGEN:
+		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_KEM;
+		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_KEM_KEYGEN;
+		w4.s.param1 = 0; /* No parameters */
+		w4.s.param2 = op->alg;
+		w4.s.dlen = 0; /* No data length for keygen */
+		req->w4 = w4.u64;
+		qp->req_queue[req_idx].keygen.pub_key = op->keygen.pub_key;
+		qp->req_queue[req_idx].keygen.priv_key = op->keygen.priv_key;
+		break;
+	case DAO_LC_ML_KEM_OP_ENCAP:
+		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_KEM;
+		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_KEM_ENCAP;
+		w4.s.param1 = 0; /* No parameters */
+		w4.s.param2 = op->alg;
+		w4.s.dlen = pqc_ml_pub_key_len[op->alg];
+		rte_pktmbuf_append(mbuf, w4.s.dlen);
+		req->w4 = w4.u64;
+		dptr = req->dptr;
+		memcpy(dptr, op->encap.enc_key, pqc_ml_pub_key_len[op->alg]);
+		qp->req_queue[req_idx].encap.shared_secret = op->encap.shared_secret;
+		qp->req_queue[req_idx].encap.ciphertext = op->encap.ciphertext;
+		break;
+	case DAO_LC_ML_KEM_OP_DECAP:
+		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_KEM;
+		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_KEM_DECAP;
+		w4.s.param1 = 0; /* No parameters */
+		w4.s.param2 = op->alg;
+		w4.s.dlen = pqc_ml_priv_key_len[op->alg] + pqc_ml_ciphertext_len[op->alg];
+		rte_pktmbuf_append(mbuf, w4.s.dlen);
+		req->w4 = w4.u64;
+		dptr = req->dptr;
+		memcpy(dptr, op->decap.dec_key, pqc_ml_priv_key_len[op->alg]);
+		dptr += pqc_ml_priv_key_len[op->alg];
+		memcpy(dptr, op->decap.ciphertext, pqc_ml_ciphertext_len[op->alg]);
+		qp->req_queue[req_idx].decap.shared_secret = op->decap.shared_secret;
+		break;
+	case DAO_LC_ML_DSA_OP_KEYGEN:
+		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_DSA;
+		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_DSA_KEYGEN;
+		w4.s.param1 = 0;           /* No parameters */
+		w4.s.param2 = op->alg - 3; /* Adjust for DSA algorithms */
+		w4.s.dlen = 0;             /* No data length for keygen */
+		req->w4 = w4.u64;
+		qp->req_queue[req_idx].keygen.pub_key = op->keygen.pub_key;
+		qp->req_queue[req_idx].keygen.priv_key = op->keygen.priv_key;
+		break;
+	case DAO_LC_ML_DSA_OP_SIGN:
+		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_DSA;
+		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_DSA_SIGN;
+		w4.s.param1 = op->sign.msg_len;
+		w4.s.param2 =
+			(op->sign.ctx_len << 2) | (op->alg - 3); /* Adjust for DSA algorithms */
+		w4.s.dlen = pqc_ml_priv_key_len[op->alg] + op->sign.ctx_len + op->sign.msg_len;
+		rte_pktmbuf_append(mbuf, w4.s.dlen);
+		req->w4 = w4.u64;
+		dptr = req->dptr;
+		memcpy(dptr, op->sign.priv_key, pqc_ml_priv_key_len[op->alg]);
+		dptr += pqc_ml_priv_key_len[op->alg];
+		memcpy(dptr, op->sign.ctx, op->sign.ctx_len);
+		dptr += op->sign.ctx_len;
+		memcpy(dptr, op->sign.msg, op->sign.msg_len);
+		qp->req_queue[req_idx].signature = op->sign.signature;
+		break;
+	case DAO_LC_ML_DSA_OP_VERIFY:
+		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_DSA;
+		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_DSA_VERIFY;
+		w4.s.param1 = op->sign.msg_len;
+		w4.s.param2 =
+			(op->sign.ctx_len << 2) | (op->alg - 3); /* Adjust for DSA algorithms */
+		w4.s.dlen = pqc_ml_pub_key_len[op->alg] + op->sign.ctx_len + op->sign.msg_len +
+			    pqc_ml_signature_len[op->alg];
+		rte_pktmbuf_append(mbuf, w4.s.dlen);
+		req->w4 = w4.u64;
+		dptr = req->dptr;
+		memcpy(dptr, op->verify.pub_key, pqc_ml_pub_key_len[op->alg]);
+		dptr += pqc_ml_pub_key_len[op->alg];
+		memcpy(dptr, op->sign.ctx, op->sign.ctx_len);
+		dptr += op->sign.ctx_len;
+		memcpy(dptr, op->sign.msg, op->sign.msg_len);
+		dptr += op->sign.msg_len;
+		memcpy(dptr, op->verify.signature, pqc_ml_signature_len[op->alg]);
+		break;
+	default:
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Unsupported PQC type: %d", op->op_type);
+#endif
+		rte_pktmbuf_free(mbuf);
+		liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+		return -EINVAL;
+	}
+	req->hdr.trs_hdr.op_len =
+		RTE_MAX(sizeof(struct __dao_lc_req_pqc) + w4.s.dlen, LIQUID_CRYPTO_BUF_SZ_MIN);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (req->hdr.trs_hdr.op_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data too large. buf_len = %u", req->hdr.trs_hdr.op_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+	return 0;
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
+static inline void
+dao_lc_post_process_pqc(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+			struct rte_mbuf *mbuf)
+{
+	struct __dao_lc_resp_pqc *resp;
+
+	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_pqc *);
+	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
+
+	switch (res->res.pqc.op_type) {
+	case DAO_LC_ML_KEM_OP_KEYGEN:
+	case DAO_LC_ML_DSA_OP_KEYGEN:
+		memcpy(req->keygen.pub_key, resp->rptr, pqc_ml_pub_key_len[res->res.pqc.alg]);
+		memcpy(req->keygen.priv_key, resp->rptr + pqc_ml_pub_key_len[res->res.pqc.alg],
+		       pqc_ml_priv_key_len[res->res.pqc.alg]);
+		break;
+	case DAO_LC_ML_KEM_OP_ENCAP:
+		memcpy(req->encap.shared_secret, resp->rptr, DAO_LC_ML_KEM_SHARED_SECRET_LEN);
+		memcpy(req->encap.ciphertext, resp->rptr + DAO_LC_ML_KEM_SHARED_SECRET_LEN,
+		       pqc_ml_ciphertext_len[res->res.pqc.alg]);
+		break;
+	case DAO_LC_ML_KEM_OP_DECAP:
+		memcpy(req->decap.shared_secret, resp->rptr, DAO_LC_ML_KEM_SHARED_SECRET_LEN);
+		break;
+	case DAO_LC_ML_DSA_OP_SIGN:
+		memcpy(req->signature, resp->rptr, pqc_ml_signature_len[res->res.pqc.alg]);
+		break;
+	case DAO_LC_ML_DSA_OP_VERIFY:
+		/* No output data for verify operation */
+		break;
+	default:
+		dao_err("Unsupported PQC operation type: %d", res->res.pqc.op_type);
+		rte_errno = EINVAL;
+		return;
+	}
 }
 
 static inline void
@@ -2691,6 +2933,9 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
 			dao_lc_post_process_asym(req, &res[i], mbuf);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
+			dao_lc_post_process_pqc(req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
 		default:

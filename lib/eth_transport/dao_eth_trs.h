@@ -66,6 +66,8 @@ enum dao_eth_trs_op_type {
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC,
 	/** Random Number Generator ops (HW RNG etc) */
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG,
+	/** PQC ML KEM/DSA crypto ops */
+	DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC,
 	/** Session create */
 	DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE,
 	/** Session destroy */

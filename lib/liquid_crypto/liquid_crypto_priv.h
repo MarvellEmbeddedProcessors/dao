@@ -92,9 +92,30 @@ struct liquid_crypto_qp {
 struct liquid_crypto_inflight_req {
 	/** Field provided by application during request submission */
 	uint64_t op_cookie;
-	/** Output buffer given for a crypto operation. */
-	void *data_out;
+	union {
+		struct {
+			/** Pointer to public key for ML KEM/DSA */
+			void *pub_key;
+			/** Pointer to private key for ML KEM/DSA */
+			void *priv_key;
+		} keygen;
+		struct {
+			/** Pointer to shared secret for ML-KEM */
+			uint8_t *shared_secret;
+			/** Pointer to ciphertext for ML-KEM */
+			uint8_t *ciphertext;
+		} encap;
+		struct {
+			/** Pointer to shared secret for ML-KEM decap */
+			uint8_t *shared_secret;
+		} decap;
 
+		/** Pointer to signature for ML-DSA */
+		uint8_t *signature;
+
+		/** Output buffer given for a crypto operation. */
+		void *data_out;
+	};
 	/** Digest location */
 	void *digest;
 

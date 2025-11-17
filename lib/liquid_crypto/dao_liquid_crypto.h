@@ -281,6 +281,17 @@ union dao_cpt_res_s {
 		uint64_t reserved_64_127;
 	} cn9k;
 
+	struct {
+		/** The return code */
+		uint8_t compcode;
+		/** The operation type */
+		uint8_t op_type;
+		/** The algorithm used */
+		uint8_t alg;
+		/** The length of the output data */
+		uint16_t data_out_len;
+	} pqc;
+
 	/** 2x 64-bit values */
 	uint64_t u64[2];
 };
@@ -367,6 +378,15 @@ struct dao_lc_res {
 			/** Length of the key data wrapped or unwrapped */
 			uint16_t wrap_unwrap_key_len;
 		} key_wrap;
+		/** Metadata associated with PQC operations */
+		struct {
+			/** The operation type */
+			uint8_t op_type;
+			/** The algorithm used */
+			uint8_t alg;
+			/** The return code */
+			uint8_t ret_code;
+		} pqc;
 		/** Generic 64-bit metadata */
 		uint64_t u64;
 	};
@@ -1268,6 +1288,233 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uin
 					     const uint8_t *q, const uint8_t *dQ, const uint8_t *p,
 					     const uint8_t *dP, const uint8_t *qInv,
 					     const uint8_t *em, uint8_t *msg, uint64_t op_cookie);
+
+/**
+ * The liquid crypto PQC algorithm.
+ * This enumeration defines the PQC ML KEM/DSA algorithms supported by the liquid crypto device.
+ */
+enum dao_lc_pqc_alg {
+	/** ML KEM 512 */
+	DAO_LC_ML_KEM_512 = 1,
+	/** ML KEM 768 */
+	DAO_LC_ML_KEM_768 = 2,
+	/** ML KEM 1024 */
+	DAO_LC_ML_KEM_1024 = 3,
+	/** ML DSA 44 */
+	DAO_LC_ML_DSA_44 = 4,
+	/** ML DSA 65 */
+	DAO_LC_ML_DSA_65 = 5,
+	/** ML DSA 87 */
+	DAO_LC_ML_DSA_87 = 6,
+	/** LAST */
+	DAO_LC_ML_PQC_ALG_END = 7,
+};
+
+/**
+ * The liquid crypto ML KEM/DSA operation type.
+ * This enumeration defines the types of ML KEM/DSA operations supported by the liquid crypto
+ * device. The ML KEM operations include key generation, encapsulation, and decapsulation. The ML
+ * DSA operations include key generation, signature generation, and signature verification.
+ */
+enum dao_lc_pqc_op_type {
+	/** ML KEM Key Generation */
+	DAO_LC_ML_KEM_OP_KEYGEN = 1,
+	/** ML KEM Encapsulation */
+	DAO_LC_ML_KEM_OP_ENCAP = 2,
+	/** ML KEM Decapsulation */
+	DAO_LC_ML_KEM_OP_DECAP = 3,
+	/** ML DSA Key Generation */
+	DAO_LC_ML_DSA_OP_KEYGEN = 4,
+	/** ML DSA Signature Generation */
+	DAO_LC_ML_DSA_OP_SIGN = 5,
+	/** ML DSA Signature Verification */
+	DAO_LC_ML_DSA_OP_VERIFY = 6,
+};
+
+#define DAO_LC_ML_KEYPAIR_SEED_LEN      (64)
+#define DAO_LC_ML_KEM_SHARED_SECRET_LEN (32)
+
+#define DAO_LC_ML_KEM_512_PUB_KEY_LEN    (800)
+#define DAO_LC_ML_KEM_512_PRIV_KEY_LEN   (1632)
+#define DAO_LC_ML_KEM_512_CIPHERTEXT_LEN (768)
+
+#define DAO_LC_ML_KEM_768_PUB_KEY_LEN    (1184)
+#define DAO_LC_ML_KEM_768_PRIV_KEY_LEN   (2400)
+#define DAO_LC_ML_KEM_768_CIPHERTEXT_LEN (1088)
+
+#define DAO_LC_ML_KEM_1024_PUB_KEY_LEN    (1568)
+#define DAO_LC_ML_KEM_1024_PRIV_KEY_LEN   (3168)
+#define DAO_LC_ML_KEM_1024_CIPHERTEXT_LEN (1568)
+
+#define DAO_LC_ML_DSA_44_PUB_KEY_LEN   (1312)
+#define DAO_LC_ML_DSA_44_PRIV_KEY_LEN  (2560)
+#define DAO_LC_ML_DSA_44_SIGNATURE_LEN (2420)
+
+#define DAO_LC_ML_DSA_65_PUB_KEY_LEN   (1952)
+#define DAO_LC_ML_DSA_65_PRIV_KEY_LEN  (4032)
+#define DAO_LC_ML_DSA_65_SIGNATURE_LEN (3309)
+
+#define DAO_LC_ML_DSA_87_PUB_KEY_LEN   (2592)
+#define DAO_LC_ML_DSA_87_PRIV_KEY_LEN  (4896)
+#define DAO_LC_ML_DSA_87_SIGNATURE_LEN (4627)
+
+static uint16_t pqc_ml_pub_key_len[] = {[DAO_LC_ML_KEM_512] = DAO_LC_ML_KEM_512_PUB_KEY_LEN,
+					[DAO_LC_ML_KEM_768] = DAO_LC_ML_KEM_768_PUB_KEY_LEN,
+					[DAO_LC_ML_KEM_1024] = DAO_LC_ML_KEM_1024_PUB_KEY_LEN,
+					[DAO_LC_ML_DSA_44] = DAO_LC_ML_DSA_44_PUB_KEY_LEN,
+					[DAO_LC_ML_DSA_65] = DAO_LC_ML_DSA_65_PUB_KEY_LEN,
+					[DAO_LC_ML_DSA_87] = DAO_LC_ML_DSA_87_PUB_KEY_LEN};
+
+static uint16_t pqc_ml_priv_key_len[] = {[DAO_LC_ML_KEM_512] = DAO_LC_ML_KEM_512_PRIV_KEY_LEN,
+					 [DAO_LC_ML_KEM_768] = DAO_LC_ML_KEM_768_PRIV_KEY_LEN,
+					 [DAO_LC_ML_KEM_1024] = DAO_LC_ML_KEM_1024_PRIV_KEY_LEN,
+					 [DAO_LC_ML_DSA_44] = DAO_LC_ML_DSA_44_PRIV_KEY_LEN,
+					 [DAO_LC_ML_DSA_65] = DAO_LC_ML_DSA_65_PRIV_KEY_LEN,
+					 [DAO_LC_ML_DSA_87] = DAO_LC_ML_DSA_87_PRIV_KEY_LEN};
+
+static uint16_t pqc_ml_signature_len[] = {
+	/** KEM does not have signature */
+	[DAO_LC_ML_KEM_512] = 0,
+	[DAO_LC_ML_KEM_768] = 0,
+	[DAO_LC_ML_KEM_1024] = 0,
+
+	[DAO_LC_ML_DSA_44] = DAO_LC_ML_DSA_44_SIGNATURE_LEN,
+	[DAO_LC_ML_DSA_65] = DAO_LC_ML_DSA_65_SIGNATURE_LEN,
+	[DAO_LC_ML_DSA_87] = DAO_LC_ML_DSA_87_SIGNATURE_LEN};
+
+static uint16_t pqc_ml_ciphertext_len[] = {
+	[DAO_LC_ML_KEM_512] = DAO_LC_ML_KEM_512_CIPHERTEXT_LEN,
+	[DAO_LC_ML_KEM_768] = DAO_LC_ML_KEM_768_CIPHERTEXT_LEN,
+	[DAO_LC_ML_KEM_1024] = DAO_LC_ML_KEM_1024_CIPHERTEXT_LEN,
+	[DAO_LC_ML_DSA_44] = 0, /* DSA does not have ciphertext */
+	[DAO_LC_ML_DSA_65] = 0, /* DSA does not have ciphertext */
+	[DAO_LC_ML_DSA_87] = 0  /* DSA does not have ciphertext */
+};
+
+static inline uint16_t
+dao_lc_pqc_pub_key_len(enum dao_lc_pqc_alg alg)
+{
+	return pqc_ml_pub_key_len[alg];
+}
+
+static inline uint16_t
+dao_lc_pqc_priv_key_len(enum dao_lc_pqc_alg alg)
+{
+	return pqc_ml_priv_key_len[alg];
+}
+
+static inline uint16_t
+dao_lc_pqc_signature_len(enum dao_lc_pqc_alg alg)
+{
+	return pqc_ml_signature_len[alg];
+}
+
+static inline uint16_t
+dao_lc_pqc_ciphertext_len(enum dao_lc_pqc_alg alg)
+{
+	return pqc_ml_ciphertext_len[alg];
+}
+
+/**
+ * The liquid crypto PQC ML KEM/DSA operation structure.
+ *
+ * This structure defines the ML KEM/DSA operation to be performed on the liquid crypto device.
+ * It includes the algorithm to be used, the type of operation (key generation, encapsulation,
+ * decapsulation, sign, or verify), and the necessary parameters for each operation type.
+ * The lengths of the keys, ciphertexts, shared secrets and signatures are defined by the
+ * ML KEM/DSA algorithm being used and are defined as macros DAO_LC_ML_KEM_* for ML-KEM and
+ * DAO_LC_ML_DSA_* for ML-DSA. Applications must allocate buffers of the appropriate
+ * lengths before calling the enqueue operation.
+ */
+struct dao_lc_pqc_op {
+	/** The PQC ML KEM/DSA algorithm to be used */
+	enum dao_lc_pqc_alg alg;
+	/** The type of PQC ML KEM/DSA operation */
+	enum dao_lc_pqc_op_type op_type;
+	union {
+		/** The key generation operation */
+		struct {
+			/** The public key for encryption/verification */
+			uint8_t *pub_key;
+			/** The private key for decryption/sign generation */
+			uint8_t *priv_key;
+			/** The optional seed of length DAO_LC_ML_KEYPAIR_SEED_LEN */
+			uint8_t *seed;
+		} keygen;
+		/** The encapsulation operation */
+		struct {
+			/** The encapsulated key */
+			const uint8_t *enc_key;
+			/** The shared secret */
+			uint8_t *shared_secret;
+			/** The ciphertext */
+			uint8_t *ciphertext;
+		} encap;
+		/** The decapsulation operation */
+		struct {
+			/** The decapsulation key */
+			const uint8_t *dec_key;
+			/** The ciphertext */
+			const uint8_t *ciphertext;
+			/** The shared secret */
+			uint8_t *shared_secret;
+		} decap;
+		/** The signature generation operation */
+		struct {
+			/** The message to be signed */
+			const uint8_t *msg;
+			/** The length of the message to be signed */
+			uint16_t msg_len;
+			/** The context for signing */
+			const uint8_t *ctx;
+			/** The length of the context */
+			uint16_t ctx_len;
+			/** The private key for signing */
+			const uint8_t *priv_key;
+			/** The signature to be generated */
+			uint8_t *signature;
+		} sign;
+		/** The signature verification operation */
+		struct {
+			/** The message to be verified */
+			const uint8_t *msg;
+			/** The length of the message to be verified */
+			uint16_t msg_len;
+			/** The context for verification */
+			const uint8_t *ctx;
+			/** The length of the context */
+			uint16_t ctx_len;
+			/** The signature to be verified */
+			const uint8_t *signature;
+			/** The public key for verification */
+			const uint8_t *pub_key;
+		} verify;
+	};
+};
+
+/**
+ * Enqueue a request to perform PQC operations on the crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param op
+ *  A pointer to the *dao_lc_pqc_op* structure containing the operation to be enqueued.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned in the
+ *  *dao_lc_res* structure when the operation is dequeued.
+ *
+ * @return
+ *  - On success, 0 is returned.
+ *  - On failure, a negative value is returned indicating the cause
+ *    - EINVAL, indicating an invalid argument.
+ *    - ENOMEM, indicating an out of memory error.
+ *    - ENOSPC, indicating that there is no space left on the device.
+ *    - EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_op *op,
+				  uint64_t op_cookie);
 
 /**
  * Enqueue request to generate random data.

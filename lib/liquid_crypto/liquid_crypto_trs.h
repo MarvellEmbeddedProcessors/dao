@@ -58,6 +58,19 @@ struct __rte_packed __dao_lc_resp_asym {
 	uint8_t rptr[];
 };
 
+struct __rte_packed __dao_lc_req_pqc {
+	struct __dao_lc_hdr hdr;
+	uint64_t rsvd_align;
+	uint64_t w4;
+	uint8_t dptr[];
+};
+
+struct __rte_packed __dao_lc_resp_pqc {
+	struct __dao_lc_hdr hdr;
+	union dao_cpt_res_s res;
+	uint8_t rptr[];
+};
+
 struct __rte_packed __dao_lc_req_sess_create {
 	struct __dao_lc_hdr hdr;
 	uint64_t opcode : 16;
