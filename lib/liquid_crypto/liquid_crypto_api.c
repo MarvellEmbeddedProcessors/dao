@@ -647,6 +647,18 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 	return 0;
 }
 
+static inline int
+cpt_ae_rsa_oaep_label_len_validate(uint16_t label_len)
+{
+	if (label_len > DAO_LC_RSA_OAEP_MAX_LABEL_LEN) {
+		dao_err("Invalid label length. label_len=%u (maximum allowed: %u).", label_len,
+			DAO_LC_RSA_OAEP_MAX_LABEL_LEN);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
@@ -3421,18 +3433,6 @@ idx_put:
 	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 #endif
 	return rc;
-}
-
-static inline int
-cpt_ae_rsa_oaep_label_len_validate(uint16_t label_len)
-{
-	if (label_len > DAO_LC_RSA_OAEP_MAX_LABEL_LEN) {
-		dao_err("Invalid label length. label_len=%u (maximum allowed: %u).", label_len,
-			DAO_LC_RSA_OAEP_MAX_LABEL_LEN);
-		return -EINVAL;
-	}
-
-	return 0;
 }
 
 int
