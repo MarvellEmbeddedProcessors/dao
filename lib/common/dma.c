@@ -207,8 +207,8 @@ dao_dma_flush_submit(void)
 			state->pend_ops = 0;
 			if (dao_dma_has_stats_feature())
 				state->dbells++;
-			dao_dma_check_meta_compl(state, 0 /* ATOMIC update */);
 		}
+		dao_dma_check_meta_compl(state, 0 /* ATOMIC update */);
 	}
 
 	for (i = 0; i < nb_mem2dev; i++) {
@@ -220,8 +220,8 @@ dao_dma_flush_submit(void)
 			state->pend_ops = 0;
 			if (dao_dma_has_stats_feature())
 				state->dbells++;
-			dao_dma_check_meta_compl(state, 1 /* ATOMIC update */);
 		}
+		dao_dma_check_meta_compl(state, 1 /* ATOMIC update */);
 	}
 
 	return 0;
@@ -247,8 +247,8 @@ dao_dma_flush_submit_v2(void)
 			state->pend_ops = 0;
 			if (dao_dma_has_stats_feature())
 				state->dbells++;
-			dao_dma_check_meta_compl_v2(state, 0 /* ATOMIC update */);
 		}
+		dao_dma_check_meta_compl_v2(state, 0 /* ATOMIC update */);
 	}
 
 	for (i = 0; i < nb_mem2dev; i++) {
@@ -260,8 +260,8 @@ dao_dma_flush_submit_v2(void)
 			state->pend_ops = 0;
 			if (dao_dma_has_stats_feature())
 				state->dbells++;
-			dao_dma_check_meta_compl_v2(state, 1 /* ATOMIC update */);
 		}
+		dao_dma_check_meta_compl_v2(state, 1 /* ATOMIC update */);
 	}
 
 	return 0;
