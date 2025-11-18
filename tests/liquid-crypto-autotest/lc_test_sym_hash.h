@@ -42,15 +42,12 @@ static const uint8_t digest_sha1[] = {
 	0xA6, 0x7D, 0x45, 0xCA
 };
 
-static const struct test_sym_params
-sha1_test_data = {
+static const struct test_sym_params sha1_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA1,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 20,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA1,
+			.digest_len = 20,
 		},
 	},
 	.plaintext = {
@@ -70,15 +67,12 @@ static const uint8_t digest_sha224[] = {
 	0x5E, 0x8F, 0x25, 0x84
 };
 
-static const struct test_sym_params
-sha224_test_data = {
+static const struct test_sym_params sha224_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA224,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 28,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA2_SHA224,
+			.digest_len = 28,
 		},
 	},
 	.plaintext = {
@@ -98,15 +92,12 @@ static const uint8_t digest_sha256[] = {
 	0x76, 0x2F, 0x87, 0xF9, 0x01, 0x06, 0xF3, 0xB7
 };
 
-static const struct test_sym_params
-sha256_test_data = {
+static const struct test_sym_params sha256_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 32,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
+			.digest_len = 32,
 		},
 	},
 	.plaintext = {
@@ -128,15 +119,12 @@ static const uint8_t digest_sha384[] = {
 	0x9E, 0x3D, 0xED, 0xCB, 0x80, 0x7B, 0xF4, 0xB6
 };
 
-static const struct test_sym_params
-sha384_test_data = {
+static const struct test_sym_params sha384_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 48,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
+			.digest_len = 48,
 		},
 	},
 	.plaintext = {
@@ -160,15 +148,12 @@ static const uint8_t digest_sha512[] = {
 	0x2C, 0x3C, 0x83, 0x25, 0x27, 0x86, 0xF0, 0xDB
 };
 
-static const struct test_sym_params
-sha512_test_data = {
+static const struct test_sym_params sha512_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 64,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512,
+			.digest_len = 64,
 		},
 	},
 	.plaintext = {
@@ -188,15 +173,12 @@ static const uint8_t digest_sha3_224[] = {
 	0x9A, 0x44, 0xBF, 0x45
 };
 
-static const struct test_sym_params
-sha3_224_test_data = {
+static const struct test_sym_params sha3_224_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA3_SHA224,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 28,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHA224,
+			.digest_len = 28,
 		},
 	},
 	.plaintext = {
@@ -216,15 +198,12 @@ static const uint8_t digest_sha3_256[] = {
 	0x88, 0xB9, 0x0C, 0x15, 0xAE, 0x3F, 0x92, 0x47
 };
 
-static const struct test_sym_params
-sha3_256_test_data = {
+static const struct test_sym_params sha3_256_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA3_SHA256,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 32,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHA256,
+			.digest_len = 32,
 		},
 	},
 	.plaintext = {
@@ -246,21 +225,15 @@ static const uint8_t digest_sha3_384[] = {
 	0x5A, 0xFB, 0x37, 0x4A, 0xE5, 0x8F, 0x9F, 0x4A
 };
 
-static const struct test_sym_params
-sha3_384_test_data = {
+static const struct test_sym_params sha3_384_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA3_SHA384,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 48,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHA384,
+			.digest_len = 48,
 		},
 	},
-	.plaintext = {
-		.data = plaintext_hash,
-		.len = 512
-	},
+	.plaintext = {.data = plaintext_hash, .len = 512},
 	.digest = {
 		.data = digest_sha3_384,
 		.len = 48,
@@ -278,15 +251,12 @@ static const uint8_t digest_sha3_512[] = {
 	0xBB, 0x32, 0x7C, 0x04, 0x5E, 0xEB, 0x18, 0xC7
 };
 
-static const struct test_sym_params
-sha3_512_test_data = {
+static const struct test_sym_params sha3_512_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA3_SHA512,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 64,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHA512,
+			.digest_len = 64,
 		},
 	},
 	.plaintext = {
@@ -1418,11 +1388,9 @@ static const uint8_t digest_shake128[] = {
 static const struct test_sym_params shake128_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA3_SHAKE128,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 64,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHAKE128,
+			.digest_len = 64,
 		},
 	},
 	.plaintext = {
@@ -1449,11 +1417,9 @@ static const uint8_t digest_shake256[] = {
 static const struct test_sym_params shake256_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA3_SHAKE256,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 64,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_SHAKE256,
+			.digest_len = 64,
 		},
 	},
 	.plaintext = {
