@@ -35,9 +35,21 @@ Before compiling DAO, install the required packages:
     libnl-3-dev libnl-route-3-dev libnl-xfrm-3-dev \
     libarchive-dev libbsd-dev libbpf-dev \
     libfdt-dev libjansson-dev zlib1g-dev \
+    python3 python3-venv \
     doxygen sphinx-common python3-sphinx-rtd-theme \
     python3-pip python3-setuptools python3-wheel python3-pyelftools \
-    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+    gcc-aarch64-linux-gnu g++-aarch64-linux-gnu \
+    gcc ccache apt-utils software-properties-common \
+    bzip2-doc icu-devtools libacl1-dev libattr1-dev \
+    libbz2-dev libgmp-dev libgmpxx4ldbl libicu-dev liblz4-dev \
+    liblzma-dev libxml2-dev libzstd-dev nettle-dev lsb-release gh
+  # Create and activate a Python virtual-env
+  # python3 -m pip install --upgrade pip
+  # python3 -m pip install "sphinx>=7.0.0" \
+                           "pydata-sphinx-theme>=0.16" \
+                           "sphinx-multiversion>=0.2.4" \
+                           "sphinx-copybutton" \
+                           "sphinx-design"
 
 Compiling and Installing
 ------------------------
@@ -53,7 +65,7 @@ When compiling for the Octeon platform, DAO has a mandatory dependency on DPDK a
  * git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
  * cd marvell-dpdk
  * git checkout dpdk-24.11-release
- * meson build -Dexamples=all -Denable_drivers=*/cnxk,net/ring -Dplatform=cn10k --prefix=/usr
+ * meson build -Dexamples=all -Denable_drivers=*/cnxk,raw/cnxk_emdev,net/ring,net/tap -Dplatform=cn10k --prefix=/usr
  * ninja -C build install
  * # Build gRPC
  * cd <Path to DAO repo>/dao
