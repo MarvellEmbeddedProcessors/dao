@@ -522,11 +522,6 @@ sym_sess_kek_verify(const struct dao_lc_sym_ctx *ctx)
 		return -EINVAL;
 	}
 
-	if (kek_ctx->kek == NULL) {
-		dao_err("KEK pointer is NULL.");
-		return -EINVAL;
-	}
-
 	if (kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_16_BYTES &&
 	    kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_24_BYTES &&
 	    kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_32_BYTES) {
