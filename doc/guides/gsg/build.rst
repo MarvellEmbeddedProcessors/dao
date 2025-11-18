@@ -82,7 +82,7 @@ Compiling on ARM server for CN10k platform
 .. code-block:: console
 
   # cd <Path to DAO repo>/dao
-  # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Dprefer_static_build=true --prefer-static
+  # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Denable_iova_as_pa=false -Dprefer_static_build=true --prefer-static
   # ninja -C build install
 
 Compiling on x86 machine
@@ -90,7 +90,7 @@ Compiling on x86 machine
 .. code-block:: console
 
   # cd <Path to DAO repo>/dao
-  # meson build --prefix="${PWD}/install" -Denable_kmods=false
+  # meson build --prefix="${PWD}/install" -Denable_kmods=false -Denable_iova_as_pa=false
   # ninja -C build install
 
 .. note::
