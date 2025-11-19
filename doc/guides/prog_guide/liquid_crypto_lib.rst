@@ -52,7 +52,7 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
-| RSA-OAEP       | max: 989 bytes   |
+| RSA-OAEP       | max: 988 bytes   |
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
