@@ -1,9 +1,30 @@
 ..  SPDX-License-Identifier: Marvell-MIT
     Copyright (c) 2025 Marvell.
 
-*********
-RDMA App
-*********
+*************
+RDMA Solution
+*************
+
+RDMA Overview
+=============
+
+Remote Direct Memory Access (RDMA) enables zero-copy data transfer between
+memory regions of two systems without CPU involvement in the data path. This
+significantly reduces latency and CPU overhead, making RDMA ideal for
+high-performance networking.
+
+RoCE v2 (RDMA over Converged Ethernet v2) encapsulates RDMA traffic over UDP/IP,
+allowing it to be routable across Layer 3 networks.
+
+RDMA solution comprises multiple software components working together: on the
+x86 host, the rdma-core user-space libraries and kernel modules provide RDMA
+verbs and core functionality, while on the Octeon CN10K, a DPDK-based firmware
+application maintains RDMA resource contexts and performs RoCEv2 encapsulation
+for high-performance data transfer
+
+Octeon RDMA Firmware
+====================
+
 ``dao-rdma_graph`` (referred to here as ``rdma``) is a DPDK based application
 that exercises RDMA (RoCEv2/IB verbs) dataplane paths on OCTEON and host
 platforms. It supports multi-queue (multi-QP) UD and RC transports,
@@ -31,8 +52,8 @@ Features
  * Integrates with perftest utilities (``ib_send_lat``, ``ib_send_bw``, ``ib_write_lat``, ``ib_write_bw``, ``ib_read_lat``, ``ib_read_bw``) for latency & bandwidth benchmarking
  * Supports high-performance RDMA memory allocations and multi-QP resource scaling
 
-Setting up Environment (OCTEON)
--------------------------------
+Setting up Environment
+----------------------
 Bind RPM device to ``vfio-pci``:
 
 .. code-block:: bash
@@ -147,39 +168,59 @@ Sample boot log excerpt:
    [lcore   0] DAO_INFO: graph node: rdma_eth_rx-1-1
    [lcore   0] DAO_INFO: Launching worker loops....
 
-Setting up Environment (Host)
------------------------------
-Clone and build rdma-core:
+.. note::
+ Ensure that the Octeon CN10K firmware is fully initialized and running before
+ configuring the RDMA software components on the host.
+
+Host Software Architecture
+==========================
+
+The host initiates RDMA communication using the RDMA verbs API provided by rdma-core.
+
+a. User Space
+-------------
+
+``Application``: Uses RDMA verbs (e.g., ibv_post_send, ibv_post_recv) through libibverbs.
+``rdma-core``: Provides libraries and utilities for RDMA (e.g., libibverbs, libmlx5, etc.).
+
+Includes vendor-specific provider implementation (e.g., Mellanox, Broadcom, Marvell CNXK).
+Provider translates generic verbs into hardware-specific operations.
+
+
+b. Kernel Space
+---------------
+
+``ib_core``: RDMA core kernel module providing common RDMA infrastructure.
+Vendor-specific kernel driver: Implements low-level hardware interaction for the RDMA adaptor.
+Handles Queue Pairs (QPs), Completion Queues (CQs), memory registration, and DMA mapping.
+
+Setting up Environment
+----------------------
+
+Clone DAO sources for host kernel driver:
 
 .. code-block:: bash
 
-   git clone https://sj1git1.cavium.com/a/IP/SW/dataplane/rdma-core
-   cd rdma-core
-   git checkout dpu-offload-devel
-   ./build.sh
+   git clone https://github.com/MarvellEmbeddedProcessors/dao.git
+   cd dao
+   git checkout dao-devel
 
-Update kernel headers (before RDMA driver build):
+Build DAO for x86 host
 
-.. code-block:: bash
+``rdma-core`` is defined as a subproject, kernel header updates and its compilation
+will be handled with following instructions.
 
-   cp <rdma-core>/kernel-headers/rdma/octep_rdma-abi.h /usr/src/`uname -r`/include/rdma/
-   # Or /usr/src/linux-headers-`uname -r`/ if above path absent
-   # Edit /usr/src/`uname -r`/include/uapi/linux/rdma/ib_user_ioctl_verbs.h
-   # Add RDMA_DRIVER_OCTEP to enum rdma_driver_id
+.. note::
+  Meson version 1.8.0 or higher is mandatory for RDMA host build.
 
-DAO sources for host kernel driver:
+  Update meson version on host to >= 1.8.0 using following command:
 
-.. code-block:: bash
-
-   git clone https://sj1git1.cavium.com/IP/SW/dataplane/dpu-offload
-   cd dpu-offload
-   git checkout user/cn10k-rdma
-
-Build DAO for x86 host:
+  pip3 install meson==1.8.0
 
 .. code-block:: bash
 
-   meson build
+   meson setup build -Dkernel_dir=KERNEL_BUILD_DIR -Drdma_build=true
+   Eg.
    ninja -C build
    # Module at build/kmod/rdma/octep_rdma/octep-rdma.ko
 
