@@ -43,7 +43,7 @@
 /** Maximum supported label length for RSA OAEP */
 #define DAO_LC_RSA_OAEP_MAX_LABEL_LEN 1024
 /** Maximum supported modulus length for RSA OAEP */
-#define DAO_LC_RSA_OAEP_MAX_MOD_LEN 989
+#define DAO_LC_RSA_OAEP_MAX_MOD_LEN 988
 /** Maximum supported customisation-string length for KMAC */
 #define DAO_LC_KMAC_MAX_CUSTOM_STRING_LEN 511
 
@@ -1867,7 +1867,7 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  *  The length of the message. Value must satisfy: msg_len <= (mod_len - (2 * hlen) - 2),
  *  where hlen is the length of the hash output used in OAEP.
  * @param mod
- *  The address of the buffer containing the modulus.
+ *  The address of the buffer containing the modulus. Modulus must be odd.
  *  Length of this buffer must be at most *mod_len* bytes.
  * @param exp
  *  The address of the buffer containing the exponent.
@@ -1896,7 +1896,63 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
 					  const uint8_t *msg, uint8_t *em, uint64_t op_cookie);
 
 /**
- * Enqueue request to perform RSA OAEP private decrypt operation on the crypto device.
+ * Enqueue request to perform RSA OAEP private decrypt operation using the private exponential key.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param label_len
+ *  The length of the label in bytes. If no label is used, this should be set to 0.
+ *  Maximum supported label length is DAO_LC_RSA_OAEP_MAX_LABEL_LEN bytes.
+ * @param label
+ *  Optional label to be associated with the message. The label is hashed using the selected
+ *  hash function. In RSA OAEP, this label is used as an input to the mask generation
+ *  function (MGF) and can provide additional binding context for the decryption operation.
+ *  If not required, it can be set to NULL.
+ * @param hash_type
+ *  The hash algorithm to be used in the OAEP padding scheme. Supported hash types are:
+ *   -DAO_LC_HASH_TYPE_SHA1
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA256
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA384
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA512
+ * @param mod_len
+ *  The length of the RSA modulus in bytes. For RSA OAEP decryption, the modulus length (mod_len)
+ *  must match the length used during RSA OAEP encryption.
+ *  Note: The minimum required modulus length should be calculated at the encryption side and
+ *  must be matched at decryption. The maximum supported mod_len is ``DAO_LC_RSA_OAEP_MAX_MOD_LEN``
+ *  bytes.
+ * @param mod
+ *  The address of the buffer containing the modulus. Modulus must be odd.
+ *  Length of this buffer must be *mod_len* bytes.
+ * @param exp_len
+ *  The length of the exponent.
+ * @param exp
+ *  The address of the buffer containing the exponent.
+ * @param em
+ *  The address of the buffer containing the encrypted message. Length of this
+ *  buffer must be equal to *mod_len* bytes.
+ * @param msg
+ *  The address of the buffer where the decrypted message is to be stored.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_rsa_oaep_pvt_exp_dec(uint8_t dev_id, uint16_t qp_id,
+						  uint16_t label_len, uint8_t *label,
+						  enum dao_lc_hash_type hash_type, uint16_t mod_len,
+						  const uint8_t *mod, uint16_t exp_len,
+						  const uint8_t *exp, const uint8_t *em,
+						  uint8_t *msg, uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform RSA OAEP private decrypt operation using the CRT private key.
  *
  * @param dev_id
  *  The identifier of the device.
@@ -1918,17 +1974,25 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *   -DAO_LC_HASH_TYPE_SHA2_SHA512
  * @param mod_len
  *  The length of the RSA modulus in bytes. For RSA OAEP decryption, the modulus length (mod_len)
- *  must match the length used during RSA OAEP encryption.
+ *  must match the length used during RSA OAEP encryption. Value must be even.
  *  Note: The minimum required modulus length should be calculated at the encryption side and
  *  must be matched at decryption. The maximum supported mod_len is ``DAO_LC_RSA_OAEP_MAX_MOD_LEN``
  *  bytes.
- * @param exp_len
- *  The length of the exponent.
- * @param mod
- *  The address of the buffer containing the modulus.
- *  Length of this buffer must be *mod_len* bytes.
- * @param exp
- *  The address of the buffer containing the exponent.
+ * @param p
+ *  The address of the buffer containing the first factor. Length
+ *  of this buffer must be mod_len/2 bytes and the value must be odd.
+ * @param dP
+ *  The address of the buffer containing the first factor's CRT exponent. Length of this buffer
+ *  must be mod_len/2 bytes.
+ * @param q
+ *  The address of the buffer containing the second factor. Length of this buffer
+ *  must be mod_len/2 bytes and the value must be odd.
+ * @param dQ
+ *  The address of the buffer containing the second factor's CRT exponent. Length of this buffer
+ *  must be mod_len/2 bytes.
+ * @param qInv
+ *  The address of the buffer containing the CRT coefficient. Length of this
+ *  buffer must be mod_len/2 bytes.
  * @param em
  *  The address of the buffer containing the encrypted message. Length of this
  *  buffer must be equal to *mod_len* bytes.
@@ -1939,15 +2003,16 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *  in the *dao_lc_res* structure when the operation is dequeued.
  * @return
  *  - 0 on success, negative value on failure.
- *  -  -EINVAL, indicating an invalid argument.
- *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left in the queue.
- *  -  -EIO, indicating an I/O error.
+ *  - -EINVAL, indicating an invalid argument.
+ *  - -ENOMEM, indicating an out of memory error.
+ *  - -ENOSPC, indicating that there is no space left on the device.
+ *  - -EIO, indicating an I/O error.
  */
-int dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
-					      uint16_t label_len, enum dao_lc_hash_type hash_type,
-					      uint16_t mod_len, uint16_t exp_len,
-					      const uint8_t *mod, const uint8_t *exp,
-					      const uint8_t *em, uint8_t *msg, uint64_t op_cookie);
+int dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
+						  uint16_t label_len,
+						  enum dao_lc_hash_type hash_type, uint16_t mod_len,
+						  uint8_t *p, uint8_t *dP, uint8_t *q, uint8_t *dQ,
+						  uint8_t *qInv, uint8_t *em, uint8_t *msg,
+						  uint64_t op_cookie);
 
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

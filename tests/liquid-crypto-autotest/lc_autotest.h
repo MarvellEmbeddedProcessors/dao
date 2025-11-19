@@ -51,6 +51,6 @@
 /* RSA OAEP maximum label length in bytes */
 #define TEST_LC_RSA_OAEP_MAX_LABEL_LEN 1024
 /* RSA OAEP maximum modulus length in bytes */
-#define TEST_LC_RSA_OAEP_MAX_MOD_LEN 989
+#define TEST_LC_RSA_OAEP_MAX_MOD_LEN 988
 
 #endif /* __LC_AUTOTEST_H__ */

@@ -658,9 +658,9 @@ test_rsa_oaep_encrypt(const void *data)
 	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 
 	/* Validate encryption */
-	ret = dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(
-		dev_id, qp_id, params->label.data, params->label.len, params->hash_type,
-		params->n.len, params->d.len, params->n.data, params->d.data, output, decrypt,
+	ret = dao_liquid_crypto_enq_op_rsa_oaep_pvt_exp_dec(
+		dev_id, qp_id, params->label.len, params->label.data, params->hash_type,
+		params->n.len, params->n.data, params->d.len, params->d.data, output, decrypt,
 		op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
