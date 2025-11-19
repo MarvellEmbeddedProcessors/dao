@@ -1947,6 +1947,12 @@ dao_lc_post_process_pqc(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_pqc *);
 	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
 
+	if (res->res.pqc.compcode == DAO_PQC_COMP_LIB_ERROR_LIBOQS) {
+		dao_err("LibOQS library Not Found");
+		rte_errno = ENOENT;
+		return;
+	}
+
 	switch (res->res.pqc.op_type) {
 	case DAO_LC_ML_KEM_OP_KEYGEN:
 	case DAO_LC_ML_DSA_OP_KEYGEN:

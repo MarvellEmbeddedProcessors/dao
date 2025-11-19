@@ -234,6 +234,18 @@ enum dao_uc_comp_code {
 };
 
 /**
+ * PQC completion codes.
+ */
+enum dao_pqc_comp_code {
+	/** Request not completed. */
+	DAO_PQC_COMP_NOT_DONE = 0,
+	/** Request completed successfully. */
+	DAO_PQC_COMP_GOOD,
+	/** LibOQS library Not Found */
+	DAO_PQC_COMP_LIB_ERROR_LIBOQS
+};
+
+/**
  * The completion code returned by the CPT.
  */
 union dao_cpt_res_s {
@@ -282,7 +294,10 @@ union dao_cpt_res_s {
 	} cn9k;
 
 	struct {
-		/** The return code */
+		/**
+		 * The return code.
+		 * @see enum dao_pqc_comp_code
+		 */
 		uint8_t compcode;
 		/** The operation type */
 		uint8_t op_type;
