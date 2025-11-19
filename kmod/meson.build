@@ -8,23 +8,27 @@ subdirs = [
 if host_build
    rdma_build = get_option('rdma_build')
    if rdma_build
-       fs = import('fs')
-       rdma_core_compiled = meson.project_source_root() + '/' + \
-			'subprojects/rdma-core/build/bin/ibv_devinfo'
-       if fs.exists(rdma_core_compiled)
-           message('rdma-core already compiled')
+       if not meson.version().version_compare('>=1.8.0')
+           warning('Meson version 1.8.0 or higher is required for RDMA host build.')
        else
-           kernel_build_dir = get_option('kernel_dir')
-           message(kernel_build_dir)
-           # rdma-core
-           rdma_core_dep = dependency(
-           'rdma-core',
-           default_options: [
-                   'kernel_dir=' + get_option('kernel_dir')
-           ],
-           )
+           fs = import('fs')
+           rdma_core_compiled = meson.project_source_root() + '/' + \
+            		'subprojects/rdma-core/build/bin/ibv_devinfo'
+           if fs.exists(rdma_core_compiled)
+               message('rdma-core already compiled')
+           else
+               kernel_build_dir = get_option('kernel_dir')
+               message(kernel_build_dir)
+               # rdma-core
+               rdma_core_dep = dependency(
+               'rdma-core',
+               default_options: [
+                       'kernel_dir=' + get_option('kernel_dir')
+               ],
+               )
+           endif
+           subdirs += ['rdma']
        endif
-       subdirs += ['rdma']
    endif
 endif
 
