@@ -75,6 +75,8 @@ struct liquid_crypto_qp {
 	struct rte_bitmap *req_bm;
 	/** Inflight request bitmap memory */
 	uint8_t *req_bm_mem;
+	/** Number of bits in the request bitmap */
+	uint32_t req_bm_size;
 	/**
 	 * Command queue inflight request bitmap.
 	 * Only applicable for queue pair designated as cmd_qp_idx
@@ -161,6 +163,31 @@ liquid_crypto_qp_req_idx_put(struct liquid_crypto_qp *qp, uint32_t req_idx, cons
 		rte_bitmap_set(qp->cmd_req_bm, req_idx);
 	else
 		rte_bitmap_set(qp->req_bm, req_idx);
+}
+
+static inline bool
+liquid_crypto_qp_has_inflight_req(struct liquid_crypto_qp *qp, const bool is_cmd_qp)
+{
+	struct rte_bitmap *req_bm;
+	uint32_t i;
+
+	if (is_cmd_qp)
+		req_bm = qp->cmd_req_bm;
+	else
+		req_bm = qp->req_bm;
+
+	/**
+	 * The bitmap is initialized with all bits set (all slots free).
+	 * When a request is allocated, the bit is cleared (slot in use).
+	 * Check if any bit is cleared - that means we have inflight requests.
+	 */
+	for (i = 0; i < qp->req_bm_size; i++) {
+		if (rte_bitmap_get(req_bm, i) == 0)
+			return true; /* Found a cleared bit - has inflight request */
+	}
+
+	/* All bits are set (free), no inflight requests */
+	return false;
 }
 
 #endif /* __LIQUID_CRYPTO_PRIV_H__ */

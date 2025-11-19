@@ -438,6 +438,8 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto bm_mem_free;
 	}
 
+	qp->req_bm_size = nb_desc - desc_watermark;
+
 	if (qp_id == dev->cmd_qp_idx) {
 		snprintf(name, sizeof(name), "liquid_crypto_cmd_bm_%hhu_%hu", dev_id, qp_id);
 		qp->cmd_req_bm_mem = rte_zmalloc(name, bm_mem_size, 0);
@@ -602,6 +604,8 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 {
 	struct dao_eth_trs_port_info *port_info;
 	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	bool is_cmd_qp;
 	int rc;
 	int i;
 
@@ -620,6 +624,20 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 	if (!dev->is_started) {
 		dao_err("Invalid device. Device(%d) not started.", dev_id);
 		return -EINVAL;
+	}
+
+	/* Check for inflight requests on all queue pairs */
+	for (i = 0; i < dev->nb_qp; i++) {
+		qp = dev->qp[i];
+		if (qp == NULL)
+			continue;
+
+		is_cmd_qp = (i == dev->cmd_qp_idx);
+		if (liquid_crypto_qp_has_inflight_req(qp, is_cmd_qp)) {
+			dao_err("Cannot stop device %u: queue pair %d has inflight requests.",
+				dev_id, i);
+			return -EBUSY;
+		}
 	}
 
 	rc = dao_eth_trs_dev_stop(dev_id);
