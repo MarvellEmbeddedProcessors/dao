@@ -318,6 +318,16 @@ Device Teardown
 			 /* Handle device stop error */
 		}
 
+	.. important::
+
+		**Drain All Inflight Operations Before Stopping**
+
+		It is the caller's responsibility to ensure all enqueued operations are
+		dequeued before calling `dao_liquid_crypto_dev_stop()`. The device may
+		fail to stop if there are pending operations in the queues. Applications
+		should dequeue all operations or wait for in-progress operations to
+		complete before stopping the device.
+
 2. **Destroy the Device**:
 	Use `dao_liquid_crypto_dev_destroy()` to destroy the device and free any associated
 	resources.

@@ -1016,7 +1016,9 @@ int dao_liquid_crypto_dev_start(uint8_t dev_id);
 /**
  * Stop a liquid crypto device.
  *
- * This function stops a liquid crypto device.
+ * This function stops a liquid crypto device. It is the caller's responsibility
+ * to ensure all inflight operations are drained before calling this function.
+ * The device may fail to stop if there are pending operations in the queues.
  *
  * @param dev_id
  * The device identifier.
@@ -1024,6 +1026,11 @@ int dao_liquid_crypto_dev_start(uint8_t dev_id);
  * - On success, 0 is returned.
  * - On failure, a negative value is returned indicating the cause
  *   -EINVAL, indicating an invalid argument.
+ *   -EBUSY, indicating the device has inflight operations.
+ *
+ * @note
+ * All enqueued operations must be dequeued before calling this function.
+ * Failure to drain operations may result in device stop failure.
  */
 int dao_liquid_crypto_dev_stop(uint8_t dev_id);
 
