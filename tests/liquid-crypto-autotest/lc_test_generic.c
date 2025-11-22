@@ -45,8 +45,14 @@ void
 ut_teardown(void)
 {
 	uint8_t dev_id = glb_params.dev_id;
+	int ret;
 
-	dao_liquid_crypto_dev_stop(dev_id);
+	ret = dao_liquid_crypto_dev_stop(dev_id);
+	if (ret != 0) {
+		TEST_LC_ERR("Could not stop liquid crypto device %d: %d. "
+			    "Device may have inflight operations.",
+			    dev_id, ret);
+	}
 }
 
 int

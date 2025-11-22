@@ -115,7 +115,13 @@ signal_handler(int signum)
 
 		/* Attempt cleanup, but if any of these segfault, the guard above will catch it */
 		for (i = 0; i < nb_lcdevs_global; i++) {
-			dao_liquid_crypto_dev_stop(i);
+			if (dao_liquid_crypto_dev_stop(i) != 0) {
+				fprintf(stderr,
+					"Could not stop liquid crypto device %d during emergency cleanup. "
+					"Device may have inflight operations.\n",
+					i);
+			}
+
 			dao_liquid_crypto_dev_destroy(i);
 		}
 		dao_liquid_crypto_fini();
@@ -319,7 +325,11 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 dev_destroy:
 	while (cdev_id > 0) {
 		cdev_id--;
-		dao_liquid_crypto_dev_stop(cdev_id);
+		if (dao_liquid_crypto_dev_stop(cdev_id) != 0) {
+			printf("Could not stop liquid crypto device %d during cleanup. "
+			       "Device may have inflight operations.\n",
+			       cdev_id);
+		}
 		dao_liquid_crypto_dev_destroy(cdev_id);
 	}
 
@@ -437,7 +447,12 @@ ctx_destructor:
 
 dev_stop_destroy:
 	for (i = 0; i < nb_lcdevs; i++) {
-		dao_liquid_crypto_dev_stop(i);
+		if (dao_liquid_crypto_dev_stop(i) != 0) {
+			printf("Failed to stop liquid crypto device %d during cleanup. "
+			       "Device may have inflight operations.\n",
+			       i);
+			ret = -1;
+		}
 		dao_liquid_crypto_dev_destroy(i);
 	}
 
