@@ -85,7 +85,8 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	op[0].digest = digest;
 	op[0].auth_gen = is_auth_gen;
 
-	if (params->ctx.opcode == DAO_LC_SYM_OPCODE_HMAC)
+	if (params->ctx.opcode == DAO_LC_SYM_OPCODE_HMAC ||
+	    params->ctx.opcode == DAO_LC_SYM_OPCODE_HASH)
 		digest_len = params->ctx.hash.digest_len;
 	else
 		digest_len = params->ctx.fc.mac_len;
