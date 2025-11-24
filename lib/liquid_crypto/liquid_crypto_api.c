@@ -672,6 +672,18 @@ cpt_ae_rsa_oaep_label_len_validate(uint16_t label_len)
 	return 0;
 }
 
+static inline int
+cpt_ae_rsa_oaep_mod_len_max_validate(uint16_t mod_len)
+{
+	if (mod_len > DAO_LC_RSA_OAEP_MAX_MOD_LEN) {
+		dao_err("Invalid modulus length. mod_len=%u (maximum allowed: %u).", mod_len,
+			DAO_LC_RSA_OAEP_MAX_MOD_LEN);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
@@ -848,7 +860,11 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			/* Message */
 			rsa_oaep_seg_sz += params->rsa_oaep.msg_len;
 
-			rc = cpt_ae_rsa_mod_len_check(params->rsa_oaep.mod_len, false);
+			rc = cpt_ae_rsa_oaep_mod_len_max_validate(params->rsa_oaep.mod_len);
+			if (rc != 0)
+				return 0;
+
+			rc = cpt_ae_rsa_oaep_mod_len_check(params->rsa_oaep.mod_len, false);
 			if (rc != 0) {
 				dao_err("Invalid %d RSA-OAEP modulus length.",
 					params->rsa_oaep.mod_len);
@@ -3597,6 +3613,12 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 		return rc;
 	}
 
+	rc = cpt_ae_rsa_oaep_mod_len_max_validate(mod_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. mod_len exceeds maximum allowed length.");
+		return rc;
+	}
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
@@ -3645,7 +3667,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_rsa_mod_len_check(mod_len, false);
+	rc = cpt_ae_rsa_oaep_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
 
@@ -3793,6 +3815,12 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 		return rc;
 	}
 
+	rc = cpt_ae_rsa_oaep_mod_len_max_validate(mod_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. mod_len exceeds maximum allowed length.");
+		return rc;
+	}
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
@@ -3838,7 +3866,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_mod_len_check(mod_len, false);
+	rc = cpt_ae_rsa_oaep_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
 

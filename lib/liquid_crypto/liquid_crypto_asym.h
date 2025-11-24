@@ -92,4 +92,6 @@ int cpt_ae_rsa_oaep_label_validate(uint8_t *label, uint16_t label_len);
 
 int cpt_ae_rsa_oaep_msg_len_max(uint16_t mod_len, enum dao_lc_hash_type hash_type);
 
+int cpt_ae_rsa_oaep_mod_len_check(uint16_t mod_len, bool is_crt);
+
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */

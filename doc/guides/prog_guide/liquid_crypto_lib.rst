@@ -48,11 +48,11 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
-| RSA-OAEP       | max: 1024 bytes  |
+| RSA-CRT        | 34 - 1024 bytes  |
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
-| RSA-CRT        | 34 - 1024 bytes  |
+| RSA-OAEP       | max: 989 bytes   |
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+

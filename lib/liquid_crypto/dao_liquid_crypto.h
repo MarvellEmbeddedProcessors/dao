@@ -42,6 +42,8 @@
 #define DAO_LC_AES_KEY_WRAP_IV_LEN 8
 /** Maximum supported label length for RSA OAEP */
 #define DAO_LC_RSA_OAEP_MAX_LABEL_LEN 1024
+/** Maximum supported modulus length for RSA OAEP */
+#define DAO_LC_RSA_OAEP_MAX_MOD_LEN 989
 
 /**
  * The liquid crypto buffer
@@ -1571,7 +1573,7 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  *     2*DAO_LC_HASH_DIGEST_SIZE_SHA2_SHA512 + 2 = 131 bytes
  *
  *  Note: If msg_len increases, the minimum required mod_len must also increase accordingly.
- *  The maximum supported mod_len is 1024 bytes.
+ *  The maximum supported mod_len is ``DAO_LC_RSA_OAEP_MAX_MOD_LEN`` bytes.
  * @param exp_len
  *  The length of the exponent.
  * @param msg_len
@@ -1631,7 +1633,8 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *  The length of the RSA modulus in bytes. For RSA OAEP decryption, the modulus length (mod_len)
  *  must match the length used during RSA OAEP encryption.
  *  Note: The minimum required modulus length should be calculated at the encryption side and
- *  must be matched at decryption. The maximum supported mod_len is 1024 bytes.
+ *  must be matched at decryption. The maximum supported mod_len is ``DAO_LC_RSA_OAEP_MAX_MOD_LEN``
+ *  bytes.
  * @param exp_len
  *  The length of the exponent.
  * @param mod

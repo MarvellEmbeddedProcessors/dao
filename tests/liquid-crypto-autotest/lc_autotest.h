@@ -57,8 +57,10 @@
 /* Maximum KEK length */
 #define TEST_LC_MAX_KEK_LEN 32
 /* RSA OAEP maximum message length in bytes for SHA1 */
-#define TEST_LC_RSA_OAEP_MAX_MSG_LEN_FOR_SHA1 982
+#define TEST_LC_RSA_OAEP_MAX_MSG_LEN_FOR_SHA1 947
 /* RSA OAEP maximum label length in bytes */
 #define TEST_LC_RSA_OAEP_MAX_LABEL_LEN 1024
+/* RSA OAEP maximum modulus length in bytes */
+#define TEST_LC_RSA_OAEP_MAX_MOD_LEN 989
 
 #endif /* __LC_AUTOTEST_H__ */

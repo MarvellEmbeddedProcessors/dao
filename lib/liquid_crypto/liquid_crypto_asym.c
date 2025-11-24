@@ -280,6 +280,33 @@ cpt_ae_oaep_msg_and_mod_len_check(uint16_t mod_len, uint16_t msg_len,
 			mod_len, hash_type, mod_len - 2 * hash_len - 2);
 		return -EINVAL;
 	}
+
+	return 0;
+}
+
+int
+cpt_ae_rsa_oaep_mod_len_check(uint16_t mod_len, bool is_crt)
+{
+	uint16_t min_len = LIQUID_CRYPTO_RSA_MOD_LEN_MIN;
+
+	if (is_crt)
+		min_len = LIQUID_CRYPTO_RSA_MOD_LEN_MIN * 2;
+
+	if (mod_len == 0) {
+		dao_err("Invalid modulus length. mod_len cannot be zero.");
+		return -EINVAL;
+	}
+
+	if (is_crt && mod_len % 2 != 0) {
+		dao_err("Invalid modulus length. mod_len must be even.");
+		return -EINVAL;
+	}
+
+	if (mod_len < min_len) {
+		dao_err("Invalid modulus length. mod_len should be at least %u bytes", min_len);
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
