@@ -200,6 +200,10 @@ The `--virtio-blkconfig` argument allows users to configure specific attributes 
     | capacity       | Capacity of the block device in MB or GB expressed |
     |                | using suffix M and G respectively.                 |
     |                | Example: `capacity=100M`                           |
+    |                | NOTE:                                              |
+    |                | Min. capacity: must be at-least one sector (blk_sz)|
+    |                | Max. capacity: limited by the largest memory block |
+    |                |                that rte_malloc() API can return.   |
     +----------------+----------------------------------------------------+
     | blk_sz         | Sector size of the device (must be a power of 2).  |
     |                | Example: `blk_sz=512`                              |
