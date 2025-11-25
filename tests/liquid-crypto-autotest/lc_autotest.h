@@ -54,8 +54,6 @@
 #define TEST_LC_MAX_KEY_DATA_LEN 3072
 /* AES Key Wrap IV length */
 #define TEST_LC_AES_KEY_WRAP_IV_LEN 8
-/* Maximum KEK length */
-#define TEST_LC_MAX_KEK_LEN 32
 /* RSA OAEP maximum message length in bytes for SHA1 */
 #define TEST_LC_RSA_OAEP_MAX_MSG_LEN_FOR_SHA1 947
 /* RSA OAEP maximum label length in bytes */

@@ -691,7 +691,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0, pqc_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
 	uint16_t req_resp_hdr_sz = 0;
-	int rc;
+	int kek_len, rc;
 
 	if (params == NULL) {
 		dao_err("Invalid argument.");
@@ -735,13 +735,14 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			/* Key wrap length */
 			sym_seg_sz += params->sym.key_wrap_len;
 
-			if (params->sym.kek_len > DAO_LC_AES_MAX_KEY_ENC_KEY_LEN) {
-				dao_err("Invalid AES KEK length. kek_len should be at most %u.",
-					DAO_LC_AES_MAX_KEY_ENC_KEY_LEN);
+			kek_len = sym_sess_get_aes_kek_len(params->sym.aes_kek_type);
+			if (kek_len < 0) {
+				dao_err("Could not get KEK length for the given KEK type.");
 				return 0;
 			}
+
 			/* AES KEK length */
-			sym_seg_sz += params->sym.kek_len;
+			sym_seg_sz += kek_len;
 		}
 
 		if (params->rsa.mod_len) {
@@ -2644,6 +2645,7 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 	w4.u64 = sess_meta->w4;
 	w4.s.param1 = key_len;
 	w4.s.dlen = dlen;
+	w4.s.opcode_minor |= (((!op->is_wrap) << 1) | ((op->is_wrap_pad ? 1 : 0) << 0));
 	req->w4 = w4.u64;
 	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 

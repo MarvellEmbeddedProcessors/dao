@@ -178,11 +178,27 @@ sym_sess_cipher_auth_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 	return -EINVAL;
 }
 
+int
+sym_sess_get_aes_kek_len(enum dao_lc_fc_aes_key_len aes_kek_type)
+{
+	switch (aes_kek_type) {
+	case DAO_LC_FC_AES_KEY_LEN_128:
+		return DAO_LC_AES_KEY_LEN_16_BYTES;
+	case DAO_LC_FC_AES_KEY_LEN_192:
+		return DAO_LC_AES_KEY_LEN_24_BYTES;
+	case DAO_LC_FC_AES_KEY_LEN_256:
+		return DAO_LC_AES_KEY_LEN_32_BYTES;
+	}
+
+	return -EINVAL;
+}
+
 struct dao_lc_sym_sess_meta *
 liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	union cpt_inst_w4 w4 = {0};
+	int kek_len;
 
 	sess_meta =
 		rte_zmalloc("liquid_crypto_sym_sess_meta", sizeof(*sess_meta), RTE_CACHE_LINE_SIZE);
@@ -273,15 +289,17 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
 		sess_meta->digest_len = ctx->hash.digest_len;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_AES_KEY_WRAP) {
+		kek_len = sym_sess_get_aes_kek_len(ctx->aes_key_wrap.aes_kek_type);
+		if (kek_len < 0) {
+			dao_err("Failed to get KEK length.");
+			goto sess_meta_free;
+		}
+
 		sess_meta->op_type = LC_SYM_OP_KEY_WRAP_UNWRAP;
-		sess_meta->kek_len = ctx->aes_key_wrap.kek_len;
-		memcpy(sess_meta->kek, ctx->aes_key_wrap.kek, ctx->aes_key_wrap.kek_len);
-
+		sess_meta->kek_len = kek_len;
+		memcpy(sess_meta->kek, ctx->aes_key_wrap.kek, kek_len);
 		w4.s.opcode_major = DAO_LC_SYM_OPCODE_AES_KEY_WRAP;
-		w4.s.opcode_minor = ((ctx->aes_key_wrap.aes_kek_type & 0x03) << 2) |
-				    ((!ctx->aes_key_wrap.is_wrap) << 1) |
-				    ((ctx->aes_key_wrap.is_wrap_pad ? 1 : 0) << 0);
-
+		w4.s.opcode_minor = ((ctx->aes_key_wrap.aes_kek_type & 0x03) << 2);
 		w4.s.param2 = 0;
 	} else {
 		dao_err("Unsupported opcode.");
@@ -528,21 +546,29 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 }
 
 static int
+sym_sess_kek_type_verify(enum dao_lc_fc_aes_key_len aes_kek_type)
+{
+	switch (aes_kek_type) {
+	case DAO_LC_FC_AES_KEY_LEN_128:
+	case DAO_LC_FC_AES_KEY_LEN_192:
+	case DAO_LC_FC_AES_KEY_LEN_256:
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
+static int
 sym_sess_kek_verify(const struct dao_lc_sym_ctx *ctx)
 {
 	const struct dao_lc_aes_key_wrap_ctx *kek_ctx;
+	int rc;
 
 	kek_ctx = &ctx->aes_key_wrap;
 
-	if (kek_ctx->kek_len == 0) {
-		dao_err("Invalid KEK length.");
-		return -EINVAL;
-	}
-
-	if (kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_16_BYTES &&
-	    kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_24_BYTES &&
-	    kek_ctx->kek_len != DAO_LC_AES_KEY_LEN_32_BYTES) {
-		dao_err("Invalid KEK length. Must be 16, 24, or 32 bytes.");
+	rc = sym_sess_kek_type_verify(kek_ctx->aes_kek_type);
+	if (rc < 0) {
+		dao_err("Invalid KEK type. Valid types are DAO_LC_FC_AES_KEY_LEN_128, DAO_LC_FC_AES_KEY_LEN_192, DAO_LC_FC_AES_KEY_LEN_256.");
 		return -EINVAL;
 	}
 
@@ -793,30 +819,24 @@ lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
 				   const struct dao_lc_sym_sess_meta *sess_meta)
 {
 	uint32_t output_len_required = 0;
-	uint16_t kek_len, key_len;
+	uint16_t key_len, kek_len;
 
-	kek_len = sess_meta->kek_len;
 	key_len = op->wrap_unwrap_key_len;
+	kek_len = sess_meta->kek_len;
 
-	if (kek_len == 0) {
-		dao_err("Key encryption key (KEK) length cannot be zero.");
+	if (key_len == 0) {
+		dao_err("Key length cannot be zero.");
 		return -EINVAL;
 	}
 
-	if (kek_len < DAO_LC_AES_KEY_LEN_16_BYTES) {
-		dao_err("Invalid KEK length (%u). KEK length must be at least 16 bytes.", kek_len);
+	if (kek_len == 0) {
+		dao_err("KEK length cannot be zero.");
 		return -EINVAL;
 	}
 
 	if (kek_len != DAO_LC_AES_KEY_LEN_16_BYTES && kek_len != DAO_LC_AES_KEY_LEN_24_BYTES &&
 	    kek_len != DAO_LC_AES_KEY_LEN_32_BYTES) {
-		dao_err("Invalid KEK length (%u). KEK length must be 16, 24, or 32 bytes.",
-			kek_len);
-		return -EINVAL;
-	}
-
-	if (key_len == 0) {
-		dao_err("Key length cannot be zero.");
+		dao_err("Invalid KEK length (%u). KEK length must be 16, 24, or 32 bytes", kek_len);
 		return -EINVAL;
 	}
 

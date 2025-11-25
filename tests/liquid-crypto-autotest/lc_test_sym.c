@@ -202,7 +202,7 @@ is_aead_algo(const struct test_sym_params *params)
 
 static int
 test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop,
-			 const bool is_invalid_keydata, const bool is_iv_error)
+			 const bool is_invalid_keydata, const bool is_iv_error, const bool is_pad)
 {
 	uint8_t key_data[TEST_LC_MAX_KEY_DATA_LEN + TEST_LC_MAX_OFFSET +
 			 TEST_LC_AES_KEY_WRAP_IV_LEN + TEST_LC_AES_KEY_WRAP_IV_LEN] = {0};
@@ -232,7 +232,7 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 		return TEST_SKIPPED;
 #endif
 
-	ctx.aes_key_wrap.is_wrap = is_wrap;
+	/* Create session */
 	ret = dao_liquid_crypto_sym_sess_create(dev_id, &ctx, sess_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not create session");
@@ -252,7 +252,7 @@ test_aes_key_wrap_unwrap(const void *data, const bool is_wrap, const bool is_oop
 	/* Perform crypto operation */
 	op[0].sess_id = ev.sess_event.sess_id;
 	op[0].is_wrap = is_wrap;
-	op[0].is_wrap_pad = ctx.aes_key_wrap.is_wrap_pad;
+	op[0].is_wrap_pad = is_pad;
 
 	for (i = 0; i < max_offset; i++) {
 		/* Clearing buffers for each iteration */
@@ -444,43 +444,67 @@ exit:
 static int
 test_aes_key_wrap(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, true, false, false, false);
+	return test_aes_key_wrap_unwrap(data, true, false, false, false, false);
 }
 
 static int
 test_aes_key_unwrap(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, false, false, false, false);
+	return test_aes_key_wrap_unwrap(data, false, false, false, false, false);
 }
 
 static int
 test_aes_key_wrap_oop(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, true, true, false, false);
+	return test_aes_key_wrap_unwrap(data, true, true, false, false, false);
 }
 
 static int
 test_aes_key_unwrap_oop(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, false, true, false, false);
+	return test_aes_key_wrap_unwrap(data, false, true, false, false, false);
 }
 
 static int
 test_aes_key_unwrap_invalid_keydata(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, false, false, true, false);
+	return test_aes_key_wrap_unwrap(data, false, false, true, false, false);
 }
 
 static int
 test_aes_key_wrap_invalid_keydata(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, true, false, true, false);
+	return test_aes_key_wrap_unwrap(data, true, false, true, false, false);
 }
 
 static int
 test_aes_key_unwrap_invalid_iv_case(const void *data)
 {
-	return test_aes_key_wrap_unwrap(data, false, false, false, true);
+	return test_aes_key_wrap_unwrap(data, false, false, false, true, true);
+}
+
+static int
+test_aes_key_wrap_pad(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, true, false, false, false, true);
+}
+
+static int
+test_aes_key_unwrap_pad(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, false, false, false, false, true);
+}
+
+static int
+test_aes_key_wrap_pad_oop(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, true, true, false, false, true);
+}
+
+static int
+test_aes_key_unwrap_pad_oop(const void *data)
+{
+	return test_aes_key_wrap_unwrap(data, false, true, false, false, true);
 }
 
 static int
@@ -1268,28 +1292,28 @@ struct unit_test_suite lc_testsuite_sym = {
 					  ut_setup, ut_teardown, test_aes_key_unwrap_oop,
 					  &aes_keywrap_256B_kek_3064B_key),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 20 bytes key data with 192 bit KEK", ut_setup,
-					  ut_teardown, test_aes_key_wrap,
+					  ut_teardown, test_aes_key_wrap_pad,
 					  &aes_keywrap_192B_kek_20B_key),
 		TEST_CASE_NAMED_WITH_DATA("Unwrap 20 bytes key data and 192 bit KEK", ut_setup,
-					  ut_teardown, test_aes_key_unwrap,
+					  ut_teardown, test_aes_key_unwrap_pad,
 					  &aes_keywrap_192B_kek_20B_key),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 20 bytes key data with 192 bit KEK OOP", ut_setup,
-					  ut_teardown, test_aes_key_wrap_oop,
+					  ut_teardown, test_aes_key_wrap_pad_oop,
 					  &aes_keywrap_192B_kek_20B_key),
 		TEST_CASE_NAMED_WITH_DATA("Unwrap 20 bytes key data and 192 bit KEK OOP", ut_setup,
-					  ut_teardown, test_aes_key_unwrap_oop,
+					  ut_teardown, test_aes_key_unwrap_pad_oop,
 					  &aes_keywrap_192B_kek_20B_key),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 7 bytes key data with 192 bit KEK", ut_setup,
-					  ut_teardown, test_aes_key_wrap,
+					  ut_teardown, test_aes_key_wrap_pad,
 					  &aes_keywrap_192B_kek_7B_key),
 		TEST_CASE_NAMED_WITH_DATA("Unwrap 7 bytes key data and 192 bit KEK", ut_setup,
-					  ut_teardown, test_aes_key_unwrap,
+					  ut_teardown, test_aes_key_unwrap_pad,
 					  &aes_keywrap_192B_kek_7B_key),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 7 bytes key data with 192 bit KEK OOP", ut_setup,
-					  ut_teardown, test_aes_key_wrap_oop,
+					  ut_teardown, test_aes_key_wrap_pad_oop,
 					  &aes_keywrap_192B_kek_7B_key),
 		TEST_CASE_NAMED_WITH_DATA("Unwrap 7 bytes key data and 192 bit KEK OOP", ut_setup,
-					  ut_teardown, test_aes_key_unwrap_oop,
+					  ut_teardown, test_aes_key_unwrap_pad_oop,
 					  &aes_keywrap_192B_kek_7B_key),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Unwrap 16 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
@@ -1305,27 +1329,27 @@ struct unit_test_suite lc_testsuite_sym = {
 			&aes_keywrap_192_kek_2408B_wrapkey_with_A6),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Wrap 16 bytes(0XA6) key data and 192 bit KEK with padding bit enabled",
-			ut_setup, ut_teardown, test_aes_key_wrap,
+			ut_setup, ut_teardown, test_aes_key_wrap_pad,
 			&aes_keywrap_192_kek_16B_key_with_A6),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Unwrap 16 bytes(0xA6 original) key data and 192 bit KEK with padding bit enabled",
-			ut_setup, ut_teardown, test_aes_key_unwrap,
+			ut_setup, ut_teardown, test_aes_key_unwrap_pad,
 			&aes_keywrap_192_kek_16B_key_with_A6),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Wrap 1KB bytes(0XA6) key data and 192 bit KEK with padding bit enabled",
-			ut_setup, ut_teardown, test_aes_key_wrap,
+			ut_setup, ut_teardown, test_aes_key_wrap_pad,
 			&aes_keywrap_192_kek_1KB_key_with_A6),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Unwrap 1KB bytes(0xA6 original) key data and 192 bit KEK with padding bit enabled",
-			ut_setup, ut_teardown, test_aes_key_unwrap,
+			ut_setup, ut_teardown, test_aes_key_unwrap_pad,
 			&aes_keywrap_192_kek_1KB_key_with_A6),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Wrap 2400 bytes(0XA6) key data and 192 bit KEK with padding bit enabled",
-			ut_setup, ut_teardown, test_aes_key_wrap,
+			ut_setup, ut_teardown, test_aes_key_wrap_pad,
 			&aes_keywrap_192_kek_2400B_key_with_A6),
 		TEST_CASE_NAMED_WITH_DATA(
 			"Unwrap 2400 bytes(0xA6) key data and 192 bit KEK with padding bit enabled",
-			ut_setup, ut_teardown, test_aes_key_unwrap,
+			ut_setup, ut_teardown, test_aes_key_unwrap_pad,
 			&aes_keywrap_192_kek_2400B_key_with_A6),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}

@@ -82,4 +82,6 @@ int lc_sym_op_validate(struct dao_lc_sym_op *op);
 int lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
 				       const struct dao_lc_sym_sess_meta *sess_meta);
 
+int sym_sess_get_aes_kek_len(enum dao_lc_fc_aes_key_len kek_type);
+
 #endif /* __LIQUID_CRYPTO_SYM_H__ */

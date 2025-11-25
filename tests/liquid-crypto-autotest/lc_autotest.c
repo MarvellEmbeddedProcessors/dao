@@ -206,7 +206,7 @@ main(int argc, char **argv)
 		feature_params.ecc.sign_r_len = TEST_LC_MAX_ECC_SIGN_LEN;
 		feature_params.ecc.sign_s_len = TEST_LC_MAX_ECC_SIGN_LEN;
 		feature_params.sym.key_wrap_len = TEST_LC_MAX_KEY_DATA_LEN;
-		feature_params.sym.kek_len = TEST_LC_MAX_KEK_LEN;
+		feature_params.sym.aes_kek_type = DAO_LC_FC_AES_KEY_LEN_256;
 		feature_params.rsa_oaep.is_rsa_oaep_enabled = 1;
 		feature_params.rsa_oaep.mod_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;
 		feature_params.rsa_oaep.exp_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;

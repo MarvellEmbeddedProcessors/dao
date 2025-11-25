@@ -726,8 +726,8 @@ struct dao_lc_feature_params {
 		uint16_t digest_len;
 		/** Key wrap length */
 		uint16_t key_wrap_len;
-		/** KEK length */
-		uint16_t kek_len;
+		/** KEK type */
+		enum dao_lc_fc_aes_key_len aes_kek_type;
 	} sym;
 	/**
 	 * RSA asymmetric parameters. The parameters are used to calculate the size of the maximum
@@ -848,16 +848,10 @@ struct dao_lc_hmac_hash_ctx {
  * - For AES-KWP (RFC 5649), the default IV is 0xA65959A6.
  */
 struct dao_lc_aes_key_wrap_ctx {
-	/** Set to true for key wrap operation, false for unwrap operation. */
-	bool is_wrap;
 	/** The AES key type (128, 192, or 256 bits) */
 	enum dao_lc_fc_aes_key_len aes_kek_type;
-	/** Length of the Key Encryption Key in bytes (must be 16, 24, or 32) */
-	uint16_t kek_len;
 	/** The key encryption key (KEK) */
 	uint8_t kek[DAO_LC_AES_MAX_KEY_ENC_KEY_LEN];
-	/** Indicates if padding is used (for AES-KWP) */
-	bool is_wrap_pad;
 };
 
 /**
