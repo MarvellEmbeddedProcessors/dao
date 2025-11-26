@@ -396,7 +396,8 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 
 	if (!wqe->dma_length || wqe->dma_length > RDMA_PORT_MAX_MSG_SZ) {
 		dao_err("Invalid dma_length %u for wr_id %lu max supported %u received req %u\n",
-			wqe->dma_length, wr->wr_id, RDMA_PORT_MAX_MSG_SZ, wqe->dma_length);
+			wqe->dma_length, wr->wr_id, (uint32_t)RDMA_PORT_MAX_MSG_SZ,
+			wqe->dma_length);
 		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 		dao_send_cqe(qp, false, wqe);
 		return -1;

@@ -671,7 +671,7 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 
 	if (dma_len > RDMA_PORT_MAX_MSG_SZ) {
 		dao_err("RDMA read request length %u exceeds maximum allowed %u.", dma_len,
-			RDMA_PORT_MAX_MSG_SZ);
+			(uint32_t)RDMA_PORT_MAX_MSG_SZ);
 		return RDMA_RESPST_ERR_LENGTH;
 	}
 
