@@ -1744,13 +1744,13 @@ dao_lc_post_process_asym(struct liquid_crypto_inflight_req *req, struct dao_lc_r
 	}
 }
 
-static inline uint16_t
-dao_lc_buf_copy_to_offset_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint16_t offset,
+static inline uint32_t
+dao_lc_buf_copy_to_offset_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint32_t offset,
 				   uint32_t len)
 {
 	struct dao_lc_buf *tmp = dst;
-	uint16_t copied = 0;
-	uint16_t to_copy;
+	uint32_t copied = 0;
+	uint32_t to_copy;
 
 	if (len == 0)
 		return 0;
@@ -1781,12 +1781,12 @@ dao_lc_buf_copy_to_offset_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint16_
 	return copied;
 }
 
-static inline uint16_t
+static inline uint32_t
 dao_lc_buf_copy_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint32_t len)
 {
 	struct dao_lc_buf *tmp = dst;
-	uint16_t copied = 0;
-	uint16_t to_copy;
+	uint32_t copied = 0;
+	uint32_t to_copy;
 
 	do {
 		to_copy = RTE_MIN(tmp->frag_len, len - copied);
@@ -1803,7 +1803,7 @@ static inline void
 dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
 			struct rte_mbuf *mbuf)
 {
-	uint16_t result_offset, result_len, lc_buf_offset, copied;
+	uint32_t result_offset, result_len, lc_buf_offset, copied;
 	struct __dao_lc_resp_sym *resp;
 
 	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
@@ -1833,7 +1833,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 			/* The length is stored in big-endian format, so convert it
 			 */
 			result_len =
-				rte_be_to_cpu_16(*(uint16_t *)(resp->rptr + result_offset +
+				rte_be_to_cpu_32(*(uint32_t *)(resp->rptr + result_offset +
 							       (req->wrap_unwrap_key_len - 2)));
 
 		copied = dao_lc_buf_copy_to_offset_from_mem(
@@ -1878,8 +1878,8 @@ dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_
 				   uint32_t len, bool is_zero_len_allowed)
 {
 	struct dao_lc_buf *tmp = src;
-	uint16_t copied = 0;
-	uint16_t to_copy;
+	uint32_t copied = 0;
+	uint32_t to_copy;
 
 	/* Skip to the offset */
 	while (tmp && offset >= tmp->frag_len) {
