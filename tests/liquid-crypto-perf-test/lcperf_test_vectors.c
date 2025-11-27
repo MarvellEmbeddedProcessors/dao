@@ -1451,11 +1451,9 @@ static const uint8_t digest_sha1[] = {
 static struct lcperf_test_sym_params sha1_test_data = {
 	.ctx = {
 		.opcode = DAO_LC_SYM_OPCODE_HASH,
-		.fc = {
-			.iv_source = DAO_LC_FC_IV_SRC_OP,
-			.hash_type = DAO_LC_HASH_TYPE_SHA1,
-			.auth_input_type = DAO_LC_FC_AUTH_INPUT_OPAD_IPAD,
-			.mac_len = 20,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA1,
+			.digest_len	 = 20,
 		},
 	},
 	.plaintext = {
