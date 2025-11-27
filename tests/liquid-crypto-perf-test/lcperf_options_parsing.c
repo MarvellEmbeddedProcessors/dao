@@ -43,10 +43,13 @@ usage(char *progname)
 	       "                (reduces head-of-line blocking, increases throughput)\n"
 	       " --ecc-curve secp192r1 / secp224r1 / secp256r1 / secp384r1 / secp521r1 : "
 	       "set ECC curve type\n"
+	       " --enq-timeout N : set enqueue timeout in minutes (default %d minutes)\n"
+	       " --drain-timeout N : set drain timeout in minutes (default %d minutes)\n"
 	       " -h: prints this help\n"
 	       "\n"
 	       "Example: %s --enable-ooo --total-ops 1000000 --ptest throughput\n",
-	       progname, TEST_LC_MAX_PLAINTEXT_LEN, AES_BLOCK_SIZE, progname);
+	       progname, TEST_LC_MAX_PLAINTEXT_LEN, AES_BLOCK_SIZE, ENQ_TIMEOUT, DRAIN_TIMEOUT,
+	       progname);
 }
 
 static int
@@ -429,6 +432,32 @@ parse_ecc_curve(struct lcperf_options *opts, const char *arg)
 	return 0;
 }
 
+static int
+parse_enq_timeout(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->enq_timeout, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse enqueue timeout\n");
+		return -1;
+	}
+
+	return 0;
+}
+
+static int
+parse_drain_timeout(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->drain_timeout, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse drain timeout\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -458,6 +487,9 @@ lcperf_options_default(struct lcperf_options *opts)
 
 	opts->ecc_curve = DAO_LC_AE_EC_ID_P192;
 	opts->ecdsa_test_data = &secp192r1_test_vector;
+
+	opts->enq_timeout = ENQ_TIMEOUT;
+	opts->drain_timeout = DRAIN_TIMEOUT;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -507,6 +539,8 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_BUFFER_SIZE, parse_buffer_size},
 		{LCPERF_ENABLE_OOO, parse_enable_ooo},
 		{LCPERF_ECC_CURVE, parse_ecc_curve},
+		{LCPERF_ENQ_TIMEOUT, parse_enq_timeout},
+		{LCPERF_DRAIN_TIMEOUT, parse_drain_timeout},
 	};
 	unsigned int i;
 

@@ -309,7 +309,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 	dev_id = ctx->dev_id;
 	qp_id = ctx->qp_id;
 
-	time_limit_tsc = rte_get_tsc_hz() * ENQ_TIMEOUT * 60;
+	time_limit_tsc = rte_get_tsc_hz() * ctx->options->enq_timeout * 60;
 	tsc_start = rte_rdtsc_precise();
 
 	while (!force_quit && (ops_enqd_total < total_ops)) {
@@ -359,7 +359,7 @@ lcperf_throughput_test_runner(void *test_ctx)
 		ops_deqd_total += ops_deqd;
 	}
 
-	drain_time_limit_tsc = rte_get_tsc_hz() * 10; /* 10 seconds */
+	drain_time_limit_tsc = rte_get_tsc_hz() * ctx->options->drain_timeout * 60;
 	drain_tsc_start = rte_rdtsc_precise();
 	/* Dequeue any remaining operations */
 	for (j = 0; ops_deqd_total < ops_enqd_total; j++) {
@@ -406,11 +406,11 @@ lcperf_throughput_test_runner(void *test_ctx)
 
 	if (rte_atomic_compare_exchange_strong_explicit(
 		    &display_once, &exp, 1, rte_memory_order_relaxed, rte_memory_order_relaxed))
-		printf("%12s%12s%12s%12s%12s%12s%12s%12s%12s\n\n", "lcore id", "Buf Size",
+		printf("%14s%14s%14s%14s%14s%14s%14s%14s%14s\n\n", "lcore id", "Buf Size",
 		       "Enqueued", "Dequeued", "Failed Enq", "Failed Deq", "MOps", "Gbps",
 		       "Cycles/Buf");
 
-	printf("%12u%12u%12" PRIu64 "%12" PRIu64 "%12" PRIu64 "%12" PRIu64 "%12.4f%12.4f%12.2f\n",
+	printf("%14u%14u%14" PRIu64 "%14" PRIu64 "%14" PRIu64 "%14" PRIu64 "%14.5f%14.5f%14.2f\n",
 	       ctx->lcore_id, ctx->options->test_buffer_size, ops_enqd_total, ops_deqd_total,
 	       total_ops_enqd_failed, ops_deqd_failed, ops_per_second / 1000000, throughput_gbps,
 	       cycles_per_packet);
@@ -500,12 +500,12 @@ lcperf_print_throughput_summary(uint32_t buffer_size)
 	printf("# Total Dequeue Retries:     %12" PRIu64 "\n", total_deq_retries);
 	printf("#\n");
 	printf("# TOTAL THROUGHPUT:\n");
-	printf("#   Total MOps:      %12.4f\n", total_mops);
-	printf("#   Total Gbps:      %12.4f\n", total_gbps);
+	printf("#   Total MOps:      %12.5f\n", total_mops);
+	printf("#   Total Gbps:      %12.5f\n", total_gbps);
 	printf("#   Avg Cycles/Buf:  %12.2f\n", avg_cycles_per_buf);
 	printf("#\n");
 	printf("# PER-WORKER AVERAGE:\n");
-	printf("#   Avg MOps/worker: %12.4f\n", total_mops / worker_count);
-	printf("#   Avg Gbps/worker: %12.4f\n", total_gbps / worker_count);
+	printf("#   Avg MOps/worker: %12.5f\n", total_mops / worker_count);
+	printf("#   Avg Gbps/worker: %12.5f\n", total_gbps / worker_count);
 	printf("#\n");
 }

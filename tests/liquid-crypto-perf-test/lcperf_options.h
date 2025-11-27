@@ -29,8 +29,13 @@
 #define LCPERF_BUFFER_SIZE       ("buffer-size")
 #define LCPERF_ENABLE_OOO        ("enable-ooo")
 #define LCPERF_ECC_CURVE         ("ecc-curve")
+#define LCPERF_ENQ_TIMEOUT       ("enq-timeout")
+#define LCPERF_DRAIN_TIMEOUT     ("drain-timeout")
 
 #define MAX_LIST 1
+
+#define ENQ_TIMEOUT   90
+#define DRAIN_TIMEOUT 30
 
 enum lcperf_perf_test_type {
 	LCPERF_TEST_TYPE_THROUGHPUT,
@@ -113,6 +118,11 @@ struct lcperf_options {
 
 	struct lcperf_ecdsa_test_data *ecdsa_test_data;
 	enum dao_liquid_crypto_ec_curve_type ecc_curve;
+
+	/** Enqueue timeout in minutes */
+	uint32_t enq_timeout;
+	/** Drain timeout in minutes */
+	uint32_t drain_timeout;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

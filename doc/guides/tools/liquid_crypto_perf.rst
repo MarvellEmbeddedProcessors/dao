@@ -144,9 +144,9 @@ The following are the application-specific command-line options:
 	Replace ``<n>`` with the desired key size (e.g., 16, 24, 32). The supported key sizes
 	for AES are 16 bytes (128 bits), 24 bytes (192 bits), and 32 bytes (256 bits).
 
-	The default symmetric cipher key size is 16 bytes (128 bits).
+	The default symmetric cipher key size is ``16`` bytes (128 bits).
 
-* ``--cipher_op <encrypt|decrypt>``
+* ``--cipher-op <encrypt|decrypt>``
 
 	Specify the symmetric cipher operation type to use for symmetric cryptographic operations.
 	Available options are:
@@ -179,25 +179,36 @@ The following are the application-specific command-line options:
 	the amount of data processed in each operation. The buffer size should be a multiple of the block size
 	of the symmetric cipher algorithm being used.
 
-	The default buffer size is 64 bytes.
+	The default buffer size is ``64`` bytes.
 
 * ``--enable-ooo``
-        Enable out-of-order completion of crypto operations.
-        out-of_order can significantly improve throughput by eliminating head-of-line blocking.
-        Particularly beneficial for variable-latency operations and high-throughput scenarios.
-        when enabled, operations may complete in a different order than they were submitted.
-        Applications must be designed to handle out-of-order completion correctly
+
+	Enable out-of-order completion of crypto operations.
+	Out-of-order can significantly improve throughput by eliminating head-of-line blocking.
+	Particularly beneficial for variable-latency operations and high-throughput scenarios.
+	When enabled, operations may complete in a different order than they were submitted.
+	Applications must be designed to handle out-of-order completion correctly.
 
 * ``--ecc-curve <curve>``
-		Specify the ECC curve type to use for ECDSA cryptographic operations.
-		supported curves are:
 
-	   - ``secp192r1``
-	   - ``secp224r1``
-	   - ``secp256r1``
-	   - ``secp384r1``
-	   - ``secp521r1``
-	   - Default curve is ``secp192r1``
+	Specify the ECC curve type to use for ECDSA cryptographic operations.
+	Supported curves are:
+
+	- ``secp192r1`` (default)
+	- ``secp224r1``
+	- ``secp256r1``
+	- ``secp384r1``
+	- ``secp521r1``
+
+* ``--enq-timeout <minutes>``
+
+    Maximum time (in minutes) to continue enqueue attempts after failures occur.
+    Default: ``90`` minutes.
+
+* ``--drain-timeout <minutes>``
+
+	Maximum time (in minutes) to drain remaining operations after enqueue loop completes.
+	Default: ``30`` minutes.
 
 Examples
 --------
