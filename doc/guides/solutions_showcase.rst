@@ -12,3 +12,4 @@ deployment best practices, and benchmark performance results achieved on Marvell
 
    white_papers/accelerated-nginx
    white_papers/accelerated-nginx-with-vpp
+   white_papers/accelerated-openssl
