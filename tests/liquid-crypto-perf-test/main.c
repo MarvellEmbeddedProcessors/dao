@@ -26,8 +26,9 @@ const char *lcperf_test_type_strs[] = {
 };
 
 const char *lcperf_op_type_strs[] = {
-	[LCPERF_OP_PASSTHROUGH] = "passthrough",
+	[LCPERF_OP_ASYM_ECDSA] = "ecdsa",
 	[LCPERF_OP_ASYM_RSA] = "rsa",
+	[LCPERF_OP_PASSTHROUGH] = "passthrough",
 	[LCPERF_OP_SYM] = "symmetric",
 };
 
@@ -64,6 +65,14 @@ const char *lcperf_crypto_sym_cipher_algo_strs[] = {
 
 const char *lcperf_crypto_sym_auth_algo_strs[] = {
 	[DAO_LC_HASH_TYPE_SHA1] = "sha1",
+};
+
+const char *lcperf_ecc_curve_strs[] = {
+	[DAO_LC_AE_EC_ID_P192] = "secp192r1",
+	[DAO_LC_AE_EC_ID_P224] = "secp224r1",
+	[DAO_LC_AE_EC_ID_P256] = "secp256r1",
+	[DAO_LC_AE_EC_ID_P384] = "secp384r1",
+	[DAO_LC_AE_EC_ID_P521] = "secp521r1",
 };
 
 const struct lcperf_test lcperf_testmap[] = {
@@ -286,6 +295,19 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		feature_params.sym.cipher_auth_payload_len = TEST_LC_MAX_OUTPUT_LEN;
 		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
 		feature_params.sym.digest_len = DAO_LC_MAX_DIGEST_LEN;
+		feature_params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
+		/* RSA CRT op */
+		feature_params.rsa.exp_len = 0;
+		feature_params.rsa.msg_len = TEST_LC_MAX_RSA_MSG_LEN;
+		feature_params.ecc.is_ecc_enabled = true;
+		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
+		feature_params.ecc.pkey_len = TEST_LC_MAX_ECC_PKEY_LEN;
+		feature_params.ecc.pubkey_x_len = TEST_LC_MAX_ECC_PKEY_LEN;
+		feature_params.ecc.pubkey_y_len = TEST_LC_MAX_ECC_PKEY_LEN;
+		feature_params.ecc.digest_len = TEST_LC_MAX_ECC_DIGEST_LEN;
+		feature_params.ecc.nonce_len = TEST_LC_MAX_NONCE_LEN;
+		feature_params.ecc.sign_r_len = TEST_LC_MAX_ECC_SIGN_LEN;
+		feature_params.ecc.sign_s_len = TEST_LC_MAX_ECC_SIGN_LEN;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {

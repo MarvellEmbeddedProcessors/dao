@@ -28,6 +28,7 @@
 #define LCPERF_SYM_AUTH_ALGO     ("auth-algo")
 #define LCPERF_BUFFER_SIZE       ("buffer-size")
 #define LCPERF_ENABLE_OOO        ("enable-ooo")
+#define LCPERF_ECC_CURVE         ("ecc-curve")
 
 #define MAX_LIST 1
 
@@ -39,8 +40,9 @@ enum lcperf_perf_test_type {
 extern const char *lcperf_test_type_strs[];
 
 enum lcperf_op_type {
-	LCPERF_OP_PASSTHROUGH = 1,
-	LCPERF_OP_ASYM_RSA,
+	LCPERF_OP_ASYM_ECDSA,
+	LCPERF_OP_ASYM_RSA = 1,
+	LCPERF_OP_PASSTHROUGH,
 	LCPERF_OP_SYM,
 };
 
@@ -80,6 +82,7 @@ extern const char *lcperf_crypto_sym_cipher_op_type_strs[];
 extern const char *lcperf_crypto_sym_cipher_algo_strs[];
 extern const char *lcperf_crypto_sym_auth_op_type_strs[];
 extern const char *lcperf_crypto_sym_auth_algo_strs[];
+extern const char *lcperf_ecc_curve_strs[];
 
 struct lcperf_options {
 	enum lcperf_perf_test_type test;
@@ -107,6 +110,9 @@ struct lcperf_options {
 
 	/** Enable out-of-order delivery for performance testing */
 	bool enable_ooo;
+
+	struct lcperf_ecdsa_test_data *ecdsa_test_data;
+	enum dao_liquid_crypto_ec_curve_type ecc_curve;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

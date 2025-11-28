@@ -72,6 +72,9 @@ The following are the application-specific command-line options:
 	   symmetric
 	      Perform symmetric cryptographic operations, such as AES encryption and decryption.
 
+	   ecdsa
+	      Perform ECDSA cryptographic operations, including private key encryption (signing) and public key decryption (verification).
+
 * ``--desc-nb <n>``
 
 	Specify the number of descriptors to allocate for each LiquidCrypto device.
@@ -185,6 +188,17 @@ The following are the application-specific command-line options:
         when enabled, operations may complete in a different order than they were submitted.
         Applications must be designed to handle out-of-order completion correctly
 
+* ``--ecc-curve <curve>``
+		Specify the ECC curve type to use for ECDSA cryptographic operations.
+		supported curves are:
+
+	   - ``secp192r1``
+	   - ``secp224r1``
+	   - ``secp256r1``
+	   - ``secp384r1``
+	   - ``secp521r1``
+	   - Default curve is ``secp192r1``
+
 Examples
 --------
 
@@ -220,6 +234,15 @@ The following are examples of how to use the ``dao-liquid-crypto-perf-test`` app
 
 		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 512 --optype rsa --asym-op prv-decrypt --rsa-priv-keytype qt --ptest latency --burst-size 32
 
+7. **Throughput Test for ECDSA Private Key Encryption**
+	Perform a throughput test for ECDSA private key encryption using the secp256r1 curve, with 10,000 total operations and 2048 descriptors::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 10000 --desc-nb 2048 --optype ecdsa --asym-op prv-encrypt --ecc-curve secp256r1 --ptest throughput
+
+8. **Throughput Test for ECDSA Public Key Decryption**
+	Perform a throughput test for ECDSA public key decryption using the secp384r1 curve, with 10,000 total operations and 2048 descriptors::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 10000 --desc-nb 2048 --optype ecdsa --asym-op pub-decrypt --ecc-curve secp384r1 --ptest throughput
 
 Optional Command-Line Options
 -----------------------------

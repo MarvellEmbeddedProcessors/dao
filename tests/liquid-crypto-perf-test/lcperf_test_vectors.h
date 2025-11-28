@@ -17,6 +17,18 @@
 #define TEST_LC_MAX_OUTPUT_LEN 32256
 /* Maximum burst size */
 #define TEST_LC_MAX_BURST_SIZE 8192
+/* Maximum length of RSA modulus */
+#define TEST_LC_MAX_RSA_MOD_LEN 1024
+/* Maximum length of RSA message */
+#define TEST_LC_MAX_RSA_MSG_LEN 1013
+/* Maximum length of ECC private/public key */
+#define TEST_LC_MAX_ECC_PKEY_LEN 66
+/* Maximum length of ECC signature */
+#define TEST_LC_MAX_ECC_SIGN_LEN 66
+/* Maximum length of ECC digest */
+#define TEST_LC_MAX_ECC_DIGEST_LEN 66
+/* Maximum nonce length */
+#define TEST_LC_MAX_NONCE_LEN 66
 
 struct lcperf_test_sym_params {
 	struct dao_lc_sym_ctx ctx;
@@ -115,12 +127,49 @@ struct lcperf_rsa_test_data {
 	} qInv;
 };
 
+struct lcperf_ecdsa_test_data {
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} pubkey_qx;
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} pubkey_qy;
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} scalar;
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} digest;
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} sign_r;
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} sign_s;
+	struct {
+		uint8_t *data;
+		uint16_t length;
+	} pkey;
+	uint8_t curve;
+};
+
 extern struct lcperf_rsa_test_data rsa_1024_params;
 extern struct lcperf_rsa_test_data rsa_256_params;
 extern struct lcperf_rsa_test_data rsa_2048_params;
 extern struct lcperf_rsa_test_data rsa_4096_params;
 extern struct lcperf_rsa_test_data rsa_8192_params;
 
+extern struct lcperf_ecdsa_test_data secp192r1_test_vector;
+extern struct lcperf_ecdsa_test_data secp224r1_test_vector;
+extern struct lcperf_ecdsa_test_data secp256r1_test_vector;
+extern struct lcperf_ecdsa_test_data secp384r1_test_vector;
+extern struct lcperf_ecdsa_test_data secp521r1_test_vector;
 struct lcperf_test_data *lcperf_test_vector_get_dummy(const struct lcperf_options *options);
 
 void lcperf_test_vector_free(struct lcperf_test_data *vector);

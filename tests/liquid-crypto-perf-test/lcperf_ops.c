@@ -90,6 +90,36 @@ lcperf_enqueue_ops_asym_rsa(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_d
 }
 
 static int
+lcperf_enqueue_ops_asym_ecdsa(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
+			      const struct lcperf_options *options)
+{
+	struct lcperf_ecdsa_test_data *ecdsa_test_data = options->ecdsa_test_data;
+	uint8_t rs_output[TEST_LC_MAX_OUTPUT_LEN];
+	int ops_enqd = 0;
+	int ret = -1;
+
+	if (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT)
+		ret = dao_liquid_crypto_enq_op_ecdsa_sign(
+			dev_id, qp_id, options->ecc_curve, ecdsa_test_data->scalar.length,
+			ecdsa_test_data->pkey.length, ecdsa_test_data->digest.length,
+			ecdsa_test_data->scalar.data, ecdsa_test_data->pkey.data,
+			ecdsa_test_data->digest.data, rs_output, tdata->op_cookie);
+	else if (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT)
+		ret = dao_liquid_crypto_enq_op_ecdsa_verify(
+			dev_id, qp_id, options->ecc_curve, ecdsa_test_data->sign_r.length,
+			ecdsa_test_data->sign_s.length, ecdsa_test_data->digest.length,
+			ecdsa_test_data->pubkey_qx.length, ecdsa_test_data->pubkey_qy.length,
+			ecdsa_test_data->sign_r.data, ecdsa_test_data->sign_s.data,
+			ecdsa_test_data->digest.data, ecdsa_test_data->pubkey_qx.data,
+			ecdsa_test_data->pubkey_qy.data, tdata->op_cookie);
+
+	if (ret == 0)
+		ops_enqd = 1;
+
+	return ops_enqd;
+}
+
+static int
 lcperf_set_ops_asym_rsa(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
 			const struct lcperf_options *options)
 {
@@ -108,8 +138,36 @@ lcperf_set_ops_asym_rsa(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data 
 }
 
 static int
+lcperf_set_ops_asym_ecdsa(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
+			  const struct lcperf_options *options)
+{
+	uint64_t ops_enqd = 0;
+	int ret, i;
+
+	for (i = 0; i < tdata->nb_ops; i++) {
+		ret = lcperf_enqueue_ops_asym_ecdsa(dev_id, qp_id, tdata, options);
+		if (ret == 1)
+			ops_enqd++;
+		else
+			break;
+	}
+
+	return ops_enqd;
+}
+
+static int
 lcperf_populate_ops_asym(uint64_t sess_id, const struct lcperf_options *options,
 			 struct lcperf_test_data *test_data)
+{
+	(void)sess_id;
+	(void)options;
+	(void)test_data;
+	return 0;
+}
+
+static int
+lcperf_populate_ops_ecdsa(uint64_t sess_id, const struct lcperf_options *options,
+			  struct lcperf_test_data *test_data)
 {
 	(void)sess_id;
 	(void)options;
@@ -339,6 +397,12 @@ lcperf_get_op_functions(const struct lcperf_options *options, struct lcperf_op_f
 	case LCPERF_OP_ASYM_RSA:
 		op_fns->enqueue_ops = lcperf_set_ops_asym_rsa;
 		op_fns->populate_ops = lcperf_populate_ops_asym;
+		op_fns->sess_create = NULL;
+		op_fns->sess_destroy = NULL;
+		break;
+	case LCPERF_OP_ASYM_ECDSA:
+		op_fns->enqueue_ops = lcperf_set_ops_asym_ecdsa;
+		op_fns->populate_ops = lcperf_populate_ops_ecdsa;
 		op_fns->sess_create = NULL;
 		op_fns->sess_destroy = NULL;
 		break;

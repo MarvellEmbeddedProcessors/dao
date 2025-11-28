@@ -24,7 +24,7 @@ usage(char *progname)
 	       " set test type\n"
 	       " --total-ops N: set the number of total operations performed\n"
 	       " --desc-nb N: set number of descriptors for each liquid crypto device\n"
-	       " --optype passthrough / rsa / symmetric : set operation type\n"
+	       " --optype passthrough / rsa / symmetric / ecdsa : set operation type\n"
 	       " --asym-op pub-encrypt / pub-decrypt / prv-encrypt / prv-decrypt :"
 	       " set asym operation type\n"
 	       " --rsa-priv-keytype exp / qt : set rsa private key type\n"
@@ -41,6 +41,8 @@ usage(char *progname)
 	       " multiple of %u bytes)\n"
 	       " --enable-ooo : enable out-of-order delivery for improved performance\n"
 	       "                (reduces head-of-line blocking, increases throughput)\n"
+	       " --ecc-curve secp192r1 / secp224r1 / secp256r1 / secp384r1 / secp521r1 : "
+	       "set ECC curve type\n"
 	       " -h: prints this help\n"
 	       "\n"
 	       "Example: %s --enable-ooo --total-ops 1000000 --ptest throughput\n",
@@ -153,6 +155,10 @@ parse_op_type(struct lcperf_options *opts, const char *arg)
 		{
 			lcperf_op_type_strs[LCPERF_OP_SYM],
 			LCPERF_OP_SYM,
+		},
+		{
+			lcperf_op_type_strs[LCPERF_OP_ASYM_ECDSA],
+			LCPERF_OP_ASYM_ECDSA,
 		},
 	};
 
@@ -401,6 +407,28 @@ parse_enable_ooo(struct lcperf_options *opts, const char *arg __rte_unused)
 	return 0;
 }
 
+static int
+parse_ecc_curve(struct lcperf_options *opts, const char *arg)
+{
+	struct name_id_map ecc_curve_namemap[] = {
+		{lcperf_ecc_curve_strs[DAO_LC_AE_EC_ID_P192], DAO_LC_AE_EC_ID_P192},
+		{lcperf_ecc_curve_strs[DAO_LC_AE_EC_ID_P224], DAO_LC_AE_EC_ID_P224},
+		{lcperf_ecc_curve_strs[DAO_LC_AE_EC_ID_P256], DAO_LC_AE_EC_ID_P256},
+		{lcperf_ecc_curve_strs[DAO_LC_AE_EC_ID_P384], DAO_LC_AE_EC_ID_P384},
+		{lcperf_ecc_curve_strs[DAO_LC_AE_EC_ID_P521], DAO_LC_AE_EC_ID_P521},
+	};
+
+	int id = get_str_key_id_mapping(ecc_curve_namemap, RTE_DIM(ecc_curve_namemap), arg);
+
+	if (id < 0) {
+		RTE_LOG(ERR, USER1, "Invalid ECC curve %s configured\n", arg);
+		return -1;
+	}
+
+	opts->ecc_curve = (enum dao_liquid_crypto_ec_curve_type)id;
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -427,6 +455,9 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->auth_algo = DAO_LC_HASH_TYPE_SHA1;
 
 	opts->enable_ooo = false;
+
+	opts->ecc_curve = DAO_LC_AE_EC_ID_P192;
+	opts->ecdsa_test_data = &secp192r1_test_vector;
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -452,6 +483,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_SYM_AUTH_OP, required_argument, 0, 0},
 				 {LCPERF_BUFFER_SIZE, required_argument, 0, 0},
 				 {LCPERF_ENABLE_OOO, no_argument, 0, 0},
+				 {LCPERF_ECC_CURVE, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -474,6 +506,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_SYM_AUTH_OP, parse_sym_auth_op},
 		{LCPERF_BUFFER_SIZE, parse_buffer_size},
 		{LCPERF_ENABLE_OOO, parse_enable_ooo},
+		{LCPERF_ECC_CURVE, parse_ecc_curve},
 	};
 	unsigned int i;
 
@@ -539,9 +572,16 @@ lcperf_options_dump(struct lcperf_options *opts)
 			printf("# RSA private key type: %s\n",
 			       lcperf_rsa_priv_keytype_strs[opts->rsa_priv_keytype]);
 		printf("# RSA modulus length: %u\n", opts->rsa_modlen);
-	}
-
-	if (opts->op_type == LCPERF_OP_SYM) {
+		printf("#\n");
+		printf("# Asymmetric operation type: %s\n",
+		       lcperf_crypto_asym_op_type_strs[opts->asym_op_type]);
+	} else if (opts->op_type == LCPERF_OP_ASYM_ECDSA) {
+		printf("# ECDSA curve type: %s\n",
+		       lcperf_ecc_curve_strs[opts->ecc_curve]);
+		printf("#\n");
+		printf("# Asymmetric operation type: %s\n",
+		       lcperf_crypto_asym_op_type_strs[opts->asym_op_type]);
+	} else if (opts->op_type == LCPERF_OP_SYM) {
 		printf("# Symmetric operation type: %s\n",
 		       lcperf_crypto_sym_op_type_strs[opts->sym_op]);
 
@@ -582,44 +622,46 @@ check_cipher_buffer_length(struct lcperf_options *options)
 int
 lcperf_options_check(struct lcperf_options *options)
 {
-	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT) ||
-	    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT)) {
-		if ((options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_EXP) &&
-		    (options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_QT)) {
-			RTE_LOG(ERR, USER1, "Invalid RSA private key type specified\n");
+	if (options->op_type == LCPERF_OP_ASYM_RSA) {
+		if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT) ||
+		    (options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PRV_DECRYPT)) {
+			if ((options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_EXP) &&
+			    (options->rsa_priv_keytype != LCPERF_RSA_KEY_TYPE_QT)) {
+				RTE_LOG(ERR, USER1, "Invalid RSA private key type specified\n");
+				return -EINVAL;
+			}
+		}
+
+		if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT ||
+		     options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT) &&
+		    (options->rsa_priv_keytype == LCPERF_RSA_KEY_TYPE_EXP ||
+		     options->rsa_priv_keytype == LCPERF_RSA_KEY_TYPE_QT)) {
+			RTE_LOG(ERR, USER1,
+				"Private key type cannot be configured for public encrypt or decrypt operations\n");
 			return -EINVAL;
 		}
-	}
 
-	if ((options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_ENCRYPT ||
-	     options->asym_op_type == LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT) &&
-	    (options->rsa_priv_keytype == LCPERF_RSA_KEY_TYPE_EXP ||
-	     options->rsa_priv_keytype == LCPERF_RSA_KEY_TYPE_QT)) {
-		RTE_LOG(ERR, USER1,
-			"Private key type cannot be configured for public encrypt or decrypt operations\n");
-		return -EINVAL;
-	}
-
-	switch (options->rsa_modlen) {
-	case 1024:
-		options->rsa_data = &rsa_1024_params;
-		break;
-	case 2048:
-		options->rsa_data = &rsa_2048_params;
-		break;
-	case 4096:
-		options->rsa_data = &rsa_4096_params;
-		break;
-	case 8192:
-		options->rsa_data = &rsa_8192_params;
-		break;
-	case 256:
-		options->rsa_data = &rsa_256_params;
-		break;
-	default:
-		RTE_LOG(ERR, USER1, "Invalid %d RSA modulus length specified\n",
-			options->rsa_modlen);
-		return -EINVAL;
+		switch (options->rsa_modlen) {
+		case 256:
+			options->rsa_data = &rsa_256_params;
+			break;
+		case 1024:
+			options->rsa_data = &rsa_1024_params;
+			break;
+		case 2048:
+			options->rsa_data = &rsa_2048_params;
+			break;
+		case 4096:
+			options->rsa_data = &rsa_4096_params;
+			break;
+		case 8192:
+			options->rsa_data = &rsa_8192_params;
+			break;
+		default:
+			RTE_LOG(ERR, USER1, "Invalid %d RSA modulus length specified\n",
+				options->rsa_modlen);
+			return -EINVAL;
+		}
 	}
 
 	if (options->op_type == LCPERF_OP_SYM) {
@@ -660,6 +702,36 @@ lcperf_options_check(struct lcperf_options *options)
 	if (options->burst_size > options->nb_descriptors) {
 		RTE_LOG(ERR, USER1, "Burst size cannot be greater than number of descriptors\n");
 		return -EINVAL;
+	}
+
+	if (options->op_type == LCPERF_OP_ASYM_ECDSA) {
+		if (options->asym_op_type != LCPERF_CRYPTO_ASYM_OP_PRV_ENCRYPT &&
+		    options->asym_op_type != LCPERF_CRYPTO_ASYM_OP_PUB_DECRYPT) {
+			RTE_LOG(ERR, USER1,
+				"ECDSA operations only support private encrypt(sign) and public decrypt(verify)\n");
+			return -EINVAL;
+		}
+
+		switch (options->ecc_curve) {
+		case DAO_LC_AE_EC_ID_P192:
+			options->ecdsa_test_data = &secp192r1_test_vector;
+			break;
+		case DAO_LC_AE_EC_ID_P224:
+			options->ecdsa_test_data = &secp224r1_test_vector;
+			break;
+		case DAO_LC_AE_EC_ID_P256:
+			options->ecdsa_test_data = &secp256r1_test_vector;
+			break;
+		case DAO_LC_AE_EC_ID_P384:
+			options->ecdsa_test_data = &secp384r1_test_vector;
+			break;
+		case DAO_LC_AE_EC_ID_P521:
+			options->ecdsa_test_data = &secp521r1_test_vector;
+			break;
+		default:
+			RTE_LOG(ERR, USER1, "Invalid ECDSA curve type specified\n");
+			return -EINVAL;
+		}
 	}
 
 	return 0;
