@@ -1833,7 +1833,7 @@ dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 			/* The length is stored in big-endian format, so convert it
 			 */
 			result_len =
-				rte_be_to_cpu_32(*(uint32_t *)(resp->rptr + result_offset +
+				rte_be_to_cpu_16(*(uint16_t *)(resp->rptr + result_offset +
 							       (req->wrap_unwrap_key_len - 2)));
 
 		copied = dao_lc_buf_copy_to_offset_from_mem(
