@@ -1081,7 +1081,7 @@ uint16_t dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params);
  * @return
  * - 0 on success, negative value on failure.
  * -  -EINVAL, indicating an invalid argument.
- * -  -ENOSPC, indicating that there is no space left on the device.
+ * -  -ENOSPC, indicating that there is no space left in the queue.
  * -  -ENOMEM, indicating an out of memory error.
  * -  -EIO, indicating an I/O error.
  *
@@ -1122,7 +1122,7 @@ int dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uin
  *  - 0 on success, negative value on failure.
  *  -  -EINVAL, indicating an invalid argument.
  *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
@@ -1164,7 +1164,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
  *  - 0 on success, negative value on failure.
  *  -  -EINVAL, indicating an invalid argument.
  *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
@@ -1213,7 +1213,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
  *  - 0 on success, negative value on failure.
  *  -  -EINVAL, indicating an invalid argument.
  *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
@@ -1261,7 +1261,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uin
  *  - 0 on success, negative value on failure.
  *  - -EINVAL, indicating an invalid argument.
  *  - -ENOMEM, indicating an out of memory error.
- *  - -ENOSPC, indicating that there is no space left on the device.
+ *  - -ENOSPC, indicating that there is no space left in the queue.
  *  - -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
@@ -1286,7 +1286,7 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uin
  *  - 0 on success, negative value on failure.
  *  -  -EINVAL, indicating an invalid argument.
  *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_random_op *op);
@@ -1314,7 +1314,7 @@ int dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_l
  *  will be set to indicate the cause.
  *   - EINVAL, indicating an invalid argument.
  *   - ENOMEM, indicating an out of memory error.
- *   - ENOSPC, indicating that there is no space left on the device.
+ *   - ENOSPC, indicating that there is no space left in the queue.
  *   - EIO, indicating an I/O error.
  */
 uint16_t dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id,
@@ -1458,7 +1458,7 @@ uint16_t dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_e
  *  0 on success, negative value on failure.
  *   -EINVAL, indicating an invalid argument.
  *   -ENOMEM, indicating an out of memory error.
- *   -ENOSPC, indicating that there is no space left on the device.
+ *   -ENOSPC, indicating that there is no space left in the queue.
  */
 int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 					enum dao_liquid_crypto_ec_curve_type curve_id,
@@ -1521,7 +1521,7 @@ int dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
  *  0 on success, negative value on failure.
  *   -EINVAL, indicating an invalid argument.
  *   -ENOMEM, indicating an out of memory error.
- *   -ENOSPC, indicating that there is no space left on the device.
+ *   -ENOSPC, indicating that there is no space left in the queue.
  */
 int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 					  enum dao_liquid_crypto_ec_curve_type curve_id,
@@ -1599,7 +1599,7 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  *  - 0 on success, negative value on failure.
  *  -  -EINVAL, indicating an invalid argument.
  *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
@@ -1654,7 +1654,7 @@ int dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_
  *  - 0 on success, negative value on failure.
  *  -  -EINVAL, indicating an invalid argument.
  *  -  -ENOMEM, indicating an out of memory error.
- *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
  *  -  -EIO, indicating an I/O error.
  */
 int dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_t *label,
