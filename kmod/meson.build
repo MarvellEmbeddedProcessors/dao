@@ -18,16 +18,23 @@ if host_build
                message('rdma-core already compiled')
            else
                kernel_build_dir = get_option('kernel_dir')
-               message(kernel_build_dir)
-               # rdma-core
-               rdma_core_dep = dependency(
-               'rdma-core',
-               default_options: [
-                       'kernel_dir=' + get_option('kernel_dir')
-               ],
-               )
+               kernel_header_dst = kernel_build_dir + '/' + 'include/uapi/rdma/'
+               message(kernel_header_dst)
+	       if fs.is_dir(kernel_header_dst)
+                   # rdma-core
+                   rdma_core_dep = dependency(
+                   'rdma-core',
+                   default_options: [
+                           'kernel_dir=' + get_option('kernel_dir')
+                   ],
+                   )
+	       else
+	           warning('RDMA kernel headers not found in ' + kernel_header_dst)
+	       endif
            endif
-           subdirs += ['rdma']
+	   if fs.is_dir(kernel_header_dst)
+               subdirs += ['rdma']
+	   endif
        endif
    endif
 endif
