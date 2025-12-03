@@ -12,9 +12,9 @@
 /* Maximum length of IV */
 #define TEST_LC_MAX_IV_LEN 16
 /* Maximum length of plaintext */
-#define TEST_LC_MAX_PLAINTEXT_LEN 2048
+#define TEST_LC_MAX_PLAINTEXT_LEN 32256
 /* Maximum length of output buffer */
-#define TEST_LC_MAX_OUTPUT_LEN 5120
+#define TEST_LC_MAX_OUTPUT_LEN 32256
 /* Maximum burst size */
 #define TEST_LC_MAX_BURST_SIZE 8192
 
