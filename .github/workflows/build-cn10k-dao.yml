@@ -62,7 +62,6 @@ jobs:
         run: |
           set -x
           mkdir -p "${PWD}/artifacts"
-          git fetch --tags --quiet
 
           # Capture the current event name ("tag push", "pull_request", "workflow_dispatch", "schedule").
           EVENT="${{ github.event_name }}"

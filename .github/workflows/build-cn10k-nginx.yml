@@ -58,7 +58,6 @@ jobs:
         run: |
           set -x
           mkdir -p artifacts
-          git fetch --tags --quiet
           # Capture the current event name ("tag push", "pull_request", "workflow_dispatch", "schedule").
           EVENT="${{ github.event_name }}"
           # Extract first two fields = YY.MM from the VERSION file.
