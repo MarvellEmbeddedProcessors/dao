@@ -189,7 +189,7 @@ Random Number Generation (RNG)
 | RNG Mode         | Input Data  | Max Random Data  | Notes            |
 |                  | Required    | Length           |                  |
 +==================+=============+==================+==================+
-| HW_RANDOM        | None        | 32767 bytes      | Hardware-based   |
+| HW_RANDOM        | None        | 32600 bytes      | Hardware-based   |
 |                  |             |                  | true random      |
 |                  |             |                  | number           |
 |                  |             |                  | generation       |
@@ -197,7 +197,7 @@ Random Number Generation (RNG)
 
 .. note::
    * Only HW RANDOM RNG mode is currently supported.
-   * The maximum random data length is limited by 32727 bytes.
+   * The maximum random data length is limited by 32600 bytes.
    * Hardware Random RNG provides "true" random numbers generated from RNG circuit with a high amount of entropy.
 
 AES Key Wrap (KW) and AES Key Wrap with Padding (KWP) Algorithms
