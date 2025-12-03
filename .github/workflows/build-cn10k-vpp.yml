@@ -43,7 +43,6 @@ jobs:
         run: |
           set -x
           mkdir -p "${PWD}/artifacts"
-          git fetch --tags --quiet
           EVENT="${{ github.event_name }}"
           BASE=$(cut -d. -f1,2 < VERSION)
           # If event is a Tag Push
