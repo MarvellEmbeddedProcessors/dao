@@ -841,8 +841,8 @@ lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
 	}
 
 	if (!op->is_wrap_pad) {
-		if (key_len < 8) {
-			dao_err("Invalid key length (%u). Key length is too small for AES-KW and minimum key length must be 8 bytes.",
+		if (key_len < 16) {
+			dao_err("Invalid key length (%u). Key length is too small for AES-KW and minimum key length must be 16 bytes.",
 				key_len);
 			return -EINVAL;
 		}
