@@ -924,12 +924,15 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 			rng_seg_size = sizeof(struct __dao_lc_req_sym) + params->rng.rand_len;
 		}
-		pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_KEM_1024_PRIV_KEY_LEN +
-							 DAO_LC_ML_KEM_SHARED_SECRET_LEN +
-							 DAO_LC_ML_KEM_1024_CIPHERTEXT_LEN);
-		pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_DSA_87_PRIV_KEY_LEN +
-							 DAO_LC_ML_DSA_87_PUB_KEY_LEN +
-							 DAO_LC_ML_DSA_87_SIGNATURE_LEN);
+
+		if (params->pqc.is_pqc_enabled) {
+			pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_KEM_1024_PRIV_KEY_LEN +
+								 DAO_LC_ML_KEM_SHARED_SECRET_LEN +
+								 DAO_LC_ML_KEM_1024_CIPHERTEXT_LEN);
+			pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_DSA_87_PRIV_KEY_LEN +
+								 DAO_LC_ML_DSA_87_PUB_KEY_LEN +
+								 DAO_LC_ML_DSA_87_SIGNATURE_LEN);
+		}
 
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 		max_seg_size = RTE_MAX(max_seg_size, rng_seg_size);

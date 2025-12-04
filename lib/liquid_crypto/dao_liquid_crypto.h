@@ -836,6 +836,11 @@ struct dao_lc_feature_params {
 		enum dao_lc_hash_type hash_type;
 	} rsa_oaep;
 
+	/* Specifies whether PQC is enabled or not */
+	struct {
+		bool is_pqc_enabled;
+	} pqc;
+
 	/**
 	 * Specifies whether the size calculation is for the command queue pair.
 	 * If true, the size is calculated specifically for the command queue pair, ignoring
