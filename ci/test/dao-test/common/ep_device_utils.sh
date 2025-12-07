@@ -148,14 +148,25 @@ function ep_device_dpi_setup()
 {
 	# Bind DPI devices
 	local dpi_pf=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_PF)
+	local pdir=""
 	local dpi_vfs
 
 	echo "Binding DPI devices"
 	# Bind required DMA devices to vfio-pci
 	# Enhance DPI engine FIFO size and MRRS
-	echo 0x10101010 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/eng_fifo_buf
-	echo 512 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/mrrs
-	echo 256 > /sys/bus/pci/drivers/octeontx2-dpi/module/parameters/mps
+	if [[ -d /sys/bus/pci/drivers/octeontx2-dpi/module/parameters ]]; then
+		pdir="/sys/bus/pci/drivers/octeontx2-dpi/module/parameters"
+	elif [[ -d /sys/module/octeontx2_dpi/parameters ]]; then
+		pdir="/sys/module/octeontx2_dpi/parameters"
+	fi
+
+	if [[ -n "$pdir" ]]; then
+		[[ -f "$pdir/eng_fifo_buf" ]] && echo 0x01010f100f10 > "$pdir/eng_fifo_buf"
+		[[ -f "$pdir/mrrs" ]] && echo 512 > "$pdir/mrrs"
+		[[ -f "$pdir/mps" ]] && echo 256 > "$pdir/mps"
+	else
+		echo "WARN: DPI parameter directory not found" >&2
+	fi
 
 	ep_common_bind_driver pci $dpi_pf octeontx2-dpi
 	ep_common_set_numvfs $dpi_pf 32
@@ -344,6 +355,70 @@ function ep_device_get_num_cores()
 {
 	local num_cores=$(lscpu | grep "On-line CPU(s) list" | awk -F '-' '{print $3}')
 	echo $(($num_cores + 1))
+}
+
+function ep_device_guest_rdma_setup()
+{
+	local rdma_dev=$1
+	local iface_name=
+
+	modprobe ib_uverbs
+	# Setup RDMA device on guest
+	iface_name=$(ep_common_if_name_get $rdma_dev)
+	rdma link add rxe0 type rxe netdev $iface_name
+}
+
+function ep_device_guest_rdma_cleanup()
+{
+	local rdma_dev=$1
+	local iface_name=
+
+	# Setup RDMA device on guest
+	iface_name=$(ep_common_if_name_get $rdma_dev)
+	ip link set dev $iface_name down
+	rdma link delete rxe0
+}
+
+function ep_device_rdma_app_cleanup() {
+	local force_mode="${1:-false}"
+	local binary="${2:-dao-rdma_graph}"
+	local log_path="${EP_LOG_PATH:-/tmp}"
+	local pid_file="$log_path/dao_rdma_graph_pid.tmp"
+
+	set +e
+
+	if pgrep -f "$binary" >/dev/null 2>&1; then
+		echo "Stopping $binary processes..."
+		pkill -9 -f "$binary" 2>/dev/null || echo "Warning: Failed to stop some $binary processes"
+		sleep 2
+
+		# Verify cleanup
+		if pgrep -f "$binary" >/dev/null 2>&1; then
+			echo "WARNING: Some $binary processes still running"
+			if [[ "$force_mode" != "true" ]]; then
+				return 1
+			fi
+		else
+			echo "$binary processes stopped successfully"
+		fi
+	else
+		echo "No $binary processes found"
+	fi
+
+	# Clean up PID and lock files
+	rm -f "$pid_file" 2>/dev/null || true
+	rm -f /tmp/dao_rdma_lock 2>/dev/null || true
+	rm -f /tmp/dao_rdma_pid.tmp 2>/dev/null || true
+
+	# Clean up log files if force mode
+	if [[ "$force_mode" == "true" ]]; then
+		rm -f "$log_path/dao_rdma_graph.log" 2>/dev/null || true
+		echo "Log files cleaned up"
+	fi
+
+	set -e
+
+	return 0
 }
 
 # If this script is directly invoked from the shell execute the

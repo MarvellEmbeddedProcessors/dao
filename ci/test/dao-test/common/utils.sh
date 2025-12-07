@@ -68,7 +68,7 @@ function ep_host_op()
 {
 	local op=$1
 	local args=${@:2}
-	local env="EP_HOST_MODULE_DIR=$EP_HOST_MODULE_DIR $EP_HOST=$EP_HOST EP_DIR=$EP_DIR"
+	local env="EP_HOST_MODULE_DIR=$EP_HOST_MODULE_DIR EP_HOST=$EP_HOST EP_DIR=$EP_DIR"
 
 	ep_host_ssh_cmd "$EP_HOST_SUDO $env $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args"
 }

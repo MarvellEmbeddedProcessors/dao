@@ -52,6 +52,56 @@ function ep_host_sdp_setup()
 	dmesg | tail -n 10
 }
 
+# Function shall be called after the graph app is started on the device
+function ep_host_rdma_setup()
+{
+	local num_vfs=${1:-1}
+	local bdf
+
+	# Stop Network Manager to stop ip-address being automatically removed
+	service NetworkManager stop
+
+	set +e # Module may be already loaded
+	modprobe ib_uverbs
+	sleep 1
+
+	if grep -q 'octep_rdma' /proc/modules; then
+		rmmod octep_rdma
+	fi
+
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		insmod $EP_HOST_MODULE_DIR/octep-rdma.ko
+	else
+		insmod $EP_DIR/kmod/rdma/octep_rdma/octep-rdma.ko
+	fi
+	set -e
+
+	sleep 1
+	bdf=$(ep_common_pcie_addr_get "0xB900" 1)
+	echo $num_vfs > /sys/bus/pci/devices/$bdf/sriov_numvfs
+}
+
+function ep_host_rdma_cleanup()
+{
+	local bdf=$(ep_common_pcie_addr_get "0xB900" 1)
+	local status
+
+	# Disable SR-IOV first
+	echo 0 > /sys/bus/pci/devices/$bdf/sriov_numvfs
+
+	set +e
+	# Remove octep_rdma module
+	if grep -q 'octep_rdma' /proc/modules; then
+		rmmod octep_rdma
+	fi
+
+	if grep -q 'ib_uverbs' /proc/modules; then
+		rmmod ib_uverbs
+	fi
+
+	set -e
+}
+
 function ep_host_vdpa_common_setup()
 {
 	local driver=$1
