@@ -135,6 +135,10 @@ Authentication Algorithms
 +----------------+------------------+---------------+---------------+
 | KMAC-256       | 1 - 1024 bytes   | 1 - 255 bytes | N/A           |
 +----------------+------------------+---------------+---------------+
+| cSHAKE-128     | 1 - 1024 bytes   | 1 - 255 bytes | N/A           |
++----------------+------------------+---------------+---------------+
+| cSHAKE-256     | 1 - 1024 bytes   | 1 - 255 bytes | N/A           |
++----------------+------------------+---------------+---------------+
 | AES-CMAC       | 128 bits         | 1 - 16 bytes  | N/A           |
 |                +------------------+               +               +
 |                | 192 bits         |               |               |
@@ -151,6 +155,7 @@ Authentication Algorithms
 .. note::
 
 	* KMAC128 and KMAC256 operations are supported in XOF=False mode.
+	* cSHAKE128 and cSHAKE256 operations are supported in XOF=True mode.
 	* AES-CMAC creates a 16 byte MAC by default; when MACs less than 16 bytes are
 	  requested, the output is truncated.
 
