@@ -65,7 +65,7 @@ When compiling for the Octeon platform, DAO has a mandatory dependency on DPDK a
  * git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
  * cd marvell-dpdk
  * git checkout dpdk-24.11-release
- * meson build -Dexamples=all -Denable_drivers=*/cnxk,raw/cnxk_emdev,net/ring,net/tap -Dplatform=cn10k --prefix=/usr
+ * meson build -Dexamples=all -Denable_iova_as_pa=false -Denable_drivers=*/cnxk,raw/cnxk_emdev,net/ring,net/tap -Dplatform=cn10k --prefix=/usr
  * ninja -C build install
  * # Build gRPC
  * cd <Path to DAO repo>/dao
@@ -82,7 +82,7 @@ Compiling on ARM server for CN10k platform
 .. code-block:: console
 
   # cd <Path to DAO repo>/dao
-  # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Denable_iova_as_pa=false -Dprefer_static_build=true --prefer-static
+  # meson build -Dplatform=cn10k --prefix="${PWD}/install" -Denable_kmods=false -Dprefer_static_build=true --prefer-static
   # ninja -C build install
 
 Compiling on x86 machine
@@ -90,7 +90,7 @@ Compiling on x86 machine
 .. code-block:: console
 
   # cd <Path to DAO repo>/dao
-  # meson build --prefix="${PWD}/install" -Denable_kmods=false -Denable_iova_as_pa=false
+  # meson build --prefix="${PWD}/install" -Denable_kmods=false
   # ninja -C build install
 
 .. note::
