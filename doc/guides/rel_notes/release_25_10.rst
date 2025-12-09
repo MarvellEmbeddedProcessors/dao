@@ -85,6 +85,10 @@ Known Issues
 - **VPP: SDP Interface unavailable in vppctl**
     SDP interface support is temporarily unavailable and will be re-enabled in upcoming release.
 
+- **Secgw-graph: Remote Telnet CLI Access Unavailable**
+    Remote telnet connections to the secgw-graph CLI are currently unsupported and will result in a connection refusal.
+    Please use a local telnet connection to access, until remote support is implemented in the next release.
+
 ------------
 
 .. rubric:: Additional Information
