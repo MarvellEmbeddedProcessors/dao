@@ -25,15 +25,16 @@ function help() {
 	echo "--jobs | -j                  : Number of parallel jobs [Default: 4]"
 	echo "--deps-prefix | -f           : Dependency Install path"
 	echo "--project-root | -p          : DAO project root [Default: PWD]"
+	echo "--build-target | -t          : Build target (host|device|all) [Default: all]"
 	echo "--verbose | -v               : Enable verbose logging"
 	echo "--help | -h                  : Print this help and exit"
 }
 
 SCRIPT_NAME="$(basename "$0")"
 if ! OPTS=$(getopt \
-	-o "r:b:f:m:M:j:p:g:D:Nhv" \
-	-l "build-root:,build-env:,deps-prefix:,extra-meson-args:,extra-host-meson-args:,jobs:,project-root:,
-	    help,verbose" \
+	-o "r:b:f:m:M:j:p:t:g:D:Nhv" \
+	-l "build-root:,build-env:,deps-prefix:,extra-meson-args:,extra-host-meson-args:,jobs:,
+            project-root:, build-target:, help,verbose" \
 	-n "$SCRIPT_NAME" \
 	-- "$@"); then
 	help
@@ -42,15 +43,13 @@ fi
 
 BUILD_ROOT=
 BUILD_ENV=
-BUILD_EXT_APPS=
-BUILD_DATAPLANE_SRC=
 MAKE_J=4
 EXTRA_ARGS=
 EXTRA_HOST_ARGS=
 PROJECT_ROOT="$PWD"
 DEPS_PREFIX=
-DEPS_RE2_PREFIX=
 VERBOSE=
+BUILD_TARGET="all"
 
 eval set -- "$OPTS"
 unset OPTS
@@ -63,6 +62,7 @@ while [[ $# -gt 1 ]]; do
 		-M|--extra-host-meson-args) shift; EXTRA_HOST_ARGS="$1";;
 		-j|--jobs) shift; MAKE_J=$1;;
 		-p|--project-root) shift; PROJECT_ROOT=$1;;
+		-t|--build-target) shift; BUILD_TARGET=$1;;
 		-v|--verbose) VERBOSE='-v';;
 		-h|--help) help; exit 0;;
 		*) help; exit 1;;
@@ -77,7 +77,6 @@ fi
 # re2.pc is available in a separate directory
 DEPS_RE2_PREFIX=$DEPS_PREFIX/../host/grpc/third_party/re2
 
-EP_DEPS_PREFIX=$DEPS_PREFIX/ep
 HOST_DEPS_PREFIX=$DEPS_PREFIX/host
 
 if [[ -z $BUILD_ROOT || -z $BUILD_ENV ]]; then
@@ -86,58 +85,75 @@ if [[ -z $BUILD_ROOT || -z $BUILD_ENV ]]; then
 	exit 1
 fi
 
+# Validate BUILD_TARGET
+if [[ "$BUILD_TARGET" != "all" && "$BUILD_TARGET" != "host" && "$BUILD_TARGET" != "device" ]]; then
+	echo "Error: Invalid build target '$BUILD_TARGET'. Must be 'host', 'device', or 'all'."
+	help
+	exit 1
+fi
+
 PROJECT_ROOT=$(realpath $PROJECT_ROOT)
 mkdir -p $BUILD_ROOT
 BUILD_ROOT=$(realpath $BUILD_ROOT)
-BUILD_DIR=$BUILD_ROOT/build
-BUILD_HOST_DIR=$BUILD_ROOT/build_host
-PREFIX_DIR=$BUILD_ROOT/prefix
-
-source $BUILD_ENV
-
-rm -rf $BUILD_DIR
-rm -rf $BUILD_HOST_DIR
-rm -rf $PREFIX_DIR
-
-cd $PROJECT_ROOT
-
-# Do any pre-build stuff
-${BUILD_SETUP_CMD:-}
-
-# Building DAO libraries and applications
-cd $PROJECT_ROOT
-
-# Build for EP
-PKG_CONFIG_PATH_DEFAULT="$EP_DEPS_PREFIX/lib/pkgconfig:$DEPS_RE2_PREFIX"
-export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-$PKG_CONFIG_PATH_DEFAULT}"
 
 # Update path so that protoc is detected. protoc is required for gRPC build.
 export PATH=$PATH:$HOST_DEPS_PREFIX/bin
 export LD_LIBRARY_PATH=$HOST_DEPS_PREFIX/lib:${LD_LIBRARY_PATH:-}
 
-EXTRA_ARGS="$EXTRA_ARGS --prefer-static"
+# Build for Device (EP) if needed
+if [[ "$BUILD_TARGET" == "device" || "$BUILD_TARGET" == "all" ]]; then
+	EP_DEPS_PREFIX=$DEPS_PREFIX/ep
+	BUILD_DIR=$BUILD_ROOT/build
+	PREFIX_DIR=$BUILD_ROOT/prefix
 
-# Check if 'libdpdk' is available with pkg-config
-if ! pkg-config --exists libdpdk; then
-	echo "Error: 'libdpdk' not found with pkg-config. Please ensure it is installed and available in PKG_CONFIG_PATH."
-	exit 1
+	source $BUILD_ENV
+
+	rm -rf $BUILD_DIR
+	rm -rf $PREFIX_DIR
+
+	cd $PROJECT_ROOT
+
+	# Do any pre-build stuff
+	${BUILD_SETUP_CMD:-}
+
+	# Building DAO libraries and applications
+	cd $PROJECT_ROOT
+
+	# Build for EP
+	PKG_CONFIG_PATH_DEFAULT="$EP_DEPS_PREFIX/lib/pkgconfig:$DEPS_RE2_PREFIX"
+	export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-$PKG_CONFIG_PATH_DEFAULT}"
+
+	EXTRA_ARGS="$EXTRA_ARGS --prefer-static"
+
+	# Check if 'libdpdk' is available with pkg-config
+	if ! pkg-config --exists libdpdk; then
+		echo "Error: 'libdpdk' not found with pkg-config. Please ensure it is installed and available in PKG_CONFIG_PATH."
+		exit 1
+	fi
+
+	meson $BUILD_DIR --prefix $PREFIX_DIR $EXTRA_ARGS
+
+	ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE
+	ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE install
 fi
 
-meson $BUILD_DIR --prefix $PREFIX_DIR $EXTRA_ARGS
+# Build for Host if needed
+if [[ "$BUILD_TARGET" == "host" || "$BUILD_TARGET" == "all" ]]; then
+	BUILD_HOST_DIR=$BUILD_ROOT/build_host
+	rm -rf $BUILD_HOST_DIR
 
-ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE
-ninja -C $BUILD_DIR -j $MAKE_J $VERBOSE install
+	cd $PROJECT_ROOT
 
-# Build for Host
-export PKG_CONFIG_PATH=$HOST_DEPS_PREFIX/lib/pkgconfig
-export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$DEPS_RE2_PREFIX
-export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOST_DEPS_PREFIX/lib/x86_64-linux-gnu/pkgconfig
+	export PKG_CONFIG_PATH=$HOST_DEPS_PREFIX/lib/pkgconfig
+	export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$DEPS_RE2_PREFIX
+	export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:$HOST_DEPS_PREFIX/lib/x86_64-linux-gnu/pkgconfig
 
-# Check if 'libdpdk' is available with pkg-config
-if ! pkg-config --exists libdpdk; then
-	echo "Error: 'libdpdk' not found with pkg-config. Please ensure it is installed and available in PKG_CONFIG_PATH."
-	exit 1
+	# Check if 'libdpdk' is available with pkg-config
+	if ! pkg-config --exists libdpdk; then
+		echo "Error: 'libdpdk' not found with pkg-config. Please ensure it is installed and available in PKG_CONFIG_PATH."
+		exit 1
+	fi
+
+	meson $BUILD_HOST_DIR $EXTRA_HOST_ARGS
+	ninja -C $BUILD_HOST_DIR -j $MAKE_J $VERBOSE
 fi
-
-meson $BUILD_HOST_DIR $EXTRA_HOST_ARGS
-ninja -C $BUILD_HOST_DIR -j $MAKE_J $VERBOSE
