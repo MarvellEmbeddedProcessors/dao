@@ -114,6 +114,14 @@ test_hash_only(const void *data, const bool is_auth_gen)
 			op[0].kmac_params.custom_string = (uint8_t *)params->custom_string.data;
 			op[0].kmac_params.custom_string_len = params->custom_string.len;
 			break;
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+			op[0].cshake_params.output_len = params->output_len;
+			op[0].cshake_params.custom_string = (uint8_t *)params->custom_string.data;
+			op[0].cshake_params.custom_string_len = params->custom_string.len;
+			op[0].cshake_params.function_name = (uint8_t *)params->function_name.data;
+			op[0].cshake_params.function_name_len = params->function_name.len;
+			break;
 		default:
 			break;
 		}
@@ -1518,6 +1526,14 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_hash_gen, &kmac256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("KMAC256 Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &kmac256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("cSHAKE128 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &cshake128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("cSHAKE128 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &cshake128_test_data),
+		TEST_CASE_NAMED_WITH_DATA("cSHAKE256 Digest Gen", ut_setup, ut_teardown,
+					  test_hash_gen, &cshake256_test_data),
+		TEST_CASE_NAMED_WITH_DATA("cSHAKE256 Digest Verify", ut_setup, ut_teardown,
+					  test_hash_verify, &cshake256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 128 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_wrap,
 					  &aes_keywrap_128B_kek_128B_key),
