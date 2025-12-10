@@ -14,6 +14,7 @@ function help() {
 	echo "==================="
 	echo "--build-root | -r            : Build root directory"
 	echo "--test-env | -t              : Test Environment"
+	echo "--host-build-root | -R       : Host Build root directory"
 	echo ""
 	echo "Optional Arguments"
 	echo "==================="
@@ -27,8 +28,8 @@ function help() {
 
 SCRIPT_NAME="$(basename "$0")"
 if ! OPTS=$(getopt \
-	-o "r:d:f:t:p:h" \
-	-l "build-root:,run-dir:,deps-prefix:,test-env:,project-root:,run-only,list-only,help" \
+	-o "r:d:f:t:p:R:h" \
+	-l "build-root:,run-dir:,deps-prefix:,test-env:,project-root:,host-build-root:,run-only,list-only,help" \
 	-n "$SCRIPT_NAME" \
 	-- "$@"); then
 	help
@@ -37,11 +38,11 @@ fi
 
 BUILD_ROOT=
 TEST_ENV_CONF=
-EXTRA_ARGS=
 PROJECT_ROOT="$PWD"
 RUN_ONLY=
 LIST_ONLY=
 DEPS_PREFIX=
+HOST_BUILD_ROOT=
 
 eval set -- "$OPTS"
 unset OPTS
@@ -52,6 +53,7 @@ while [[ $# -gt 1 ]]; do
 		-f|--deps-prefix) shift; DEPS_PREFIX=$1;;
 		-t|--test-env) shift; TEST_ENV_CONF=$(realpath $1);;
 		-p|--project-root) shift; PROJECT_ROOT=$1;;
+		-R|--host-build-root) shift; HOST_BUILD_ROOT=$1;;
 		-n|--run-only) RUN_ONLY=1;;
 		-l|--list-only) LIST_ONLY=1;;
 		-h|--help) help; exit 0;;
@@ -64,8 +66,8 @@ if [[ -z $DEPS_PREFIX ]]; then
 	DEPS_PREFIX=$BUILD_ROOT/deps/deps-prefix
 fi
 
-if [[ -z $BUILD_ROOT || -z $TEST_ENV_CONF ]]; then
-	echo "Build root directory and test env should be given !!"
+if [[ -z $BUILD_ROOT || -z $TEST_ENV_CONF || -z $HOST_BUILD_ROOT ]]; then
+	echo "Build root dir, host build root dir and test env should be given !!"
 	help
 	exit 1
 fi
@@ -74,7 +76,7 @@ export PROJECT_ROOT=$(realpath $PROJECT_ROOT)
 mkdir -p $BUILD_ROOT
 export BUILD_ROOT=$(realpath $BUILD_ROOT)
 export BUILD_DIR=$BUILD_ROOT/build
-export BUILD_HOST_DIR=$BUILD_ROOT/build_host
+export BUILD_HOST_DIR=$HOST_BUILD_ROOT/build_host
 export DEPS_PREFIX=${DEPS_PREFIX}
 export RUN_DIR=${RUN_DIR:-$BUILD_DIR}
 mkdir -p $RUN_DIR
@@ -89,7 +91,7 @@ if [[ -z $RUN_ONLY ]]; then
 	clean_test_list
 
 	# Run the meson test to generate the list of tests
-	meson test -C $BUILD_DIR --no-rebuild $EXTRA_ARGS --suite $DAO_SUITE
+	meson test -C $BUILD_DIR --no-rebuild --suite $DAO_SUITE
 fi
 
 if [[ -z $LIST_ONLY ]]; then
