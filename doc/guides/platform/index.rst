@@ -9,3 +9,4 @@ Platform Guide
     :numbered:
 
     liquid_crypto
+    structera

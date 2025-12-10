@@ -5,8 +5,9 @@
 VirtIO Net Library
 ******************
 
-VirtIO-net library is the virtualization solution used in CN10K for networking.
-This model emulates SMART NICs for VM and front end virtio network driver.
+VirtIO-net library is the virtualization solution used in Marvell DPU platforms for networking.
+This model emulates SMART NICs for VM and front end virtio network driver, providing high-performance
+virtualized networking across multiple Marvell DPU architectures.
 
 Features
 --------
@@ -51,7 +52,19 @@ Here are some notes about VirtIO-net features:
 * Expects extra data(besides identifying the virtqueue) in device notifications(
   VIRTIO_F_NOTIFICATION_DATA). This is a mandatory feature to be enabled by Host/Guest.
 * Using VIRTIO_F_ORDER_PLATFORM is mandatory for proper functioning of smart NIC as
-  it ensures memory ordering between Host and Octeon DPU.
+  it ensures memory ordering between Host and DPU.
+
+
+Platform Support
+----------------
+
+The VirtIO net library supports multiple Marvell DPU platforms:
+
+* **CN10K platforms**: Uses capability BAR 4 for VirtIO device configuration
+* **Structera platforms**: Uses capability BAR 1 for VirtIO device configuration
+
+The platform-specific configuration is detected automatically at runtime through the PEM
+platform detection mechanism.
 
 
 VirtIO Emulation Architecture Overview
@@ -80,7 +93,7 @@ descriptor data. As depicted in the figure, ``q->sd_desc_off`` follows ``notify_
 
 Once descriptor data is fetched, the service core updates ``q->sd_desc_off`` so that worker cores
 can process the descriptors and then further initiate Packet data transfer between Host packet buf
-and Octeon DPDK mbuf memory. 
+and DPU DPDK mbuf memory.
 
 Once the worker cores have consumed a descriptor data, they move ``q->last_off`` for
 dequeue queue(Host Tx queue) or ``q->sd_mbuf_off`` for enqueue queue(Host Rx queue) in local data
@@ -239,7 +252,7 @@ operations:
 
 The ``dao_virtio_net_desc_manage()`` API is used to manage the virtio descriptors.
 Application is expected to call this from a service core as frequently
-as possible to shadow descriptors between Host and Octeon memory.
+as possible to shadow descriptors between Host and DPU memory.
 
 .. code-block:: c
 
