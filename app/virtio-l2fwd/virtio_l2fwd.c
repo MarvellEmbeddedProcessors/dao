@@ -2241,8 +2241,7 @@ rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 	/* Get active virt queue count */
 	virt_q_count = dao_virtio_netdev_queue_count(virtio_devid);
 
-	if (virt_q_count <= 0 || virt_q_count & 0x1 ||
-	    virt_q_count >= (DAO_VIRTIO_MAX_QUEUES - 1)) {
+	if (virt_q_count <= 0 || virt_q_count & 0x1 || virt_q_count > (DAO_VIRTIO_MAX_QUEUES - 1)) {
 		APP_ERR("virtio_dev=%d: invalid virt_q_count=%d\n", virtio_devid, virt_q_count);
 		return -EIO;
 	}
@@ -2341,8 +2340,7 @@ mq_configure(uint16_t virtio_devid, bool qmap_set)
 	/* Get active virt queue count */
 	virt_q_count = dao_virtio_netdev_queue_count(virtio_devid);
 
-	if (virt_q_count <= 0 || virt_q_count & 0x1 ||
-	    virt_q_count >= (DAO_VIRTIO_MAX_QUEUES - 1)) {
+	if (virt_q_count <= 0 || virt_q_count & 0x1 || virt_q_count > (DAO_VIRTIO_MAX_QUEUES - 1)) {
 		APP_ERR("virtio_dev=%d: invalid virt_q_count=%d\n", virtio_devid, virt_q_count);
 		return -EIO;
 	}
@@ -2409,7 +2407,7 @@ virtio_dev_status_cb(uint16_t virtio_devid, uint8_t status)
 		virt_q_count = dao_virtio_netdev_queue_count(virtio_devid);
 
 		if (virt_q_count <= 0 || virt_q_count & 0x1 ||
-		    virt_q_count >= (DAO_VIRTIO_MAX_QUEUES - 1)) {
+		    virt_q_count > (DAO_VIRTIO_MAX_QUEUES - 1)) {
 			APP_ERR("virtio_dev=%d: invalid virt_q_count=%d\n", virtio_devid,
 				virt_q_count);
 			return -EIO;
