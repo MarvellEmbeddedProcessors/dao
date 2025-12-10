@@ -185,7 +185,7 @@ jobs:
             echo 'Package: openssl-engine-'${ENGINE_VERSION}'-cn10k'${PKG_POSTFIX} >> DEBIAN/control
             echo 'Version: '${PKG_VERSION_NAME} >> DEBIAN/control
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
-            echo 'Depends: cpt-firmware-cn10k'${FW_PKG_POSTFIX}' (= '$CPT_PKG_VERSION'), dpdk-${DPDK_BASE_PKG_VERSION}-cn10k${PKG_POSTFIX} (>= ${DPDK_PKG_VERSION}), openssl-'$OPENSSL_VERSION'-cn10k'$PKG_POSTFIX' (>= '$PKG_VERSION_NAME_BASE'), openssl-'$OPENSSL_VERSION'-cn10k'$PKG_POSTFIX' (<< '$PKG_VERSION_NAME_UPPER')' >> DEBIAN/control
+            echo "Depends: cpt-firmware-cn10k${FW_PKG_POSTFIX} (= ${CPT_PKG_VERSION}), dpdk-${DPDK_BASE_PKG_VERSION}-cn10k${PKG_POSTFIX} (>= ${DPDK_PKG_VERSION}), openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (>= ${PKG_VERSION_NAME_BASE}), openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (<< ${PKG_VERSION_NAME_UPPER})" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: DPDK based OpenSSL Engine for Marvell Octeon 10" >> DEBIAN/control
             cd ..
@@ -211,6 +211,8 @@ jobs:
           echo "DPDK_PKG_VERSION=${DPDK_PKG_VERSION}" >> "$GITHUB_OUTPUT"
           echo $DPDK_BASE_PKG_VERSION
           echo "DPDK_BASE_PKG_VERSION=${DPDK_BASE_PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          [[ "$PKG_POSTFIX" == "-devel" ]] && DPDK_PKG_POSTFIX=devel || DPDK_PKG_POSTFIX=${DPDK_PKG_VERSION}
+          echo "DPDK_PKG_POSTFIX=${DPDK_PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
       - name: Delete existing release
         if: ${{ github.event_name == 'push' }} || ${{ github.event_name == 'workflow_dispatch' }}
         env:
@@ -240,7 +242,7 @@ jobs:
             https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "engine",
             "tag": "ossl_eng-${{ steps.artifacts.outputs.ENGINE_VERSION }}-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
-            "dpdk_tag" : "dpdk-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}-${{ steps.artifacts.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}",
+            "dpdk_tag" : "dpdk-cn10k-${{ steps.artifacts.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.artifacts.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.DPDK_PKG_POSTFIX }}",
             "has_dpdk" : "true",
             "distro" : "${{ steps.artifacts.outputs.DISTRO }}",
             "platform" : "cn10k",

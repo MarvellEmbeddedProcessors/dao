@@ -212,6 +212,8 @@ jobs:
           echo "PKG_POSTFIX=${PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
           [[ "$PKG_POSTFIX" == "-devel" ]] && TAG=devel || TAG=${PKG_VERSION_NAME}
           echo "TAG=${TAG}" >> "$GITHUB_OUTPUT"
+          [[ "$PKG_POSTFIX" == "-devel" ]] && DPDK_PKG_POSTFIX=devel || DPDK_PKG_POSTFIX=${DPDK_PKG_VERSION}
+          echo "DPDK_PKG_POSTFIX=${DPDK_PKG_POSTFIX}" >> "$GITHUB_OUTPUT"
           echo "IS_DEVEL=${IS_DEVEL}" >> "$GITHUB_OUTPUT"
 
       - name: Delete existing release
@@ -252,7 +254,7 @@ jobs:
             https://api.github.com/repos/marvellembeddedprocessors/packages/dispatches \
             -d '{"event_type":"dispatch-event", "client_payload": {"package" : "dao",
             "tag": "dao-cn10k-${{ steps.artifacts.outputs.PKG_VERSION_NAME }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.TAG }}",
-            "dpdk_tag" : "dpdk-cn10k${{ steps.artifacts.outputs.PKG_POSTFIX }}-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.version.outputs.DPDK_PKG_VERSION }}",
+            "dpdk_tag" : "dpdk-cn10k-${{ steps.version.outputs.DPDK_BASE_PKG_VERSION }}_${{ steps.version.outputs.DPDK_PKG_VERSION }}-${{ steps.artifacts.outputs.DISTRO }}-${{ steps.artifacts.outputs.DPDK_PKG_POSTFIX }}",
             "has_dpdk" : "true", "distro" : "${{ steps.artifacts.outputs.DISTRO }}",
             "platform" : "cn10k",
             "devel": "${{ steps.artifacts.outputs.IS_DEVEL }}"}}'
