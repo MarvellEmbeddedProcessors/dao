@@ -660,7 +660,7 @@ static struct virtio_device_id id_table[] = {
 	{ 0 },
 };
 
-void octep_event_work(struct work_struct *work)
+static void octep_event_work(struct work_struct *work)
 {
 	struct octep_vdpa_event_wk *wk = container_of(work, struct octep_vdpa_event_wk, work);
 	struct octep_vdpa_mgmt_dev *mgmt_dev = (struct octep_vdpa_mgmt_dev *)wk->ctxptr;
