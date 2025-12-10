@@ -21,8 +21,8 @@ index 000000000..ce964a5de
 --- /dev/null
 +++ b/DPDK_VERSION
 @@ -0,0 +1,2 @@
-+BASE_VERSION=24.11.0
-+RELEASE_VERSION=25.10.0
++BASE_VERSION=25.11.0
++RELEASE_VERSION=25.12.0
 diff --git a/Makefile.am b/Makefile.am
 index dc5c34a6a..1f2c72377 100644
 --- a/Makefile.am
