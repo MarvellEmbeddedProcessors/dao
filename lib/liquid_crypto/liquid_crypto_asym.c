@@ -352,121 +352,62 @@ cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id)
 }
 
 int
-cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len,
-			     enum dao_liquid_crypto_ec_curve_type curve_id)
-{
-	if ((nonce_len == 0)) {
-		dao_err("Invalid nonce length. nonce_len cannot be zero.");
-		return -EINVAL;
-	}
-
-	if (curve_id == DAO_LC_AE_EC_ID_P521) {
-		/* For P-521, allow both 65 and 66 bytes as valid nonce_len */
-		if ((nonce_len != prime_len - 1) && (nonce_len != prime_len)) {
-			dao_err("Invalid nonce length for P-521. nonce_len must be %u or %u bytes.",
-				prime_len - 1, prime_len);
-			return -EINVAL;
-		}
-	} else {
-		if (nonce_len != prime_len) {
-			dao_err("Invalid nonce length. nonce_len must be equal to %u length bytes.",
-				prime_len);
-			return -EINVAL;
-		}
-	}
-
-	return 0;
-}
-
-int
-cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len,
-			    enum dao_liquid_crypto_ec_curve_type curve_id)
+cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len)
 {
 	if ((pkey_len == 0)) {
 		dao_err("Invalid private key length. pkey_len cannot be zero.");
 		return -EINVAL;
 	}
 
-	if (curve_id == DAO_LC_AE_EC_ID_P521) {
-		/* For P-521, allow both 65 and 66 bytes as valid pkey_len */
-		if ((pkey_len != prime_len - 1) && (pkey_len != prime_len)) {
-			dao_err("Invalid private key length for P-521. pkey_len must be %u or %u bytes.",
-				prime_len - 1, prime_len);
-			return -EINVAL;
-		}
-	} else {
-		if (pkey_len != prime_len) {
-			dao_err("Invalid private key length. pkey_len must be equal to %u length bytes.",
-				prime_len);
-			return -EINVAL;
-		}
+	if (pkey_len > prime_len) {
+		dao_err("Invalid private key length. pkey_len must be at most %u bytes.",
+			prime_len);
+		return -EINVAL;
 	}
 
 	return 0;
 }
 
 int
-cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len,
-			      enum dao_liquid_crypto_ec_curve_type curve_id)
+cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len)
 {
 	if (pubkey_x_len == 0 || pubkey_y_len == 0) {
 		dao_err("Invalid public key length. pubkey_x_len and pubkey_y_len cannot be zero.");
 		return -EINVAL;
 	}
+	if (pubkey_x_len > prime_len) {
+		dao_err("Invalid public key x-coordinate length. pubkey_x_len must be at most %u bytes.",
+			prime_len);
+		return -EINVAL;
+	}
 
-	if (curve_id == DAO_LC_AE_EC_ID_P521) {
-		/* For P-521, allow both 65 and 66 bytes as valid pubkey_x_len and pubkey_y_len */
-		if (((pubkey_x_len != prime_len - 1) && (pubkey_x_len != prime_len)) ||
-		    ((pubkey_y_len != prime_len - 1) && (pubkey_y_len != prime_len))) {
-			dao_err("Invalid public key length for P-521. pubkey_x_len and pubkey_y_len must be %u or %u bytes.",
-				prime_len - 1, prime_len);
-			return -EINVAL;
-		}
-	} else {
-		if (pubkey_x_len != prime_len) {
-			dao_err("Invalid public key length. pubkey_x_len must be equal to %u length bytes.",
-				prime_len);
-			return -EINVAL;
-		}
-
-		if (pubkey_y_len != prime_len) {
-			dao_err("Invalid public key length. pubkey_y_len must be equal to %u length bytes.",
-				prime_len);
-			return -EINVAL;
-		}
+	if (pubkey_y_len > prime_len) {
+		dao_err("Invalid public key y-coordinate length. pubkey_y_len must be at most %u bytes.",
+			prime_len);
+		return -EINVAL;
 	}
 
 	return 0;
 }
 
 int
-cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len,
-				 enum dao_liquid_crypto_ec_curve_type curve_id)
+cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len)
 {
 	if ((r_len == 0) || (s_len == 0)) {
 		dao_err("Invalid sign component length. r_len and s_len cannot be zero.");
 		return -EINVAL;
 	}
 
-	if (curve_id == DAO_LC_AE_EC_ID_P521) {
-		/* For P-521, allow both (prime_len - 1) and prime_len as valid lengths */
-		if (((r_len != prime_len - 1) && (r_len != prime_len)) ||
-		    ((s_len != prime_len - 1) && (s_len != prime_len))) {
-			dao_err("Invalid sign component length for P-521. r_len and s_len must be %u or %u bytes.",
-				prime_len - 1, prime_len);
-			return -EINVAL;
-		}
-	} else {
-		if (r_len != prime_len) {
-			dao_err("Invalid r sign component length. r_len must be equal to %u bytes.",
-				prime_len);
-			return -EINVAL;
-		}
-		if (s_len != prime_len) {
-			dao_err("Invalid s sign component length. s_len must be equal to %u bytes.",
-				prime_len);
-			return -EINVAL;
-		}
+	if (r_len > prime_len) {
+		dao_err("Invalid r sign component length. r_len must be at most %u bytes.",
+			prime_len);
+		return -EINVAL;
+	}
+
+	if (s_len > prime_len) {
+		dao_err("Invalid s sign component length. s_len must be at most %u bytes.",
+			prime_len);
+		return -EINVAL;
 	}
 
 	return 0;

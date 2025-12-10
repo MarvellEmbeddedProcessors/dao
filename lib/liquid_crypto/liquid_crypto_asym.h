@@ -54,21 +54,15 @@ int cpt_ae_rsa_crt_params_check(uint16_t mod_len, const uint8_t *q, const uint8_
 
 int cpt_ec_curve_id_validate(enum dao_liquid_crypto_ec_curve_type curve_id);
 
-int cpt_ae_ecdsa_nonce_len_check(uint16_t prime_len, uint16_t nonce_len,
-				 enum dao_liquid_crypto_ec_curve_type curve_id);
+int cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len);
 
-int cpt_ae_ecdsa_pkey_len_check(uint16_t prime_len, uint16_t pkey_len,
-				enum dao_liquid_crypto_ec_curve_type curve_id);
-
-int cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len,
-				  enum dao_liquid_crypto_ec_curve_type curve_id);
+int cpt_ae_ecdsa_pubkey_len_check(uint16_t prime_len, uint16_t pubkey_x_len, uint16_t pubkey_y_len);
 
 int ecc_curve_id_to_prime_len(enum dao_liquid_crypto_ec_curve_type curve_id);
 
 void cpt_ae_modex_param_normalize(uint8_t **data, uint16_t *len);
 
-int cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len,
-				     enum dao_liquid_crypto_ec_curve_type curve_id);
+int cpt_ae_ecdsa_sign_comp_len_check(uint16_t prime_len, uint16_t r_len, uint16_t s_len);
 
 int cpt_ae_ecdsa_digest_len_check(uint16_t prime_len, uint16_t digest_len);
 
