@@ -1050,6 +1050,14 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 	for (i = 0; i < qp_count; i++) {
 		q = netdev->qs[(i * 2) + 1];
 
+		/* Check descriptor DMA completion and trigger host interrupt */
+		if (q->cb_intr_addr && q->pend_compl &&
+		    dao_dma_op_status(mem2dev, q->pend_compl_idx)) {
+			__atomic_store_n(q->cb_notify_addr, 1, __ATOMIC_RELAXED);
+			__atomic_store_n(q->cb_intr_addr, q->cb_intr_val, __ATOMIC_RELAXED);
+			q->pend_compl = 0;
+		}
+
 		off = __atomic_load_n(&q->last_off, __ATOMIC_ACQUIRE);
 		compl_off = q->compl_off;
 		q_sz = q->q_sz;
@@ -1065,6 +1073,10 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 		/* Enqueue Rx completion DMA */
 		mark_deq_compl(q, mem2dev, compl_off, nb_desc, flags);
 		q->compl_off = off;
+
+		/* Store tail to check descriptor DMA completion */
+		q->pend_compl_idx = mem2dev->tail;
+		q->pend_compl = 1;
 	}
 
 	/* Process Host Rx queue completion marking */
