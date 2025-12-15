@@ -840,18 +840,6 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		}
 
 		if (params->rsa_oaep.is_rsa_oaep_enabled) {
-			rc = cpt_ae_oaep_msg_and_mod_len_check(params->rsa_oaep.mod_len,
-							       params->rsa_oaep.msg_len,
-							       params->rsa_oaep.hash_type);
-			if (rc != 0) {
-				dao_err("Invalid %d RSA-OAEP message length.",
-					params->rsa_oaep.msg_len);
-				return 0;
-			}
-
-			/* Message */
-			rsa_oaep_seg_sz += params->rsa_oaep.msg_len;
-
 			rc = cpt_ae_rsa_oaep_mod_len_max_validate(params->rsa_oaep.mod_len);
 			if (rc != 0)
 				return 0;
@@ -864,6 +852,13 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			}
 
 			/* Modulus */
+			rsa_oaep_seg_sz += params->rsa_oaep.mod_len;
+
+			/* For RSA-OAEP encryption: maximum plaintext length depends on modulus size
+			 * and hash function For RSA-OAEP decryption: ciphertext length must equal
+			 * modulus length (mod_len bytes) Allocate mod_len bytes to accommodate
+			 * ciphertext for both encryption and decryption operations.
+			 */
 			rsa_oaep_seg_sz += params->rsa_oaep.mod_len;
 
 			rc = cpt_ae_rsa_exp_len_check(params->rsa_oaep.mod_len,
@@ -897,8 +892,14 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			/* OAEP Hash type */
 			rsa_oaep_seg_sz += sizeof(params->rsa_oaep.hash_type);
 
+			/* 8 bytes control word */
+			rsa_oaep_seg_sz += 8;
+
+			/* 2 bytes for rptr offset and 2 bytes for rlen updates */
+			rsa_oaep_seg_sz += 4;
+
 			/* DAO LC ASYM header */
-			rsa_oaep_seg_sz = sizeof(struct __dao_lc_req_asym);
+			rsa_oaep_seg_sz += sizeof(struct __dao_lc_req_asym);
 		}
 
 		asym_seg_sz = RTE_MAX(rsa_seg_sz, ecc_seg_sz);
@@ -3584,13 +3585,13 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
-		dao_err("Input data doesn't fit in single segment!");
+		dao_err("ECDSA sign data doesn't fit in single segment!");
 		rc = -ENOMEM;
 		goto mbuf_free;
 	}
 
 	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
-		dao_err("Input data too large. buf_len = %u", buf_len);
+		dao_err("ECDSA sign data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
 	}
@@ -3814,13 +3815,13 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
-		dao_err("Input data doesn't fit in single segment!");
+		dao_err("ECDSA verify data doesn't fit in single segment!");
 		rc = -ENOMEM;
 		goto mbuf_free;
 	}
 
 	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
-		dao_err("Input data too large. buf_len = %u", buf_len);
+		dao_err("ECDSA verify data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
 	}
@@ -4040,6 +4041,20 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("RSA OAEP enc data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("RSA OAEP enc data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
 	rte_pktmbuf_append(mbuf, buf_len);
 
 	/* Add payload to mbuf */
@@ -4254,6 +4269,20 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 	/* Reserve 2 bytes for rptr offset and 2 bytes for rlen */
 	buf_len += 4;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("RSA OAEP exp decrypt data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("RSA OAEP exp decrypt data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
 
 	rte_pktmbuf_append(mbuf, buf_len);
 

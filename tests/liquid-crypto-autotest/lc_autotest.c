@@ -203,7 +203,6 @@ main(int argc, char **argv)
 		feature_params.rsa_oaep.is_rsa_oaep_enabled = 1;
 		feature_params.rsa_oaep.mod_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;
 		feature_params.rsa_oaep.exp_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;
-		feature_params.rsa_oaep.msg_len = TEST_LC_RSA_OAEP_MAX_MSG_LEN_FOR_SHA1;
 		feature_params.rsa_oaep.label_len = TEST_LC_RSA_OAEP_MAX_LABEL_LEN;
 		feature_params.rsa_oaep.hash_type = DAO_LC_HASH_TYPE_SHA1;
 
