@@ -198,13 +198,7 @@ main(int argc, char **argv)
 		feature_params.rng.rand_len = TEST_LC_MAX_RANDOM_LEN;
 		feature_params.ecc.is_ecc_enabled = true;
 		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
-		feature_params.ecc.pkey_len = TEST_LC_MAX_ECC_PKEY_LEN;
-		feature_params.ecc.pubkey_x_len = TEST_LC_MAX_ECC_PKEY_LEN;
-		feature_params.ecc.pubkey_y_len = TEST_LC_MAX_ECC_PKEY_LEN;
 		feature_params.ecc.digest_len = TEST_LC_MAX_ECC_DIGEST_LEN;
-		feature_params.ecc.nonce_len = TEST_LC_MAX_NONCE_LEN;
-		feature_params.ecc.sign_r_len = TEST_LC_MAX_ECC_SIGN_LEN;
-		feature_params.ecc.sign_s_len = TEST_LC_MAX_ECC_SIGN_LEN;
 		feature_params.sym.key_wrap_len = TEST_LC_MAX_KEY_DATA_LEN;
 		feature_params.sym.aes_kek_type = DAO_LC_FC_AES_KEY_LEN_256;
 		feature_params.rsa_oaep.is_rsa_oaep_enabled = 1;

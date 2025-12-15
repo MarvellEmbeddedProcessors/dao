@@ -793,20 +793,8 @@ struct dao_lc_feature_params {
 		bool is_ecc_enabled;
 		/** Curve ID */
 		enum dao_liquid_crypto_ec_curve_type curve_id;
-		/** Private key length */
-		uint16_t pkey_len;
-		/** Public key x coordinate length */
-		uint16_t pubkey_x_len;
-		/** Public key y coordinate length */
-		uint16_t pubkey_y_len;
 		/** Digest length */
 		uint16_t digest_len;
-		/** Nonce length */
-		uint16_t nonce_len;
-		/** r sign component length */
-		uint16_t sign_r_len;
-		/** s sign component length */
-		uint16_t sign_s_len;
 	} ecc;
 
 	/**

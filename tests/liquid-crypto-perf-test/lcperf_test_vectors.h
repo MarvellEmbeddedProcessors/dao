@@ -21,10 +21,6 @@
 #define TEST_LC_MAX_RSA_MOD_LEN 1024
 /* Maximum length of RSA message */
 #define TEST_LC_MAX_RSA_MSG_LEN 1013
-/* Maximum length of ECC private/public key */
-#define TEST_LC_MAX_ECC_PKEY_LEN 66
-/* Maximum length of ECC signature */
-#define TEST_LC_MAX_ECC_SIGN_LEN 66
 /* Maximum length of ECC digest */
 #define TEST_LC_MAX_ECC_DIGEST_LEN 66
 /* Maximum nonce length */

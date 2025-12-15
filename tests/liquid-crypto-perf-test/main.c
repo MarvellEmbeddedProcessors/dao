@@ -301,13 +301,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		feature_params.rsa.msg_len = TEST_LC_MAX_RSA_MSG_LEN;
 		feature_params.ecc.is_ecc_enabled = true;
 		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
-		feature_params.ecc.pkey_len = TEST_LC_MAX_ECC_PKEY_LEN;
-		feature_params.ecc.pubkey_x_len = TEST_LC_MAX_ECC_PKEY_LEN;
-		feature_params.ecc.pubkey_y_len = TEST_LC_MAX_ECC_PKEY_LEN;
 		feature_params.ecc.digest_len = TEST_LC_MAX_ECC_DIGEST_LEN;
-		feature_params.ecc.nonce_len = TEST_LC_MAX_NONCE_LEN;
-		feature_params.ecc.sign_r_len = TEST_LC_MAX_ECC_SIGN_LEN;
-		feature_params.ecc.sign_s_len = TEST_LC_MAX_ECC_SIGN_LEN;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {

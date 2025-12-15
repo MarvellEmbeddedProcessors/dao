@@ -705,7 +705,13 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
 	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0, pqc_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
+	/* Number of ECC components:
+	 * public key X, public key Y, private key, nonce,
+	 * signature r, signature s, prime, order, constant A, constant B.
+	 */
+	uint8_t ecc_num_components = 10;
 	uint16_t req_resp_hdr_sz = 0;
+	uint16_t aligned_prime_len;
 	int kek_len, rc;
 
 	if (params == NULL) {
@@ -747,17 +753,20 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 					DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
 				return 0;
 			}
-			/* Key wrap length */
-			sym_seg_sz += params->sym.key_wrap_len;
 
-			kek_len = sym_sess_get_aes_kek_len(params->sym.aes_kek_type);
-			if (kek_len < 0) {
-				dao_err("Could not get KEK length for the given KEK type.");
-				return 0;
+			if (params->sym.key_wrap_len) {
+				/* Key wrap length */
+				sym_seg_sz += params->sym.key_wrap_len;
+
+				kek_len = sym_sess_get_aes_kek_len(params->sym.aes_kek_type);
+				if (kek_len < 0) {
+					dao_err("Could not get KEK length for the given KEK type.");
+					return 0;
+				}
+
+				/* AES KEK length */
+				sym_seg_sz += kek_len;
 			}
-
-			/* AES KEK length */
-			sym_seg_sz += kek_len;
 		}
 
 		if (params->rsa.mod_len) {
@@ -816,44 +825,14 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			ecc_seg_sz += params->ecc.digest_len;
+			ecc_seg_sz += RTE_ALIGN_CEIL(params->ecc.digest_len, 8);
 
-			rc = cpt_ae_ecdsa_nonce_len_check(prime_len, params->ecc.nonce_len);
-			if (rc != 0) {
-				dao_err("Invalid %d ECC nonce length.", params->ecc.nonce_len);
-				return 0;
-			}
+			/* Align prime_len to 8-byte boundary for ECC parameter requirements */
+			aligned_prime_len = RTE_ALIGN_CEIL(prime_len, 8);
 
-			ecc_seg_sz += params->ecc.nonce_len;
-
-			rc = cpt_ae_ecdsa_pkey_len_check(prime_len, params->ecc.pkey_len);
-			if (rc != 0) {
-				dao_err("Invalid %d ECC private key length.", params->ecc.pkey_len);
-				return 0;
-			}
-
-			ecc_seg_sz += params->ecc.pkey_len;
-
-			rc = cpt_ae_ecdsa_pubkey_len_check(prime_len, params->ecc.pubkey_x_len,
-							   params->ecc.pubkey_y_len);
-			if (rc != 0) {
-				dao_err("Invalid ECC public key length.");
-				return 0;
-			}
-
-			ecc_seg_sz += params->ecc.pubkey_x_len + params->ecc.pubkey_y_len;
-
-			rc = cpt_ae_ecdsa_sign_comp_len_check(prime_len, params->ecc.sign_r_len,
-							      params->ecc.sign_s_len);
-			if (rc != 0) {
-				dao_err("Invalid ECC signature length.");
-				return 0;
-			}
-
-			ecc_seg_sz += params->ecc.sign_r_len + params->ecc.sign_s_len;
-
-			/* Prime Order ConstantA and ConstantB */
-			ecc_seg_sz += (prime_len * 4);
+			/* ECC parameters: public key (X,Y), private key, nonce, signature (r,s),
+			 * prime, order, constants (A,B) */
+			ecc_seg_sz += ecc_num_components * aligned_prime_len;
 
 			/* DAO LC ASYM header */
 			ecc_seg_sz += sizeof(struct __dao_lc_req_asym);
@@ -3600,8 +3579,23 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	dlen = sizeof(uint64_t) + m_align + (p_align * 6);
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
 	rte_pktmbuf_append(mbuf, buf_len);
-	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 	/* Add payload to mbuf */
 	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
@@ -3815,8 +3809,23 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	dlen = sizeof(uint64_t) + m_align + (p_align * 8);
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Input data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
 	rte_pktmbuf_append(mbuf, buf_len);
-	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 	/* Add payload to mbuf */
 	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
@@ -4028,8 +4037,9 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	buf_len += 2;
 	buf_len += mod_len + exp_len;
 
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
 	rte_pktmbuf_append(mbuf, buf_len);
-	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 	/* Add payload to mbuf */
 	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
@@ -4242,9 +4252,9 @@ dao_liquid_crypto_enq_op_rsa_oaep_exp_dec(uint8_t dev_id, uint16_t qp_id, uint8_
 
 	/* Reserve 2 bytes for rptr offset and 2 bytes for rlen */
 	buf_len += 4;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 	rte_pktmbuf_append(mbuf, buf_len);
-	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 	/* Add payload to mbuf */
 	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
