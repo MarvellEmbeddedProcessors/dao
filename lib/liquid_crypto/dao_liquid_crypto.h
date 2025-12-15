@@ -756,6 +756,9 @@ struct dao_lc_feature_params {
 	 * RSA asymmetric parameters. The parameters are used to calculate the size of the maximum
 	 * segment size for asymmetric operations.
 	 *
+	 * The segment size calculation reserves space based on mod_len to accommodate RSA
+	 * operations. Message length constraints are enforced at the API level based on mod_len.
+	 *
 	 * For using following APIs the corresponding parameters must be set:
 	 * - `dao_liquid_crypto_enq_op_pkcs1v15enc()`
 	 * - `dao_liquid_crypto_enq_op_pkcs1v15dec()`
@@ -767,8 +770,6 @@ struct dao_lc_feature_params {
 		uint16_t mod_len;
 		/** Exponent length */
 		uint16_t exp_len;
-		/** Message length */
-		uint16_t msg_len;
 	} rsa;
 	/**
 	 * Random number generation parameters.

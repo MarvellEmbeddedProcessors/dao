@@ -298,7 +298,6 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		feature_params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 		/* RSA CRT op */
 		feature_params.rsa.exp_len = 0;
-		feature_params.rsa.msg_len = TEST_LC_MAX_RSA_MSG_LEN;
 		feature_params.ecc.is_ecc_enabled = true;
 		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
 		feature_params.ecc.digest_len = TEST_LC_MAX_ECC_DIGEST_LEN;

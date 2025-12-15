@@ -788,19 +788,20 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 					return 0;
 			}
 
-			rc = cpt_ae_rsa_msg_len_check(params->rsa.mod_len, params->rsa.msg_len);
-			if (rc != 0)
-				return 0;
-
 			/* DAO LC ASYM header */
 			rsa_seg_sz = sizeof(struct __dao_lc_req_asym);
 
+			/* CRT private key requires: p, q, dP, dQ, qInv each of size mod_len/2 */
 			if (is_crt)
 				rsa_seg_sz += (params->rsa.mod_len / 2) * 5;
 			else
 				rsa_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
 
-			rsa_seg_sz += params->rsa.msg_len;
+			/* For encryption: max message length is (mod_len - 11) bytes
+			 * For decryption: encrypted message length must equal mod_len bytes
+			 * Reserve space for mod_len bytes to accommodate the result
+			 */
+			rsa_seg_sz += params->rsa.mod_len;
 		}
 
 		if (params->ecc.is_ecc_enabled) {

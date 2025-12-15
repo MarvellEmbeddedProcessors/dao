@@ -496,55 +496,43 @@ test_rsa_seg_size(void)
 	/* Test exponent type */
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 	params.rsa.exp_len = 4;
-	params.rsa.msg_len = 1;
 	ret = dao_liquid_crypto_seg_size_calc(&params);
 	if (ret == 0) {
 		TEST_LC_ERR("Segment size calculation failed");
 		return TEST_FAILED;
 	}
 
-	TEST_ASSERT(ret == 1051, "Incorrect segment size");
+	TEST_ASSERT(ret == 2074, "Incorrect segment size");
 
 	/* Test CRT type */
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 	params.rsa.exp_len = 0;
-	params.rsa.msg_len = 4;
 	ret = dao_liquid_crypto_seg_size_calc(&params);
 	if (ret == 0) {
 		TEST_LC_ERR("Segment size calculation failed");
 		return TEST_FAILED;
 	}
 
-	TEST_ASSERT(ret == 2586, "Incorrect segment size");
+	TEST_ASSERT(ret == 3606, "Incorrect segment size");
 
 	/* Test unsupported parameters */
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN + 1;
 	params.rsa.exp_len = 0;
-	params.rsa.msg_len = 256;
 	ret = dao_liquid_crypto_seg_size_calc(&params);
 	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
 
 	params.rsa.mod_len = 8;
 	params.rsa.exp_len = 0;
-	params.rsa.msg_len = 256;
 	ret = dao_liquid_crypto_seg_size_calc(&params);
 	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
 
 	params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN + 1;
 	params.rsa.exp_len = 1;
-	params.rsa.msg_len = 256;
 	ret = dao_liquid_crypto_seg_size_calc(&params);
 	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
 
 	params.rsa.mod_len = 8;
 	params.rsa.exp_len = 1;
-	params.rsa.msg_len = 256;
-	ret = dao_liquid_crypto_seg_size_calc(&params);
-	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
-
-	params.rsa.mod_len = 128;
-	params.rsa.exp_len = 1;
-	params.rsa.msg_len = 128;
 	ret = dao_liquid_crypto_seg_size_calc(&params);
 	TEST_ASSERT(ret == 0, "Segment size calculation should fail");
 
@@ -708,6 +696,8 @@ struct unit_test_suite lc_testsuite_asym = {
 					  test_rsa_invalid_verify, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Public Encrypt", ut_setup, ut_teardown,
 					  test_rsa_enc_pub_exp, &rsa_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA Public Encrypt (8192 bits)", ut_setup, ut_teardown,
+					  test_rsa_enc_pub_exp, &rsa_8192_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt (CRT type)", ut_setup, ut_teardown,
 					  test_rsa_dec_prv_crt, &rsa_params),
 		TEST_CASE_NAMED_WITH_DATA("RSA Private Decrypt Invalid Cipher", ut_setup,
