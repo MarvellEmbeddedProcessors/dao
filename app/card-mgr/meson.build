@@ -2,7 +2,16 @@
 # Copyright (c) 2025 Marvell.
 
 sources = files(
-  'card_mgr.c',
+  'card_mgr_main.c',
+  'card_mgr_server.c',
+  'card_mgr_client.c',
+  'update/update_manager.c',
+  'update/app_update.c',
+  'update/fw_update.c',
+  'update/failsafe_update.c',
+  'utils/module_utils.c',
+  'utils/file_utils.c',
+  'utils/logging.c',
 )
 
 if not DAO_BUILD_CONF.has('DAO_LIBEDIT_DEP')
