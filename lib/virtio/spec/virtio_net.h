@@ -51,7 +51,7 @@
 #define VIRTIO_NET_ETHER_ADDR_LEN 6
 struct virtio_net_ctrl_rss;
 
-struct virtio_net_config {
+struct __rte_packed_begin virtio_net_config {
 	/** The config defining mac address (if VIRTIO_NET_F_MAC) */
 	uint8_t mac[VIRTIO_NET_ETHER_ADDR_LEN];
 	/** See VIRTIO_NET_F_STATUS and VIRTIO_NET_S_* above */
@@ -79,9 +79,9 @@ struct virtio_net_config {
 	uint16_t rss_max_indirection_table_length;
 	/** Supported hash types */
 	uint32_t supported_hash_types;
-} __rte_packed;
+} __rte_packed_end;
 
-struct virtio_net_hdr {
+struct __rte_packed_begin virtio_net_hdr {
 #define VIRTIO_NET_HDR_F_NEEDS_CSUM 1
 #define VIRTIO_NET_HDR_F_DATA_VALID 2
 #define VIRTIO_NET_HDR_F_RSC_INFO   4
@@ -121,7 +121,7 @@ struct virtio_net_hdr {
 	rte_le16_t hash_report;
 	/** padding reserved of packet */
 	rte_le16_t padding_reserved;
-} __rte_packed;
+} __rte_packed_end;
 
 #define VIRTIO_NET_CTRL_MQ 4
 /** For automatic receive steering */

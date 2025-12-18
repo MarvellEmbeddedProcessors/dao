@@ -153,11 +153,11 @@ struct rdma_recv_wqe {
 };
 
 /* Structure for PTS RDMA device basic SGE element */
-struct octep_rdma_sge {
+struct __rte_packed_begin octep_rdma_sge {
 	uint64_t addr;
 	uint32_t length;
 	uint32_t lkey;
-} __rte_packed;
+} __rte_packed_end;
 
 typedef struct rdma_send_wr {
 	struct {

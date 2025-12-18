@@ -1445,7 +1445,6 @@ main(int argc, char **argv)
 			goto err_exit;
 		}
 		dev_conf.nb_vchans = 4;
-		dev_conf.enable_silent = 0;
 		ret = rte_dma_configure(i, &dev_conf);
 		if (ret)
 			rte_exit(EXIT_FAILURE, "Unable to configure DPIVF %d\n", i);

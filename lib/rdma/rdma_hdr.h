@@ -666,12 +666,12 @@ reth_set_len(struct rdma_pkt_info *pkt, uint32_t len)
 /******************************************************************************
  * Atomic Extended Transport Header
  ******************************************************************************/
-struct rdma_atmeth {
+struct __rte_packed_begin rdma_atmeth {
 	rte_be64_t va;
 	rte_be32_t rkey;
 	rte_be64_t swap_add;
 	rte_be64_t comp;
-} __rte_packed;
+} __rte_packed_end;
 
 static inline uint64_t
 __atmeth_va(void *arg)

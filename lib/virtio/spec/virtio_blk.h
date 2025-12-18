@@ -21,7 +21,7 @@
 #define VIRTIO_BLK_F_SECURE_ERASE DAO_BIT(16) /** Secure erase command is supported */
 #define VIRTIO_BLK_F_ZONED        DAO_BIT(17) /** Zoned block device is supported */
 
-struct virtio_blk_config {
+struct __rte_packed_begin virtio_blk_config {
 	/** The capacity (in 512-byte sectors). */
 	uint64_t capacity;
 	/** The maximum segment size (if VIRTIO_BLK_F_SIZE_MAX) */
@@ -96,43 +96,43 @@ struct virtio_blk_config {
 		uint8_t model;
 		uint8_t unused2[3];
 	} zoned;
-} __rte_packed;
+} __rte_packed_end;
 
 /** Read requests to get the data from block device  */
-#define VIRTIO_BLK_T_IN           0
+#define VIRTIO_BLK_T_IN 0
 /** Read requests to put the data to block device    */
-#define VIRTIO_BLK_T_OUT          1
+#define VIRTIO_BLK_T_OUT 1
 /** Flush request on the block device                */
-#define VIRTIO_BLK_T_FLUSH        4
+#define VIRTIO_BLK_T_FLUSH 4
 /** Get device Identifier string of the block device */
-#define VIRTIO_BLK_T_GET_ID       8
+#define VIRTIO_BLK_T_GET_ID 8
 /** Discard sectors of block device                  */
-#define VIRTIO_BLK_T_DISCARD      11
+#define VIRTIO_BLK_T_DISCARD 11
 /** Write zeroes to the sectors of block device      */
 #define VIRTIO_BLK_T_WRITE_ZEROES 13
 /** Securely erase sectors of block device           */
 #define VIRTIO_BLK_T_SECURE_ERASE 14
 
 /** VirtIO block request header structure */
-typedef struct virtio_blk_hdr {
+typedef struct __rte_packed_begin virtio_blk_hdr {
 	/** Request type */
 	uint32_t type;
 	uint32_t reserved;
 	/** Starting sector number */
 	uint64_t sector;
-} __rte_packed virtio_blk_hdr_t;
+} __rte_packed_end virtio_blk_hdr_t;
 
-typedef struct virtio_blk_discard_write_zeroes {
+typedef struct __rte_packed_begin virtio_blk_discard_write_zeroes {
 	/** Starting sector number for the request  */
 	uint64_t sector;
 	/** Number of sectors to be used for the request */
 	uint32_t num_sectors;
 	struct {
 		/** For write zeroes command, unmap will discard the selected range */
-		uint32_t unmap:1;
-		uint32_t reserved:31;
+		uint32_t unmap : 1;
+		uint32_t reserved : 31;
 	} flags;
-} __rte_packed virtio_blk_discard_write_zeroes_t;
+} __rte_packed_end virtio_blk_discard_write_zeroes_t;
 
 enum virtio_blk_status {
 	/** Request finished successfully  */

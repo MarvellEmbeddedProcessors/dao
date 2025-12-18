@@ -313,7 +313,7 @@ struct profile_cfg_rsp {
 	 PARSE_NIBBLE_LD_LTYPE | PARSE_NIBBLE_LE_LTYPE)
 
 #define FLOW_PARSER_PROFILE_VER 1
-struct flow_parser_tcam_kex {
+struct __rte_packed_begin flow_parser_tcam_kex {
 	/* MKEX Profle Header */
 	uint64_t mkex_sign;          /* "mcam-kex-profile" (8 bytes/ASCII characters) */
 	uint8_t name[MKEX_NAME_LEN]; /* MKEX Profile name */
@@ -329,6 +329,6 @@ struct flow_parser_tcam_kex {
 	uint64_t intf_lid_lt_ld[PROFILE_MAX_INTF][PROFILE_MAX_LID][PROFILE_MAX_LT][PROFILE_MAX_LD];
 	/* PROFILE_INTF(0..1)_LDATA(0..1)_FLAGS(0..15)_CFG */
 	uint64_t intf_ld_flags[PROFILE_MAX_INTF][PROFILE_MAX_LD][PROFILE_MAX_LFL];
-} __rte_packed;
+} __rte_packed_end;
 
 #endif /* _PROFILE_PRIV_H_ */

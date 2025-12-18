@@ -20,11 +20,11 @@ enum { PROTO_FIELD_IPV4, SRC_FIELD_IPV4, DST_FIELD_IPV4, NUM_FIELDS_IPV4 };
 
 enum { SECGW_ACL_IPV4_PROTO, SECGW_ACL_IPV4_SRC, SECGW_ACL_IPV4_DST, SECGW_ACL_IPV4_NUM };
 
-typedef struct __rte_packed secgw_ipsec4_policy_fields {
+typedef struct __rte_packed_begin secgw_ipsec4_policy_fields {
 	uint8_t next_proto_id;
 	rte_be32_t src_addr;
 	rte_be32_t dst_addr;
-} secgw_ipsec4_policy_fields_t;
+} __rte_packed_end secgw_ipsec4_policy_fields_t;
 #else
 enum {
 	PROTO_FIELD_IPV4,
@@ -43,13 +43,13 @@ enum {
 	SECGW_ACL_IPV4_NUM
 };
 
-typedef struct __rte_packed secgw_ipsec4_policy_fields {
+typedef struct __rte_packed_begin secgw_ipsec4_policy_fields {
 	uint8_t next_proto_id;
 	rte_be32_t src_addr;
 	rte_be32_t dst_addr;
 	rte_be16_t src_port;
 	rte_be16_t dst_port;
-} secgw_ipsec4_policy_fields_t;
+} __rte_packed_end secgw_ipsec4_policy_fields_t;
 #endif
 
 #ifdef SECGW_USE_ONLY_IP

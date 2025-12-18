@@ -92,12 +92,12 @@ struct dao_virtio_netdev {
 };
 
 /** Virtio net header for external buffers */
-struct dao_virtio_net_hdr {
+struct __rte_packed_begin dao_virtio_net_hdr {
 	/** Array of virtio descriptor data */
 	uint64_t desc_data[2];
 	/** Virtio net header */
 	struct virtio_net_hdr hdr;
-} __rte_packed;
+} __rte_packed_end;
 
 /** Virtio net devices */
 extern struct dao_virtio_netdev dao_virtio_netdevs[];

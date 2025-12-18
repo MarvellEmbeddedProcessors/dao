@@ -54,7 +54,7 @@ struct dao_virtio_blkdev_conf {
 /* End of structure dao_virtio_blkdev_conf. */
 
 /** Virtio blk header for external buffers */
-struct dao_virtio_blk_hdr {
+struct __rte_packed_begin dao_virtio_blk_hdr {
 	/** Array of virtio descriptor data */
 	union {
 		struct vring_packed_desc vio_desc;
@@ -75,7 +75,7 @@ struct dao_virtio_blk_hdr {
 	uint32_t tot_bufs;
 	/** Virtio blk header, data */
 	uint8_t hdr_data[];
-} __rte_packed;
+} __rte_packed_end;
 
 /** Virtio blk device data */
 typedef struct dao_virtio_blkdev {
