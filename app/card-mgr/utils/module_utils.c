@@ -28,6 +28,32 @@ sanitize_module_path(const char *p)
 	return 0;
 }
 
+/* Validate OCTEON_EP_KO_PATH early before starting update operations.
+ * This allows fail-fast behavior before time-consuming file transfers.
+ */
+int
+validate_octeon_ep_ko_path(void)
+{
+	const char *ko_path = getenv("OCTEON_EP_KO_PATH");
+
+	if (!ko_path || *ko_path == '\0') {
+		DAO_CARD_ERR("OCTEON_EP_KO_PATH environment variable is not set. "
+			     "This is mandatory for update operations. "
+			     "Please set it to the path of octeon_ep.ko module.");
+		return -EINVAL;
+	}
+
+	if (sanitize_module_path(ko_path) != 0) {
+		DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s. "
+			     "Path must contain only alphanumeric characters, "
+			     "underscores, dots, slashes, and hyphens.",
+			     ko_path);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 /* Run a shell command and normalize return codes to 0 / -errno / -EIO */
 int
 run_cmd(const char *cmd)
@@ -177,35 +203,29 @@ reload_octeon_ep_module(const char *boot_arg, octeon_ep_module_op operation)
 
 	/* Handle load operation (for LOAD_ONLY and RELOAD) */
 	if (operation == OCTEON_EP_MODULE_LOAD_ONLY || operation == OCTEON_EP_MODULE_RELOAD) {
+		/* OCTEON_EP_KO_PATH is mandatory - fail if not set */
 		if (!ko_path || *ko_path == '\0') {
-			DAO_CARD_ERR("OCTEON_EP_KO_PATH not set; falling back to modprobe");
-			goto fallback_modprobe;
+			DAO_CARD_ERR("OCTEON_EP_KO_PATH environment variable is not set. "
+				     "This is mandatory for update operations. "
+				     "Please set it to the path of octeon_ep.ko module.");
+			return -EINVAL;
 		}
 
 		if (sanitize_module_path(ko_path) != 0) {
-			DAO_CARD_ERR(
-				"Invalid characters in OCTEON_EP_KO_PATH: %s; falling back to modprobe",
-				ko_path);
-			goto fallback_modprobe;
+			DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s. "
+				     "Path must contain only alphanumeric characters, "
+				     "underscores, dots, slashes, and hyphens.",
+				     ko_path);
+			return -EINVAL;
 		}
 
 		snprintf(cmd, sizeof(cmd), "insmod %s", ko_path);
 		rc = run_cmd(cmd);
 		if (rc != 0) {
-			DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s; falling back to modprobe",
-				     name, rc, ko_path);
-			goto fallback_modprobe;
-		}
-		goto wait_for_module;
-
-	fallback_modprobe:
-		rc = run_cmd("modprobe " OCTEON_EP_MODULE_NAME);
-		if (rc != 0) {
-			DAO_CARD_ERR("modprobe failed (rc=%d)", rc);
+			DAO_CARD_ERR("insmod %s failed (rc=%d) path=%s", name, rc, ko_path);
 			return rc;
 		}
 
-	wait_for_module:
 		rc = wait_for_module_present(name, OCTEON_EP_INSMOD_TIMEOUT_MS);
 		if (rc != 0) {
 			DAO_CARD_ERR("Module %s not present after load (rc=%d)", name, rc);
@@ -215,10 +235,8 @@ reload_octeon_ep_module(const char *boot_arg, octeon_ep_module_op operation)
 		/* Insmod of a custom module needs time for full device probe.
 		 * Wait 2 seconds for device probe and interface creation.
 		 */
-		if (ko_path) {
-			dao_info("Waiting for custom module device initialization...");
-			usleep(2000000);
-		}
+		dao_info("Waiting for custom module device initialization...");
+		usleep(2000000);
 	}
 
 	return 0;

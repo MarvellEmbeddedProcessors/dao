@@ -131,25 +131,26 @@ OCTEON_EP_KO_PATH
 
 **Description:**
 
-When loading the ``octeon_ep`` kernel module, the card manager can use either ``insmod`` with a
-specific module path or ``modprobe`` to load from the system's module directory. Setting this
-variable allows you to specify a custom location for the kernel module.
+Specifies the absolute path to the ``octeon_ep`` kernel module. This environment variable is
+**mandatory** for all update operations (``card_app_update``, ``card_fw_update``,
+``card_failsafe_update``, ``card_boot_source``, and ``card_reboot``). The card manager uses
+``insmod`` with this path to load the kernel module after firmware updates or boot operations.
 
 **Usage:** Set this environment variable to the absolute path of the kernel module.
 
-**Default:** If not set, the system will fall back to using ``modprobe octeon_ep``
+**Required:** Yes - This variable **must** be set before running update operations.
 
 **Example:**
 
 .. code-block:: console
 
-    # Use a specific module path
+    # Set the module path (mandatory)
     $ export OCTEON_EP_KO_PATH=/usr/local/lib/modules/octeon_ep.ko
     $ ./build/app/dao-card-mgr -s
 
-    # Use system modprobe (default)
-    $ unset OCTEON_EP_KO_PATH
-    $ ./build/app/dao-card-mgr -s
+**Note:** If this variable is not set, update operations will fail immediately with an error
+message indicating that ``OCTEON_EP_KO_PATH`` must be configured. The path must contain only
+alphanumeric characters, underscores, dots, slashes, and hyphens for security reasons.
 
 Management Services
 -------------------

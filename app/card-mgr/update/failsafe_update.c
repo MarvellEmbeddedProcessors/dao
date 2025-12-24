@@ -13,6 +13,7 @@
 #include "../lock/lock.h"
 #include "../utils/file_utils.h"
 #include "../utils/logging.h"
+#include "../utils/module_utils.h"
 #include "failsafe_update.h"
 #include "update_manager.h"
 
@@ -23,6 +24,11 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 	char *boot_bin_path = NULL;
 	int boot_rc;
 	int rc;
+
+	/* Early validation: Check OCTEON_EP_KO_PATH before any time-consuming operations */
+	rc = validate_octeon_ep_ko_path();
+	if (rc != 0)
+		return rc;
 
 	/* Start operation tracking */
 	rc = dao_card_operation_start("failsafe_update");

@@ -13,6 +13,7 @@ int module_present(const char *name);
 int wait_for_module_absent(const char *name, int timeout_ms);
 int wait_for_module_present(const char *name, int timeout_ms);
 int sanitize_module_path(const char *p);
+int validate_octeon_ep_ko_path(void);
 int run_cmd(const char *cmd);
 void bring_up_octeon_ep_interface(const char *ip_addr);
 

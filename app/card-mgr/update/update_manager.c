@@ -469,6 +469,11 @@ dao_card_mgr_boot(cli_args *cmd)
 	const char *arg;
 	int rc = 0;
 
+	/* Early validation: Check OCTEON_EP_KO_PATH before any time-consuming operations */
+	rc = validate_octeon_ep_ko_path();
+	if (rc != 0)
+		return rc;
+
 	if (!cmd || !cmd->argv) {
 		DAO_CARD_ERR("Invalid command structure");
 		return -EINVAL;
@@ -509,6 +514,11 @@ int
 dao_card_mgr_reboot(void)
 {
 	int rc;
+
+	/* Early validation: Check OCTEON_EP_KO_PATH before any time-consuming operations */
+	rc = validate_octeon_ep_ko_path();
+	if (rc != 0)
+		return rc;
 
 	/* Start operation tracking */
 	rc = dao_card_operation_start("card_reboot");
