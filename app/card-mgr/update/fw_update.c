@@ -2,11 +2,15 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <errno.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include <dao_card_grpc_client.h>
 
+#include "../lock/lock.h"
 #include "../utils/file_utils.h"
 #include "../utils/logging.h"
 #include "fw_update.h"
@@ -20,19 +24,52 @@ dao_card_mgr_fw_update(cli_args *cmd)
 	int boot_rc;
 	int rc;
 
+	/* Start operation tracking */
+	rc = dao_card_operation_start("fw_update");
+	if (rc < 0)
+		return rc;
+
+	DAO_CARD_INFO("Starting firmware update (estimated 3-5 minutes)");
+	DAO_CARD_INFO("Do not interrupt or power off the system during update");
+
 	rc = validate_file(cmd, &update_req, &boot_bin_path);
 	if (rc != 0)
-		goto req_free;
+		goto cleanup;
 
+	DAO_CARD_INFO("Writing firmware to card...");
 	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_FW_UPDATE);
-	if (rc == 0 && boot_bin_path != NULL) {
-		boot_rc = reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
-
-		if (boot_rc != 0)
-			DAO_CARD_ERR("Boot exec / readiness failed after fw update: %d", boot_rc);
+	if (rc != 0) {
+		if (rc == -ETIMEDOUT || rc == -110) {
+			DAO_CARD_ERR("Network timeout during firmware update");
+			DAO_CARD_ERR(
+				"Card may be partially updated - boot from failsafe if card not responding");
+		} else if (rc == -ECONNRESET || rc == -104) {
+			DAO_CARD_ERR("Connection lost to card during update");
+			DAO_CARD_ERR("Check network connection and card status");
+		} else {
+			DAO_CARD_ERR("Firmware update failed: %s", strerror(-rc));
+		}
+		goto cleanup;
 	}
 
-req_free:
+	DAO_CARD_INFO("Firmware write completed successfully");
+	if (boot_bin_path != NULL) {
+		DAO_CARD_INFO("Rebooting card from new firmware...");
+		boot_rc = reload_and_bringup_octeon_ep(boot_bin_path, "mmc", DAO_CARD_MGR_BOOT_IP);
+
+		if (boot_rc != 0) {
+			DAO_CARD_ERR("Card failed to boot from new firmware");
+			DAO_CARD_ERR(
+				"Recovery: Boot from failsafe using 'card_boot failsafe /path/to/boot'");
+			rc = boot_rc;
+		} else {
+			DAO_CARD_INFO("Card rebooted successfully - update complete");
+		}
+	}
+
+cleanup:
+	/* Only remove marker on success; keep it on failure for cooldown */
+	dao_card_operation_end(rc == 0);
 	free(update_req.filename);
 	free(update_req.filepath);
 	if (boot_bin_path)

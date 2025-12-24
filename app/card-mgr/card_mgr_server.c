@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <syslog.h>
@@ -22,6 +23,7 @@
 #include "update/app_update.h"
 #include "update/failsafe_update.h"
 #include "update/fw_update.h"
+#include "update/mcu_update.h"
 #include "update/update_manager.h"
 #include "utils/file_utils.h"
 #include "utils/logging.h"
@@ -275,16 +277,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_FW_UPDATE) == 0) {
 		rc = dao_card_mgr_fw_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_MCU_UPDATE) == 0) {
-		struct dao_card_update_req update_req;
-		int mrc;
-
-		mrc = validate_file(cmd, &update_req, NULL);
-
-		if (mrc == 0)
-			mrc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_MCU_UPDATE);
-		free(update_req.filename);
-		free(update_req.filepath);
-		rc = mrc;
+		rc = dao_card_mgr_mcu_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_BOOT_SOURCE) == 0) {
 		rc = dao_card_mgr_boot(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_REBOOT) == 0) {
@@ -540,6 +533,7 @@ dao_card_mgr_server(const char *ip_str)
 
 				dao_card_mgr_parse_args(buffer, &cmd_args);
 				dao_card_mgr_process_cmd(fd, &cmd_args);
+
 				if (cmd_args.argv != NULL)
 					free(cmd_args.argv);
 				if (cmd_args.line != NULL)

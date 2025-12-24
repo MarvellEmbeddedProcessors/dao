@@ -9,6 +9,8 @@ sources = files(
   'update/app_update.c',
   'update/fw_update.c',
   'update/failsafe_update.c',
+  'update/mcu_update.c',
+  'lock/lock.c',
   'utils/module_utils.c',
   'utils/file_utils.c',
   'utils/logging.c',

@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,6 +20,7 @@
 #include <dao_card_grpc_client.h>
 #include <dao_log.h>
 
+#include "../lock/lock.h"
 #include "../utils/logging.h"
 #include "../utils/module_utils.h"
 #include "update_manager.h"
@@ -409,7 +411,8 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	if (unload_before_boot) {
 		boot_rc = reload_octeon_ep_module(boot_arg, OCTEON_EP_MODULE_UNLOAD_ONLY);
 		if (boot_rc != 0) {
-			DAO_CARD_ERR("unload of octeon_ep failed: %d", boot_rc);
+			DAO_CARD_ERR("Failed to unload network driver (octeon_ep)");
+			DAO_CARD_ERR("Check if driver is in use or check system logs");
 			return boot_rc;
 		}
 	}
@@ -417,7 +420,8 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	if (boot_bin_path) {
 		boot_rc = dao_card_mgr_boot_exec(boot_bin_path, boot_arg);
 		if (boot_rc != 0) {
-			DAO_CARD_ERR("Boot exec failed in %s: %d", __func__, boot_rc);
+			DAO_CARD_ERR("Failed to execute card boot binary");
+			DAO_CARD_ERR("Verify boot binary path and card state");
 			return boot_rc;
 		}
 	}
@@ -426,14 +430,18 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	if (unload_before_boot) {
 		boot_rc = reload_octeon_ep_module(boot_arg, OCTEON_EP_MODULE_LOAD_ONLY);
 		if (boot_rc != 0) {
-			DAO_CARD_ERR("load of octeon_ep failed: %d", boot_rc);
+			DAO_CARD_ERR("Failed to load network driver (octeon_ep)");
+			DAO_CARD_ERR("Card may not be accessible over network");
+			DAO_CARD_ERR("Check system logs: dmesg | grep octeon_ep");
 			return boot_rc;
 		}
 	} else {
 		/* Normal reload behavior when no pre-boot unload was done */
 		boot_rc = reload_octeon_ep_module(boot_arg, OCTEON_EP_MODULE_RELOAD);
 		if (boot_rc != 0) {
-			DAO_CARD_ERR("unload and reload of octeon_ep failed: %d", boot_rc);
+			DAO_CARD_ERR("Failed to reload network driver (octeon_ep)");
+			DAO_CARD_ERR("Card may not be accessible over network");
+			DAO_CARD_ERR("Check system logs: dmesg | grep octeon_ep");
 			return boot_rc;
 		}
 	}
@@ -441,10 +449,13 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	bring_up_octeon_ep_interface(ip_addr);
 
 	/* Integrated readiness wait */
+	DAO_CARD_INFO("Waiting for card to become ready (timeout: 20 seconds)...");
 	int wrc = dao_card_wait_ready(20000, 250);
 
 	if (wrc) {
-		DAO_CARD_ERR("Card did not become ready after reload: %d", wrc);
+		DAO_CARD_ERR("Card did not respond within timeout period");
+		DAO_CARD_ERR("Card may be booting (wait longer) or failed to boot");
+		DAO_CARD_ERR("Check card console logs for boot status");
 		return wrc;
 	}
 	return 0;
@@ -499,11 +510,22 @@ dao_card_mgr_reboot(void)
 {
 	int rc;
 
+	/* Start operation tracking */
+	rc = dao_card_operation_start("card_reboot");
+	if (rc < 0)
+		return rc;
+
+	DAO_CARD_INFO("Rebooting card from failsafe...");
 	rc = reload_and_bringup_octeon_ep(NULL, "spi", DAO_CARD_MGR_BOOT_IP);
 	if (rc != 0) {
-		DAO_CARD_ERR("Boot exec / readiness failed in card_reboot: %d", rc);
-		return rc;
+		DAO_CARD_ERR("Card failed to reboot");
+		DAO_CARD_ERR("Check card console and power cycle if necessary");
+	} else {
+		DAO_CARD_INFO("Card rebooted successfully");
 	}
 
-	return 0;
+	/* Only remove marker on success; keep it on failure for cooldown */
+	dao_card_operation_end(rc == 0);
+
+	return rc;
 }

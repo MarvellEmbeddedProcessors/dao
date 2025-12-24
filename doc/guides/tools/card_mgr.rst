@@ -307,6 +307,54 @@ Firmware Management
 DAO Card Manager also supports firmware management for DAO cards. The following commands are
 available for managing firmware:
 
+.. note:: Update Operation Protection
+
+   Only one update operation can run at a time. The card manager uses file-based locking
+   (``/var/lock/card_mgr_operation``) to prevent multiple simultaneous updates.
+
+   **Interrupted Operation Protection**: If an update is interrupted (crash, kill signal) or fails
+   (gRPC timeout, network disconnect, validation error), the system enforces a 12-minute cooldown
+   before allowing another update. This prevents immediate retry when the card firmware may be in
+   an inconsistent state.
+
+   If you attempt an update immediately after an interruption, you will receive:
+
+   .. code-block:: console
+
+      [lcore -1] DAO_CARD_ERR: Previous update operation was interrupted.
+      [lcore -1] DAO_CARD_ERR: Please wait 12 minutes (720 seconds) before retrying to ensure system stability.
+
+   If another process is actively running an update:
+
+   .. code-block:: console
+
+      [lcore -1] DAO_CARD_ERR: Another update operation is in progress
+
+   **What to do**:
+
+   - For interrupted operations: Wait 12 minutes, then boot card from failsafe if needed
+   - For active operations: Wait for completion. Typical durations:
+
+     * ``card_app_update``: 1-3 minutes
+     * ``card_fw_update``: 3-5 minutes
+     * ``card_failsafe_update``: 10-12 minutes
+     * ``card_mcu_update``: 2-4 minutes
+
+   **Checking operation status**: To view update operation logs:
+
+   .. code-block:: console
+
+      # View all card manager logs
+      $ journalctl -t dao-card-mgr
+
+      # View operation events
+      $ journalctl -t dao-card-mgr | grep OPERATION_
+
+   **Protected operations**: ``card_app_update``, ``card_fw_update``, ``card_failsafe_update``,
+   ``card_mcu_update``, and ``card_reboot`` commands. Read-only commands (``card_info``,
+   ``card_stats``, ``card_dmesg``, etc.) are
+   not affected and can run concurrently.
+
 * ``card_app_update <file_path>/app.tar <file_path>/mrvl-oct-boot``
 
    This command updates only the application partition of the DAO card firmware. The ``<filename>``
