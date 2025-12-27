@@ -516,6 +516,8 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_BUFFER_SIZE, required_argument, 0, 0},
 				 {LCPERF_ENABLE_OOO, no_argument, 0, 0},
 				 {LCPERF_ECC_CURVE, required_argument, 0, 0},
+				 {LCPERF_ENQ_TIMEOUT, required_argument, 0, 0},
+				 {LCPERF_DRAIN_TIMEOUT, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
