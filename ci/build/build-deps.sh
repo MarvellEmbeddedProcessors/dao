@@ -52,7 +52,7 @@ PKG_CACHE_DIR=${PKG_CACHE_DIR:-}
 HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v25.11"
-ALL_DEPS="dpdk libnl libpcap grpc libconfig"
+ALL_DEPS="dpdk libnl liboqs libpcap grpc libconfig"
 DEPS_TO_BUILD=${3:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
@@ -91,6 +91,18 @@ GRPC_CXX_ABI_STANDARD=17
 GRPC_CMAKE_CROSS_FILE=$(mktemp)
 GRPC_CXX_CROSS_COMPILER=
 GRPC_C_CROSS_COMPILER=
+
+# liboqs variables
+LIBOQS_SRC_TAG=0.13.0-rc1
+LIBOQS_SRC_URL=https://github.com/open-quantum-safe/liboqs.git
+LIBOQS_SRC_DIR=$BUILD_DEPS_ROOT/host/liboqs
+LIBOQS_HOST_INSTALL_PREFIX=$HOST_DEPS_INSTALL_DIR/
+LIBOQS_OCT_BUILD_DIR=$LIBOQS_SRC_DIR/build_aarch64
+LIBOQS_OCT_INSTALL_PREFIX=$EP_DEPS_INSTALL_DIR/
+LIBOQS_CXX_ABI_STANDARD=17
+LIBOQS_CMAKE_CROSS_FILE=$(mktemp)
+LIBOQS_CXX_CROSS_COMPILER=
+LIBOQS_C_CROSS_COMPILER=
 
 # fall back to pkg-config if specified one does not exist
 if [ ! -x ${PKGCONFIG} ]; then
@@ -235,7 +247,7 @@ function build_grpc_host() {
 		return 1
 	fi
 
-	# Source dpdk env
+	# Cloning the repository
 	if [[ ! -d $GRPC_SRC_DIR ]]; then
 		mkdir -p $GRPC_SRC_DIR
 		cd $GRPC_SRC_DIR
@@ -305,7 +317,8 @@ function build_grpc() {
 		echo "set(CMAKE_SYSROOT $GRPC_CROSS_COMPILER_PATH/../${CROSS_COMPILE}/libc)" >> $GRPC_CMAKE_CROSS_FILE
 	fi
 	if [[ -n $VERBOSE ]]; then
-		echo "set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL "Verbose Makefile" FORCE)" >> $GRPC_CMAKE_CROSS_FILE
+		echo "set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL \"Verbose Makefile\" FORCE)" \
+			>> $GRPC_CMAKE_CROSS_FILE
 	fi
 	echo "set(ENV{PATH} \"$GRPC_HOST_INSTALL_PREFIX/bin:\$ENV{PATH}\")" >> $GRPC_CMAKE_CROSS_FILE
 	echo "set(ENV{PKG_CONFIG_PATH} \"$GRPC_HOST_INSTALL_PREFIX/lib/pkgconfig/:\$ENV{PKG_CONFIG_PATH}\")" >> $GRPC_CMAKE_CROSS_FILE
@@ -329,6 +342,91 @@ function build_grpc() {
 		make install
 		popd
 	fi
+}
+
+function build_liboqs() {
+	if [[ "$DEPS_TO_BUILD" != *"liboqs"* ]]; then
+		return
+	fi
+
+	# Cloning the repository
+	if [[ ! -d $LIBOQS_SRC_DIR ]]; then
+		mkdir -p $LIBOQS_SRC_DIR
+		cd $LIBOQS_SRC_DIR
+		git clone -b $LIBOQS_SRC_TAG --depth 1 $LIBOQS_SRC_URL .
+	fi
+
+	if [ "$LIBOQS_CXX_CROSS_COMPILER" = "" ]; then
+		if command -v ${CROSS_COMPILE}-g++ >/dev/null 2>&1; then
+			LIBOQS_CXX_CROSS_COMPILER=${CROSS_COMPILE}-g++
+		elif command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
+			LIBOQS_CXX_CROSS_COMPILER=aarch64-linux-gnu-g++
+		else
+			echo "ERROR: Unable to find suitable aarch64 cross compiler"
+			return 1
+		fi
+	fi
+	if [ "$LIBOQS_C_CROSS_COMPILER" = "" ]; then
+		if command -v ${CROSS_COMPILE}-gcc >/dev/null 2>&1; then
+			LIBOQS_C_CROSS_COMPILER=${CROSS_COMPILE}-gcc
+		elif command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+			LIBOQS_C_CROSS_COMPILER=aarch64-linux-gnu-gcc
+		else
+			echo "ERROR: Unable to find suitable aarch64 cross compiler"
+			return 1
+		fi
+	fi
+
+	echo "Using cross compiler: $LIBOQS_CXX_CROSS_COMPILER / $LIBOQS_C_CROSS_COMPILER"
+
+	LIBOQS_CROSS_COMPILER_PATH=$(dirname $(which $LIBOQS_CXX_CROSS_COMPILER))
+
+	# Create cmake cross file
+	echo "set(CMAKE_SYSTEM_NAME Linux)" >$LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_SYSTEM_PROCESSOR aarch64)" >>$LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_C_COMPILER $LIBOQS_CROSS_COMPILER_PATH/$LIBOQS_C_CROSS_COMPILER)" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_CXX_COMPILER $LIBOQS_CROSS_COMPILER_PATH/$LIBOQS_CXX_CROSS_COMPILER)" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_CXX_STANDARD $LIBOQS_CXX_ABI_STANDARD)" >> $LIBOQS_CMAKE_CROSS_FILE
+	if [[ "$LIBOQS_C_CROSS_COMPILER" == *"marvell"* ]]; then
+		echo "set(CMAKE_SYSROOT $LIBOQS_CROSS_COMPILER_PATH/../${CROSS_COMPILE}/sys-root)" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	else
+		echo "set(CMAKE_SYSROOT $LIBOQS_CROSS_COMPILER_PATH/../${CROSS_COMPILE}/libc)" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	fi
+	if [[ -n $VERBOSE ]]; then
+		echo "set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL \"Verbose Makefile\" FORCE)" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	fi
+	echo "set(ENV{PATH} \"$LIBOQS_HOST_INSTALL_PREFIX/bin:\$ENV{PATH}\")" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(ENV{PKG_CONFIG_PATH} \"$LIBOQS_HOST_INSTALL_PREFIX/lib/pkgconfig/:\$ENV{PKG_CONFIG_PATH}\")" \
+		>> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)" >> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)" >> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)" >> $LIBOQS_CMAKE_CROSS_FILE
+	echo "set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)" >> $LIBOQS_CMAKE_CROSS_FILE
+
+	# Compile liboqs for octeon
+	if [[ ! -d $LIBOQS_OCT_BUILD_DIR ]]; then
+		mkdir -p $LIBOQS_OCT_BUILD_DIR
+		pushd $LIBOQS_OCT_BUILD_DIR
+		LIBOQS_OCT_CMAKE_CMD="-DCMAKE_TOOLCHAIN_FILE=$LIBOQS_CMAKE_CROSS_FILE \
+			-DCMAKE_CXX_STANDARD=$LIBOQS_CXX_ABI_STANDARD \
+			-DCMAKE_INSTALL_PREFIX=$LIBOQS_OCT_INSTALL_PREFIX \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DBUILD_SHARED_LIBS=ON \
+			-DOQS_USE_OPENSSL=OFF \
+			-DOQS_DIST_BUILD=ON \
+			-GNinja"
+		cmake $LIBOQS_OCT_CMAKE_CMD $LIBOQS_SRC_DIR
+		ninja -j $MAKE_J
+		ninja install
+		popd
+	fi
+	return 0
 }
 
 function build_libpcap() {
@@ -364,6 +462,9 @@ build_grpc
 
 # Building DPDK for host
 build_dpdk_host
+
+# Building liboqs
+build_liboqs
 
 # Building LIBPCAP
 build_libpcap
