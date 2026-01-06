@@ -777,25 +777,30 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			else
 				is_crt = false;
 
-			rc = cpt_ae_rsa_mod_len_check(params->rsa.mod_len, is_crt);
-			if (rc != 0)
-				return 0;
+			/* DAO LC ASYM header */
+			rsa_seg_sz += sizeof(struct __dao_lc_req_asym);
 
-			if (!is_crt) {
-				rc = cpt_ae_rsa_exp_len_check(params->rsa.mod_len,
-							      params->rsa.exp_len);
-				if (rc != 0)
-					return 0;
+			rc = cpt_ae_rsa_mod_len_check(params->rsa.mod_len, is_crt);
+			if (rc != 0) {
+				dao_err("Invalid %u-byte RSA modulus length.", params->rsa.mod_len);
+				return 0;
 			}
 
-			/* DAO LC ASYM header */
-			rsa_seg_sz = sizeof(struct __dao_lc_req_asym);
+			if (is_crt) {
+				/* CRT private key requires: p, q, dP, dQ, qInv each of size
+				 * mod_len/2 */
+				rsa_seg_sz += (5 * (params->rsa.mod_len / 2));
+			} else {
+				rc = cpt_ae_rsa_exp_len_check(params->rsa.mod_len,
+							      params->rsa.exp_len);
+				if (rc != 0) {
+					dao_err("Invalid %u-byte RSA exponent length.",
+						params->rsa.exp_len);
+					return 0;
+				}
 
-			/* CRT private key requires: p, q, dP, dQ, qInv each of size mod_len/2 */
-			if (is_crt)
-				rsa_seg_sz += (params->rsa.mod_len / 2) * 5;
-			else
 				rsa_seg_sz += params->rsa.mod_len + params->rsa.exp_len;
+			}
 
 			/* For encryption: max message length is (mod_len - 11) bytes
 			 * For decryption: encrypted message length must equal mod_len bytes
@@ -806,6 +811,9 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 		if (params->ecc.is_ecc_enabled) {
 			uint16_t prime_len;
+
+			/* DAO LC ASYM header */
+			ecc_seg_sz += sizeof(struct __dao_lc_req_asym);
 
 			rc = cpt_ec_curve_id_validate(params->ecc.curve_id);
 			if (rc != 0) {
@@ -834,15 +842,25 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			/* ECC parameters: public key (X,Y), private key, nonce, signature (r,s),
 			 * prime, order, constants (A,B) */
 			ecc_seg_sz += ecc_num_components * aligned_prime_len;
-
-			/* DAO LC ASYM header */
-			ecc_seg_sz += sizeof(struct __dao_lc_req_asym);
 		}
 
 		if (params->rsa_oaep.is_rsa_oaep_enabled) {
+			bool is_crt;
+
+			if (params->rsa_oaep.exp_len == 0)
+				is_crt = true;
+			else
+				is_crt = false;
+
+			/* DAO LC ASYM header */
+			rsa_oaep_seg_sz += sizeof(struct __dao_lc_req_asym);
+
 			rc = cpt_ae_rsa_oaep_mod_len_max_validate(params->rsa_oaep.mod_len);
-			if (rc != 0)
+			if (rc != 0) {
+				dao_err("Provided RSA-OAEP modulus length %d exceeds maximum supported %u.",
+					params->rsa_oaep.mod_len, DAO_LC_RSA_OAEP_MAX_MOD_LEN);
 				return 0;
+			}
 
 			rc = cpt_ae_rsa_oaep_mod_len_check(params->rsa_oaep.mod_len, false);
 			if (rc != 0) {
@@ -851,8 +869,23 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			/* Modulus */
-			rsa_oaep_seg_sz += params->rsa_oaep.mod_len;
+			if (is_crt) {
+				rsa_oaep_seg_sz += (5 * (params->rsa_oaep.mod_len / 2));
+			} else {
+				rc = cpt_ae_rsa_exp_len_check(params->rsa_oaep.mod_len,
+							      params->rsa_oaep.exp_len);
+				if (rc != 0) {
+					dao_err("Invalid %d RSA-OAEP exponent length.",
+						params->rsa_oaep.exp_len);
+					return 0;
+				}
+
+				/* Exponent */
+				rsa_oaep_seg_sz += params->rsa_oaep.exp_len;
+
+				/* Modulus */
+				rsa_oaep_seg_sz += params->rsa_oaep.mod_len;
+			}
 
 			/* For RSA-OAEP encryption: maximum plaintext length depends on modulus size
 			 * and hash function For RSA-OAEP decryption: ciphertext length must equal
@@ -860,17 +893,6 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			 * ciphertext for both encryption and decryption operations.
 			 */
 			rsa_oaep_seg_sz += params->rsa_oaep.mod_len;
-
-			rc = cpt_ae_rsa_exp_len_check(params->rsa_oaep.mod_len,
-						      params->rsa_oaep.exp_len);
-			if (rc != 0) {
-				dao_err("Invalid %d RSA-OAEP exponent length.",
-					params->rsa_oaep.exp_len);
-				return 0;
-			}
-
-			/* Exponent */
-			rsa_oaep_seg_sz += params->rsa_oaep.exp_len;
 
 			rc = cpt_ae_rsa_oaep_label_len_validate(params->rsa_oaep.label_len);
 			if (rc != 0) {
@@ -897,9 +919,6 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 			/* 2 bytes for rptr offset and 2 bytes for rlen updates */
 			rsa_oaep_seg_sz += 4;
-
-			/* DAO LC ASYM header */
-			rsa_oaep_seg_sz += sizeof(struct __dao_lc_req_asym);
 		}
 
 		asym_seg_sz = RTE_MAX(rsa_seg_sz, ecc_seg_sz);

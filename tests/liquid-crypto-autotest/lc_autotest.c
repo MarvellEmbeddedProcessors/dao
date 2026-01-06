@@ -193,6 +193,7 @@ main(int argc, char **argv)
 		feature_params.sym.aad_len = TEST_LC_MAX_AAD_LEN;
 		feature_params.sym.digest_len = TEST_LC_MAX_DIGEST_LEN;
 		feature_params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
+		/* Use CRT format */
 		feature_params.rsa.exp_len = 0;
 		feature_params.rng.rand_len = TEST_LC_MAX_RANDOM_LEN;
 		feature_params.ecc.is_ecc_enabled = true;
@@ -202,7 +203,8 @@ main(int argc, char **argv)
 		feature_params.sym.aes_kek_type = DAO_LC_FC_AES_KEY_LEN_256;
 		feature_params.rsa_oaep.is_rsa_oaep_enabled = 1;
 		feature_params.rsa_oaep.mod_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;
-		feature_params.rsa_oaep.exp_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;
+		/* Use CRT format */
+		feature_params.rsa_oaep.exp_len = 0;
 		feature_params.rsa_oaep.label_len = TEST_LC_RSA_OAEP_MAX_LABEL_LEN;
 		feature_params.rsa_oaep.hash_type = DAO_LC_HASH_TYPE_SHA1;
 
