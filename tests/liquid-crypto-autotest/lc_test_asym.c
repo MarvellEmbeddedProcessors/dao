@@ -689,7 +689,7 @@ test_ecdsa_verify(const void *data)
 }
 
 static int
-test_rsa_oaep_encrypt(const void *data)
+test_rsa_oaep_enc_dec_exp(const void *data)
 {
 	const struct test_rsa_oaep_params *params = data;
 	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
@@ -729,6 +729,66 @@ test_rsa_oaep_encrypt(const void *data)
 		dev_id, qp_id, params->label.len, params->label.data, params->hash_type,
 		params->n.len, params->n.data, params->d.len, params->d.data, output, decrypt,
 		op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA decrypt operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
+	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
+	TEST_ASSERT(memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
+		    "Invalid result");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_oaep_enc_dec_crt(const void *data)
+{
+	const struct test_rsa_oaep_params *params = data;
+	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(output, 0, sizeof(output));
+	memset(decrypt, 0, sizeof(decrypt));
+	/* RSA ENCRYPT */
+	ret = dao_liquid_crypto_enq_op_rsa_oaep_enc(
+		dev_id, qp_id, params->label.data, params->label.len, params->hash_type,
+		params->n.len, params->e.len, params->plaintext.len, params->n.data, params->e.data,
+		params->plaintext.data, output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA encrypt operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA encrypt operation");
+		return TEST_FAILED;
+	}
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
+
+	/* RSA CRT Decrypt */
+	ret = dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(
+		dev_id, qp_id, params->label.data, params->label.len, params->hash_type,
+		params->n.len, params->p.data, params->dP.data, params->q.data, params->dQ.data,
+		params->qInv.data, output, decrypt, op_cookie);
 	if (ret < 0) {
 		TEST_LC_ERR("Could not enqueue RSA decrypt operation");
 		return TEST_FAILED;
@@ -849,11 +909,27 @@ struct unit_test_suite lc_testsuite_asym = {
 			"ECDSA secp521r1 sign and verify with varying digest lengths", ut_setup,
 			ut_teardown, test_ecdsa_sign_verify, &ecdsa_param_secp521r1),
 		TEST_CASE_NAMED_WITH_DATA("RSA OAEP Encrypt/Decrypt with pvt exp (1024 bits)",
-					  ut_setup, ut_teardown, test_rsa_oaep_encrypt,
+					  ut_setup, ut_teardown, test_rsa_oaep_enc_dec_exp,
 					  &rsa_oaep_params),
 		TEST_CASE_NAMED_WITH_DATA(
 			"RSA OAEP Encrypt/Decrypt with pvt exp with label (1024 bits)", ut_setup,
-			ut_teardown, test_rsa_oaep_encrypt, &rsa_oaep_params_5B_label),
+			ut_teardown, test_rsa_oaep_enc_dec_exp, &rsa_oaep_params_5B_label),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt CRT with label (1024 bits)", ut_setup,
+			ut_teardown, test_rsa_oaep_enc_dec_crt, &rsa_oaep_params_5B_label),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt exp with label (2048 bits)", ut_setup,
+			ut_teardown, test_rsa_oaep_enc_dec_exp, &rsa_oaep_params_1K_label_2k_mod),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt CRT with label (2048 bits)", ut_setup,
+			ut_teardown, test_rsa_oaep_enc_dec_crt, &rsa_oaep_params_1K_label_2k_mod),
+		TEST_CASE_NAMED_WITH_DATA("RSA OAEP Encrypt/Decrypt with pvt exp (7904 bits)",
+					  ut_setup, ut_teardown, test_rsa_oaep_enc_dec_exp,
+					  &rsa_7904_oaep_params),
+		TEST_CASE_NAMED_WITH_DATA("RSA OAEP Encrypt/Decrypt with pvt CRT (7904 bits)",
+					  ut_setup, ut_teardown, test_rsa_oaep_enc_dec_crt,
+					  &rsa_7904_oaep_params),
+
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

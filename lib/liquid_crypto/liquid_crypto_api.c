@@ -4633,6 +4633,12 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id, ui
 		return rc;
 	}
 
+	rc = cpt_ae_rsa_oaep_mod_len_max_validate(mod_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. mod_len exceeds maximum allowed length.");
+		return rc;
+	}
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
