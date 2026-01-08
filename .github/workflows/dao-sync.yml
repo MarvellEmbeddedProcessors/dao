@@ -1,0 +1,37 @@
+name: DAO-Sync
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dao-devel
+      - dao-24.05
+      - dao-24.09
+      - dao-25.05
+      - dao-25.10
+      - dao-lc-26.01
+
+jobs:
+  sync:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push merged branch to target repo
+        env:
+          USER: ${{ secrets.USER_GITHUB_SYNC }}
+          TOKEN: ${{ secrets.TOKEN_GITHUB_SYNC }}
+          BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+
+          git push \
+            https://${USER}:${TOKEN}@github.com/MarvellEmbeddedProcessors/dao.git \
+            HEAD:"$BRANCH"
