@@ -354,17 +354,6 @@ Load Octeon EP Driver and Create VF on Debian/Red-Hat Based systems
     # Get the BDF of the device
     SDP_DEV_BDF=$(sudo dmesg | grep 'Setting up OCTEON CN93XX PF PASS2.0' | grep -oP '0000:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-9a-fA-F]'|uniq)
 
-    # Enable SR-IOV with 1 VF. BDF would be the one obtained in previous step.
-    echo 1 | sudo tee /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
-    # or
-    echo 1 > /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
-
-    # Allocate hugepages on NUMA node 0, and on any additional nodes if they are present.
-    echo 1500 | sudo tee /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
-
-    # Remove the EP VF driver
-    sudo rmmod octeon_ep_vf
-
     # Load the vfio-pci module
     sudo modprobe vfio-pci
 
@@ -373,10 +362,21 @@ Load Octeon EP Driver and Create VF on Debian/Red-Hat Based systems
     # or
     echo 1 > /sys/module/vfio/parameters/enable_unsafe_noiommu_mode
 
-    # Bind the device to the vfio-pci driver
+    # Bind the EP VF device to the vfio-pci driver
     echo "177d b203" | sudo tee /sys/bus/pci/drivers/vfio-pci/new_id
     # or
     echo "177d b203" > /sys/bus/pci/drivers/vfio-pci/new_id
+
+    # Enable SR-IOV with 1 VF. BDF would be the one obtained in previous step.
+    echo 1 | sudo tee /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
+    # or
+    echo 1 > /sys/bus/pci/devices/$SDP_DEV_BDF/sriov_numvfs
+
+    # Remove the EP VF driver if it was automatically loaded.
+    sudo modprobe -r octeon_ep_vf 2>/dev/null || true
+
+    # Allocate hugepages on NUMA node 0, and on any additional nodes if they are present.
+    echo 1500 | sudo tee /sys/devices/system/node/node0/hugepages/hugepages-2048kB/nr_hugepages
 
     # Bring up the interface. The interface name may change from host to host
     sudo ifconfig enp1s0f0 192.168.1.2 up
