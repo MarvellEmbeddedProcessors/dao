@@ -262,11 +262,6 @@ cpt_ae_oaep_msg_and_mod_len_check(uint16_t mod_len, uint16_t msg_len,
 		return -EINVAL;
 	}
 
-	if (msg_len == 0) {
-		dao_err("Invalid message length. msg_len cannot be zero.");
-		return -EINVAL;
-	}
-
 	/* OAEP requires modulus length to be at least msg_len + 2 * hash_len + 2 */
 	if (mod_len < msg_len + 2 * hash_len + 2) {
 		dao_err("Invalid modulus length: mod_len=%u, msg_len=%u, hash_len=%u. Required minimum is %u bytes.",

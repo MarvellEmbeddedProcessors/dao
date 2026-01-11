@@ -4110,7 +4110,8 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 		memcpy(dptr, label, label_len);
 	dptr += label_len;
 
-	memcpy(dptr, msg, msg_len);
+	if (msg_len)
+		memcpy(dptr, msg, msg_len);
 	dptr += msg_len;
 
 	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);

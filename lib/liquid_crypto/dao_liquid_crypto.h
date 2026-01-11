@@ -1866,6 +1866,7 @@ int dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
  * @param msg_len
  *  The length of the message. Value must satisfy: msg_len <= (mod_len - (2 * hlen) - 2),
  *  where hlen is the length of the hash output used in OAEP.
+ *  Note: msg_len can be zero, indicating an empty message.
  * @param mod
  *  The address of the buffer containing the modulus. Modulus must be odd.
  *  Length of this buffer must be at most *mod_len* bytes.
