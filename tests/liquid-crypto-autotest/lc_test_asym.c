@@ -929,7 +929,14 @@ struct unit_test_suite lc_testsuite_asym = {
 		TEST_CASE_NAMED_WITH_DATA("RSA OAEP Encrypt/Decrypt with pvt CRT (7904 bits)",
 					  ut_setup, ut_teardown, test_rsa_oaep_enc_dec_crt,
 					  &rsa_7904_oaep_params),
-
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt exp and label, zero message length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_oaep_enc_dec_exp,
+			&rsa_oaep_params_1K_label_2k_mod_empty_string),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt CRT and label, zero message length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_oaep_enc_dec_crt,
+			&rsa_oaep_params_1K_label_2k_mod_empty_string),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

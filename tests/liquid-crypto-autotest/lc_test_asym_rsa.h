@@ -2632,4 +2632,50 @@ struct test_rsa_oaep_params rsa_7904_oaep_params = {
 	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512,
 };
 
+uint8_t rsa_oaep_empty_plaintext[] = { };
+
+struct test_rsa_oaep_params rsa_oaep_params_1K_label_2k_mod_empty_string = {
+	.plaintext = {
+		.data = rsa_oaep_empty_plaintext,
+		.len = 0
+	},
+	.label = {
+		.data = label_1k,
+		.len = sizeof(label_1k)
+	},
+	.n = {
+		.data = rsa_2048_n,
+		.len = sizeof(rsa_2048_n)
+	},
+	.e = {
+		.data = rsa_2048_e,
+		.len = sizeof(rsa_2048_e)
+	},
+	.d = {
+		.data = rsa_2048_d,
+		.len = sizeof(rsa_2048_d)
+	},
+	.p = {
+		.data = rsa_2048_p,
+		.len = sizeof(rsa_2048_p)
+	},
+	.q = {
+		.data = rsa_2048_q,
+		.len = sizeof(rsa_2048_q)
+	},
+	.dP = {
+		.data = rsa_2048_dP,
+		.len = sizeof(rsa_2048_dP)
+	},
+	.dQ = {
+		.data = rsa_2048_dQ,
+		.len = sizeof(rsa_2048_dQ)
+	},
+	.qInv = {
+		.data = rsa_2048_qInv,
+		.len = sizeof(rsa_2048_qInv)
+	},
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
+};
+
 #endif /* __LC_TEST_ASYM_RSA_H__ */
