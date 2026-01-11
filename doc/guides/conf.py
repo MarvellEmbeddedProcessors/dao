@@ -23,7 +23,7 @@ smv_tag_whitelist    = r"^$"
 smv_outputdir_format = "{ref.name}"
 
 # Current branch name
-version = "dao-devel"
+version = "dao-lc-26.01"
 
 html_theme = "pydata_sphinx_theme"
 
