@@ -107,11 +107,15 @@ test_hash_only(const void *data, const bool is_auth_gen)
 		op[0].auth_offset = params->auth_offset + i;
 		op[0].auth_len = params->plaintext.len;
 
-		if ((ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
-		    (ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
-			op[0].params.output_len = params->output_len;
-			op[0].params.custom_string = (uint8_t *)params->custom_string.data;
-			op[0].params.custom_string_len = params->custom_string.len;
+		switch (ctx.hash.hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+		case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+			op[0].kmac_params.output_len = params->output_len;
+			op[0].kmac_params.custom_string = (uint8_t *)params->custom_string.data;
+			op[0].kmac_params.custom_string_len = params->custom_string.len;
+			break;
+		default:
+			break;
 		}
 
 		if (params->ctx.fc.hash_type == DAO_LC_HASH_TYPE_GMAC) {

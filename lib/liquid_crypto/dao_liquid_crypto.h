@@ -44,8 +44,10 @@
 #define DAO_LC_RSA_OAEP_MAX_LABEL_LEN 1024
 /** Maximum supported modulus length for RSA OAEP */
 #define DAO_LC_RSA_OAEP_MAX_MOD_LEN 988
-/** Maximum supported customisation-string length for KMAC */
-#define DAO_LC_KMAC_MAX_CUSTOM_STRING_LEN 511
+/** Maximum supported customisation-string length for KMAC and cSHAKE operations */
+#define DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN 511
+/** Maximum supported function-name length for KMAC and cSHAKE operations */
+#define DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN 511
 
 /**
  * The params required for KMAC operations.
@@ -57,6 +59,23 @@ struct dao_lc_sym_op_kmac_params {
 	/** Length of Customized String. Utilized for KMAC. */
 	uint16_t custom_string_len;
 	/** Output Length. Utilized for KMAC. */
+	uint16_t output_len;
+};
+
+/**
+ * The params required for cSHAKE operations.
+ * Note: cSHAKE128 and cSHAKE256 are supported in XOF=True mode.
+ */
+struct dao_lc_sym_op_cshake_params {
+	/** Customized String. Utilized for cSHAKE. */
+	uint8_t *custom_string;
+	/** Function Name. Utilized for cSHAKE. */
+	uint8_t *function_name;
+	/** Length of Customized String. Utilized for cSHAKE. */
+	uint16_t custom_string_len;
+	/** Length of Function Name. Utilized for cSHAKE. */
+	uint16_t function_name_len;
+	/** Output Length. Utilized for cSHAKE. */
 	uint16_t output_len;
 };
 
@@ -142,10 +161,6 @@ struct dao_lc_sym_op {
 	 * - Must not exceed DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN
 	 * Ignored for non-key wrap operations.
 	 */
-	union {
-		/** Params for KMAC. */
-		struct dao_lc_sym_op_kmac_params params;
-	};
 	uint32_t wrap_unwrap_key_len;
 	/** Indicates if padding is used (for AES-KWP) */
 	bool is_wrap_pad;
@@ -157,6 +172,12 @@ struct dao_lc_sym_op {
 		bool auth_gen;
 		/** Is key wrap or unwrap operation. */
 		bool is_wrap;
+	};
+	union {
+		/** Params for KMAC. */
+		struct dao_lc_sym_op_kmac_params kmac_params;
+		/** Params for cSHAKE. */
+		struct dao_lc_sym_op_cshake_params cshake_params;
 	};
 };
 /* >8 End of structure dao_lc_sym_op. */
@@ -633,6 +654,10 @@ enum dao_lc_hash_type {
 	DAO_LC_HASH_TYPE_SHA3_KMAC128 = 17,
 	/** Hash Type = SHA3-KMAC256 */
 	DAO_LC_HASH_TYPE_SHA3_KMAC256 = 18,
+	/** Hash Type = SHA3-CSHAKE128 */
+	DAO_LC_HASH_TYPE_SHA3_CSHAKE128 = 19,
+	/** Hash Type = SHA3-CSHAKE256 */
+	DAO_LC_HASH_TYPE_SHA3_CSHAKE256 = 20,
 };
 
 /**
