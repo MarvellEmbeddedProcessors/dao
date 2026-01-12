@@ -2280,8 +2280,9 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 					const enum lc_crypto_op_type op_type)
 {
 	uint16_t hmac_aligned_key_len = 0, pkt_iv_len = 0, digest_len = 0, custom_string_len = 0;
-	uint16_t hmac_key_len = 0, custom_string_aligned_len = 0, dlen;
+	uint16_t hmac_key_len = 0, custom_string_aligned_len = 0, function_name_len = 0;
 	uint32_t buf_len, auth_len, off_ctrl_len, auth_offset = 0;
+	uint16_t function_name_aligned_len = 0, dlen;
 	uint64_t *offset_vaddr, *ctrl_word_vaddr;
 	struct __dao_lc_req_sym *req;
 	union cpt_inst_w4 w4;
@@ -2294,15 +2295,28 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	if (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) {
 		hmac_key_len = sess_meta->auth_key_len;
 		hmac_aligned_key_len = RTE_ALIGN_CEIL(hmac_key_len, 8);
-		if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
-		    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
-			custom_string_len = op->params.custom_string_len;
+		switch (sess_meta->hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+		case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+			custom_string_len = op->kmac_params.custom_string_len;
 			custom_string_aligned_len = RTE_ALIGN_CEIL(custom_string_len, 8);
-			digest_len = op->params.output_len;
+			digest_len = op->kmac_params.output_len;
 			dlen = ROC_SE_CTRL_WORD_LEN + auth_len + custom_string_aligned_len +
-				   hmac_aligned_key_len;
-		} else {
+			       hmac_aligned_key_len;
+			break;
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+			custom_string_len = op->cshake_params.custom_string_len;
+			custom_string_aligned_len = RTE_ALIGN_CEIL(custom_string_len, 8);
+			function_name_len = op->cshake_params.function_name_len;
+			function_name_aligned_len = RTE_ALIGN_CEIL(function_name_len, 8);
+			digest_len = op->cshake_params.output_len;
+			dlen = ROC_SE_CTRL_WORD_LEN + auth_len + custom_string_aligned_len +
+			       function_name_aligned_len + hmac_aligned_key_len;
+			break;
+		default:
 			dlen = auth_len + hmac_aligned_key_len;
+			break;
 		}
 	} else if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
 		off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
@@ -2365,16 +2379,35 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	req->w4 = w4.u64;
 	req->w7 = DAO_LC_SYM_META_GET_PTR(op->sess_id)->w7;
 
-	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128)  ||
-	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
+	switch (sess_meta->hash_type) {
+	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
 		ctrl_word_vaddr = (uint64_t *)dptr;
 		*(uint64_t *)ctrl_word_vaddr = rte_cpu_to_be_64(
 		((uint64_t)custom_string_len << 16) | ((uint64_t)digest_len << 32));
 		dptr += ROC_SE_CTRL_WORD_LEN;
 
 		/* Add Customization String for KMAC */
-		memcpy(dptr, op->params.custom_string, custom_string_len);
+		memcpy(dptr, op->kmac_params.custom_string, custom_string_len);
 		dptr += custom_string_aligned_len;
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+		ctrl_word_vaddr = (uint64_t *)dptr;
+		*(uint64_t *)ctrl_word_vaddr = rte_cpu_to_be_64(
+			((uint64_t)function_name_len) | ((uint64_t)custom_string_len << 16) |
+			(((uint64_t)digest_len & 0xFFFF) << 32));
+		dptr += ROC_SE_CTRL_WORD_LEN;
+
+		/* Add Function Name for cSHAKE */
+		memcpy(dptr, op->cshake_params.function_name, function_name_len);
+		dptr += function_name_aligned_len;
+		/* Add Customization String for cSHAKE */
+		memcpy(dptr, op->cshake_params.custom_string, custom_string_len);
+		dptr += custom_string_aligned_len;
+		break;
+	default:
+		break;
 	}
 
 	/* Add HMAC Authentication Key for HMAC ops */

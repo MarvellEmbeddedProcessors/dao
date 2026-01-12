@@ -21,6 +21,7 @@
 #define DAO_LC_PARAM_MASK 0x3
 #define DAO_LC_HASH_MASK  0xF
 #define DAO_LC_KMAC_PARAM2 (2 & DAO_LC_PARAM_MASK)
+#define DAO_LC_CSHAKE_PARAM2 (1 & DAO_LC_PARAM_MASK)
 
 static TAILQ_HEAD(dao_lc_sym_sess_meta_list, dao_lc_sym_sess_meta)
 	sym_sess_list_head = TAILQ_HEAD_INITIALIZER(sym_sess_list_head);
@@ -155,6 +156,8 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		break;
 	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
 	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		if (mac_len >= 1 && mac_len <= DAO_LC_MAX_DIGEST_LEN)
 			return 0;
 		break;
@@ -206,6 +209,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	union cpt_inst_w4 w4 = {0};
+	uint16_t hash_field = 0;
 	int kek_len;
 
 	sess_meta =
@@ -304,6 +308,16 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			w4.s.param2 = (uint16_t)(DAO_LC_KMAC_PARAM2 << 12) |
 			((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE256) << 8) |
 			ctx->hash.digest_len;
+			break;
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+			hash_field = ((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE128) << 8);
+			w4.s.param2 = (uint16_t)(DAO_LC_CSHAKE_PARAM2 << 12) | (hash_field) |
+									ctx->hash.digest_len;
+			break;
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+			hash_field = ((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE256) << 8);
+			w4.s.param2 = (uint16_t)(DAO_LC_CSHAKE_PARAM2 << 12) | (hash_field) |
+									ctx->hash.digest_len;
 			break;
 		default:
 			w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
@@ -543,6 +557,8 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
 	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
 	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		break;
 	default:
 		dao_err("Unsupported HMAC/hash type.");
@@ -558,10 +574,13 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 	}
 
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
-		if (hash_ctx->hmac_key_len == 0 ||
-		    hash_ctx->hmac_key_len > DAO_LC_MAX_AUTH_KEY_LEN) {
-			dao_err("Invalid HMAC key length.");
-			return -EINVAL;
+		if ((hash_ctx->hmac_hash_type != DAO_LC_HASH_TYPE_SHA3_CSHAKE128) &&
+		    (hash_ctx->hmac_hash_type != DAO_LC_HASH_TYPE_SHA3_CSHAKE256)) {
+			if ((hash_ctx->hmac_key_len == 0) ||
+			    (hash_ctx->hmac_key_len > DAO_LC_MAX_AUTH_KEY_LEN)) {
+				dao_err("Invalid HMAC key length.");
+				return -EINVAL;
+			}
 		}
 	}
 
@@ -686,19 +705,43 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 
 	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
 	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
-		if (op->params.custom_string == NULL) {
+		if (op->kmac_params.custom_string == NULL) {
 			dao_err("Invalid custom-string pointer for KMAC operation.");
 			return -EINVAL;
 		}
-		if ((op->params.output_len == 0) ||
-		    (op->params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
+		if ((op->kmac_params.output_len == 0) ||
+		    (op->kmac_params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
 			dao_err("Invalid output length for KMAC operation. output_len: %d.",
-				op->params.output_len);
+				op->kmac_params.output_len);
 			return -EINVAL;
 		}
-		if (op->params.custom_string_len > DAO_LC_KMAC_MAX_CUSTOM_STRING_LEN) {
+		if (op->kmac_params.custom_string_len > DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN) {
 			dao_err("Invalid custom-string length for KMAC operation. custom_string_len:%d.",
-				op->params.custom_string_len);
+				op->kmac_params.custom_string_len);
+			return -EINVAL;
+		}
+	}
+
+	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE128) ||
+	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE256)) {
+		if (op->cshake_params.custom_string == NULL) {
+			dao_err("Invalid custom-string pointer for cSHAKE operation.");
+			return -EINVAL;
+		}
+		if ((op->cshake_params.output_len == 0) ||
+		    (op->cshake_params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
+			dao_err("Invalid output length for cSHAKE operation. output_len: %d.",
+				op->cshake_params.output_len);
+			return -EINVAL;
+		}
+		if (op->cshake_params.custom_string_len > DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN) {
+			dao_err("Invalid custom-string length for cSHAKE operation. custom_string_len: %d.",
+				op->cshake_params.custom_string_len);
+			return -EINVAL;
+		}
+		if (op->cshake_params.function_name_len > DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN) {
+			dao_err("Invalid function-name length for cSHAKE operation. function_name_len: %d.",
+				op->cshake_params.function_name_len);
 			return -EINVAL;
 		}
 	}
