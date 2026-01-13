@@ -26,6 +26,8 @@ option('virtio_debug', type: 'boolean', value: false, description:
 option('virtio_blk_debug', type: 'boolean', value: false, description:
        'Enable virtio blk debug.')
 option('rdma_build', type: 'boolean', value: true, description:
-         'RDMA kmod build')
+       'RDMA kmod build')
 option('rdma_debug', type: 'boolean', value: false, description:
-         'Enable RDMA debug logs (defines RDMA_DEBUG).')
+       'Enable RDMA debug logs (defines RDMA_DEBUG).')
+option('build_host_dir', type: 'string', value: '', description:
+       'Build host directory path for rdma-core prefix installation.')

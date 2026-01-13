@@ -20,12 +20,14 @@ if host_build
                kernel_build_dir = get_option('kernel_dir')
                kernel_header_dst = kernel_build_dir + '/' + 'include/uapi/rdma/'
                message(kernel_header_dst)
+	       message('build_host_dir: ' + meson.build_root())
 	       if fs.is_dir(kernel_header_dst)
                    # rdma-core
                    rdma_core_dep = dependency(
                    'rdma-core',
                    default_options: [
-                           'kernel_dir=' + get_option('kernel_dir')
+                           'kernel_dir=' + get_option('kernel_dir'),
+			   'build_host_dir=' + meson.build_root()
                    ],
                    )
 	       else

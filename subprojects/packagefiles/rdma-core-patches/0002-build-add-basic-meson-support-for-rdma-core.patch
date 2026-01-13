@@ -1,22 +1,23 @@
-From 7290715686c9b88f44ac9ee6285d6a1e0a90ca60 Mon Sep 17 00:00:00 2001
+From adedf7d687dd4ae8c3c917b711df3ff00668e714 Mon Sep 17 00:00:00 2001
 From: Harman Kalra <hkalra@marvell.com>
 Date: Wed, 29 Oct 2025 15:07:46 +0530
-Subject: [PATCH] build: add basic meson support for rdma core
+Subject: [PATCH 2/2] build: add basic meson support for rdma core
 
 Signed-off-by: Harman Kalra <hkalra@marvell.com>
+Signed-off-by: Mohit Kumar Parjapat <mprajapat@marvell.com>
 ---
- meson.build   | 50 ++++++++++++++++++++++++++++++++++++++++++++++++++
- meson.options |  6 ++++++
- 2 files changed, 56 insertions(+)
+ meson.build   | 68 +++++++++++++++++++++++++++++++++++++++++++++++++++
+ meson.options | 13 ++++++++++
+ 2 files changed, 81 insertions(+)
  create mode 100644 meson.build
  create mode 100644 meson.options
 
 diff --git a/meson.build b/meson.build
 new file mode 100644
-index 0000000..77aaba4
+index 00000000..8798ced6
 --- /dev/null
 +++ b/meson.build
-@@ -0,0 +1,50 @@
+@@ -0,0 +1,68 @@
 +project(
 +    'rdma-core',
 +    'c',
@@ -28,9 +29,11 @@ index 0000000..77aaba4
 +build_script = src_dir + 'build.sh'
 +
 +kernel_dir = get_option('kernel_dir')
++build_host_dir = get_option('build_host_dir')
 +rdma_core_kernel_header_src = src_dir + 'kernel-headers/rdma/'
 +kernel_header_dst = kernel_dir + '/' + 'include/uapi/rdma/'
 +message('Kernel headers: ' + kernel_dir)
++message('Build host directory: ' + build_host_dir)
 +
 +fs = import('fs')
 +ib_user_header = rdma_core_kernel_header_src + 'ib_user_ioctl_verbs.h'
@@ -59,25 +62,48 @@ index 0000000..77aaba4
 +    message(octep_abi_header + ' does not exist.')
 +endif
 +
-+run_command(
-+    'bash',
-+    build_script,
-+    check: true
-+)
++rdma_prefix = ''
++if build_host_dir != ''
++    rdma_prefix = build_host_dir + '/rdma_prefix'
++    message('Installing rdma-core to: ' + rdma_prefix)
++endif
++
++# Build rdma-core with prefix if provided
++if rdma_prefix != ''
++    run_command(
++        'bash',
++        build_script,
++        rdma_prefix,
++        check: true
++    )
++else
++    run_command(
++        'bash',
++        build_script,
++        check: true
++    )
++endif
 +
 +rdma_core_dep = declare_dependency()
 +meson.override_dependency('rdma-core', rdma_core_dep)
 diff --git a/meson.options b/meson.options
 new file mode 100644
-index 0000000..4f8cd64
+index 00000000..d42bcf7d
 --- /dev/null
 +++ b/meson.options
-@@ -0,0 +1,6 @@
+@@ -0,0 +1,13 @@
 +option(
 +  'kernel_dir',
 +  type: 'string',
 +  value: '',
 +  description: 'Kernel Header path',
++)
++
++option(
++  'build_host_dir',
++  type: 'string',
++  value: '',
++  description: 'Build host directory path for rdma-core prefix installation',
 +)
 -- 
 2.43.0

@@ -1,0 +1,61 @@
+From ef726cde5a7274381f547a25c2b9ad26eecf8e71 Mon Sep 17 00:00:00 2001
+From: Mohit Kumar Parjapat <mprajapat@marvell.com>
+Date: Fri, 9 Jan 2026 18:38:04 +0530
+Subject: [PATCH 1/2] build: add prefix installation support to build
+
+Signed-off-by: Mohit Kumar Parjapat <mprajapat@marvell.com>
+---
+ build.sh | 28 ++++++++++++++++++++++++++--
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/build.sh b/build.sh
+index a6b1e8f0..5646dc75 100755
+--- a/build.sh
++++ b/build.sh
+@@ -3,6 +3,17 @@ set -e
+ 
+ SRCDIR=`dirname $0`
+ BUILDDIR="$SRCDIR/build"
++PREFIX="${1:-}"  # Accept prefix as first argument
++CWD="$PWD"  # Save current working directory
++
++# Convert relative prefix path to absolute path (relative to current working directory)
++if [ -n "$PREFIX" ]; then
++    if [[ "$PREFIX" != /* ]]; then
++        # Relative path - make it absolute relative to current working directory
++        PREFIX="$CWD/$PREFIX"
++    fi
++    mkdir -p "$PREFIX"
++fi
+ 
+ mkdir -p "$BUILDDIR"
+ 
+@@ -22,10 +33,23 @@ fi
+ 
+ cd "$BUILDDIR"
+ 
++# Configure CMake arguments
++if [ -n "$PREFIX" ]; then
++    EXTRA_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX -DNO_MAN_PAGES=1 ${EXTRA_CMAKE_FLAGS:-}"
++else
++    EXTRA_CMAKE_FLAGS="-DIN_PLACE=1 ${EXTRA_CMAKE_FLAGS:-}"
++fi
++
+ if [ "x$NINJA" == "x" ]; then
+-    $CMAKE -DIN_PLACE=1 ${EXTRA_CMAKE_FLAGS:-} ..
++    $CMAKE ${EXTRA_CMAKE_FLAGS} ..
+     make
++    if [ -n "$PREFIX" ]; then
++        make install
++    fi
+ else
+-    $CMAKE -DIN_PLACE=1 -GNinja ${EXTRA_CMAKE_FLAGS:-} ..
++    $CMAKE -GNinja ${EXTRA_CMAKE_FLAGS} ..
+     $NINJA
++    if [ -n "$PREFIX" ]; then
++        $NINJA install
++    fi
+ fi
+-- 
+2.43.0
+
