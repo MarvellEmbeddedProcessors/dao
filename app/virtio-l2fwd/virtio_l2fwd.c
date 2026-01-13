@@ -2581,8 +2581,15 @@ setup_eth_devices(void)
 				 local_port_conf.rx_adv_conf.rss_conf.rss_hf);
 		}
 
+		/* Disable RSS mode if device doesn't support it (e.g., net_virtio_user) */
+		if (!local_port_conf.rx_adv_conf.rss_conf.rss_hf)
+			local_port_conf.rxmode.mq_mode = RTE_ETH_MQ_RX_NONE;
+
 		/* Enable CGX loopback mode if needed */
 		local_port_conf.lpbk_mode = !!ethdev_cgx_loopback;
+
+		/* Enable LSC only if device supports it (e.g., net_virtio_user doesn't) */
+		local_port_conf.intr_conf.lsc = !!(*dev_info.dev_flags & RTE_ETH_DEV_INTR_LSC);
 
 		rc = rte_eth_dev_configure(portid, nb_rx_queue, nb_tx_queue, &local_port_conf);
 		if (rc < 0)
@@ -2950,10 +2957,10 @@ setup_virtio_devices(void)
 			netdev_conf.link_info.status = eth_link.link_status;
 			netdev_conf.link_info.speed = eth_link.link_speed;
 			netdev_conf.link_info.duplex = eth_link.link_duplex;
-			/* Register link status change interrupt callback */
-			rte_eth_dev_callback_register(portid, RTE_ETH_EVENT_INTR_LSC,
-						      lsc_event_callback,
-						      (void *)(uint64_t)virtio_devid);
+			if (*eth_dev_info[portid].dev_flags & RTE_ETH_DEV_INTR_LSC)
+				rte_eth_dev_callback_register(portid, RTE_ETH_EVENT_INTR_LSC,
+							      lsc_event_callback,
+							      (void *)(uint64_t)virtio_devid);
 
 			/* Populate default mac address */
 			rte_eth_macaddr_get(portid, (struct rte_ether_addr *)netdev_conf.mac);
