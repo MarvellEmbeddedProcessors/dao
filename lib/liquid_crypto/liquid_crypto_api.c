@@ -504,6 +504,64 @@ qp_free:
 	return rc;
 }
 
+int
+dao_liquid_crypto_qp_inflight_req_count(uint8_t dev_id, uint16_t qp_id)
+{
+	uint32_t req_idx = 0, first_req_idx = 0;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_bitmap *req_bm;
+	uint16_t set_bits = 0;
+	uint64_t slab = 0;
+
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	if (!dev->is_created) {
+		dao_err("Invalid device. Device(%d) not created.", dev_id);
+		return -EINVAL;
+	}
+
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+
+	if (qp == NULL) {
+		dao_err("Invalid queue pair. Queue pair(%d, %d) not configured.", dev_id, qp_id);
+		return -EINVAL;
+	}
+
+	if (dev->cmd_qp_idx == qp_id)
+		req_bm = qp->cmd_req_bm;
+	else
+		req_bm = qp->req_bm;
+
+	/**
+	 * The bitmap is initialized with all bits set (all slots free).
+	 * When a request is allocated, the bit is cleared (slot in use).
+	 * Check if any bit is cleared - that means we have inflight requests.
+	 */
+	if (rte_bitmap_scan(req_bm, &req_idx, &slab) == 0)
+		return qp->req_bm_size;
+
+	first_req_idx = req_idx;
+
+	do {
+		set_bits += __builtin_popcountll(slab);
+		if (rte_bitmap_scan(req_bm, &req_idx, &slab) == 0)
+			break;
+	} while (req_idx != first_req_idx);
+
+	return qp->req_bm_size - set_bits;
+}
+
 static int
 liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 {
@@ -634,8 +692,8 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 
 		is_cmd_qp = (i == dev->cmd_qp_idx);
 		if (liquid_crypto_qp_has_inflight_req(qp, is_cmd_qp)) {
-			dao_err("Cannot stop device %u: queue pair %d has inflight requests.",
-				dev_id, i);
+			dao_err("Cannot stop device %u: queue pair %d has %d inflight requests.",
+				dev_id, i, dao_liquid_crypto_qp_inflight_req_count(dev_id, i));
 			return -EBUSY;
 		}
 	}
