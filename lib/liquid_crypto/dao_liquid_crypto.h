@@ -1056,6 +1056,22 @@ int dao_liquid_crypto_dev_destroy(uint8_t dev_id);
 int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_conf *conf);
 
 /**
+ * Count inflight requests on a liquid crypto queue pair.
+ *
+ * @param dev_id
+ * The device identifier. Value must be between 0 and
+ * ``dao_lc_info.nb_dev`` - 1.
+ * @param qp_id
+ * The queue pair identifier. Value must be between 0 and
+ * ``dao_lc_info.nb_qp[dev_id]`` - 1.
+ * @return
+ * - On success, the number of inflight requests is returned.
+ * - On failure, a negative value is returned indicating the cause
+ * - -EINVAL, indicating an invalid argument.
+ */
+int dao_liquid_crypto_qp_inflight_req_count(uint8_t dev_id, uint16_t qp_id);
+
+/**
  * Start a liquid crypto device.
  *
  * This function starts a liquid crypto device. The device must be created
