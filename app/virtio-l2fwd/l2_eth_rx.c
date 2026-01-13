@@ -31,7 +31,7 @@ l2_ethdev_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 	queue = ctx->next_q;
 	while (q_count && (nb_pkts < max_pkts)) {
 		if (!(rx_q_map & RTE_BIT64(queue))) {
-			queue = queue > max_q ? 0 : queue + 1;
+			queue = queue >= max_q ? 0 : queue + 1;
 			continue;
 		}
 
@@ -47,7 +47,7 @@ l2_ethdev_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		}
 
 		nb_pkts += count;
-		queue = queue > max_q ? 0 : queue + 1;
+		queue = queue >= max_q ? 0 : queue + 1;
 		q_count--;
 	}
 	ctx->next_q = queue;
