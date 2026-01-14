@@ -148,17 +148,17 @@ To set up the common environment on x86_64 host machine, follow these steps:
 Cloning and Building TVM Sources
 --------------------------------
 
-Clone TVM source code and checkout v0.19.0 release tag from TVM's official GitHub repository.
+Clone TVM source code and checkout master branch from Marvell's TVM repository.
 
 .. code-block:: bash
 
-    git clone https://github.com/apache/tvm.git
+    git clone https://github.com/MarvellEmbeddedProcessors/tvm.git
     cd tvm
-    git checkout legacy-v0.19.post
+    git checkout master
     git submodule update --init --recursive
 
 .. note::
-  Ensure that you are using tvm v0.19.0 using ``git describe --tags``.
+  Ensure that you are on the tvm master branch by running ``git branch --show-current`` and verify the output is ``master``.
 
 Configure and Build TVM:
 
