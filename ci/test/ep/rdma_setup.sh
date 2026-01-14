@@ -115,10 +115,6 @@ function verify_rdma_setup()
 	echo "Checking $sdp_vfs (Host) <-> $remote_iface (Remote)"
 	ping_status=$(ep_host_op ping $host_ip $remote_ip 2)
 
-	# Undo all the configurations
-	ep_host_op if_configure --pcie-addr $sdp_vfs --down
-	ep_remote_op if_configure --pcie-addr $remote_iface --down
-
 	# Check output of ping
 	if [[ "$ping_status" == "SUCCESS" ]]; then
 		echo "Setup verified"
@@ -136,8 +132,8 @@ function dao_rdma_setup()
 	ep_host_ssh_cmd "$EP_HOST_SUDO rsync -a $EP_DIR/rdma_prefix/* $EP_HOST_RDMA_PATH"
 
 	ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_REMOTE_RDMA_PATH"
-	ep_remote_ssh_cmd "$EP_HOST_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
-	ep_remote_ssh_cmd "$EP_HOST_SUDO rsync -a $EP_DIR/ep_files/rdma_remote/* $EP_REMOTE_RDMA_PATH"
+	ep_remote_ssh_cmd "$EP_REMOTE_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
+	ep_remote_ssh_cmd "$EP_REMOTE_SUDO rsync -a $EP_DIR/ep_files/rdma_remote/* $EP_REMOTE_RDMA_PATH"
 
 	if [[ -n $SKIP_SETUP ]]; then
 		echo "Skip EP device setup"

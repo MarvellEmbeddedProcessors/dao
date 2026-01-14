@@ -9,16 +9,9 @@ source $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh
 source $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh
 
 function rdma_tests_cleanup() {
-	local sdp_vfs
 
 	ep_host_op rdma_test_cleanup
 	ep_remote_op rdma_test_cleanup
-
-	sdp_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
-
-	# Undo all the configurations
-	ep_host_op if_configure --pcie-addr $sdp_vfs --down
-	ep_remote_op if_configure --pcie-addr $EP_REMOTE_IFACE --down
 
 	return 0
 }

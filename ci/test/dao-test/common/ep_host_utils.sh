@@ -95,10 +95,6 @@ function ep_host_rdma_cleanup()
 		rmmod octep_rdma
 	fi
 
-	if grep -q 'ib_uverbs' /proc/modules; then
-		rmmod ib_uverbs
-	fi
-
 	set -e
 }
 

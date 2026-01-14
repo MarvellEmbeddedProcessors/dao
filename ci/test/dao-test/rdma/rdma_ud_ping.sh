@@ -20,17 +20,10 @@ function rdma_ud_ping()
 	local host_ip="30.0.0.3"
 	local remote_env
 	local host_env
-	local sdp_vfs
 	local status
 
 	# Register signal handler
 	rdma_register_sig_handler
-
-	sdp_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
-	ep_host_op if_configure --pcie-addr $sdp_vfs --ip $host_ip
-
-	# Configure remote machine
-	ep_remote_op if_configure --pcie-addr $EP_REMOTE_IFACE --ip $remote_ip
 
 	host_rdma_dev=$(ep_host_op get_rdma_device "$EP_HOST_RDMA_PATH")
 	host_gid=$(ep_host_op get_v4_gid_index $host_rdma_dev "$EP_HOST_RDMA_PATH")

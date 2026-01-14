@@ -363,6 +363,8 @@ function ep_device_guest_rdma_setup()
 	local iface_name=
 
 	modprobe ib_uverbs
+	modprobe rdma_ucm
+	modprobe rdma_cm
 	# Setup RDMA device on guest
 	iface_name=$(ep_common_if_name_get $rdma_dev)
 	rdma link add rxe0 type rxe netdev $iface_name

@@ -6,6 +6,7 @@ tests = [
     # Name, Script, Args
     ['rdma_ud_ping', 'rdma_ud_ping.sh', ''],
     ['rdma_rc_ping', 'rdma_rc_ping.sh', ''],
+    ['rdma_cm_test', 'rdma_cm_test.sh', ''],
 ]
 
 test_dir = meson.current_build_dir()
