@@ -98,7 +98,8 @@ struct dao_pts_rdma_cqe {
 	uint32_t qp_id;
 	uint32_t reserved2;
 	/* WORD 4-7 */
-	uint64_t reserved3[4];
+	uint64_t ibqp;
+	uint64_t reserved3[3];
 } __attribute__((packed));
 
 /* Structure for PTS RDMA RQE DESCRIPTOR */

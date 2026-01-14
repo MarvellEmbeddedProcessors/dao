@@ -160,6 +160,7 @@ struct pts_rdma_qp {
 	uint16_t r_last_off;
 	uint16_t r_q_sz;
 	uint16_t qp_id;
+	uint64_t ibqp;
 };
 
 struct pts_rdma_dev {

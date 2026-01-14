@@ -69,6 +69,7 @@ dao_pts_rdma_enqueue_cqe(uint16_t devid, uint16_t qp_id, bool recv, struct dao_p
 	cq_data = recv ? &qp->rq.cq_data : &qp->sq.cq_data;
 	vchan = &vchan_info->mem2dev[cq_data->dma_vchan];
 
+	cqe->ibqp = qp->ibqp;
 	/* Poll for completions to make space since there are independent CQE's */
 	dao_dma_check_meta_compl_v2(vchan, 1 /* ATOMIC update */);
 
@@ -638,7 +639,7 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 
 static __rte_always_inline int
 process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint16_t ci,
-			  struct rte_mbuf *mbuf)
+			  struct rte_mbuf *mbuf, uint16_t qp_id, uint32_t *len)
 {
 	uint64_t slen, dst_ptr, dst_len;
 	uint32_t nb_enq_sges, dlen;
@@ -652,10 +653,24 @@ process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_ba
 		dst_ptr = *RQ_DESC_PTR_OFF(desc_base, ci, 16);
 		dst_len = *RQ_DESC_PTR_OFF(desc_base, ci, 24) & 0xFFFFFFFF;
 		dlen = slen > dst_len ? dst_len : slen;
-		dao_dma_enq_dst_x1(mem2dev, dst_ptr & PTS_RDMA_DEV_IOVA_MASK, dlen);
+
+		/* QP ID 1 corresponds to a QPT_GSI (General Service Interface) queue pair,
+		 * which is kernel-managed. The DMA addresses for kernel QPs are already
+		 * properly aligned within the 39-bit address boundary, so IOVA masking
+		 * is not required.
+		 *
+		 * TODO: Implement a mechanism to identify all kernel ULP (Upper Layer Protocol)
+		 * queue pairs and bypass IOVA masking for improved performance.
+		 */
+		if (unlikely(qp_id == 1))
+			dao_dma_enq_dst_x1(mem2dev, dst_ptr, dlen);
+		else
+			dao_dma_enq_dst_x1(mem2dev, dst_ptr & PTS_RDMA_DEV_IOVA_MASK, dlen);
+
 		dao_dma_enq_src_x1(mem2dev, (uintptr_t)rte_pktmbuf_mtod(mbuf, uint64_t *), dlen);
 		mbuf->next = NULL;
 		mbuf->nb_segs = 1;
+		*len = dlen;
 		return 0;
 	}
 	if (mbuf->nb_segs > nb_enq_sges)
@@ -673,6 +688,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	struct pts_rdma_cq_data *cq_data;
 	struct dao_pts_rdma_cqe *cqe;
 	uint16_t ci, pi, q_sz;
+	uint32_t len = 0;
 
 	cq_data = &qp->rq.cq_data;
 	ci = rq->sd_mbuf_off;
@@ -687,7 +703,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci)))
 		return -1;
 
-	if (unlikely(process_and_enq_mbuf_desc(mem2dev, desc_base, ci, mbuf)))
+	if (unlikely(process_and_enq_mbuf_desc(mem2dev, desc_base, ci, mbuf, qp->qp_id, &len)))
 		return -1;
 
 #ifdef RTE_LIBRTE_MEMPOOL_DEBUG
@@ -696,13 +712,17 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	 */
 	RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
 #endif
-	ci = (ci + 1) & (q_sz - 1);
 	/* Get CQE and update wr_id */
 	cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
 	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);
+	if (unlikely(qp->qp_id == 1))
+		cqe->opcode = *RQ_DESC_PTR_OFF(desc_base, ci, 4);
+	cqe->byte_len = len;
+	cqe->ibqp = qp->ibqp;
 
 	/* Push CQE at last */
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
+	ci = (ci + 1) & (q_sz - 1);
 	rq->sd_mbuf_off = ci;
 
 	return 0;

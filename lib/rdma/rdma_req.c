@@ -175,7 +175,10 @@ rdma_proto_hdr_insert(struct rte_mbuf *pkt, struct rdma_pkt_info *pinfo, uint32_
 	}
 
 	if (pinfo->mask & RDMA_DETH_MASK) {
-		deth_set_qkey(pinfo, wr->ud.qkey);
+		if (qp->type == RDMA_QPT_GSI)
+			deth_set_qkey(pinfo, GSI_QKEY);
+		else
+			deth_set_qkey(pinfo, wr->ud.qkey);
 		deth_set_sqp(pinfo, qp->qid);
 	}
 
@@ -186,7 +189,7 @@ rdma_proto_hdr_insert(struct rte_mbuf *pkt, struct rdma_pkt_info *pinfo, uint32_
 	}
 
 	if (pinfo->mask & RDMA_IMMDT_MASK)
-		immdt_set_imm(pinfo, rte_cpu_to_be_32(wr->imm_data));
+		immdt_set_imm(pinfo, wr->imm_data);
 
 	return 0;
 }

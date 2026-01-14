@@ -59,6 +59,7 @@ rdma_pkt_extract(struct rte_mbuf *mbuf, struct pkt_info *pinfo, uint16_t rx_queu
 	case RDMA_OPCODE_RC_SEND_ONLY_WITH_IMMEDIATE:
 	case RDMA_OPCODE_RC_RDMA_WRITE_LAST_WITH_IMMEDIATE:
 	case RDMA_OPCODE_RC_RDMA_WRITE_ONLY_WITH_IMMEDIATE:
+	case RDMA_OPCODE_UD_SEND_ONLY_WITH_IMMEDIATE:
 		pinfo->rinfo.imm_data =
 			*((uint32_t *)(pinfo->rinfo.hdr +
 				       rdma_opcode[pinfo->rinfo.opcode].offset[RDMA_IMMDT]));

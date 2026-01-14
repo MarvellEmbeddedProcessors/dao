@@ -285,6 +285,9 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 		goto rq_free;
 	}
 
+	/* Require for ULP's */
+	qp->ibqp = req->ibqp;
+
 	dao_dev->qps[qp_id] = qp;
 
 	dao_dbg("[dev %u] Adding qp%d: sq_desc_base %p sq_sz %u rq_desc_base %p rq_sz %u",

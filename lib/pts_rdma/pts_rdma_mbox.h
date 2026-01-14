@@ -32,6 +32,7 @@ struct pts_rdma_dev_set_qp_config_req {
 	uint16_t recv_cq_id;
 	uint64_t sq_base;
 	uint64_t rq_base;
+	uint64_t ibqp;
 };
 
 /* MBOX_MSG_SET_QP_STATE */

@@ -700,6 +700,23 @@ execute(struct rdma_qp *qp, struct pkt_info *pinfo)
 	struct rdma_pkt_info *rinfo = &pinfo->rinfo;
 
 	if (rinfo->mask & RDMA_SEND_MASK) {
+		/* For UD and GSI queue pairs, preserve the network header for user-space
+		 * processing. UD packets require the Global Routing Header (GRH) to be
+		 * passed to the application as part of the receive completion, so we
+		 * prepend it to the mbuf data.
+		 */
+		if (qp->type == RDMA_QPT_GSI || qp->type == RDMA_QPT_UD) {
+			struct rdma_network_hdr *nhdr =
+				(struct rdma_network_hdr *)rte_pktmbuf_prepend(
+					pinfo->mbuf, sizeof(struct rdma_network_hdr));
+			if (nhdr == NULL)
+				return RDMA_RESPST_CLEANUP;
+
+			/* Copy the IPv4/IPv6 header as RoCE GRH and clear reserved field */
+			memmove(&nhdr->roce4grh, pinfo->iph, sizeof(nhdr->roce4grh));
+			memset(&nhdr->reserved, 0, sizeof(nhdr->reserved));
+		}
+
 		if (!(rinfo->mask & RDMA_END_MASK))
 			rdma_save_mbuf(qp, pinfo);
 		else

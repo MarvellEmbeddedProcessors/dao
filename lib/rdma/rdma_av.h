@@ -45,6 +45,14 @@ typedef struct rdma_av {
 	} sgid_addr, dgid_addr;
 } rdma_av_t;
 
+struct rdma_network_hdr {
+	/* The IB spec states that if it's IPv4, the header
+	 * is located in the last 20 bytes of the header.
+	 */
+	uint8_t reserved[20];
+	struct rte_ipv4_hdr roce4grh;
+};
+
 const struct rdma_av *rdma_av_get(uint8_t port_num, uint16_t index);
 int rdma_av_insert(void *av_data);
 int rdma_av_remove(void *av_data);
