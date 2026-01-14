@@ -198,8 +198,25 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	dao_card_err_ctx_set(err_msg, sizeof(err_msg));
 
 	if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INIT) == 0) {
-		const char **new_argv = malloc((cmd->argc + 4) * sizeof(char *));
 		unsigned long nb_desc = 0;
+		const char **new_argv;
+
+		/* Skip card_init if boot source is SPI */
+		rc = dao_card_info_get(card_ctx, &card_info);
+		if (rc != 0) {
+			snprintf(err_msg, sizeof(err_msg),
+				 "Failed to get card info prior to init (error: %d)", rc);
+			goto send_resp;
+		}
+
+		if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_SPI) {
+			snprintf(err_msg, sizeof(err_msg),
+				 "card_init command not supported from SPI boot source");
+			rc = -ENOTSUP;
+			goto send_resp;
+		}
+
+		new_argv = malloc((cmd->argc + 4) * sizeof(char *));
 
 		if (new_argv == NULL) {
 			rc = -ENOMEM;
@@ -399,7 +416,7 @@ dao_card_mgr_server_init(const char *ip_str)
 	int srv_fd;
 
 	srv_fd = socket(AF_INET, SOCK_STREAM, 0);
-	if (srv_fd == 0) {
+	if (srv_fd < 0) {
 		DAO_CARD_ERR("Could not create server socket");
 		return -1;
 	}
