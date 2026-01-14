@@ -24,30 +24,35 @@ struct octep_rdma_uqp {
 	u32 rq_offset;
 };
 
+struct octep_rdma_queue {
+	/* Hot path data - first cache line (64 bytes) */
+	void *qbuf;       /* Queue buffer - frequently accessed */
+	void __iomem *db; /* Doorbell register - hot path */
+	atomic_t *pi_dbl; /* Producer index - hot path */
+	atomic_t *ci_dbl; /* Consumer index - hot path */
+
+	u16 pi;     /* Producer index - hot path */
+	u16 depth;  /* Queue depth - hot path */
+	u16 qmask;  /* Queue mask - hot path */
+	u8 sig_all; /* Signal all flag - moderate usage */
+	u8 pad1;    /* Padding for alignment */
+
+	/* Cold path data - second cache line */
+	dma_addr_t qbuf_dma_addr; /* DMA address - setup only */
+	u32 size;                 /* Buffer size - setup only */
+	u32 pad2;                 /* Padding for alignment */
+} ____cacheline_aligned;
+
 struct octep_rdma_kqp {
-	u16 sq_pi;
-	u16 sq_ci;
+	/* Queue structures - cache-line aligned for performance */
+	struct octep_rdma_queue sq ____cacheline_aligned;
+	struct octep_rdma_queue rq ____cacheline_aligned;
 
-	u16 rq_pi;
-	u16 rq_ci;
-
-	u64 *swr_tbl;
-	u64 *rwr_tbl;
-
-	void __iomem *hw_sq_db;
-	void __iomem *hw_rq_db;
-
-	void *sq_buf;
-	dma_addr_t sq_buf_dma_addr;
-
-	void *rq_buf;
-	dma_addr_t rq_buf_dma_addr;
-
-	void *sq_db_info;
-	void *rq_db_info;
-
-	u8 sig_all;
-};
+	/* Setup-time configuration - cold data */
+	u64 db_region;             /* Doorbell region base */
+	u32 notify_off_multiplier; /* Notification offset multiplier */
+	u32 pad;                   /* Padding for alignment */
+} ____cacheline_aligned;
 
 enum octep_rdma_qp_state {
 	OCTEP_RDMA_QP_STATE_RESET = 0,
@@ -123,6 +128,7 @@ struct octep_rdma_qp_attrs {
 	u8 pd_len;
 	u8 sq_sig_type;
 	u32 dest_qpn;
+	u32 qkey;
 	int mtu;
 	struct octep_rdma_av cur_av;
 	struct octep_rdma_qp_mod_attrs *qp_mod_attr;
@@ -205,7 +211,8 @@ int octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_at
 				       struct octep_rdma_qp_mod_attrs *qp_mod_attr);
 int octep_rdma_modify_qp_validate(struct octep_rdma_qp *qp, struct ib_qp_attr *qp_attr,
 				  int qp_attr_mask);
-int octep_rdma_prepare_qp_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp, u32 pdn);
+int octep_rdma_prepare_qp_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp, u32 pdn,
+			      bool is_user);
 int octep_rdma_prepare_qp_state_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 				    bool enable);
 int octep_rdma_prepare_user_qp_modify_cmd(struct octep_rdma_dev *rdma_dev,
@@ -214,10 +221,10 @@ int octep_rdma_prepare_user_qp_destroy_cmd(struct octep_rdma_dev *rdma_dev,
 					   struct octep_rdma_qp *qp);
 int init_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 		   struct ib_qp_init_attr *attrs);
+void free_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp);
 int init_user_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp, struct ib_udata *udata);
 int user_define_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 		   struct ib_udata *udata);
-void free_kernel_qp(struct octep_rdma_qp *qp);
 int octep_rdma_qp_validate_attr(struct octep_rdma_dev *dev, struct ib_qp_init_attr *attrs);
 int octep_rdma_qp_validate_cap(struct octep_rdma_dev *rdma_dev, struct ib_qp_init_attr *attrs);
 void octep_rdma_qp_get(struct octep_rdma_qp *qp);

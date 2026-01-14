@@ -158,7 +158,7 @@ octep_rdma_prepare_ah_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah 
 	struct octep_rdma_ah_create_req *req;
 	int ret = -EINVAL;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc(sizeof(*req), GFP_ATOMIC);
 	if (!req)
 		return -ENOMEM;
 
@@ -202,7 +202,7 @@ octep_rdma_prepare_ah_destroy_cmd(struct octep_rdma_dev *rdma_dev, struct octep_
 	struct octep_rdma_ah_destroy_req *req;
 	int ret;
 
-	req = kzalloc(sizeof(*req), GFP_KERNEL);
+	req = kzalloc(sizeof(*req), GFP_ATOMIC);
 	if (!req)
 		return -ENOMEM;
 

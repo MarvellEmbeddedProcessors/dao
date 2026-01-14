@@ -2,6 +2,7 @@
  * Copyright (c) 2024 Marvell.
  */
 #include <linux/dma-mapping.h>
+#include <linux/iommu.h>
 #include <rdma/uverbs_ioctl.h>
 
 #include "octep_verbs.h"
@@ -46,10 +47,16 @@ octep_rdma_qp_validate_cap(struct octep_rdma_dev *rdma_dev, struct ib_qp_init_at
 int
 octep_rdma_qp_validate_attr(struct octep_rdma_dev *rdma_dev, struct ib_qp_init_attr *attrs)
 {
-	if (attrs->qp_type != IB_QPT_RC && attrs->qp_type != IB_QPT_UD) {
-		ibdev_err(&rdma_dev->ibdev,
-			  "QP type %d [IB_QPT_RC %d IB_QPT_UD %d] not supported\n", attrs->qp_type,
-			  IB_QPT_RC, IB_QPT_UD);
+	struct octep_rdma_port *port;
+	int port_num = attrs->port_num;
+
+	switch (attrs->qp_type) {
+	case IB_QPT_GSI:
+	case IB_QPT_RC:
+	case IB_QPT_UD:
+		break;
+	default:
+		ibdev_err(&rdma_dev->ibdev, "QP type %d not supported\n", attrs->qp_type);
 		return -EOPNOTSUPP;
 	}
 
@@ -63,26 +70,22 @@ octep_rdma_qp_validate_attr(struct octep_rdma_dev *rdma_dev, struct ib_qp_init_a
 		return -EOPNOTSUPP;
 	}
 
+	if (attrs->qp_type == IB_QPT_GSI) {
+		if (!rdma_is_port_valid(&rdma_dev->ibdev, port_num)) {
+			ibdev_err(&rdma_dev->ibdev, "invalid port = %d\n", port_num);
+			goto err1;
+		}
+
+		port = &rdma_dev->port;
+		if (attrs->qp_type == IB_QPT_GSI && port->qp_gsi_index) {
+			ibdev_err(&rdma_dev->ibdev, "GSI QP exists for port %d\n", port_num);
+			goto err1;
+		}
+	}
+
 	return 0;
-}
-
-void
-free_kernel_qp(struct octep_rdma_qp *qp)
-{
-	struct octep_rdma_dev *rdma_dev = qp->rdma_dev;
-
-	vfree(qp->kern_qp.swr_tbl);
-	vfree(qp->kern_qp.rwr_tbl);
-
-	if (qp->kern_qp.sq_buf)
-		dma_free_coherent(&rdma_dev->pdev->dev,
-				  WARPPED_BUFSIZE(qp->attrs.sq_size << SQEBB_SHIFT),
-				  qp->kern_qp.sq_buf, qp->kern_qp.sq_buf_dma_addr);
-
-	if (qp->kern_qp.rq_buf)
-		dma_free_coherent(&rdma_dev->pdev->dev,
-				  WARPPED_BUFSIZE(qp->attrs.rq_size << RQE_SHIFT),
-				  qp->kern_qp.rq_buf, qp->kern_qp.rq_buf_dma_addr);
+err1:
+	return -EINVAL;
 }
 
 static void *
@@ -273,45 +276,94 @@ init_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 	       struct ib_qp_init_attr *attrs)
 {
 	struct octep_rdma_kqp *kqp = &qp->kern_qp;
+	struct octep_rdma_queue *sq = &kqp->sq;
+	struct octep_rdma_queue *rq = &kqp->rq;
+	void __iomem *db_base;
 	int size;
 
+	qp->attrs.sq_size = roundup_pow_of_two(attrs->cap.max_send_wr + 1);
+	size = PAGE_ALIGN(qp->attrs.sq_size * sizeof(union octep_rdma_sqe));
+	sq->qbuf = dma_alloc_coherent(&rdma_dev->pdev->dev, size, &sq->qbuf_dma_addr, GFP_KERNEL);
+	if (!sq->qbuf)
+		goto err_out;
+
+	sq->pi = 0;
+	sq->depth = qp->attrs.sq_size;
+	sq->qmask = sq->depth - 1;
+	sq->size = size;
 	if (attrs->sq_sig_type == IB_SIGNAL_ALL_WR)
-		kqp->sig_all = 1;
+		sq->sig_all = 1;
 
-	kqp->sq_pi = 0;
-	kqp->sq_ci = 0;
-	kqp->rq_pi = 0;
-	kqp->rq_ci = 0;
+	qp->attrs.rq_size = roundup_pow_of_two(attrs->cap.max_recv_wr + 1);
+	size = PAGE_ALIGN(qp->attrs.rq_size * sizeof(union octep_rdma_rqe));
+	rq->qbuf = dma_alloc_coherent(&rdma_dev->pdev->dev, size, &rq->qbuf_dma_addr, GFP_KERNEL);
+	if (!rq->qbuf)
+		goto err_free_sq;
 
-	kqp->swr_tbl = vmalloc(qp->attrs.sq_size * sizeof(u64));
-	kqp->rwr_tbl = vmalloc(qp->attrs.rq_size * sizeof(u64));
-	if (!kqp->swr_tbl || !kqp->rwr_tbl)
-		goto err_out;
+	rq->pi = 0;
+	rq->depth = qp->attrs.rq_size;
+	rq->qmask = rq->depth - 1;
+	rq->size = size;
 
-	size = (qp->attrs.sq_size << SQEBB_SHIFT) + OCTEP_RDMA_EXTRA_BUFFER_SIZE;
-	kqp->sq_buf =
-		dma_alloc_coherent(&rdma_dev->pdev->dev, size, &kqp->sq_buf_dma_addr, GFP_KERNEL);
-	if (!kqp->sq_buf)
-		goto err_out;
+	kqp->db_region = rdma_dev->caps_rgn->notify_base_pa;
+	kqp->notify_off_multiplier = rdma_dev->caps_rgn->notify_off_multiplier;
 
-	size = (qp->attrs.rq_size << RQE_SHIFT) + OCTEP_RDMA_EXTRA_BUFFER_SIZE;
-	kqp->rq_buf =
-		dma_alloc_coherent(&rdma_dev->pdev->dev, size, &kqp->rq_buf_dma_addr, GFP_KERNEL);
-	if (!kqp->rq_buf)
-		goto err_out;
+	db_base = ioremap(kqp->db_region, rdma_dev->caps_rgn->notify_sz);
+	if (!db_base)
+		goto err_unmap_iommu;
 
-	kqp->sq_db_info = kqp->sq_buf + (qp->attrs.sq_size << SQEBB_SHIFT);
-	kqp->rq_db_info = kqp->rq_buf + (qp->attrs.rq_size << RQE_SHIFT);
+	sq->db = db_base + ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier);
+	sq->pi_dbl = (atomic_t __iomem *)(sq->db);
+	sq->ci_dbl = sq->pi_dbl + 2;
+
+	rq->db = db_base + (((qp->ibqp.qp_num * 3) + 1) * kqp->notify_off_multiplier);
+	rq->pi_dbl = (atomic_t __iomem *)(rq->db);
+	rq->ci_dbl = rq->pi_dbl + 2;
 
 	return 0;
 
+err_unmap_iommu:
+	dma_free_coherent(&rdma_dev->pdev->dev, rq->size, rq->qbuf, rq->qbuf_dma_addr);
+err_free_sq:
+	dma_free_coherent(&rdma_dev->pdev->dev, sq->size, sq->qbuf, sq->qbuf_dma_addr);
 err_out:
-	free_kernel_qp(qp);
 	return -ENOMEM;
 }
 
+void
+free_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp)
+{
+	struct octep_rdma_kqp *kqp = &qp->kern_qp;
+	struct octep_rdma_queue *sq = &kqp->sq;
+	struct octep_rdma_queue *rq = &kqp->rq;
+
+	/* Free SQ buffer */
+	if (sq->qbuf)
+		dma_free_coherent(&rdma_dev->pdev->dev, sq->size, sq->qbuf, sq->qbuf_dma_addr);
+
+	sq->qbuf = NULL;
+	sq->db = NULL;
+	sq->pi_dbl = NULL;
+	sq->ci_dbl = NULL;
+
+	/* Free RQ buffer */
+	if (rq->qbuf)
+		dma_free_coherent(&rdma_dev->pdev->dev, rq->size, rq->qbuf, rq->qbuf_dma_addr);
+
+	rq->qbuf = NULL;
+	rq->db = NULL;
+	rq->pi_dbl = NULL;
+	rq->ci_dbl = NULL;
+
+	/* Unmap doorbell region if mapped */
+	if (sq->db)
+		iounmap((void __iomem *)((uintptr_t)sq->db -
+					 ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier)));
+}
+
 int
-octep_rdma_prepare_qp_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp, u32 pdn)
+octep_rdma_prepare_qp_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp, u32 pdn,
+			  bool is_user)
 {
 	struct octep_rdma_qp_create_req *qp_req;
 	int ret = 0;
@@ -327,10 +379,22 @@ octep_rdma_prepare_qp_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp 
 	qp_req->rq_size = qp->attrs.rq_size;
 	qp_req->send_cq_id = qp->scq->cqn;
 	qp_req->recv_cq_id = qp->rcq->cqn;
-	qp_req->sq_base = qp->user_qp.sq_mtt.iova[0];
-	qp_req->rq_base = qp->user_qp.rq_mtt.iova[0];
+	if (is_user) {
+		qp_req->sq_base = qp->user_qp.sq_mtt.iova[0];
+		qp_req->rq_base = qp->user_qp.rq_mtt.iova[0];
+	} else {
+		qp_req->sq_base = (u64)qp->kern_qp.sq.qbuf_dma_addr;
+		qp_req->rq_base = (u64)qp->kern_qp.rq.qbuf_dma_addr;
+	}
+
 	qp_req->type = qp->attrs.qp_type;
 	qp_req->sq_sig_type = qp->attrs.sq_sig_type;
+	qp_req->ibqp = (u64)&qp->ibqp;
+
+	ibdev_info(qp->ibqp.device,
+		   "Adding qp[%d]: sq_desc_base 0x%llx sq_sz %u rq_desc_base 0x%llx rq_sz %u",
+		   qp_req->qp_id, qp_req->sq_base, qp_req->sq_size, qp_req->rq_base,
+		   qp_req->rq_size);
 
 	ret = octep_rdma_mbox_qp_create(rdma_dev->caps_rgn, qp_req);
 	if (ret)
@@ -656,6 +720,7 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 	if (qp_attr_mask & IB_QP_QKEY) {
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask, OCTEP_RDMA_QP_MOD_QKEY, 1);
 		qp_mod_attr->qkey = qp_attr->qkey;
+		qp->attrs.qkey = qp_attr->qkey;
 	}
 
 	if (qp_attr_mask & IB_QP_SQ_PSN) {
@@ -764,7 +829,7 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 	}
 
 	/* Note: Not in spec, but need source port in octeon FW. */
-	if (qp->ibqp.qp_type == IB_QPT_UD) {
+	if (qp->ibqp.qp_type == IB_QPT_UD || qp->ibqp.qp_type == IB_QPT_GSI) {
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask, OCTEP_RDMA_QP_MOD_SRC_PORT, 1);
 		/* In case of UD, destination QP will be part of send WR. Hence taking a constant
 		 * value here to get a unique UDP source port number.

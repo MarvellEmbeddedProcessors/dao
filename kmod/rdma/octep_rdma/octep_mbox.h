@@ -79,6 +79,7 @@ struct octep_rdma_qp_create_req {
 	u16 recv_cq_id;
 	u64 sq_base;
 	u64 rq_base;
+	u64 ibqp;
 	/* User defined fields */
 	u8 type;
 	u8 sq_sig_type;

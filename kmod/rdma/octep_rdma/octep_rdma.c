@@ -189,6 +189,15 @@ octep_rdma_port_attr_init(struct octep_rdma_dev *octep_rdma)
 	port->attr.lmc = msg->port_attr.lmc;
 	port->attr.max_vl_num = msg->port_attr.max_vl_num;
 	port->attr.sm_sl = msg->port_attr.sm_sl;
+	/* Ensure port is immediately set to active state for early userspace access */
+	if (port->attr.state != IB_PORT_ACTIVE) {
+		dev_info(&octep_rdma->pdev->dev,
+			 "Setting port %d to active state during initialization\n", port->port_num);
+		port->attr.state = IB_PORT_ACTIVE;
+		port->attr.phys_state = IB_PORT_PHYS_STATE_LINK_UP;
+	}
+
+	kfree(msg);
 	port->attr.subnet_timeout = msg->port_attr.subnet_timeout;
 	port->attr.init_type_reply = msg->port_attr.init_type_reply;
 	port->attr.active_width = msg->port_attr.active_width;
@@ -243,9 +252,24 @@ octep_rdma_attrs_init(struct octep_rdma_dev *rdma_dev)
 static void
 octep_rdma_ib_device_remove(struct octep_rdma_dev *rdma_dev)
 {
+	/*
+	 * Unregister netdevice notifier first to prevent any new events
+	 * during cleanup
+	 */
 	unregister_netdevice_notifier(&rdma_dev->netdev_nb);
-	xa_destroy(&rdma_dev->mem_xa);
+
+	/*
+	 * Unregister IB device - this will trigger cleanup of all client
+	 * resources (QPs, CQs, PDs, etc.) through the normal IB cleanup path.
+	 * This must be done while the device is still functional for
+	 * mailbox communication to work.
+	 */
 	ib_unregister_device(&rdma_dev->ibdev);
+
+	/* Clean up memory translation arrays */
+	xa_destroy(&rdma_dev->mem_xa);
+
+	/* Free resource control blocks */
 	octep_rdma_res_cb_free(rdma_dev);
 }
 
@@ -288,6 +312,17 @@ octep_rdma_netdev_event(struct notifier_block *nb, unsigned long event, void *ar
 
 	if (!rdma_dev->netdev || rdma_dev->netdev != netdev)
 		goto done;
+
+	/* Check if device is being unloaded or not properly initialized */
+	int status = atomic_read(&rdma_dev->status);
+
+	if (status < OCTEP_RDMA_DEV_STATUS_INIT || status == OCTEP_RDMA_DEV_STATUS_UNINIT) {
+		dev_dbg(&rdma_dev->pdev->dev,
+			"octep_rdma_netdev_event: Device not ready "
+			"(status=%d), skipping event %lu\n",
+			status, event);
+		goto done;
+	}
 
 	if (!rdma_dev->caps_rgn) {
 		dev_err(&rdma_dev->pdev->dev, "caps_rgn is NULL\n");
@@ -347,7 +382,6 @@ octep_rdma_netdev_event(struct notifier_block *nb, unsigned long event, void *ar
 	}
 
 	kfree(req);
-
 done:
 	return NOTIFY_OK;
 }
@@ -403,6 +437,29 @@ octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev)
 	if (ret)
 		return ret;
 
+	/* Send device up notification immediately after port attributes are initialized */
+	struct octep_rdma_port_state_req *dev_up_req = kzalloc(sizeof(*dev_up_req), GFP_KERNEL);
+
+	if (dev_up_req) {
+		dev_up_req->port_num = rdma_dev->port.port_num;
+		dev_up_req->event = OCTEP_RDMA_USER_PORT_LINK_STATE;
+		dev_up_req->evt_data.link_state = IB_PORT_ACTIVE;
+
+		dev_info(&rdma_dev->pdev->dev, "Sending early device up notification for port %d\n",
+			 rdma_dev->port.port_num);
+
+		ret = octep_rdma_mbox_user_port_state(rdma_dev->caps_rgn, dev_up_req);
+		if (ret) {
+			dev_warn(&rdma_dev->pdev->dev,
+				 "Failed to send early device up notification: %d\n", ret);
+		} else {
+			dev_info(&rdma_dev->pdev->dev,
+				 "Early device up notification sent successfully for port %d\n",
+				 rdma_dev->port.port_num);
+		}
+		kfree(dev_up_req);
+	}
+
 	memcpy(ibdev->node_desc, OCTEP_RDMA_NODE_DESC, sizeof(OCTEP_RDMA_NODE_DESC));
 
 	ibdev->phys_port_cnt = 1;
@@ -441,19 +498,37 @@ octep_rdma_dev_release(struct octep_rdma_dev *rdma_dev)
 		return;
 
 	dev_info(&rdma_dev->pdev->dev, "Removing RDMA device.\n");
+
 	status = atomic_read(&rdma_dev->status);
 	if (status <= OCTEP_RDMA_DEV_STATUS_ALLOC) {
 		dev_err(&rdma_dev->pdev->dev, "Device not initialized.\n");
 		return;
 	}
 
+	/* Mark device as being uninitialized to prevent new operations */
 	atomic_set(&rdma_dev->status, OCTEP_RDMA_DEV_STATUS_UNINIT);
-	if (status == OCTEP_RDMA_DEV_STATUS_IBDEV_READY)
+
+	/*
+	 * Critical: Unregister IB device FIRST while communication is still working.
+	 * This will trigger cleanup of all RDMA resources (QPs, CQs, PDs, etc.)
+	 * through the normal IB stack cleanup path.
+	 */
+	if (status == OCTEP_RDMA_DEV_STATUS_IBDEV_READY) {
+		dev_info(&rdma_dev->pdev->dev, "Unregistering IB device...\n");
 		octep_rdma_ib_device_remove(rdma_dev);
+	}
+
+	/*
+	 * After IB resources are cleaned up, we can safely stop the
+	 * underlying device and network interface
+	 */
 	if (status >= OCTEP_RDMA_DEV_STATUS_NETDEV_REG) {
+		dev_info(&rdma_dev->pdev->dev, "Stopping underlying device...\n");
 		unregister_netdev(rdma_dev->octep_dev->netdev);
 		octep_device_cleanup(rdma_dev->octep_dev);
 	}
+
+	/* Finally deallocate the IB device structure */
 	ib_dealloc_device(&rdma_dev->ibdev);
 }
 
@@ -806,6 +881,8 @@ octep_rdma_remove(struct pci_dev *pdev)
 		octep_rdma_remove_vf(pdev);
 	else
 		octep_rdma_remove_pf(pdev);
+
+	octep_rdma_kern_cq_poll_thread_cleanup();
 }
 
 static void
@@ -995,10 +1072,19 @@ unmap_region:
 static int
 octep_rdma_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
+	int ret;
+
 	if (pdev->is_virtfn)
-		return octep_rdma_probe_vf(pdev);
+		ret = octep_rdma_probe_vf(pdev);
 	else
-		return octep_rdma_probe_pf(pdev);
+		ret = octep_rdma_probe_pf(pdev);
+
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to probe rdma device\n");
+		return ret;
+	}
+
+	return ret;
 }
 
 static struct pci_device_id octep_pci_rdma_map[] = {
@@ -1017,6 +1103,22 @@ static struct pci_driver octep_pci_rdma = {.name = OCTEP_RDMA_DRV_NAME,
 					   .remove = octep_rdma_remove,
 					   .sriov_configure = octep_rdma_sriov_configure};
 
-module_pci_driver(octep_pci_rdma);
+static int __init
+octep_rdma_init(void)
+{
+	return pci_register_driver(&octep_pci_rdma);
+}
+
+static void __exit
+octep_rdma_exit(void)
+{
+	pci_unregister_driver(&octep_pci_rdma);
+
+	/* Ensure the kernel thread is completely stopped */
+	octep_rdma_kern_cq_poll_thread_force_cleanup();
+}
+
+module_init(octep_rdma_init);
+module_exit(octep_rdma_exit);
 MODULE_DESCRIPTION(OCTEP_DRV_STRING);
 MODULE_LICENSE("GPL");

@@ -7,6 +7,17 @@
 #include "octep_sdp.h"
 #include "octep_verbs.h"
 
+/* Helper function to check if device is ready for mailbox communication */
+static inline bool
+octep_rdma_device_ready(struct octep_rdma_dev *rdma_dev)
+{
+	int status = atomic_read(&rdma_dev->status);
+
+	return ((status >= OCTEP_RDMA_DEV_STATUS_INIT &&
+		 status <= OCTEP_RDMA_DEV_STATUS_IBDEV_READY) ||
+		status == OCTEP_RDMA_DEV_STATUS_UNINIT);
+}
+
 static int
 octep_rdma_alloc_idx(struct octep_rdma_resource_cb *res_cb)
 {
@@ -266,17 +277,30 @@ octep_rdma_dealloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 {
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibpd->device);
 	struct octep_rdma_pd *pd = to_octep_rdma_pd(ibpd);
+	bool device_active;
 	int ret;
 
-	ret = octep_rdma_prepare_pd_del_cmd(rdma_dev, pd->pdn);
-	if (ret) {
-		ibdev_err(ibpd->device, "octep_rdma_prepare_pd_del_cmd failed\n");
-		return ret;
+	/* Check if device is still active for communication */
+	device_active = octep_rdma_device_ready(rdma_dev);
+
+	/* Try to delete on device side, but continue cleanup even if it fails */
+	if (device_active) {
+		ret = octep_rdma_prepare_pd_del_cmd(rdma_dev, pd->pdn);
+		if (ret) {
+			ibdev_warn(
+				ibpd->device,
+				"PD delete command failed: ret %d (continuing with local cleanup)\n",
+				ret);
+		}
+	} else {
+		ibdev_info(ibpd->device, "Device inactive, skipping remote PD cleanup\n");
 	}
 
+	/* Always continue with local cleanup */
 	ibdev_info(ibpd->device, "Deallocating PD %d\n", pd->pdn);
 	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_PD], pd->pdn);
 
+	/* Always return success for cleanup operations to avoid resource leaks */
 	return 0;
 }
 
@@ -322,6 +346,7 @@ octep_rdma_query_device(struct ib_device *ibdev, struct ib_device_attr *attr,
 	attr->vendor_id = PCI_VENDOR_ID_CAVIUM;
 	attr->vendor_part_id = rdma_dev->pdev->device;
 	attr->hw_ver = rdma_dev->pdev->revision;
+	attr->kernel_cap_flags = IBK_LOCAL_DMA_LKEY;
 
 	return 0;
 
@@ -392,7 +417,9 @@ octep_rdma_get_port_immutable(struct ib_device *ibdev, u32 port_num,
 
 	immutable->pkey_tbl_len = attr.pkey_tbl_len;
 	immutable->gid_tbl_len = attr.gid_tbl_len;
-	immutable->core_cap_flags = RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP;
+	immutable->core_cap_flags = RDMA_CORE_CAP_PROT_ROCE_UDP_ENCAP | RDMA_CORE_CAP_IB_MAD |
+				    RDMA_CORE_CAP_IB_CM | RDMA_CORE_CAP_ETH_AH;
+	immutable->max_mad_size = IB_MGMT_MAD_SIZE;
 
 	return 0;
 err_out:
@@ -417,8 +444,27 @@ octep_rdma_query_pkey(struct ib_device *ibdev, u32 port, u16 index, u16 *pkey)
 struct ib_mr *
 octep_rdma_get_dma_mr(struct ib_pd *ibpd, int access)
 {
-	/* FIXME: TBD */
-	return NULL;
+	struct octep_rdma_pd *pd = to_octep_rdma_pd(ibpd);
+	struct octep_rdma_mr *mr;
+	int mrn;
+
+	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
+	if (!mr)
+		return ERR_PTR(-ENOMEM);
+
+	mrn = octep_rdma_alloc_idx(&pd->mr_res_cb);
+	if (mrn < 0)
+		return ERR_PTR(mrn);
+
+	mr->mrn = (u32)mrn;
+	mr->ibmr.pd = ibpd;
+	mr->ibmr.device = ibpd->device;
+
+	octep_rdma_mr_init(access, mr, mr->mrn);
+	mr->state = OCTEP_RDMA_MR_STATE_VALID;
+	mr->ibmr.type = IB_MR_TYPE_DMA;
+
+	return &mr->ibmr;
 }
 
 struct ib_mr *
@@ -476,32 +522,45 @@ octep_rdma_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibmr->device);
 	struct octep_rdma_mr *mr = to_octep_rdma_mr(ibmr);
 	struct octep_rdma_pd *pd = to_octep_rdma_pd(mr->ibmr.pd);
+	bool device_active;
 	int ret = 0;
 
-	ret = octep_rdma_prepare_mr_deregister_cmd(rdma_dev, mr, pd->pdn);
-	if (ret) {
-		ibdev_err(ibmr->device, "octep_rdma_prepare_mr_deregister_cmd failed\n");
-		return ret;
+	/* Check if device is still active for communication */
+	device_active = octep_rdma_device_ready(rdma_dev);
+
+	/* Try to deregister on device side, but continue cleanup even if it fails */
+	if (device_active) {
+		ret = octep_rdma_prepare_mr_deregister_cmd(rdma_dev, mr, pd->pdn);
+		if (ret)
+			ibdev_warn(
+				ibmr->device,
+				"MR deregister command failed: ret %d (continuing with local cleanup)\n",
+				ret);
+	} else {
+		ibdev_info(ibmr->device, "Device inactive, skipping remote MR cleanup\n");
 	}
 
+	/* Always continue with local cleanup */
 	if (!rdma_is_kernel_res(&ibmr->res))
 		release_mem_trans_tbl(rdma_dev, &mr->mrbuf_mtt);
 
 	if (atomic_read(&mr->num_mw) > 0) {
-		ibdev_err(ibmr->device, "mr has mw's bound");
-		ret = -EINVAL;
+		ibdev_warn(ibmr->device, "MR has MWs bound during cleanup\n");
+		/* Don't fail cleanup - just warn */
 	}
 
 	octep_rdma_free_idx(&pd->mr_res_cb, mr->mrn);
 	kfree_rcu_mightsleep(mr);
 
-	return ret;
+	/* Always return success for cleanup operations to avoid resource leaks */
+	return 0;
 }
 
 int
 octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr,
 		     struct ib_udata *udata)
 {
+	bool is_user = false;
 	struct octep_rdma_cq *cq;
 	struct octep_rdma_dev *rdma_dev;
 	unsigned int depth = init_attr->cqe;
@@ -521,23 +580,26 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 	if (depth > rdma_dev->attr.max_cqe)
 		return -EINVAL;
 
-	depth = roundup_pow_of_two(depth + 1);
+	if (!rdma_is_kernel_res(&ibcq->res))
+		depth = roundup_pow_of_two(depth + 1);
+	else
+		depth = roundup_pow_of_two(depth);
 	cq->ibcq.cqe = depth;
 	cq->depth = depth;
-	cq->assoc_eqn = init_attr->comp_vector + 1;
 
 	cqn = octep_rdma_alloc_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ]);
 	if (cqn < 0)
 		return cqn;
 
 	cq->cqn = cqn;
-	ibdev_info(ibcq->device, "[%s:%d] max_cq %d cqn %d next_alloc_cqn %d\n", __func__, __LINE__,
+	ibdev_info(ibcq->device, "[%s:%d] max_cq %d cqn %d next_alloc_idx %d\n", __func__, __LINE__,
 		   rdma_dev->attr.max_cq, cq->cqn,
 		   rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ].next_alloc_idx);
 
 	if (!rdma_is_kernel_res(&ibcq->res)) {
 		struct octep_rdma_ureq_create_cq ureq;
 		struct octep_rdma_uresp_create_cq uresp;
+		is_user = true;
 
 		ret = ib_copy_from_udata(&ureq, udata, min(udata->inlen, sizeof(ureq)));
 		if (ret)
@@ -559,6 +621,7 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 		ibdev_info(ibcq->device, "[%s:%d] User cq->cqn %d depth %d\n", __func__, __LINE__,
 			   cq->cqn, depth);
 	} else {
+		is_user = false;
 		ret = octep_rdma_init_kernel_cq(cq);
 		if (ret)
 			goto err_out_xa;
@@ -566,10 +629,15 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 			   cq->cqn);
 	}
 
-	ret = octep_rdma_prepare_cq_cmd(rdma_dev, cq);
+	ret = octep_rdma_prepare_cq_cmd(rdma_dev, cq, is_user);
 	if (ret) {
 		ibdev_err(ibcq->device, "octep_rdma_prepare_cq_cmd failed\n");
 		goto err_free_res;
+	}
+
+	if (is_user == false) {
+		if (octep_rdma_kern_cq_poll_insert(cq) < 0)
+			ibdev_err(ibcq->device, "Failed to insert CQ for poll\n");
 	}
 
 	return 0;
@@ -597,17 +665,17 @@ octep_rdma_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc)
 
 	spin_lock_irqsave(&cq->kern_cq.lock, flags);
 	for (npolled = 0; npolled < num_entries;) {
-		ret = octep_rdma_poll_one_cqe(cq, wc + npolled);
+		ret = octep_rdma_poll_one_cqe(cq, wc + npolled, num_entries - npolled);
 
 		if (ret == -EAGAIN) /* no received new CQEs. */
 			break;
-		else if (ret) /* ignore invalid CQEs. */
-			continue;
 
-		npolled++;
+		if (!ret)
+			break;
+
+		npolled += ret;
 	}
 	spin_unlock_irqrestore(&cq->kern_cq.lock, flags);
-	ibdev_info(ibcq->device, "[%s:%d] num_entries %d completed\n", __func__, __LINE__, npolled);
 
 	return npolled;
 }
@@ -615,7 +683,13 @@ octep_rdma_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc)
 int
 octep_rdma_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 {
-	return 0;
+	struct octep_rdma_cq *cq = to_octep_rdma_cq(ibcq);
+	int ret = 0;
+
+	if (cq->notify != IB_CQ_NEXT_COMP)
+		cq->notify = flags & IB_CQ_SOLICITED_MASK;
+
+	return ret;
 }
 
 int
@@ -624,26 +698,40 @@ octep_rdma_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata)
 	struct octep_rdma_cq *cq = to_octep_rdma_cq(ibcq);
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibcq->device);
 	struct octep_rdma_cmdq_destroy_cq_req req = {};
+	bool device_active;
 	int ret = 0;
 
 	req.cqn = cq->cqn;
 
-	ret = octep_rdma_prepare_cq_destroy_cmd(rdma_dev, cq);
-	if (ret) {
-		ibdev_err(ibcq->device, "octep_rdma_prepare_cq_cmd failed, ret %d\n", ret);
-		return ret;
+	/* Check if device is still active for communication */
+	device_active = octep_rdma_device_ready(rdma_dev);
+
+	/* Try to destroy on device side, but continue cleanup even if it fails */
+	if (device_active) {
+		ret = octep_rdma_prepare_cq_destroy_cmd(rdma_dev, cq);
+		if (ret)
+			ibdev_warn(
+				ibcq->device,
+				"CQ destroy command failed: ret %d (continuing with local cleanup)\n",
+				ret);
+	} else {
+		ibdev_info(ibcq->device, "Device inactive, skipping remote CQ cleanup\n");
 	}
 
+	/* Always continue with local cleanup */
 	ibdev_info(ibcq->device, "[%s:%d] cq->cqn %d\n", __func__, __LINE__, cq->cqn);
+
 	if (rdma_is_kernel_res(&cq->ibcq.res)) {
-		dma_free_coherent(&rdma_dev->pdev->dev, WARPPED_BUFSIZE(cq->depth << CQE_SHIFT),
-				  cq->kern_cq.qbuf, cq->kern_cq.qbuf_dma_addr);
+		/* Remove from polling list before freeing */
+		octep_rdma_kern_cq_poll_remove(cq);
+		octep_rdma_free_kernel_cq(rdma_dev, cq);
 	} else {
 		release_mem_trans_tbl(rdma_dev, &cq->user_cq.qbuf_mtt);
 	}
 
 	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ], cq->cqn);
 
+	/* Always return success for cleanup operations to avoid resource leaks */
 	return 0;
 }
 
@@ -655,6 +743,7 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	struct octep_rdma_ucontext *uctx;
 	struct octep_rdma_pd *pd;
 	int ret, qpn;
+	bool is_user = false;
 
 	if (!qp) {
 		pr_err("%s: Failed to convert ibqp to octep_rdma_qp\n", __func__);
@@ -694,25 +783,32 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	kref_init(&qp->ref);
 	init_completion(&qp->safe_free);
 
-	qpn = octep_rdma_alloc_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP]);
-	if (qpn < 0) {
-		ret = qpn;
-		ibdev_err(ibqp->device, "Failed to allocate QP index, ret %d\n", ret);
-		goto err_out;
+	if (attrs->qp_type != IB_QPT_GSI) {
+		qpn = octep_rdma_alloc_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP]);
+		if (qpn < 0) {
+			ret = qpn;
+			ibdev_err(ibqp->device, "Failed to allocate QP index, ret %d\n", ret);
+			goto err_out;
+		}
+
+		qp->ibqp.qp_num = qpn;
+	} else {
+		qp->ibqp.qp_num = 1;
 	}
 
-	qp->ibqp.qp_num = qpn;
-	ibdev_info(ibqp->device, "[%s] max_qp %d qp_num %d next_alloc_qpn %d\n", __func__,
+	ibdev_info(ibqp->device, "[%s] max_qp %d qp_num %d next_alloc_idx %d\n", __func__,
 		   rdma_dev->attr.max_qp, qp->ibqp.qp_num,
 		   rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP].next_alloc_idx);
 
 	if (uctx) {
+		is_user = true;
 		ret = init_user_qp(rdma_dev, qp, udata);
 		if (ret) {
 			ibdev_err(ibqp->device, "init_user_qp failed\n");
 			goto err_out_xa;
 		}
 	} else {
+		is_user = false;
 		ret = init_kernel_qp(rdma_dev, qp, attrs);
 		if (ret) {
 			ibdev_err(ibqp->device, "init_kernel_qp failed\n");
@@ -726,14 +822,13 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	qp->attrs.qp_type = attrs->qp_type;
 	qp->attrs.sq_sig_type = attrs->sq_sig_type;
 
-	ret = octep_rdma_prepare_qp_cmd(rdma_dev, qp, pd->pdn);
+	ret = octep_rdma_prepare_qp_cmd(rdma_dev, qp, pd->pdn, is_user);
 	if (ret) {
 		ibdev_err(ibqp->device, "octep_rdma_prepare_qp_cmd failed\n");
 		goto err_out_cmd;
 	}
 
 	spin_lock_init(&qp->lock);
-
 	return 0;
 err_out_cmd:
 	if (uctx) {
@@ -742,7 +837,7 @@ err_out_cmd:
 		vunmap(qp->user_qp.sq_vaddr);
 		vunmap(qp->user_qp.rq_vaddr);
 	} else {
-		free_kernel_qp(qp);
+		free_kernel_qp(rdma_dev, qp);
 	}
 
 err_out_xa:
@@ -768,7 +863,7 @@ octep_rdma_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr
 	if (qp_attr_mask & ~IB_QP_ATTR_STANDARD_BITS)
 		return -EOPNOTSUPP;
 
-	if (udata->inlen && !ib_is_udata_cleared(udata, 0, udata->inlen)) {
+	if (udata && udata->inlen && !ib_is_udata_cleared(udata, 0, udata->inlen)) {
 		ibdev_err(ibqp->device, "Incompatible ABI params, udata not cleared\n");
 		return -EINVAL;
 	}
@@ -826,6 +921,7 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 	}
 
 	qp_attr->cap.max_inline_data = OCTEP_RDMA_MAX_INLINE;
+	qp_attr->qkey = qp->attrs.qkey;
 	qp_init_attr->cap.max_inline_data = OCTEP_RDMA_MAX_INLINE;
 
 	qp_attr->cap.max_send_wr = qp->attrs.sq_size;
@@ -853,30 +949,35 @@ octep_rdma_destroy_qp(struct ib_qp *ibqp, struct ib_udata *udata)
 	struct octep_rdma_ucontext *ctx =
 		rdma_udata_to_drv_context(udata, struct octep_rdma_ucontext, ibucontext);
 	int ret = 0;
+	bool device_active;
 
 	ibdev_info(ibqp->device, "Destroying qp->ibqp.qp_num %d\n", qp->ibqp.qp_num);
 
-	ret = octep_rdma_prepare_user_qp_destroy_cmd(qp->rdma_dev, qp);
-	if (ret) {
-		ibdev_err(ibqp->device, "octep_rdma_user_qp_destroy_cmd failed: ret %d\n", ret);
-		return ret;
+	/* Check if device is still active for communication */
+	device_active = octep_rdma_device_ready(rdma_dev);
+
+	/* Try to destroy on device side, but continue cleanup even if it fails */
+	if (device_active) {
+		ret = octep_rdma_prepare_user_qp_destroy_cmd(qp->rdma_dev, qp);
+		if (ret)
+			ibdev_warn(
+				ibqp->device,
+				"QP destroy command failed: ret %d (continuing with local cleanup)\n",
+				ret);
+
+		ret = octep_rdma_prepare_qp_state_cmd(qp->rdma_dev, qp, false);
+		if (ret)
+			ibdev_warn(
+				ibqp->device,
+				"QP state command failed: ret %d (continuing with local cleanup)\n",
+				ret);
+	} else {
+		ibdev_info(ibqp->device, "Device inactive, skipping remote QP cleanup\n");
 	}
 
-	ret = octep_rdma_prepare_qp_state_cmd(qp->rdma_dev, qp, false);
-	if (ret) {
-		ibdev_err(ibqp->device, "octep_rdma_prepare_qp_state_cmd failed, ret %d\n", ret);
-		return ret;
-	}
-
+	/* Always continue with local cleanup regardless of remote cleanup status */
 	if (rdma_is_kernel_res(&qp->ibqp.res)) {
-		vfree(qp->kern_qp.swr_tbl);
-		vfree(qp->kern_qp.rwr_tbl);
-		dma_free_coherent(&rdma_dev->pdev->dev,
-				  WARPPED_BUFSIZE(qp->attrs.rq_size << RQE_SHIFT),
-				  qp->kern_qp.rq_buf, qp->kern_qp.rq_buf_dma_addr);
-		dma_free_coherent(&rdma_dev->pdev->dev,
-				  WARPPED_BUFSIZE(qp->attrs.sq_size << SQEBB_SHIFT),
-				  qp->kern_qp.sq_buf, qp->kern_qp.sq_buf_dma_addr);
+		free_kernel_qp(rdma_dev, qp);
 	} else {
 		if (ctx) {
 			release_mem_trans_tbl(qp->rdma_dev, &qp->user_qp.rq_mtt);
@@ -886,100 +987,284 @@ octep_rdma_destroy_qp(struct ib_qp *ibqp, struct ib_udata *udata)
 		}
 	}
 
-	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP], qp->ibqp.qp_num);
+	if (qp->ibqp.qp_num != 1)
+		octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP], qp->ibqp.qp_num);
+
 	kfree(qp->attrs.qp_mod_attr);
 
+	/* Always return success for cleanup operations to avoid resource leaks */
+	return 0;
+}
+
+static inline int
+octep_rdma_post_one_send(struct octep_rdma_qp *qp, struct octep_rdma_queue *sq,
+			 const struct ib_send_wr *wr_list)
+{
+	union octep_rdma_sqe *sqe;
+	struct ib_sge *sg_list;
+	struct ib_ah *ibah;
+	const struct ib_ud_wr *ud_wr_ptr;
+	u16 qmask, prod_index, cons_index;
+	int num_sge;
+	void *qbuf;
+
+	/* Cache frequently accessed values for better performance */
+	qmask = sq->qmask;
+	qbuf = sq->qbuf;
+	prod_index = sq->pi;
+	cons_index = (u16)atomic_read(sq->ci_dbl);
+
+	/* Fast path: check queue full condition early */
+	if (unlikely(octep_rdma_is_queue_full(prod_index, cons_index, qmask)))
+		return -ENOMEM;
+
+	/* Cache UD work request pointer and SGE info */
+	ud_wr_ptr = ud_wr(wr_list);
+	ibah = ud_wr_ptr->ah;
+	sg_list = wr_list->sg_list;
+	num_sge = wr_list->num_sge;
+
+	/* Get initial SQE and prefetch next potential SQE */
+	sqe = (union octep_rdma_sqe *)qbuf + prod_index;
+	if (likely(num_sge > 1))
+		prefetch((union octep_rdma_sqe *)qbuf + ((prod_index + 1) & qmask));
+
+	/* Optimized SQE field assignment - group related fields together */
+	sqe->wr_id = wr_list->wr_id;
+	sqe->opcode = wr_list->opcode;
+	sqe->num_sges = num_sge;
+	sqe->send_flags = wr_list->send_flags;
+	sqe->imm_data = wr_list->ex.imm_data;
+
+	/* UD-specific fields - grouped for cache efficiency */
+	sqe->ud.ah = to_octep_rdma_ah(ibah)->ah_num;
+	sqe->ud.remote_qpn = ud_wr_ptr->remote_qpn;
+	sqe->ud.qkey = ud_wr_ptr->remote_qkey;
+
+	/* Optimized SGE copying with reduced branching */
+	if (likely(num_sge > 0)) {
+		/* First SGE - always present */
+		sqe->sges0[0] = *(struct octep_rdma_sge *)sg_list;
+		sg_list++;
+		num_sge--;
+
+		if (likely(num_sge > 0)) {
+			/* Second SGE in same SQE */
+			sqe->sges0[1] = *(struct octep_rdma_sge *)sg_list;
+			sg_list++;
+			num_sge--;
+			prod_index = (prod_index + 1) & qmask;
+
+			/* Handle remaining SGEs efficiently */
+			while (num_sge > 0) {
+				sqe = (union octep_rdma_sqe *)qbuf + prod_index;
+
+				/* Optimized batch copy - handle up to 4 SGEs per SQE */
+				if (likely(num_sge >= 4)) {
+					/* Fast path: copy 4 SGEs at once */
+					memcpy(sqe->sges1, sg_list, sizeof(struct ib_sge) * 4);
+					sg_list += 4;
+					num_sge -= 4;
+				} else {
+					/* Handle remaining SGEs (1-3) */
+					memcpy(sqe->sges1, sg_list,
+					       sizeof(struct ib_sge) * num_sge);
+					num_sge = 0;
+				}
+				prod_index = (prod_index + 1) & qmask;
+			}
+		} else {
+			prod_index = (prod_index + 1) & qmask;
+		}
+	} else {
+		prod_index = (prod_index + 1) & qmask;
+	}
+
+	/* Update producer index */
+	sq->pi = prod_index;
 	return 0;
 }
 
 int
-octep_rdma_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr,
+octep_rdma_post_send(struct ib_qp *ibqp, const struct ib_send_wr *wr_list,
 		     const struct ib_send_wr **bad_wr)
 {
-	struct octep_rdma_qp *qp = to_octep_rdma_qp(ibqp);
-	union octep_rdma_sqe *sqe;
-	int ret;
-	u32 idx;
+	struct octep_rdma_qp *qp;
+	struct octep_rdma_queue *sq;
+	const struct ib_send_wr *wr;
+	int ret = 0;
+	u32 wr_count = 0;
 
-	if (wr && !rdma_is_kernel_res(&qp->ibqp.res)) {
-		ibdev_err(ibqp->device, "wr must be empty for user mapped sq\n");
-		*bad_wr = wr;
+	/* Fast path validation - group all checks together */
+	if (unlikely(!ibqp || !bad_wr || !wr_list))
 		return -EINVAL;
-	}
 
-	dma_wmb();
-	idx = qp->sq_get % qp->attrs.sq_size;
-	sqe = (union octep_rdma_sqe *)(qp->user_qp.sq_vaddr) + idx;
+	*bad_wr = NULL;
+	qp = to_octep_rdma_qp(ibqp);
+	sq = &qp->kern_qp.sq;
 
-	if (!sqe) {
-		ibdev_err(ibqp->device, "sqe is NULL: idx %d\n", idx);
+	if (unlikely(!sq || !sq->qbuf))
 		return -EINVAL;
-	}
 
-	if (!sqe->flags) {
-		ibdev_err(ibqp->device, "SQE empty: idx %d flags %x\n", idx, sqe->flags);
-		print_hex_dump(KERN_ERR, "SQE: ", DUMP_PREFIX_OFFSET, 16, 1, sqe, sizeof(*sqe),
-			       true);
-		return -EINVAL;
-	}
+	/* Prefetch first WR data for better cache performance */
+	prefetch(wr_list);
+	prefetch(wr_list->sg_list);
 
-	ibdev_dbg(ibqp->device,
-		  "[%s] wr_id %lld num_sges %d ci %d flags %x opcode %d ah_num %d "
-		  "remote_qpn %d qkey %x sge[0].addr %llx sge[0].len %d\n",
-		  __func__, sqe->wr_id, sqe->num_sges, qp->sq_get, sqe->flags, sqe->opcode,
-		  sqe->ud.ah, sqe->ud.remote_qpn, sqe->ud.qkey, sqe->sges0[0].addr,
-		  sqe->sges0[0].length);
+	/* Optimized posting loop with reduced overhead */
+	for (wr = wr_list; wr; wr = wr->next) {
+		/* Prefetch next WR while processing current one */
+		if (likely(wr->next)) {
+			prefetch(wr->next);
+			prefetch(wr->next->sg_list);
+		}
 
-	/* Send the SQE to the device */
-	ret = octep_tx(qp->rdma_dev->octep_dev, 1, sqe);
-	if (ret) {
-		ibdev_err(ibqp->device, "octep_tx failed: err %d\n", ret);
-		if (ret == -EFAULT) {
-			ibdev_err(ibqp->device, "idx %d ci %d sq_size %d\n", idx, qp->sq_get,
-				  qp->attrs.sq_size);
+		/* Fast path validation - check SGE list */
+		if (unlikely(!wr->sg_list)) {
+			ret = -EINVAL;
+			*bad_wr = wr;
+			break;
+		}
+
+		ret = octep_rdma_post_one_send(qp, sq, wr);
+		if (unlikely(ret)) {
+			*bad_wr = wr;
+			break;
+		}
+
+		wr_count++;
+
+		/* Batch doorbell updates for better performance when posting many WRs */
+		if (unlikely(wr_count >= 16 && wr->next)) {
+			/* Memory barrier before doorbell update */
+			wmb();
+			atomic_set(sq->pi_dbl, sq->pi);
+			wr_count = 0;
 		}
 	}
 
-	/* Clear SQE flags */
-	smp_store_mb(sqe->flags, 0);
-	qp->sq_get++;
-	return 0;
+	/* Final doorbell update with memory barrier */
+	wmb();
+	atomic_set(sq->pi_dbl, sq->pi);
+
+	return ret;
 }
 
 int
 octep_rdma_post_recv(struct ib_qp *ibqp, const struct ib_recv_wr *recv_wr,
 		     const struct ib_recv_wr **bad_wr)
 {
-	struct octep_rdma_qp *qp = to_octep_rdma_qp(ibqp);
+	struct octep_rdma_qp *qp;
+	struct octep_rdma_queue *rq;
+	const struct ib_recv_wr *wr;
 	union octep_rdma_rqe *rqe;
-	u32 idx;
+	struct ib_sge *sg_list;
+	u16 qmask, pi, ci;
+	void *qbuf;
+	u16 num_sge, cnt;
+	u32 wr_count = 0;
+	int rv = 0;
 
-	if (recv_wr && !rdma_is_kernel_res(&qp->ibqp.res)) {
-		ibdev_err(ibqp->device, "wr must be empty for user mapped sq\n");
-		*bad_wr = recv_wr;
+	/* Fast path validation - group all checks together */
+	if (unlikely(!ibqp || !bad_wr || !recv_wr))
 		return -EINVAL;
+
+	*bad_wr = NULL;
+	qp = to_octep_rdma_qp(ibqp);
+	rq = &qp->kern_qp.rq;
+
+	if (unlikely(!rq || !rq->qbuf))
+		return -EINVAL;
+
+	/* Cache frequently accessed values */
+	qmask = rq->qmask;
+	qbuf = rq->qbuf;
+	pi = rq->pi;
+	ci = (u16)atomic_read(rq->ci_dbl);
+
+	/* Prefetch first WR data for better cache performance */
+	prefetch(recv_wr);
+	prefetch(recv_wr->sg_list);
+
+	/* Optimized posting loop */
+	for (wr = recv_wr; wr; wr = wr->next) {
+		/* Prefetch next WR while processing current one */
+		if (likely(wr->next)) {
+			prefetch(wr->next);
+			prefetch(wr->next->sg_list);
+		}
+
+		/* Fast path: check queue full condition */
+		if (unlikely(octep_rdma_is_queue_full(pi, ci, qmask))) {
+			rv = -ENOMEM;
+			*bad_wr = wr;
+			break;
+		}
+
+		/* Get RQE and prefetch next potential RQE */
+		rqe = (union octep_rdma_rqe *)qbuf + pi;
+		if (likely(wr->num_sge > 1))
+			prefetch((union octep_rdma_rqe *)qbuf + ((pi + 1) & qmask));
+
+		/* Cache SGE information */
+		num_sge = wr->num_sge;
+		sg_list = wr->sg_list;
+
+		/* Fill RQE header - grouped for cache efficiency */
+		rqe->wr_id = wr->wr_id;
+		rqe->num_sge = num_sge;
+		rqe->opcode = IB_WC_RECV;
+
+		/* Optimized SGE copying */
+		if (likely(num_sge > 0)) {
+			/* First SGE - direct assignment */
+			rqe->sges0[0] = *(struct octep_rdma_sge *)sg_list;
+
+			sg_list++;
+			num_sge--;
+			pi = (pi + 1) & qmask;
+
+			/* Handle remaining SGEs efficiently */
+			while (num_sge > 0) {
+				rqe = (union octep_rdma_rqe *)qbuf + pi;
+
+				/* Optimized batch copy - handle up to 2 SGEs per RQE */
+				cnt = (num_sge >= 2) ? 2 : num_sge;
+
+				if (likely(cnt == 2)) {
+					/* Fast path: copy 2 SGEs */
+					rqe->sges1[0] = *(struct octep_rdma_sge *)&sg_list[0];
+					rqe->sges1[1] = *(struct octep_rdma_sge *)&sg_list[1];
+				} else {
+					/* Single SGE remaining */
+					rqe->sges1[0] = *(struct octep_rdma_sge *)&sg_list[0];
+				}
+
+				sg_list += cnt;
+				num_sge -= cnt;
+				pi = (pi + 1) & qmask;
+			}
+		} else {
+			pi = (pi + 1) & qmask;
+		}
+
+		wr_count++;
+
+		/* Batch doorbell updates for better performance when posting many WRs */
+		if (unlikely(wr_count >= 16 && wr->next)) {
+			/* Update queue state and ring doorbell */
+			rq->pi = pi;
+			wmb(); /* Memory barrier before doorbell */
+			atomic_set(rq->pi_dbl, pi);
+			wr_count = 0;
+		}
 	}
 
-	/* Send the SQE to the device */
-	idx = qp->rq_get % qp->attrs.rq_size;
-	rqe = (union octep_rdma_rqe *)(qp->user_qp.rq_vaddr) + idx;
+	/* Final update - always update queue state and ring doorbell */
+	rq->pi = pi;
+	wmb(); /* Memory barrier before doorbell */
+	atomic_set(rq->pi_dbl, pi);
 
-	ibdev_dbg(ibqp->device,
-		  "[%s] idx %d rq_get %d  rqe %p wr_id %lld "
-		  "rq_get %d flags %xsge[0].addr %llx sge[0].len %d\n",
-		  __func__, idx, qp->rq_get, rqe, rqe->wr_id, qp->rq_get, rqe->flags,
-		  rqe->sges0[0].addr, rqe->sges0[0].length);
-	if (octep_oq_fill_ring_buffers_custom(qp->rdma_dev->octep_dev, 1, rqe, idx)) {
-		ibdev_err(ibqp->device, "ring buffer fill failed\n");
-		return -EFAULT;
-	}
-	qp->rq_get++;
-
-	/* Memory barrier */
-	smp_store_mb(rqe->flags, 0);
-
-	/* Clear SQE flags */
-	return 0;
+	return rv;
 }
 
 /* ah */

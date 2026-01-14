@@ -132,7 +132,20 @@ octep_wait_for_mbox_avail(struct octep_mbox __iomem *mbox)
 	if (!mbox)
 		return -EINVAL;
 
-	return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_AVAIL(val), 10, OCTEP_HW_TIMEOUT);
+	if (in_atomic() || in_interrupt()) {
+		int timeout = OCTEP_HW_TIMEOUT;
+
+		while (timeout-- > 0) {
+			val = ioread32(&mbox->sts);
+			if (MBOX_AVAIL(val))
+				return 0;
+			cpu_relax();
+		}
+		return -ETIMEDOUT;
+	} else {
+		return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_AVAIL(val), 10,
+					  OCTEP_HW_TIMEOUT);
+	}
 }
 
 static inline int
@@ -143,7 +156,20 @@ octep_wait_for_mbox_rsp(struct octep_mbox __iomem *mbox)
 	if (!mbox)
 		return -EINVAL;
 
-	return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_RSP(val), 10, OCTEP_HW_TIMEOUT);
+	if (in_atomic() || in_interrupt()) {
+		int timeout = OCTEP_HW_TIMEOUT;
+
+		while (timeout-- > 0) {
+			val = ioread32(&mbox->sts);
+			if (MBOX_RSP(val))
+				return 0;
+			cpu_relax();
+		}
+		return -ETIMEDOUT;
+	} else {
+		return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_RSP(val), 10,
+					  OCTEP_HW_TIMEOUT);
+	}
 }
 
 static inline void

@@ -97,18 +97,26 @@ struct octep_rdma_dev {
 	atomic_t status;
 	/* physical port state (only one port per device) */
 
-	int max_ucontext;
-	int max_inline_data;
 	u32 mtu;
 	/* Work entry to handle device setup */
 	struct work_struct setup_task;
 	atomic_t num_ctx;
 	struct octep_rdma_resource_cb res_cb[OCTEP_RDMA_RES_CNT];
 	struct xarray mem_xa;
-	u32 next_alloc_qpn;
-	u32 next_alloc_cqn;
-	u32 next_alloc_ahn;
-	atomic_t num_mr;
 	struct octep_caps_region *caps_rgn;
 };
+
+/* Queue utility functions */
+static inline bool
+octep_rdma_is_queue_full(uint16_t pi, uint16_t ci, uint16_t qmask)
+{
+	return ((pi + 1 - ci) & qmask) == 0;
+}
+
+static inline bool
+octep_rdma_is_queue_empty(uint16_t pi, uint16_t ci)
+{
+	return (pi == ci);
+}
+
 #endif /* __OCTEP_RDMA_H__ */

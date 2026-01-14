@@ -21,8 +21,24 @@ octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer, u32
 	u16 data_wds;
 	int ret, i;
 	u32 val;
+	int retries = 10; /* Retry count for atomic context */
 
-	mutex_lock(&oct_caps->mbox_lock);
+	/* Handle atomic context by using trylock with retries */
+	if (in_atomic() || irqs_disabled()) {
+		/* In atomic context - use trylock with retries */
+		while (retries-- > 0) {
+			if (mutex_trylock(&oct_caps->mbox_lock))
+				break;
+			udelay(10); /* Short delay in atomic context */
+		}
+		if (retries < 0) {
+			dev_warn(&pdev->dev, "Failed to acquire mbox lock in atomic context\n");
+			return -EBUSY;
+		}
+	} else {
+		/* Normal context - use blocking mutex */
+		mutex_lock(&oct_caps->mbox_lock);
+	}
 
 	if (!IS_ALIGNED(buf_size, 4)) {
 		ret = -EINVAL;
