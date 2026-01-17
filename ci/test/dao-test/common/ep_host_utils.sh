@@ -15,14 +15,41 @@ function ep_host_pre_setup()
 
 function ep_host_sdp_setup()
 {
-	set +e # Module may be already loaded
-	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
-		insmod $EP_HOST_MODULE_DIR/octeon_ep.ko
-	else
-		insmod $EP_DIR/ep_files/octeon_ep.ko
+	set +e
+	# Remove module if already loaded
+	if grep -q 'octeon_ep' /proc/modules; then
+		echo "Removing already loaded octeon_ep module"
+		rmmod octeon_ep
+		if [ $? -ne 0 ]; then
+			echo "Warning: Failed to remove octeon_ep module" >&2
+		fi
 	fi
+
+	# Determine module path
+	local module_path
+
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		module_path="$EP_HOST_MODULE_DIR/octeon_ep.ko"
+	else
+		module_path="$EP_DIR/ep_files/octeon_ep.ko"
+	fi
+
+	# Verify module file exists
+	if [[ ! -f "$module_path" ]]; then
+		echo "Error: Module file not found at $module_path" >&2
+		return 1
+	fi
+
+	# Insert module and verify
+	insmod "$module_path"
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to load octeon_ep module" >&2
+		return 1
+	fi
+
 	set -e
 	sleep 5
+	dmesg | tail -n 10
 }
 
 function ep_host_vdpa_common_setup()
@@ -348,12 +375,38 @@ function ep_host_sdp_vf_setup()
 	local num_vf=$2
 	local sdp_vfs
 
-	set +e # Module may be already loaded
-	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
-		insmod $EP_HOST_MODULE_DIR/octeon_ep_vf.ko
-	else
-		insmod $EP_DIR/ep_files/octeon_ep_vf.ko
+	set +e
+	# Remove module if already loaded
+	if grep -q 'octeon_ep_vf' /proc/modules; then
+		echo "Removing already loaded octeon_ep_vf module"
+		rmmod octeon_ep_vf
+		if [ $? -ne 0 ]; then
+			echo "Warning: Failed to remove octeon_ep_vf module" >&2
+		fi
 	fi
+
+	# Determine module path
+	local module_path
+
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		module_path="$EP_HOST_MODULE_DIR/octeon_ep_vf.ko"
+	else
+		module_path="$EP_DIR/ep_files/octeon_ep_vf.ko"
+	fi
+
+	# Verify module file exists
+	if [[ ! -f "$module_path" ]]; then
+		echo "Error: Module file not found at $module_path" >&2
+		return 1
+	fi
+
+	# Insert module and verify
+	insmod "$module_path"
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to load octeon_ep_vf module" >&2
+		return 1
+	fi
+
 	set -e
 	sleep 2
 
