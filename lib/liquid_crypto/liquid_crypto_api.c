@@ -3693,6 +3693,7 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	dptr += p_align;
 
 	memcpy(dptr, digest, digest_len);
+	memset(dptr + digest_len, 0, m_align - digest_len);
 	dptr += m_align;
 
 	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
@@ -3918,6 +3919,7 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	dptr += p_align;
 
 	memcpy(dptr, digest, digest_len);
+	memset(dptr + digest_len, 0, m_align - digest_len);
 	dptr += m_align;
 
 	/* Skip Order */
