@@ -188,6 +188,7 @@ main(int argc, char **argv)
 
 		/* Configure data queue pairs */
 		memset(&feature_params, 0, sizeof(feature_params));
+		feature_params.sym.is_sym_enabled = true;
 		feature_params.sym.cipher_auth_payload_len = TEST_LC_MAX_CIPHERTEXT_LEN;
 		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
 		feature_params.sym.aad_len = TEST_LC_MAX_AAD_LEN;

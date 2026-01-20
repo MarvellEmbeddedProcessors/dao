@@ -732,6 +732,8 @@ struct dao_lc_feature_params {
 	 * - `DAO_LC_SYM_OPCODE_FC`: Flexi Crypto @see DAO_LC_SYM_FC_CTX
 	 */
 	struct {
+		/** Specifies whether symmetric enabled or not */
+		bool is_sym_enabled;
 		/**
 		 * Cipher and auth payload length.
 		 * - Cipher only: length of cipher text.
@@ -747,6 +749,8 @@ struct dao_lc_feature_params {
 		uint16_t aad_len;
 		/** Digest length */
 		uint16_t digest_len;
+		/** HMAC authentication key length */
+		uint16_t hmac_auth_key_len;
 		/** Key wrap length */
 		uint16_t key_wrap_len;
 		/** KEK type */
