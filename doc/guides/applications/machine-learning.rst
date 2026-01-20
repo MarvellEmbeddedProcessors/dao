@@ -32,7 +32,7 @@ The figure shows the OCTEON 10 architecture, including both the ML / AI Accelera
 Setting Up The TVM Compiler Framework
 =====================================
 
-This section provides step-by-step instructions to set up the TVM compiler environment with Marvell's MMLC backend support. It covers prerequisites, environment setup, installation of TVM and MMLC binaries, followed by configuration and build procedures. The set up requires TVM version ``0.19.0``.
+This section provides step-by-step instructions to set up the TVM compiler environment with Marvell's MMLC backend support. It covers prerequisites, environment setup, installation of TVM and MMLC binaries, followed by configuration and build procedures.
 
 Prerequisites
 -------------
@@ -52,8 +52,11 @@ Below are the steps to build and install ``CMake-3.27.8``:
 
   # Build
   cd cmake-3.27.8
-  ./configure --prefix=${INSTALL_PREFIX_HOST}
-  make && make install
+  ./configure --prefix=${INSTALL_PREFIX_HOST} -- -DCMAKE_USE_OPENSSL=OFF
+  make -j $(nproc) && make install
+
+  # Create a symlink so CMake is accessible from /usr/share
+  ln -s /share/cmake-3.27 /usr/share/cmake-3.27
 
 Installing LLVM
 ~~~~~~~~~~~~~~~
@@ -103,7 +106,7 @@ TVM and dependencies requires ``Python >= 3.8``. Recommended version of Python i
    EOF
 
    # Install python package
-   python -m pip install --upgrade pip wheel setuptool
+   python -m pip install --upgrade pip wheel setuptools
    python -m pip install -r requirements.txt
 
 Setting Up The Toolchain
@@ -157,9 +160,6 @@ Clone TVM source code and checkout master branch from Marvell's TVM repository.
     git checkout master
     git submodule update --init --recursive
 
-.. note::
-  Ensure that you are on the tvm master branch by running ``git branch --show-current`` and verify the output is ``master``.
-
 Configure and Build TVM:
 
 .. code-block:: bash
@@ -175,7 +175,7 @@ Configure and Build TVM:
        -DSUMMARIZE=ON
 
     # Build and install
-    make -C ${TVM_SOURCE_DIR}/build-x86_64
+    make -C ${TVM_SOURCE_DIR}/build-x86_64 -j $(nproc)
     make -C ${TVM_SOURCE_DIR}/build-x86_64 install
 
 After building TVM, install the Python bindings to enable scripting and copy the configuration files required for target-specific settings:
@@ -287,10 +287,14 @@ MLIP Specific command line options:
 
     - ``hw/sim=`` : Target run mode. Supported values are hw, sim. hw is for hardware target and sim is for simulator (x86_64) target. (Default: sim)
     - ``-arch=`` : Target run architecture. Supported values are cn10ka, cnf10kb. (Default: cn10ka)
-    - ``-quantize=`` : Quantization mode. Supported value is fp16. (Default: fp16)
+    - ``-quantize=`` : Quantization mode. Supported value is fp16 (Default).
     - ``-wb_pin_ocm=`` : Weight Bias pinning to OCM. Supported values are 0, 1. (Default: 1) For large weights and biases, pinning to OCM is not possible. In such cases, set the this option to 0.
 
 - ``--target-mrvl-num_tiles=`` : Number of tiles. Supported values are 1, 2, 4, 8. (Default: 8)
+
+- ``--target-mrvl-tools=`` : Path to MMLC compiler tools.
+
+- ``--target-mrvl-model_name=`` : Model name for compilation (default: model)
 
 .. note::
    -wb_pin_ocm option in --target-mrvl-mattr is used to pin the weights and biases to OCM. To enable this option, please set the environment variable MRVL_ENABLE_WB_PIN_OCM=1.
@@ -323,6 +327,7 @@ Examples:
         --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
         --cross-compiler="${TARGET_TRIPLET}-gcc" \
         --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=1' \
+        --target-mrvl-tools=${INSTALL_PREFIX_HOST} \
         --target-mrvl-num_tiles=4 \
         --output model.tar \
         model.onnx
@@ -336,6 +341,7 @@ Examples:
     python -m tvm.driver.tvmc compile \
         --target="mrvl, llvm" \
         --target-mrvl-mattr='sim -arch=cn10ka -quantize=fp16 -wb_pin_ocm=1' \
+        --target-mrvl-tools=${INSTALL_PREFIX_HOST} \
         --target-mrvl-num_tiles=4 \
         --output model.tar \
         model.onnx
@@ -380,14 +386,14 @@ The compiler generates the following artifacts:
 
 .. code-block:: bash
 
-    ├── bin_tvmgen_mrvl_main_0
-    │   └── tvmgen_mrvl_main_0.bin
+    ├── bin_<model_name>_0
+    │   └── <model_name>_0.bin
     ├── model.tar
 
-The `model.tar` file can be used to run inference on Marvell ML hardware associated with Octeon10 or via the MLIP software simulator. If the compiled model is MRVL-only, inference can also be performed using `tvmgen_mrvl_main_0.bin`.
+The CPU execution flow produces only a model.tar file, without any separate binary files. The `model.tar` file can be used to run inference on Marvell ML hardware associated with Octeon10 or via the MLIP software simulator. If the compiled model is MRVL-only, inference can also be performed using `<model_name>_0.bin`.
 
 .. note::
-    Please DO NOT use the tvmgen_mrvl_main_0.bin for LLVM only and Hybrid models.
+    Please DO NOT use the <model_name>_0.bin for LLVM only and Hybrid models.
 
 Pre-processing and Post-processing Steps
 ----------------------------------------
@@ -499,7 +505,7 @@ For models generated by TVM that have a single MRVL layer and zero LLVM layers, 
     # Run inferences with dpdk-test-mldev application
     dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
         --test inference_ordered \
-        --filelist tvmgen_mrvl_main_0.bin,input.bin,output.bin,reference.bin \
+        --filelist <model_name>_0.bin,input.bin,output.bin,reference.bin \
         --tolerance 5 \
         --stats \
         --repetitions 1000
@@ -513,7 +519,7 @@ The script supports following options:
 
 - ``test_json_file`` : Output generated by TVM model.
 - ``base_json_file`` : Reference output.
-- ``quantize`` : Quantization mode. Supported value is fp16. The default value is fp16.
+- ``quantize`` : Quantization mode. Supported value is fp16 (default).
 - ``fudge_factor`` : Tolerance level for floating point comparison. The default value is 0.03 (3% tolerance).
 - ``print_level`` : Print level, controls the verbosity of dumps from the script. ``diff`` dumps the differences between the real and expected outputs. ``full`` dumps the entire contents of real and expected outputs. ``None`` is a quieter option where no dumps are provided.
 
@@ -532,15 +538,19 @@ Examples:
 Example Models/Usecases
 =======================
 
-Resnet50 Model Compilation using Jupyter Notebook
--------------------------------------------------
+Resnet50-v1-12 Model Compilation using Jupyter Notebook
+-------------------------------------------------------
 
 ResNet50 is a deep learning model used for image classification. It uses residual blocks to improve training efficiency and accuracy. This model is widely used for recognizing and categorizing objects in images.
 
 Compilation and Inference on Software Simulator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This section describes how to compile the ResNet50 ONNX model and run inference using a Jupyter notebook workflow. Begin by checking out the ``ml-models`` branch in the MarvellMLTools repository. Then, open the Resnet50.ipynb notebook located in the notebooks directory. Make sure to update any file paths in the notebook to match your local environment.
+This section describes how to compile the ResNet50-v1-12 ONNX model and run inference using a Jupyter notebook workflow.
+
+- Check out the `ml-models` branch in the MarvellMLTools repository.
+- Open the `Resnet50.ipynb` notebook located in the notebooks directory.
+- Update all necessary file paths in the notebook so they correctly point to your local environment.
 
 Launch jupyter notebook:
 
@@ -720,7 +730,7 @@ Use the dpdk-test-mldev application to run inference with the compiled model and
     # Run inferences with dpdk-test-mldev application
     dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
         --test inference_ordered \
-        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --filelist <model_name>_0.bin,input.bin,output.bin \
         --tolerance 5 \
         --stats \
         --repetitions 1000
@@ -796,7 +806,7 @@ Use the dpdk-test-mldev application to run inference with the compiled model and
     # Run inferences with dpdk-test-mldev application
     dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
         --test inference_ordered \
-        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --filelist <model_name>_0.bin,input.bin,output.bin \
         --tolerance 5 \
         --stats \
         --repetitions 1000
@@ -875,7 +885,7 @@ Run inference on hardware using dpdk-test-mldev with the compiled model and inpu
     # Run inferences with dpdk-test-mldev application
     dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
         --test inference_ordered \
-        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --filelist <model_name>_0.bin,input.bin,output.bin \
         --tolerance 5 \
         --stats \
         --repetitions 1000
@@ -953,7 +963,7 @@ Run inference on hardware using dpdk-test-mldev with the compiled model and inpu
     # Run inferences with dpdk-test-mldev application
     dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
         --test inference_ordered \
-        --filelist bin_tvmgen_mrvl_main_0/tvmgen_mrvl_main_0.bin,input.bin,output.bin \
+        --filelist <model_name>_0.bin,input.bin,output.bin \
         --tolerance 5 \
         --stats \
         --repetitions 1000
