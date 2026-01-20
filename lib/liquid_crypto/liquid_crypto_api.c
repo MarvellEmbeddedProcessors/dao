@@ -782,7 +782,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 					  sizeof(struct __dao_lc_resp_sess_create));
 		max_seg_size = req_resp_hdr_sz + sizeof(struct dao_lc_sym_ctx);
 	} else {
-		if (params->sym.cipher_auth_payload_len) {
+		if (params->sym.is_sym_enabled) {
 			/* DAO LC sym header */
 			sym_seg_sz = sizeof(struct __dao_lc_req_sym);
 			/* Offset control word */
@@ -801,16 +801,39 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 			/* AAD */
 			sym_seg_sz += params->sym.aad_len;
+
+			if (params->sym.cipher_auth_payload_len == 0) {
+				dao_err("Invalid cipher/auth payload length. It cannot be zero.");
+				return 0;
+			}
 			/* Payload */
 			sym_seg_sz += RTE_ALIGN(params->sym.cipher_auth_payload_len, 16);
+
+			if ((params->sym.digest_len > DAO_LC_MAX_DIGEST_LEN) ||
+			    (params->sym.digest_len == 0)) {
+				dao_err("Invalid digest length. digest_len should be at most %u or cannot be zero.",
+					DAO_LC_MAX_DIGEST_LEN);
+				return 0;
+			}
 			/* Digest */
 			sym_seg_sz += params->sym.digest_len;
 
-			if (params->sym.key_wrap_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {
-				dao_err("Invalid key wrap length. key_wrap_len should be at most %u.",
+			if ((params->sym.key_wrap_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) ||
+			    (params->sym.key_wrap_len == 0)) {
+				dao_err("Invalid key wrap length. key_wrap_len should be at most %u. or cannot be zero.",
 					DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
 				return 0;
 			}
+
+			if ((params->sym.hmac_auth_key_len > DAO_LC_MAX_AUTH_KEY_LEN) ||
+			    (params->sym.hmac_auth_key_len == 0)) {
+				dao_err("Invalid HMAC authentication key length. hmac_auth_key_len should be at most %u. or cannot be zero.",
+					DAO_LC_MAX_AUTH_KEY_LEN);
+				return 0;
+			}
+			/* HMAC authentication key */
+			if (params->sym.hmac_auth_key_len)
+				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.hmac_auth_key_len, 8);
 
 			if (params->sym.key_wrap_len) {
 				/* Key wrap length */
