@@ -193,6 +193,7 @@ main(int argc, char **argv)
 		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
 		feature_params.sym.aad_len = TEST_LC_MAX_AAD_LEN;
 		feature_params.sym.digest_len = TEST_LC_MAX_DIGEST_LEN;
+		feature_params.sym.hmac_auth_key_len = TEST_LC_MAX_HMAC_KEY_LEN;
 		feature_params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
 		/* Use CRT format */
 		feature_params.rsa.exp_len = 0;
