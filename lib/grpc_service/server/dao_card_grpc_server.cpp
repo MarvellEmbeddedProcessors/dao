@@ -62,6 +62,7 @@ using dao_card_manager::ImageVersionInfo;
 
 using lc_manager::DaoLCService;
 using lc_manager::DeviceId;
+using lc_manager::DeviceCaps;
 using lc_manager::QueuePairId;
 using lc_manager::QpConf;
 using lc_manager::Response;
@@ -489,6 +490,21 @@ public:
 		rc = server_cbs->dev_create_cb(request->dev_id(), request->nb_queues());
 
 		return status_from_rc(rc, "Failed to create device");
+	}
+
+	Status GetDeviceCaps(ServerContext *context, const Empty *empty, DeviceCaps *response) override
+	{
+		struct dao_dev_caps caps;
+		(void)context; (void)empty;
+
+		int rc;
+
+		rc = server_cbs->dev_caps_cb(&caps);
+		if (rc != 0) {
+			return status_from_rc(rc, "Failed to get device capabilities inside grpc server");
+		}
+		response->set_caps(caps.feature_mask0);
+		return Status::OK;
 	}
 
 	Status DestroyDev(ServerContext *context, const DeviceId *request, Response *response) override

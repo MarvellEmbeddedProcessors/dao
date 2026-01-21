@@ -13,6 +13,7 @@ service DaoLCService {
 	rpc StopDev(DeviceId) returns (Response) {}
 	rpc ConfigureQP(QpConf) returns (Response) {}
 	rpc DestroyQP(QueuePairId) returns (Response) {}
+	rpc GetDeviceCaps(Empty) returns (DeviceCaps) {}
 }
 
 message QpConf {
@@ -26,6 +27,10 @@ message QpConf {
 message DeviceId {
 	uint32 dev_id = 1;
 	uint32 nb_queues = 2;
+}
+
+message DeviceCaps {
+	uint64 caps = 1;
 }
 
 message QueuePairId {
