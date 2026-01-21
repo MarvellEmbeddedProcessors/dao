@@ -32,6 +32,9 @@ jobs:
           git checkout "$BRANCH"
           git pull origin "$BRANCH"
 
+          git config --global credential.helper ""
+          export GIT_TERMINAL_PROMPT=0
+
           git push \
             https://x-access-token:${TOKEN}@github.com/MarvellEmbeddedProcessors/dao.git \
             HEAD:"$BRANCH"
