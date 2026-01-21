@@ -25,7 +25,6 @@ jobs:
 
       - name: Push merged branch to target repo
         env:
-          USER: ${{ secrets.USER_GITHUB_SYNC }}
           TOKEN: ${{ secrets.TOKEN_GITHUB_SYNC }}
           BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
@@ -34,5 +33,5 @@ jobs:
           git pull origin "$BRANCH"
 
           git push \
-            https://${USER}:${TOKEN}@github.com/MarvellEmbeddedProcessors/dao.git \
+            https://x-access-token:${TOKEN}@github.com/MarvellEmbeddedProcessors/dao.git \
             HEAD:"$BRANCH"
