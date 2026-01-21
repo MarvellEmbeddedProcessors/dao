@@ -648,6 +648,16 @@ card_stats(struct dao_card_stats *stats)
 	return 0;
 }
 
+static int
+ca_dev_caps_get(struct dao_dev_caps *caps)
+{
+	memset(caps, 0, sizeof(*caps));
+#ifdef DAO_LIBOQS_DEP
+	caps->pqc_en = 1;
+#endif
+	return 0;
+}
+
 struct rte_mempool *
 ca_host_sess_mempool_get(uint8_t dev_id)
 {
@@ -734,6 +744,7 @@ static struct dao_card_server_cbs card_cbs = {
 	.dev_destroy_cb = ca_eth_dev_close,
 	.dev_start_cb = ca_eth_dev_start,
 	.dev_stop_cb = ca_eth_dev_stop,
+	.dev_caps_cb = ca_dev_caps_get,
 	.q_configure_cb = ca_eth_dev_q_configure,
 	.q_destroy_cb = ca_eth_dev_q_destroy,
 };
