@@ -382,6 +382,21 @@ struct dao_lc_dev_conf {
 };
 
 /**
+ * The liquid crypto device capabilities structure.
+ */
+struct dao_lc_dev_caps {
+	union {
+		/** Bitfield representation of capabilities */
+		struct {
+			/** PQC support bit */
+			uint64_t pqc_en : 1;
+		};
+		/** 64-bit representation of capabilities */
+		uint64_t feature_mask0;
+	};
+};
+
+/**
  * The liquid crypto queue pair configuration structure.
  *
  * This structure is used to configure a liquid crypto queue pair.
@@ -1099,6 +1114,20 @@ int dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc
  * - -EINVAL, indicating an invalid argument.
  */
 int dao_liquid_crypto_qp_inflight_req_count(uint8_t dev_id, uint16_t qp_id);
+
+/**
+ * Get liquid crypto device capabilities.
+ *
+ * @param lc_caps
+ * A pointer to the liquid crypto device capabilities structure.
+ *
+ * @return
+ * - On success, 0 is returned.
+ * - On failure, a negative value is returned indicating the cause
+ * - -EINVAL, indicating an invalid argument.
+ * - -ENOTSUP, indicating the agent does not support capability query.
+ */
+int dao_liquid_crypto_dev_caps_get(struct dao_lc_dev_caps *lc_caps);
 
 /**
  * Start a liquid crypto device.
