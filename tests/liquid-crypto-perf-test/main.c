@@ -292,6 +292,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		}
 
 		memset(&feature_params, 0, sizeof(feature_params));
+		feature_params.sym.is_sym_enabled = true;
 		feature_params.sym.cipher_auth_payload_len = TEST_LC_MAX_OUTPUT_LEN;
 		feature_params.sym.iv_len = TEST_LC_MAX_IV_LEN;
 		feature_params.sym.digest_len = DAO_LC_MAX_DIGEST_LEN;

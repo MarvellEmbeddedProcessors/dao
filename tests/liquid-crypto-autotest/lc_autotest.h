@@ -30,6 +30,8 @@
 #define TEST_LC_MAX_DIGEST_LEN 255
 /* Maximum offset length to test*/
 #define TEST_LC_MAX_OFFSET 32
+/* Maximum Authentication HMAC key length */
+#define TEST_LC_MAX_HMAC_KEY_LEN 1024
 /* Minimum length of RSA sign modulus */
 #define TEST_LC_MIN_RSA_SIGN_MOD_LEN 34
 /* Minimum length of RSA encrypt modulus */
