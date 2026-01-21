@@ -694,6 +694,28 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id, bool is_qp_reconfigure)
 }
 
 int
+dao_liquid_crypto_dev_caps_get(struct dao_lc_dev_caps *lc_caps)
+{
+	struct dao_dev_caps caps;
+	int rc = 0;
+
+	if (lc_caps == NULL) {
+		dao_err("Invalid capabilities argument.");
+		return -EINVAL;
+	}
+
+	rc = dao_lc_capabilities_get(lc_ctx, &(caps.feature_mask0));
+	if (rc) {
+		dao_err("Could not get device capabilities.");
+		return rc;
+	}
+
+	lc_caps->feature_mask0 = caps.feature_mask0;
+
+	return 0;
+}
+
+int
 dao_liquid_crypto_dev_start(uint8_t dev_id)
 {
 	struct dao_eth_trs_port_info *port_info;
