@@ -45,6 +45,15 @@ void dao_lc_grpc_client_fini(struct dao_lc_grpc_ctx *ctx);
 int dao_lc_ethdev_create(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id, uint32_t nb_queues);
 
 /**
+ * Get the capabilities of the liquid crypto card.
+ *
+ * @param ctx: gRPC client context
+ * @param caps: pointer to store the capabilities
+ * @return: 0 on success, negative value on failure
+ */
+int dao_lc_capabilities_get(struct dao_lc_grpc_ctx *ctx, uint64_t *caps);
+
+/**
  * Destroy an ethdev on the liquid crypto card.
  *
  * @param ctx: gRPC client context

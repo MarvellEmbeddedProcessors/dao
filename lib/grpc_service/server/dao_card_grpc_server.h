@@ -45,10 +45,17 @@ typedef void (*dao_card_fini_cb)(void);
 
 /**
  * Function pointer for card stats.
- * @param info: Pointer to card stats
+ * @param stats: Pointer to card stats
  * @return: 0 on success, negative value on failure
  */
 typedef int (*dao_card_stats_cb)(struct dao_card_stats *stats);
+
+/**
+ * Function pointer for getting device capabilities.
+ * @param caps: Pointer to device capabilities structure
+ * @return: 0 on success, negative value on failure
+ */
+typedef int (*dao_lc_dev_caps_cb)(struct dao_dev_caps *caps);
 
 /**
  * Function pointer for creating a device.
@@ -111,6 +118,8 @@ struct dao_card_server_cbs {
 	dao_lc_dev_create_cb dev_create_cb;
 	/** DAO LC dev destroy callback */
 	dao_lc_dev_destroy_cb dev_destroy_cb;
+	/** DAO LC dev capabilities callback */
+	dao_lc_dev_caps_cb dev_caps_cb;
 	/** DAO LC queue configure callback */
 	dao_lc_q_configure_cb q_configure_cb;
 	/** DAO LC queue destroy callback */

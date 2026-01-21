@@ -19,6 +19,7 @@ using grpc::Status;
 
 using lc_manager::DaoLCService;
 using lc_manager::DeviceId;
+using lc_manager::DeviceCaps;
 using lc_manager::QueuePairId;
 using lc_manager::Response;
 using lc_manager::QpConf;
@@ -105,6 +106,33 @@ dao_lc_ethdev_create(struct dao_lc_grpc_ctx *ctx, uint32_t dev_id, uint32_t nb_q
 		fprintf(stderr, "Failed to create device: %s (code=%d)\n", status.error_message().c_str(), status.error_code());
 		return grpc_status_to_errno(status);
 	}
+
+	return 0;
+}
+
+int
+dao_lc_capabilities_get(struct dao_lc_grpc_ctx *ctx, uint64_t *caps)
+{
+	ClientContext context;
+	grpc::Status status;
+	DeviceCaps resp;
+	Empty emp;
+
+	if (ctx == NULL)
+		return -EINVAL;
+
+	status = ctx->stub->GetDeviceCaps(&context, emp, &resp);
+	if (!status.ok()) {
+		/* Only print detailed errors for non-UNIMPLEMENTED cases */
+		if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED)
+			fprintf(stderr, "Agent does not support capability query\n");
+		else
+			fprintf(stderr, "Failed to get device capabilities: %s (code=%d)\n",
+				status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
+	}
+
+	*caps = resp.caps();
 
 	return 0;
 }
