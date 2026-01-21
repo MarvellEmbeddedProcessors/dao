@@ -818,16 +818,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			/* Digest */
 			sym_seg_sz += params->sym.digest_len;
 
-			if ((params->sym.key_wrap_len > DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) ||
-			    (params->sym.key_wrap_len == 0)) {
-				dao_err("Invalid key wrap length. key_wrap_len should be at most %u. or cannot be zero.",
-					DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
-				return 0;
-			}
-
-			if ((params->sym.hmac_auth_key_len > DAO_LC_MAX_AUTH_KEY_LEN) ||
-			    (params->sym.hmac_auth_key_len == 0)) {
-				dao_err("Invalid HMAC authentication key length. hmac_auth_key_len should be at most %u. or cannot be zero.",
+			if (params->sym.hmac_auth_key_len > DAO_LC_MAX_AUTH_KEY_LEN) {
+				dao_err("Invalid HMAC authentication key length. hmac_auth_key_len should be at most %u",
 					DAO_LC_MAX_AUTH_KEY_LEN);
 				return 0;
 			}
@@ -836,6 +828,12 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.hmac_auth_key_len, 8);
 
 			if (params->sym.key_wrap_len) {
+				if (params->sym.key_wrap_len >
+				    DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {
+					dao_err("Invalid key wrap length. key_wrap_len should be at most %u",
+						DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
+					return 0;
+				}
 				/* Key wrap length */
 				sym_seg_sz += params->sym.key_wrap_len;
 
