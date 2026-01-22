@@ -327,8 +327,8 @@ prepare_ack_packet_with_mbuf(struct rdma_qp *qp, int opcode, int payload, uint32
 	padlen = (-payload) & 0x3;
 	paylen = rdma_opcode[opcode].length + payload + padlen + RDMA_ICRC_SIZE;
 #ifdef RDMA_DEBUG
-	dao_dbg("paylen %d, padlen %d, opcode %d, psn %u, msn %u, syndrome %d payload %d rdma_opcode[opcode].length %d",
-		paylen, padlen, opcode, psn, msn, syndrome, payload, rdma_opcode[opcode].length);
+	dao_dbg("paylen %d padlen %d opcode %d psn %u msn %u syn %d pay %d hdrlen %d", paylen,
+		padlen, opcode, psn, msn, syndrome, payload, rdma_opcode[opcode].length);
 #endif
 
 	rdma_mbuf_init(mbuf);
@@ -423,42 +423,60 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 {
 	bool m_segs;
 	int opcode = -1;
-	struct rdma_ack *ack, *tmp_ack = NULL;
-	struct rdma_mbufs *rmbuf = NULL, *tmp_rmbuf = NULL;
+	struct rdma_ack *ack = NULL, *tmp_ack = NULL;
+	struct rdma_mbufs *rmbuf = NULL, *next_rmbuf = NULL;
 	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
 
+	/*
+	 * Get the first ACK entry.
+	 * ACK list is maintained in receive order, and replies MUST
+	 * be sent in order. If mbuf doesn't match, drop this completion.
+	 */
 	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
-
-	if (!ack || ack->mbuf != mbuf) {
-		dao_err(" ack mbuf and mbuf mismatch, ack mbuf: %p, mbuf: %p",
-			ack ? ack->mbuf : NULL, mbuf);
+	if (!ack || !ack->is_read || ack->mbuf != mbuf) {
+#ifdef RDMA_DEBUG
+		dao_dbg("[RESP-READ] QP %d: mbuf mismatch or no ack, dropping "
+			"(ack=%p is_read=%d ack_mbuf=%p mbuf=%p)",
+			qp->qid, ack, ack ? ack->is_read : 0, ack ? ack->mbuf : NULL, mbuf);
+#endif
 		return -1;
 	}
+
+#ifdef RDMA_DEBUG
+	dao_dbg("[RESP-READ] QP %d READ PSN %u: processing reply, n_segs %u", qp->qid, ack->psn,
+		wqe->n_rdma_segs);
+#endif
 	mbuf->ol_flags &= ~(DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS);
-	STAILQ_FOREACH_SAFE(rmbuf, &wqe->mbuf_list, next, tmp_rmbuf) {
+
+	/* Process all packets */
+	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	while (rmbuf) {
 		m_segs = wqe->n_rdma_segs > 1 ? true : false;
+		next_rmbuf = STAILQ_NEXT(rmbuf, next);
 		opcode = rdma_prep_read_ack(qp, rmbuf->mbuf, ack, m_segs, opcode);
 		wqe->n_rdma_segs--;
 		mbufs[*n_mbufs] = rmbuf->mbuf;
 		(*n_mbufs)++;
-		/* rmbuf node is embedded in mbuf private area; no free */
+		rmbuf = next_rmbuf;
 	}
 
-	STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
+	/* All packets processed, cleanup */
 #ifdef RDMA_DEBUG
-	dao_dbg("[READ ACK REMOVE] %s: opcode %d, n_mbufs %u next %p", __func__, opcode, *n_mbufs,
-		mbufs[0]->next);
+	dao_dbg("[RESP-READ] QP %d READ PSN %u: reply COMPLETE, sent %u pkts, removing ack",
+		qp->qid, ack->psn, *n_mbufs);
 #endif
+	STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
 
+	/* Drain any non-READ acks that were waiting behind this one */
 	ack = NULL;
-	STAILQ_FOREACH_SAFE(ack, &qp->resp.ack_pending_list, next, tmp_ack) {
+	STAILQ_FOREACH_SAFE(ack, &qp->resp.ack_pending_list, next, tmp_ack)
+	{
 		if (ack->is_read)
 			break;
 
 		mbufs[*n_mbufs] = ack->mbuf;
 		(*n_mbufs)++;
 		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
-		/* ack node is embedded in mbuf private area; no free */
 	}
 
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
@@ -669,6 +687,11 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	uint32_t npkts = 1;
 	uint32_t dma_len = rte_be_to_cpu_32(pinfo->rinfo.reth->len);
 
+#ifdef RDMA_DEBUG
+	dao_dbg("[RESP-READ] QP %d received READ req PSN %u len %u", qp->qid, pinfo->rinfo.psn,
+		dma_len);
+#endif
+
 	if (dma_len > RDMA_PORT_MAX_MSG_SZ) {
 		dao_err("RDMA read request length %u exceeds maximum allowed %u.", dma_len,
 			(uint32_t)RDMA_PORT_MAX_MSG_SZ);
@@ -681,6 +704,11 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 		qp->resp.wqe.tail = NULL;
 		return RDMA_RESPST_ERR_RNR;
 	}
+
+#ifdef RDMA_DEBUG
+	dao_dbg("[RESP-READ] QP %d READ PSN %u: DMA queued, npkts %u", qp->qid, pinfo->rinfo.psn,
+		npkts);
+#endif
 
 	qp->resp.msn++;
 	qp->resp.opcode = -1;
@@ -828,6 +856,28 @@ rdma_ack_pending_list_find(struct rdma_qp *qp, uint32_t psn)
 	return 0;
 }
 
+/*
+ * Find and remove an ack entry by PSN from ack_pending_list.
+ * Returns the mbuf that was associated with this ack, or NULL if not found.
+ */
+static inline struct rte_mbuf *
+rdma_ack_pending_list_remove_by_psn(struct rdma_qp *qp, uint32_t psn)
+{
+	struct rdma_ack *ack, *tmp_ack;
+	struct rte_mbuf *old_mbuf = NULL;
+
+	STAILQ_FOREACH_SAFE(ack, &qp->resp.ack_pending_list, next, tmp_ack)
+	{
+		if (ack->psn == psn) {
+			old_mbuf = ack->mbuf;
+			STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
+			break;
+		}
+	}
+
+	return old_mbuf;
+}
+
 static inline int
 rdma_is_last_acked_request(struct rdma_qp *qp, uint32_t psn, struct pkt_info *pkt)
 {
@@ -885,18 +935,26 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 		return RDMA_RESPST_CLEANUP;
 
 	} else if (pkt->rinfo.mask & RDMA_READ_MASK) {
-		/* Check request is in ack pending list */
-		if (rdma_ack_pending_list_find(qp, pkt->rinfo.psn)) {
-			/* Ack inpgress and cleanup. */
-			dao_info("Duplicate read request PSN %u already in ack pending list.",
-				 pkt->rinfo.psn);
-			pkt->mbuf_flags = RDMA_RESPONDER_MBUF_DROP;
-			return RDMA_RESPST_CLEANUP;
+		struct rte_mbuf *old_mbuf;
+		bool requeue_dma = false;
+
+		/* Check if request is in ack pending list */
+		old_mbuf = rdma_ack_pending_list_remove_by_psn(qp, pkt->rinfo.psn);
+		if (old_mbuf) {
+			/* Duplicate READ while previous is pending - replace it */
+#ifdef RDMA_DEBUG
+			dao_dbg("Duplicate READ PSN %u: replacing old mbuf %p with new %p",
+				pkt->rinfo.psn, old_mbuf, pkt->mbuf);
+#endif
+			rte_pktmbuf_free(old_mbuf);
+			requeue_dma = true;
+		} else if (rdma_is_last_acked_request(qp, pkt->rinfo.psn, pkt) &&
+			   rdma_read_rkey_validate(qp, pkt)) {
+			/* Last read reply lost - reread and retransmit */
+			requeue_dma = true;
 		}
-		/* If last read reply lost, reread and retransmit */
-		if (rdma_is_last_acked_request(qp, pkt->rinfo.psn, pkt) &&
-		    rdma_read_rkey_validate(qp, pkt)) {
-			/* This is a duplicate request. resend last ack */
+
+		if (requeue_dma) {
 			rdma_read_prep_for_pts(qp, pkt, &npkts);
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,
 						     AETH_ACK_UNLIMITED, true);
@@ -1029,6 +1087,7 @@ rdma_responder(struct pkt_info *pinfo)
 			goto exit;
 		case RDMA_RESPST_ERROR:
 			qp->resp.goto_error = 0;
+			dao_err("QP %d: setting state to ERROR (responder)", qp->qid);
 			qp->state = QP_STATE_ERROR;
 			goto exit;
 

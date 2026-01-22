@@ -6,7 +6,15 @@
 #include "rdma_hdr.h"
 #include "rdma_priv.h"
 
+/* clang-format off */
 struct rdma_opcode_info rdma_opcode[RDMA_NUM_OPCODE] = {
+	[RDMA_OPCODE_CNP] = {
+		.name = "RDMA_OPCODE_CNP",
+		/* CNP: only BTH header; no payload, no req/ack semantics */
+		.mask = 0,
+		.length = RDMA_BTH_BYTES,
+		.offset = { [RDMA_BTH] = 0 },
+	},
 	[RDMA_OPCODE_RC_SEND_FIRST] = {
 		.name = "RDMA_OPCODE_RC_SEND_FIRST",
 		.mask = RDMA_PAYLOAD_MASK | RDMA_REQ_MASK | RDMA_RWR_MASK |
@@ -719,3 +727,5 @@ struct rdma_opcode_info rdma_opcode[RDMA_NUM_OPCODE] = {
 		},
 	},
 };
+
+/* clang-format on */

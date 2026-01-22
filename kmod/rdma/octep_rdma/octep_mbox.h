@@ -39,6 +39,7 @@ struct octep_rdma_ah_create_req {
 	u8 network_type;
 	u8 dmac[6];
 	u8 smac[6];
+	u8 rsvd; /* Padding for __be32 alignment */
 	__be32 s_addr;
 	__be32 d_addr;
 };
@@ -52,6 +53,7 @@ struct octep_rdma_cq_create_req {
 	u16 port_num;
 	u16 cq_id;
 	u16 size;
+	u16 rsvd; /* Explicit padding for u64 alignment */
 	u64 cq_base;
 };
 
@@ -68,7 +70,11 @@ struct octep_rdma_cq_destroy_req {
 	u16 cq_id;
 };
 
-/* OCTEP_RDMA_MBOX_MSG_SET_QP_CONFIG */
+/*
+ * OCTEP_RDMA_MBOX_MSG_SET_QP_CONFIG
+ * Note: Field order matters for cross-architecture alignment (x86 <-> ARM).
+ * u8 fields placed before u64 to ensure natural 8-byte alignment.
+ */
 struct octep_rdma_qp_create_req {
 	u16 port_num;
 	u16 qp_id;
@@ -77,12 +83,11 @@ struct octep_rdma_qp_create_req {
 	u16 rq_size;
 	u16 send_cq_id;
 	u16 recv_cq_id;
+	u8 type;
+	u8 sq_sig_type;
 	u64 sq_base;
 	u64 rq_base;
 	u64 ibqp;
-	/* User defined fields */
-	u8 type;
-	u8 sq_sig_type;
 };
 
 /* OCTEP_RDMA_MSG_SET_QP_STATE */
@@ -98,24 +103,31 @@ struct octep_rdma_qp_destroy_req {
 	u16 qp_id;
 };
 
+/*
+ * Note: Explicit padding for cross-architecture alignment (x86 <-> ARM).
+ */
 struct octep_rdma_user_qp_modify_req {
 	u32 modify_mask;
 	u8 new_qp_state;
 	u8 cur_qp_state;
-	int qp_access_flags;
-	int path_mtu;
+	u8 rsvd0[2]; /* Padding for u32 alignment */
+	u32 qp_access_flags;
+	u32 path_mtu;
 	u32 qkey;
 	u16 pkey_index;
 	u8 sq_drained_async_notify;
-	int max_dest_rd_atomic;
-	int max_rd_atomic;
-	int min_rnr_timer;
+	u8 rsvd1; /* Padding for u32 alignment */
+	u32 max_dest_rd_atomic;
+	u32 max_rd_atomic;
+	u32 min_rnr_timer;
 	u8 rnr_retry_cnt;
 	u8 retry_cnt;
 	u8 timeout;
+	u8 rsvd2; /* Padding for u16 alignment */
 	u16 port_num;
 	u16 qp_id;
 	u16 src_udp_port;
+	u16 rsvd3; /* Padding for u32 alignment */
 	u32 rq_psn;
 	u32 sq_psn;
 	u32 dest_qpn;
@@ -124,6 +136,7 @@ struct octep_rdma_user_qp_modify_req {
 	u8 network_type;
 	u8 dmac[6];
 	u8 smac[6];
+	u8 rsvd4; /* Padding for __be32 alignment */
 	__be32 s_addr;
 	__be32 d_addr;
 };

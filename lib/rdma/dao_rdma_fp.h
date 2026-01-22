@@ -15,6 +15,8 @@
 #define IPV4_UDP_HDR_OFFSET           34
 #define RDMA_ROCEV2_PORT              4791
 #define APP_RDMA_PTS_DEQ_BURST_PER_QP 8
+#define RDMA_REQUESTER_POSTPONED_RC   1
+#define RDMA_MAX_ENQ_BURST            64
 
 enum rdm_resp_ret {
 	RDMA_RESPONDER_DONE = 1,
@@ -55,7 +57,8 @@ int dao_rdma_rx_process(struct rte_mbuf **mbuf, uint16_t rx_queue, uint32_t *qpn
 int dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
 			uint16_t *n_mbufs);
 int dao_rdma_get_pvt_len(void);
-int dao_rdma_lib_init(rdma_cb_t *cb);
+/* Initialize RDMA library; disable_cc=1 disables baseline congestion control for all new QPs */
+int dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc);
 void dao_rdma_lib_close(void);
 int dump_few_bytes(struct rte_mbuf *mbuf);
 void dao_rdma_register_rdma_map_cb(rdma_map_cb_t cb);
@@ -65,5 +68,6 @@ uint16_t dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts,
 uint16_t dao_is_qp_stalled(uint32_t qp_id, int devid);
 uint16_t dao_rdma_ack_dequeue_until_read(uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
 					 uint16_t max_pkts);
+struct rte_mbuf *dao_rdma_need_qp_schedule(uint32_t qp_id, int devid);
 
 #endif /* __RDMA_FP_H__ */

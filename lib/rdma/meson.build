@@ -19,7 +19,8 @@ sources = files(
 	'rdma_dev_cap.c',
 	'rdma_eth_update.c',
 	'rdma_port.c',
-  'rdma_pd_mr.c',
+	'rdma_pd_mr.c',
+	'rdma_cc.c',
 )
 
 headers = files(

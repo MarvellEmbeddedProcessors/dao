@@ -5,7 +5,9 @@
 #include "rdma_retransmit.h"
 #include "dao_rdma_fp.h"
 #include "rdma_common.h"
+#include "rdma_opcode.h"
 #include "rdma_qp.h"
+#include <assert.h>
 #include <dao_log.h>
 #include <rte_mbuf.h>
 #include <rte_spinlock.h>
@@ -15,6 +17,7 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 {
 	uint32_t first_psn;
 	struct rdma_mbufs *rmbuf;
+	rdma_send_wqe_t *wqe;
 
 	dao_dbg("Timer expired setting up retransmission\n");
 	if (qp->req.in_retransmission) {
@@ -22,16 +25,25 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 		return;
 	}
 
-	qp->req.retransmit.curr_wqe = STAILQ_FIRST(&qp->req.wqe_head);
-	if (!qp->req.retransmit.curr_wqe) {
+	wqe = STAILQ_FIRST(&qp->req.wqe_head);
+	qp->req.retransmit.curr_wqe = wqe;
+	if (!wqe) {
 		rte_timer_stop(&qp->timer_data->retrans_timer);
 		qp->req.in_retransmission = 0;
 		return;
 	}
 
-	rmbuf = STAILQ_FIRST(&qp->req.retransmit.curr_wqe->mbuf_list);
-	first_psn = qp->req.retransmit.curr_wqe->first_psn;
-	while (rmbuf && first_psn != qp->comp.psn) {
+	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	first_psn = wqe->first_psn;
+
+	if (wqe->mask & WR_READ_MASK) {
+		/* READ: always retransmit from the first mbuf */
+		qp->req.retransmit.curr_mbuf = rmbuf;
+		qp->req.in_retransmission = 1;
+		return;
+	}
+
+	while (rmbuf && psn_compare(first_psn, qp->comp.psn) < 0) {
 		rmbuf = STAILQ_NEXT(rmbuf, next);
 		first_psn++;
 	}
@@ -44,8 +56,7 @@ rdma_reset_and_send_cqe(rdma_qp_t *qp, int status)
 {
 	struct rdma_send_wqe *wqe_next, *tmp;
 
-	dao_dbg("Resetting QP to error state and sending CQE with status %d qp id %d port %d\n",
-		status, qp->qid, qp->dev_id);
+	dao_err("QP %d: setting state to ERROR (retransmit timeout, status=%d)", qp->qid, status);
 	qp->req.cur_wqe = NULL;
 	qp->state = QP_STATE_ERROR;
 	qp->comp.retry_cnt = qp->attr.max_retry_cnt;
@@ -144,7 +155,7 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 	/* Pack up to num_pkts across pending WQEs, persisting progress. */
 	while (produced < num_pkts && wqe) {
 		/* Do not retransmit past the current front WQE; only within it. */
-		if (wqe == qp->req.cur_wqe && rmbuf == NULL)
+		if (wqe == qp->req.cur_wqe && rmbuf == qp->req.cur_mbuf)
 			break;
 
 		/* Skip non-pending WQEs and advance. */
@@ -199,9 +210,11 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 			qp->comp.retry_cnt);
 	}
 #ifdef RDMA_DEBUG
-	dao_dbg("[%s] Retransmission in progress for QP %d produced %u (limit %d) curr_wqe %p cur_wqe %p state %d next_mbuf %p\n",
-	       __func__, qp_id, produced, num_pkts, wqe, qp->req.cur_wqe,
-	       wqe ? wqe->state : (enum rdma_wqe_state)-1, rmbuf);
+	/* clang-format off */
+	dao_dbg("[%s] Retrans QP %d produced %u (limit %d) curr_wqe %p cur_wqe %p state %d\n",
+		__func__, qp_id, produced, num_pkts, wqe, qp->req.cur_wqe,
+		wqe ? wqe->state : (enum rdma_wqe_state)-1);
+	/* clang-format on */
 #endif
 	return produced;
 }

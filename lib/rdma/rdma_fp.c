@@ -124,6 +124,42 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 		return -1;
 	}
 
+	/* Simple CC: detect CNP opcode early and apply backoff, then drop */
+	if (pinfo.rinfo.opcode == RDMA_OPCODE_CNP) {
+		struct rdma_qp *qp = (struct rdma_qp *)pinfo.rinfo.qp; /* set in hdr_check */
+
+		if (qp && qp->cc.cc_enabled) {
+			uint64_t now = rte_get_tsc_cycles();
+
+			qp->cc.cnp_rx_cnt++;
+			qp->cc.last_cnp_rx_cycles = now;
+			/* Exponential backoff of pacing interval within bounds */
+			if (qp->cc.pacing_interval_cycles == 0)
+				qp->cc.pacing_interval_cycles = qp->cc.min_pacing_cycles;
+			else
+				qp->cc.pacing_interval_cycles =
+					RTE_MIN(qp->cc.pacing_interval_cycles * 2,
+						qp->cc.max_pacing_cycles);
+		}
+		/* CNP carries no further processing */
+		return RDMA_COMPLETION_DONE;
+	}
+
+	/* ECN CE detection (IPv4 only for now): increment counter & possibly send CNP */
+	if ((pinfo.ptype & RTE_PTYPE_L3_IPV4) && (pinfo.rinfo.mask & RDMA_REQ_MASK)) {
+		struct rte_ipv4_hdr *iph = (struct rte_ipv4_hdr *)pinfo.iph;
+
+		if ((iph->type_of_service & 0x03) == 0x03) { /* CE */
+			struct rdma_qp *qp =
+				(struct rdma_qp *)pinfo.rinfo.qp; /* Valid after hdr_check */
+			if (qp && qp->cc.cc_enabled) {
+				qp->cc.ecn_ce_marks++;
+				/* Generate CNP if allowed */
+				rdma_send_cnp(qp, mbuf);
+			}
+		}
+	}
+
 	int result = 0;
 
 	if (pinfo.rinfo.mask & RDMA_REQ_MASK) {
@@ -168,16 +204,93 @@ rdma_requester_error(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 }
 
 static inline int
+rdma_requester_error2(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
+{
+	int first_skip = 1;
+	struct rdma_mbufs *rmbuf = NULL, *rmbuf_next = NULL;
+
+	wqe->status = RDMA_WC_LOC_QP_OP_ERR;
+	dao_send_cqe(qp, false, wqe);
+	STAILQ_REMOVE(&qp->req.wqe_head, wqe, rdma_send_wqe, next);
+	STAILQ_FOREACH_SAFE(rmbuf, &wqe->mbuf_list, next, rmbuf_next)
+	{
+		if (!first_skip)
+			rte_pktmbuf_free(rmbuf->mbuf);
+		rte_pktmbuf_free(rmbuf->mbuf);
+		STAILQ_REMOVE(&wqe->mbuf_list, rmbuf, rdma_mbufs, next);
+		first_skip = 0;
+	}
+	return 0;
+}
+
+static inline int
+dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t *n_mbufs)
+{
+	int ret;
+	bool m_segs;
+	struct rdma_mbufs *next_r = NULL;
+	struct rdma_mbufs *rmbuf = NULL;
+	struct rdma_send_wqe *wqe = qp->req.cur_wqe;
+
+	if (wqe == NULL) {
+		dao_err("[%s::%d] WQE list is empty\n", __func__, __LINE__);
+		return -1;
+	}
+	rmbuf = qp->req.cur_mbuf;
+	while (rmbuf) {
+		m_segs = wqe->n_rdma_segs > 1 ? true : false;
+		next_r = STAILQ_NEXT(rmbuf, next);
+		if (next_r)
+			rte_prefetch0(rte_pktmbuf_mtod(next_r->mbuf, void *));
+		ret = rdma_requester(qp, wqe, rmbuf->mbuf, m_segs, 0);
+		if (ret < 0) {
+			rdma_requester_error2(qp, wqe);
+			*n_mbufs = 0;
+			dao_err("[%s::%d] rdma RC requester error\n", __func__, __LINE__);
+			rte_mbuf_refcnt_update(qp->req.dummy_mbuf, 1);
+			return -1;
+		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
+			qp->req.cur_mbuf = rmbuf;
+			break;
+		}
+		wqe->n_rdma_segs--;
+		mbufs[*n_mbufs] = rmbuf->mbuf;
+		rmbuf = next_r;
+		qp->req.cur_mbuf = rmbuf;
+		(*n_mbufs)++;
+		if (RDMA_MAX_ENQ_BURST <= *n_mbufs)
+			break;
+	}
+
+#ifdef RDMA_DEBUG
+	dao_dbg("[%s::%d] qp id %d Processed remaining segs, n_mbufs %u wqe->state %d "
+		"wqe->n_rdma_segs %d qp->req.unacked_window %d cur psn %d\n",
+		__func__, __LINE__, qp->qid, *n_mbufs, wqe->state, wqe->n_rdma_segs,
+		qp->req.unacked_window, qp->req.psn);
+#endif
+
+	return 0;
+}
+
+static inline int
 rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mbuf **mbufs,
 			uint16_t *n_mbufs)
 {
 	int ret;
 	int nb = 1;
 	bool m_segs;
-	struct rdma_send_wqe *wqe;
 	struct rdma_mbufs *next_r = NULL;
 	struct rdma_mbufs *rmbuf = NULL;
+	struct rdma_send_wqe *wqe = qp->req.cur_wqe;
 
+	if (wqe && wqe->state == wqe_state_processing)
+		return dao_rdma_process_remaining_segs(qp, mbufs, n_mbufs);
+
+	/* Handle scheduled trigger for remaining requester segments */
+	if (mbuf == qp->req.dummy_mbuf)
+		return 0;
+
+	qp->req.opcode = -1;
 	ret = dao_rdma_preprocess_dequeued_pkts(qp, mbuf);
 	if (ret < 0) {
 		dao_err("[%s::%d] rdma preprocess error\n", __func__, __LINE__);
@@ -201,7 +314,8 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 
 	nb = wqe->dma_length / qp->mtu + ((wqe->dma_length % qp->mtu) ? 1 : 0);
 
-	STAILQ_FOREACH(rmbuf, &wqe->mbuf_list, next) {
+	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	while (rmbuf) {
 		m_segs = wqe->n_rdma_segs > 1 ? true : false;
 		next_r = STAILQ_NEXT(rmbuf, next);
 		if (next_r)
@@ -212,14 +326,24 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 			*n_mbufs = 0;
 			dao_err("[%s::%d] rdma RC requester error\n", __func__, __LINE__);
 			return -1;
+		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
+			qp->req.cur_mbuf = next_r;
+			break;
 		}
 		wqe->n_rdma_segs--;
 		mbufs[*n_mbufs] = rmbuf->mbuf;
 		(*n_mbufs)++;
+		qp->req.cur_mbuf = next_r;
+		if (RDMA_MAX_ENQ_BURST <= *n_mbufs)
+			break;
+		rmbuf = next_r;
 	}
+
 #ifdef RDMA_DEBUG
-	dao_dbg("[REQ] qp_id %d, dma_len %u , nb_segs %d, start psn %u end psn %u current qp psn %u\n",
-		qp->qid, wqe->dma_length, *n_mbufs, wqe->first_psn, wqe->last_psn, qp->req.psn);
+	dao_dbg("[REQ] qp_id %d, dma_len %u, current nb_segs %d, total segs %d, "
+		"start psn %u end psn %u current qp psn %u qp->req.unacked_window %d\n",
+		qp->qid, wqe->dma_length, *n_mbufs, wqe->n_rdma_segs + *n_mbufs, wqe->first_psn,
+		wqe->last_psn, qp->req.psn, qp->req.unacked_window);
 #endif
 	qp->req.cur_wqe = wqe;
 
@@ -238,7 +362,7 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 
 	qp = rdma_qp_query_fast(qp_id, devid);
 	if (qp == NULL || qp->state == QP_STATE_ERROR) {
-		dao_err("[%s::%d] qp error, qp_id %d\n", __func__, __LINE__, qp_id);
+		dao_err("qp error: qp_id %d qp %p state %d", qp_id, qp, qp ? (int)qp->state : -1);
 		return -1;
 	}
 
@@ -247,15 +371,17 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 		return -1;
 	}
 
-	qp->req.opcode = -1;
-
 	if (qp->type == RDMA_QPT_RC) {
+		if (!qp->req.dummy_mbuf)
+			qp->req.dummy_mbuf = rte_pktmbuf_alloc(mbuf->pool);
 		ret = rdma_process_rc_packets(qp, mbuf, mbufs, n_mbufs);
 		if (ret < 0) {
 			dao_err("[%s::%d] rdma RC process error\n", __func__, __LINE__);
 			goto error;
 		}
+		qp->req.dummy_mbuf->port = RTE_MAX_ETHPORTS + devid;
 	} else {
+		qp->req.opcode = -1;
 		wqe.wr = rdma_tx_priv_wr(mbuf);
 		ret = rdma_requester(qp, &wqe, mbuf, flag, nb);
 		if (ret < 0) {
@@ -294,6 +420,10 @@ dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe)
 			dao_err("enqueue_cqe failed, ret=%d\n", rc);
 	}
 
+	/* Always log errors */
+	if (wqe->status != RDMA_WC_SUCCESS)
+		dao_err("QP %d: CQE generated for wr_id %lu, status %d, opcode %d, byte_len %u\n",
+			qp->qid, wqe->wr->wr_id, wqe->status, wqe->wr->opcode, wqe->dma_length);
 #ifdef RDMA_DEBUG
 	dao_dbg("QP %d: CQE generated for wr_id %lu, status %d, opcode %d, byte_len %u\n", qp->qid,
 		wqe->wr->wr_id, wqe->status, wqe->wr->opcode, wqe->dma_length);
@@ -462,7 +592,7 @@ dao_rdma_get_pvt_len(void)
  * @brief: This function initializes the RDMA library.
  */
 int
-dao_rdma_lib_init(rdma_cb_t *cb)
+dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc)
 {
 	int ret = 0;
 	/* Initialize the timer subsystem */
@@ -477,6 +607,11 @@ dao_rdma_lib_init(rdma_cb_t *cb)
 	/* Register RDMA map callback if provided */
 	if (cb->rdma_map_cb)
 		dao_rdma_register_rdma_map_cb(cb->rdma_map_cb);
+
+	/* Apply global CC disable before any QP creation */
+	rdma_global_cc_disable_set(disable_cc);
+	if (disable_cc)
+		dao_info("RDMA CC globally disabled via init param");
 
 	return ret;
 }
@@ -501,4 +636,22 @@ dao_is_qp_stalled(uint32_t qp_id, int devid)
 		return 0;
 
 	return qp->req.read_rq_bal;
+}
+
+struct rte_mbuf *
+dao_rdma_need_qp_schedule(uint32_t qp_id, int devid)
+{
+	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
+
+	if (unlikely(!qp || qp->state == QP_STATE_ERROR))
+		return NULL;
+
+	if (qp->type != RDMA_QPT_RC)
+		return NULL;
+
+	/* Check if we have pending segments to send */
+	if (qp->req.cur_wqe && qp->req.cur_wqe->n_rdma_segs && qp->req.cur_mbuf)
+		return qp->req.dummy_mbuf;
+
+	return NULL;
 }

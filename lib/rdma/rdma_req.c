@@ -162,7 +162,7 @@ rdma_proto_hdr_insert(struct rte_mbuf *pkt, struct rdma_pkt_info *pinfo, uint32_
 
 	if (qp->type != RDMA_QPT_UD && qp->type != RDMA_QPT_UC)
 		ack_req = ((pinfo->mask & RDMA_END_MASK) ||
-			   (qp->req.no_ack_pkts++ > RDMA_MAX_PKT_PER_ACK));
+			   (++qp->req.no_ack_pkts >= RDMA_MAX_PKT_PER_ACK));
 	if (ack_req)
 		qp->req.no_ack_pkts = 0;
 
@@ -257,7 +257,10 @@ update_wqe_psn(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rdma_pkt_in
 		qp->req.psn = (wqe->first_psn + num_pkt) & BTH_PSN_MASK;
 	else
 		qp->req.psn = (qp->req.psn + 1) & BTH_PSN_MASK;
-	qp->req.unacked_window = RDMA_MAX_UNACKED_PSNS - (int32_t)(qp->req.psn - qp->comp.psn);
+
+	if (qp->type == RDMA_QPT_RC)
+		qp->req.unacked_window =
+			RDMA_MAX_UNACKED_PSNS - (int32_t)(qp->req.psn - qp->comp.psn);
 }
 
 static void
@@ -390,11 +393,28 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 		dao_err("[%s::%d] opcode error %d vs wqe->wr->opcode %d QP type %d\n", __func__,
 			__LINE__, opcode, wqe->wr->opcode, qp->type);
 		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
-		goto err;
+		goto exit;
 	}
 
 	mtu = get_mtu(qp, mbuf->port);
 	mask = rdma_opcode[opcode].mask;
+	/* CC pacing check: if enabled and we have an active pacing interval */
+	if (qp->cc.cc_enabled && qp->cc.pacing_interval_cycles) {
+		uint64_t now = rte_get_tsc_cycles();
+
+		if (qp->cc.recovery_quiet_cycles &&
+		    now - qp->cc.last_cnp_rx_cycles > qp->cc.recovery_quiet_cycles) {
+			qp->cc.pacing_interval_cycles = 0; /* back to wire-speed */
+		} else {
+			if (now < qp->cc.next_send_cycles) {
+				/* pacing postponed */
+				ret = RDMA_REQUESTER_POSTPONED_RC;
+				goto out;
+			}
+			qp->cc.next_send_cycles = now + qp->cc.pacing_interval_cycles;
+		}
+	}
+
 	if (unlikely(mask & (RDMA_READ_MASK))) {
 		if (check_init_depth(qp, wqe)) {
 			dao_err("[%s::%d] read rq depth error\n", __func__, __LINE__);
@@ -467,6 +487,7 @@ done:
 err:
 	/* update wqe_index for each wqe completion */
 	wqe->state = wqe_state_error;
+	dao_err("QP %d: setting state to ERROR (requester)", qp->qid);
 	qp->state = QP_STATE_ERROR;
 exit:
 	ret = -EAGAIN;

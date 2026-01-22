@@ -20,6 +20,15 @@
 /* Max default QP's supported. (Zero-initialized) */
 static rdma_qp_status_cb_t qp_status_cb;
 
+/* Global toggle set by application before QP creation. 0=enabled(default),1=disabled */
+static uint8_t g_rdma_disable_cc;
+
+void
+rdma_global_cc_disable_set(int disable)
+{
+	g_rdma_disable_cc = !!disable;
+}
+
 int
 rdma_qp_create(void *data)
 {
@@ -67,9 +76,28 @@ rdma_qp_create(void *data)
 	qp->req.cur_wqe = 0;
 	qp->resp.opcode = -1;
 	qp->resp.msn = 0;
+	/* Ensure READ reply tracking fields are clean */
+	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
 	qp->state = QP_STATE_RESET;
 	qp->valid = 1;
 	qp->lcore = 0;
+
+	/* Initialize simple CC parameters */
+	qp->cc.cc_enabled = g_rdma_disable_cc ? 0 : 1; /* honor global */
+	qp->cc.last_cnp_tx_cycles = 0;
+	qp->cc.last_cnp_rx_cycles = 0;
+	qp->cc.pacing_interval_cycles = 0; /* start unlimited */
+	qp->cc.next_send_cycles = 0;
+	uint64_t hz = rte_get_tsc_hz();
+	/* base min pacing ~0 (wire speed), max pacing ~1 millisecond */
+	qp->cc.min_pacing_cycles = hz / 1000000;     /* 1 usec default low bound */
+	qp->cc.max_pacing_cycles = hz / 1000;        /* 1 ms upper bound */
+	qp->cc.cnp_min_interval_cycles = hz / 20000; /* 50 usec */
+	/* Reset pacing if we see no new CNP for ~100us (tunable) */
+	qp->cc.recovery_quiet_cycles = hz / 10000; /* 100 us */
+	qp->cc.ecn_ce_marks = 0;
+	qp->cc.cnp_tx_cnt = 0;
+	qp->cc.cnp_rx_cnt = 0;
 
 	port->num_active_qp++;
 
@@ -352,10 +380,10 @@ rdma_qp_query(uint32_t qid, int portid)
 	}
 
 	qp = (struct rdma_qp *)port->qp[qid];
-	if (qp == NULL)
+	if (qp == NULL || !qp->valid) {
+		dao_err("QP %d does not exist or invalid", qid);
 		return NULL;
-	if (!qp->valid)
-		return NULL;
+	}
 
 	return qp;
 }
@@ -404,32 +432,49 @@ rdma_qp_state_check(struct rdma_pkt_info *pinfo, struct rdma_qp *qp)
 {
 	unsigned int pkt_type;
 
-	if (unlikely(!qp->valid))
+	if (unlikely(!qp->valid)) {
+		dao_err("QP %d: invalid (valid=0)", qp->qid);
 		return -1;
+	}
 
 	pkt_type = pinfo->opcode & 0xe0;
 	switch (qp->type) {
 	case RDMA_QPT_RC:
-		if (unlikely(pkt_type != RDMA_OPCODE_RC))
+		if (unlikely(pkt_type != RDMA_OPCODE_RC)) {
+			dao_err("QP %d: type mismatch, qp_type=RC pkt_type=0x%x opcode=0x%x",
+				qp->qid, pkt_type, pinfo->opcode);
 			return -EINVAL;
+		}
 		break;
 	case RDMA_QPT_UC:
-		if (unlikely(pkt_type != RDMA_OPCODE_UC))
+		if (unlikely(pkt_type != RDMA_OPCODE_UC)) {
+			dao_err("QP %d: type mismatch, qp_type=UC pkt_type=0x%x opcode=0x%x",
+				qp->qid, pkt_type, pinfo->opcode);
 			return -EINVAL;
+		}
 		break;
 	case RDMA_QPT_GSI:
 	case RDMA_QPT_UD:
-		if (unlikely(pkt_type != RDMA_OPCODE_UD))
+		if (unlikely(pkt_type != RDMA_OPCODE_UD)) {
+			dao_err("QP %d: type mismatch, qp_type=UD pkt_type=0x%x opcode=0x%x",
+				qp->qid, pkt_type, pinfo->opcode);
 			return -EINVAL;
+		}
 		break;
 	default:
+		dao_err("QP %d: unknown qp_type=%d", qp->qid, qp->type);
 		return -EINVAL;
 	}
 
 	if (pinfo->mask & RDMA_REQ_MASK) {
-		if (unlikely(qp->state < QP_STATE_RTR))
+		if (unlikely(qp->state < QP_STATE_RTR)) {
+			dao_err("QP %d: state %d < RTR for REQ pkt (opcode=0x%x)", qp->qid,
+				qp->state, pinfo->opcode);
 			return -EINVAL;
+		}
 	} else if (unlikely(qp->state < QP_STATE_RTS)) {
+		dao_err("QP %d: state %d < RTS for non-REQ pkt (opcode=0x%x mask=0x%x)", qp->qid,
+			qp->state, pinfo->opcode, pinfo->mask);
 		return -EINVAL;
 	}
 

@@ -108,6 +108,10 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 	unsigned int mask = pkt->rinfo.mask;
 	uint8_t syn;
 
+#ifdef RDMA_DEBUG
+	dao_dbg("ACK psn %d expected psn %d opcode %d mask %x\n", pkt->rinfo.psn, qp->comp.psn,
+		pkt->rinfo.opcode, mask);
+#endif
 	/* Check the sequence only */
 	switch (qp->comp.opcode) {
 	case -1:
@@ -178,11 +182,9 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		case AETH_NAK:
 			switch (syn) {
 			case AETH_NAK_PSN_SEQ_ERROR:
-				/* a nak implicitly acks all packets with psns
-				 * before
-				 */
 				if (psn_compare(pkt->rinfo.psn, qp->comp.psn) > 0) {
-					dao_err("[COMP] QP_ID %d remote SEQ Number ERR remote psn %d qp->comp.psn %d\n",
+					dao_err("[COMP] QP_ID %d remote SEQ Number ERR remote psn %d"
+						" qp->comp.psn %d\n",
 						qp->qid, pkt->rinfo.psn, qp->comp.psn);
 					qp->comp.psn = pkt->rinfo.psn;
 					if (qp->req.stop_psn)
@@ -408,6 +410,20 @@ rdma_update_comp(struct rdma_qp *qp, struct pkt_info *pkt, __rte_unused struct r
 		qp->comp.psn = (pkt->rinfo.psn + 1) & BTH_PSN_MASK;
 		qp->req.unacked_window =
 			RDMA_MAX_UNACKED_PSNS - (int32_t)(qp->req.psn - qp->comp.psn);
+
+		/*
+		 * Reset retransmission timer on forward progress.
+		 * This is critical for large READ operations where many
+		 * response packets arrive over time. Without this, the timer
+		 * may expire before all responses arrive.
+		 */
+		if (qp->type == RDMA_QPT_RC && qp->req.timeout_cycles &&
+		    !STAILQ_EMPTY(&qp->req.wqe_head)) {
+			rte_timer_stop(&qp->timer_data->retrans_timer);
+			rte_timer_reset(&qp->timer_data->retrans_timer, qp->req.timeout_cycles,
+					SINGLE, rte_lcore_id(), rdma_timeout_handler_cb,
+					qp->timer_data);
+		}
 	}
 
 	if (qp->req.stop_psn)
@@ -421,17 +437,19 @@ rdma_complete_wqe(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe
 {
 	RTE_SET_USED(pkt);
 
-	if (wqe->state == wqe_state_pending) {
-		if (psn_compare(wqe->last_psn, qp->comp.psn) >= 0) {
-			qp->comp.psn = (wqe->last_psn + 1) & BTH_PSN_MASK;
-			qp->req.unacked_window =
-				RDMA_MAX_UNACKED_PSNS - (int32_t)(qp->req.psn - qp->comp.psn);
-			qp->comp.opcode = -1;
-		}
+	/* Only complete WQEs that are pending - skip if already done */
+	if (wqe->state != wqe_state_pending)
+		return RDMA_COMPST_GET_WQE;
 
-		if (qp->req.stop_psn)
-			qp->req.stop_psn = 0;
+	if (psn_compare(wqe->last_psn, qp->comp.psn) >= 0) {
+		qp->comp.psn = (wqe->last_psn + 1) & BTH_PSN_MASK;
+		qp->req.unacked_window =
+			RDMA_MAX_UNACKED_PSNS - (int32_t)(qp->req.psn - qp->comp.psn);
+		qp->comp.opcode = -1;
 	}
+
+	if (qp->req.stop_psn)
+		qp->req.stop_psn = 0;
 
 	do_complete(qp, wqe);
 

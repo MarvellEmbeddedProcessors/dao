@@ -52,6 +52,8 @@ typedef struct rdma_config_param {
 	uint16_t dma_flush_thr;
 	/* DMA vchan descriptor count (nb_desc); default 2048 if not set */
 	uint16_t dma_nb_desc;
+	/* Disable congestion control globally (baseline CC). 0=enabled(default),1=disabled */
+	bool disable_cc;
 } rdma_config_param_t;
 
 /* display usage */

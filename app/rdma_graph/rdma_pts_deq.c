@@ -105,6 +105,21 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		if (!count)
 			goto next_qp;
 
+		{
+			struct rte_mbuf *sched_mbuf = dao_rdma_need_qp_schedule(qp_id, devid);
+
+			if (sched_mbuf) {
+				mbufs[nb_pkts++] = sched_mbuf;
+				mbuf = sched_mbuf;
+				node_mbuf_priv1(mbuf, dyn)->queue = ctx->queue_id;
+				node_mbuf_priv1(mbuf, dyn)->qp_id = qp_id;
+				node_mbuf_priv1(mbuf, dyn)->port = mbuf->port;
+				node_mbuf_priv1(mbuf, dyn)->devid = devid;
+				node_mbuf_priv1(mbuf, dyn)->nb_pkts = 1;
+				goto next_qp;
+			}
+		}
+
 		count = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP, count);
 		count = RTE_MIN(count, max_pkts - nb_pkts);
 		count = dao_pts_rdma_dequeue_burst(devid, qp_id, &mbufs[nb_pkts], count);

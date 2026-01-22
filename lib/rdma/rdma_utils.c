@@ -99,43 +99,42 @@ rdma_hdr_check(struct pkt_info *pinfo)
 	int err;
 
 	if (unlikely(bth_tver(&pinfo->rinfo) != BTH_TVER)) {
-		printf("bth_tver failed\n");
+		dao_err("BTH tver mismatch: got %d expected %d", bth_tver(&pinfo->rinfo), BTH_TVER);
 		return -1;
 	}
 
 	/* XXX: Multicast QP is not supported in initial version. */
 	if (unlikely(is_multicast_qpn(qpn))) {
-		printf("Multicast failed\n");
+		dao_err("Multicast QPN %d not supported", qpn);
 		return -1;
 	}
 
 	qp = rdma_qp_query_fast(qpn, pinfo->port_num);
 	if (unlikely(qp == NULL)) {
-		dao_err("rdma_qp_query failed port %d , qp num %d\n", pinfo->port_num, qpn);
+		dao_err("QP lookup failed: port %d qpn %d", pinfo->port_num, qpn);
 		return -1;
 	}
 
 	if (qp->lcore != rte_lcore_id()) {
-		dao_err("QP %d on port %d is not owned by lcore %d", qpn, pinfo->port_num,
-			rte_lcore_id());
+		dao_err("QP %d on port %d owned by lcore %d, current lcore %d", qpn,
+			pinfo->port_num, qp->lcore, rte_lcore_id());
 		return -1;
 	}
 
 	err = rdma_qp_state_check(&pinfo->rinfo, qp);
 	if (unlikely(err)) {
-		printf("rdma_qp_state_check failed\n");
 		return -1;
 	}
 
 	err = rdma_check_addr(pinfo, qp);
 	if (unlikely(err)) {
-		printf("rdma_check_addr failed\n");
+		dao_err("QP %d: address check failed", qpn);
 		return -1;
 	}
 
 	err = rdma_check_keys(&pinfo->rinfo, qpn, qp);
 	if (unlikely(err)) {
-		printf("rdma_check_keys failed\n");
+		dao_err("QP %d: key check failed", qpn);
 		return -1;
 	}
 
