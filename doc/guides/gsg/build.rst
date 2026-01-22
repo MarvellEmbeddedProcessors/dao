@@ -102,10 +102,24 @@ Cross compilation
 `````````````````
 Setup the toolchain and follow the below steps.
 
+.. note::
+
+  DAO requires libnl (Netlink).
+  You must cross-compile the library and ensure it is available to the build system.
+
+  * mkdir -p ~/arm-libs
+  * export ARM_LIBS_INSTALL=$HOME/arm-libs
+  * wget https://github.com/thom311/libnl/releases/download/libnl3_5_0/libnl-3.5.0.tar.gz
+  * tar -xvf libnl-3.5.0.tar.gz
+  * cd libnl-3.5.0
+  * ./configure --host=aarch64-linux-gnu --prefix=$ARM_LIBS_INSTALL --enable-static --disable-shared
+  * make -j$(nproc)
+  * make install
+
 .. code-block:: console
 
  # cd <Path to DAO repo>/dao
- # PKG_CONFIG_LIBDIR=/path/to/dpdk/build/prefix/lib/pkgconfig/ meson setup --cross config/arm64_cn10k_linux_gcc build -Dprefer_static_build=true --prefer-static
+ # PKG_CONFIG_LIBDIR=$ARM_LIBS_INSTALL/lib/pkgconfig:/path/to/dpdk/build/prefix/lib/pkgconfig/ meson setup --cross config/arm64_cn10k_linux_gcc build -Dprefer_static_build=true --prefer-static
  # ninja -C build
 
 Compiling the documentation
