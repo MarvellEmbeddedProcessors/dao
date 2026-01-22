@@ -21,7 +21,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Push merged branch to target repo
         env:
@@ -29,10 +29,16 @@ jobs:
           BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
+          echo "Branch to sync: $BRANCH"
+
+          # Checkout and update from source using GITHUB_TOKEN (via persist-credentials: true)
           git checkout "$BRANCH"
           git pull origin "$BRANCH"
 
-          git config --global url."https://x-access-token:${TOKEN}@github".insteadOf "https://github"
-          git remote set-url origin https://github.com/MarvellEmbeddedProcessors/dao.git
+          # Remove the Authorization header added by actions/checkout to prevent conflicts with the PAT
+          git config --local --unset-all http.https://github.com/.extraheader || true
+
+          # Configure origin to point to target repo with authentication token
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/MarvellEmbeddedProcessors/dao.git"
 
           git push origin HEAD:"$BRANCH"
