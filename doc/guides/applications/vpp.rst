@@ -40,9 +40,22 @@ Marvell's VPP leverages OCTEON's specialized workloads to provide a high-perform
 Installing and Running VPP for Packet I/O Acceleration Demo
 -----------------------------------------------------------
 
+Before installing the VPP package, make sure ubuntu repository is setup properly
+`Setting up Ubuntu repo for DAO <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#update-ubuntu-repository-to-download-dao-packages>`_
+
+Install the VPP package
+^^^^^^^^^^^^^^^^^^^^^^^
+
+- Release version
+
+.. code-block:: console
+
+    ~# apt-get install vpp-25.02.0-cn10k
+
+- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
+
 .. raw:: html
   :file: ../_static/demo/vpp_pktio.html
-
 
 Running VPP for Crypto offload Demo
 -----------------------------------
@@ -356,7 +369,7 @@ Configuring OCTEON DPU
 The following steps outline the configuration and setup of the Virtio interface for Host offload:
 
 Configure DMA and NPA devices on OCTEON
-+++++++++++++++++++++++++++++++++++++++
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -397,7 +410,8 @@ Configure DMA and NPA devices on OCTEON
   echo 0002:19:00.0 > /sys/bus/pci/drivers/vfio-pci/bind
 
 VPP Configuration
-+++++++++++++++++
+^^^^^^^^^^^^^^^^^
+
 VPP virtio device bringup with OCTEON virtio plugin is possible either through vppctl commands or startup conf.This plugin takes following device arguments for the first device attach. And the arguments passed on next devices are ignored.
 ``nb_virtio`` - Max number of virtio devices will be configured.
 ``dma`` - List of all DMA devices.
@@ -504,7 +518,7 @@ VPP CLI Commands:
   vppctl device create-interface virtio/1  port 1 num-rx-queues 2 num-tx-queues 3
 
 HOST Configuration
-++++++++++++++++++
+^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 
@@ -534,7 +548,8 @@ Configuring OCTEON DPU
 The following steps outline the configuration and setup of the SDP interface for Host offload in OCTEON DPU:
 
 OCTEON endpoint control plane configuration
-+++++++++++++++++++++++++++++++++++++++++++
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 The VPP OCTEON endpoint control plane plugin (octep_cp_plugin.so) has been added to support the SDP interface control plane. This plugin is used to configure the SDP interface on the OCTEON DPU. It implements the Marvell OCTEON PCIe endpoint control plane protocol and utilizes the /etc/vpp/octep_cp_cn10kxx.cfg file for configuration.
 
 The configuration file includes the following parameters:
@@ -562,7 +577,7 @@ Enable octep_cp plugin in startup.conf:
   }
 
 Configure the SDP interface:
-++++++++++++++++++++++++++++
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: text
 

@@ -76,6 +76,8 @@ Before downloading the NGINX package, make sure ubuntu repository is setup prope
 Installing the NGINX package
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+- Release version
+
 .. code-block:: console
 
     ~# apt-get install openssl-engine-1.0.0-cn10k
@@ -95,6 +97,7 @@ Installing the NGINX package
 
        ~# export LD_LIBRARY_PATH=/usr/lib/cn10k/openssl-1.1.1q/lib:$LD_LIBRARY_PATH
 
+- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
 
 Compiling from Sources
 ----------------------

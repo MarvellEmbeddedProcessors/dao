@@ -34,10 +34,15 @@ Before downloading the Snort package, make sure ubuntu repository is setup prope
 
 Install the Snort package and verify
 ------------------------------------
+
+- Release version
+
 .. code-block:: console
 
-    ~# apt-get install snort-3-cn10k-devel
+    ~# apt-get install snort-3-cn10k
     ~# /usr/local/bin/snort -V
+
+- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
 
 VectorScan Benchmarking
 =======================
