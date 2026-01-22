@@ -120,6 +120,16 @@ dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
 		return false;
 	}
 
+	if (strcmp(spec->name, DAO_CARD_MGR_CARD_INIT) == 0) {
+		if (argc != 1) {
+			fprintf(stderr,
+				"Error: '%s' requires no additional arguments.\n Usage: %s %s -> %s\n",
+				spec->name, spec->name, spec->usage, spec->desc);
+			free(tmp);
+			return false;
+		}
+	}
+
 	/* File argument validation for update-like commands */
 	if (strcmp(spec->name, DAO_CARD_MGR_APP_UPDATE) == 0 ||
 	    strcmp(spec->name, DAO_CARD_MGR_FW_UPDATE) == 0 ||
