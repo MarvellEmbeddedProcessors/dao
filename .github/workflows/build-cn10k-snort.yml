@@ -123,11 +123,11 @@ jobs:
             sudo make install
             sudo ldconfig
             mkdir -p ${BASE_DIR}/snort_src/install/usr/local/lib/daq
-            sudo cp -a /usr/local/lib/daq/*.so* ${BASE_DIR}/snort_src/install/usr/local/lib/daq/ || true
-            sudo cp -a /usr/local/lib/libpcre.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
-            sudo cp -a /usr/local/lib/libhs.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
-            sudo cp -a /usr/local/lib/libtcmalloc.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
-            sudo cp -a /usr/local/lib/libsafec.so* ${BASE_DIR}/snort_src/install/usr/local/lib/ || true
+            sudo cp -a /usr/local/lib/daq/. "${BASE_DIR}/snort_src/install/usr/local/lib/daq/" || true
+            sudo cp -a /usr/local/lib/libpcre.so* "${BASE_DIR}/snort_src/install/usr/local/lib/" || true
+            sudo cp -a /usr/local/lib/libhs.so* "${BASE_DIR}/snort_src/install/usr/local/lib/" || true
+            sudo cp -a /usr/local/lib/libtcmalloc.so* "${BASE_DIR}/snort_src/install/usr/local/lib/" || true
+            sudo cp -a /usr/local/lib/libsafec.so* "${BASE_DIR}/snort_src/install/usr/local/lib/" || true
             cd ${BASE_DIR}/snort_src
             wget "https://github.com/snort3/snort3/archive/refs/tags/3.2.2.0.tar.gz" -O snort3-3.2.2.0.tar.gz
             tar -xzvf snort3-3.2.2.0.tar.gz > /dev/null 2>&1
@@ -138,8 +138,6 @@ jobs:
             cd build
             sudo make -j$(nproc)
             sudo make install
-            sudo find ${BASE_DIR}/snort_src/install/usr/local/ -name "*.la" -delete
-            sudo find ${BASE_DIR}/snort_src/install/usr/local/ -name "*.a" -delete
             sudo rm -rf ${BASE_DIR}/snort_src/install/usr/local/include || true
             sudo rm -rf ${BASE_DIR}/snort_src/install/usr/local/share   || true
             cd ${BASE_DIR}/snort_src
