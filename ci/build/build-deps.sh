@@ -52,7 +52,7 @@ HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v25.11"
 GIT_USER=${2}
-ALL_DEPS="dpdk libnl libpcap grpc"
+ALL_DEPS="dpdk libnl libpcap grpc libconfig"
 DEPS_TO_BUILD=${4:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
@@ -61,6 +61,12 @@ LIBNL_BUILD_DIR=$BUILD_DEPS_ROOT/libnl
 LIBNL_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
 LIBNL_INSTALL_DIR=$LIBNL_PREFIX_DIR
 LIBNL_TARBALL=libnl-3.7.0
+
+# libconfig variables
+LIBCONFIG_BUILD_DIR=$BUILD_DEPS_ROOT/libconfig
+LIBCONFIG_PREFIX_DIR=$EP_DEPS_INSTALL_DIR
+LIBCONFIG_INSTALL_DIR=$LIBCONFIG_PREFIX_DIR
+LIBCONFIG_TARBALL=libconfig-1.8
 
 # libpcap variables
 LIBPCAP_BUILD_DIR=$BUILD_DEPS_ROOT/libpcap
@@ -153,6 +159,31 @@ function build_dpdk_host() {
 	ninja -C $HOST_BUILD_DPDK_DIR -j $MAKE_J $verbose install
 }
 
+function build_libconfig() {
+	local libconfig_is_enabled=1
+	if [[ "$DEPS_TO_BUILD" != *"libconfig"* ]]; then
+		return
+	fi
+
+	if ($PKGCONFIG --exists libconfig); then
+		echo "libconfig found with pkg-config. Skipping..."
+		libconfig_is_enabled=0
+	fi
+
+	if [ $libconfig_is_enabled == 1 ]; then
+		mkdir -p $LIBCONFIG_BUILD_DIR
+		cd $LIBCONFIG_BUILD_DIR
+		if [ ! -f $LIBCONFIG_TARBALL.tar.gz ]; then
+			fetch_dep https://hyperrealm.github.io/libconfig/dist/$LIBCONFIG_TARBALL.tar.gz
+		fi
+		tar xvf $LIBCONFIG_TARBALL.tar.gz --strip-components=1
+		set -x
+		./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBCONFIG_PREFIX_DIR --enable-static=no
+		make;
+		make install;
+		set +x
+	fi
+}
 function build_libnl() {
 	local libnl_is_enabled=1
 	if [[ "$DEPS_TO_BUILD" != *"libnl"* ]]; then
@@ -325,6 +356,7 @@ function build_libpcap() {
 # Building DPDK
 build_dpdk $PLAT
 build_libnl $@
+build_libconfig
 build_grpc
 
 # Building DPDK for host
