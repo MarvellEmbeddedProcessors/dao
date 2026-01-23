@@ -166,10 +166,13 @@ size_t dao_pem_host_page_sz(uint16_t pem_devid);
  *    VF device ID.
  * @param intr_addr
  *    Pointer to an array of addresses to be filled that triggers host interrupt upon write.
+ * @param ack_addr
+ *    Pointer to an array of addresses to be filled for interrupt acknowledgment.
  * @return
  *   Number of interrupts configured.
  */
-uint8_t dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr);
+uint8_t dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr,
+				     uint64_t **ack_addr);
 
 /**
  * PEM max VFs get.

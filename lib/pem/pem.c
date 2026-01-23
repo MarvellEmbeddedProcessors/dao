@@ -465,7 +465,7 @@ dao_pem_host_page_sz(uint16_t pem_devid)
 }
 
 static uint8_t
-cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr)
+cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr, uint64_t **ack_addr)
 {
 	struct dao_vfio_device *sdp_pdev = &pem->cn10k.sdp_pdev;
 	int idx, ring_idx;
@@ -492,7 +492,9 @@ cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr)
 
 		__atomic_store_n(intr_addr, sdp_reg_addr(sdp_pdev, SDP_RX_OUT_CNTS(ring_idx)),
 				 __ATOMIC_RELAXED);
+		__atomic_store_n(ack_addr, NULL, __ATOMIC_RELAXED); /* ACK not needed */
 		intr_addr++;
+		ack_addr++;
 	}
 
 	return rpvf;
@@ -587,16 +589,17 @@ dao_pem_host_dev_del(uint16_t pem_devid, int vfid)
 }
 
 uint8_t
-dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr)
+dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr,
+			     uint64_t **ack_addr)
 {
 	struct pem *pem = &pem_devices[pem_devid];
 	enum dao_platform platform = pem->platform;
 
 	switch (platform) {
 	case DAO_PLATFORM_CN10K:
-		return cn10k_sdp_host_interrupt_setup(pem, vfid, intr_addr);
+		return cn10k_sdp_host_interrupt_setup(pem, vfid, intr_addr, ack_addr);
 	case DAO_PLATFORM_ILIAD:
-		return iliad_dev_host_interrupt_setup(&pem->ili, intr_addr);
+		return iliad_dev_host_interrupt_setup(&pem->ili, intr_addr, ack_addr);
 	default:
 		return 0;
 	}

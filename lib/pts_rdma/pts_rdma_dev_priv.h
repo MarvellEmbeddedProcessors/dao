@@ -185,6 +185,7 @@ struct pts_rdma_dev {
 	uint8_t notify_qs_mltpr;
 
 	uint64_t *cb_intr_addr[PTS_RDMA_DEV_MAX_CB_INTRS];
+	uint64_t *cb_ack_addr[PTS_RDMA_DEV_MAX_CB_INTRS];
 	uint8_t nb_cb_intrs;
 
 	struct pts_rdma_cq *cqs[DAO_PTS_RDMA_MAX_CQS];

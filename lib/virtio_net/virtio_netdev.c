@@ -382,9 +382,13 @@ virtio_netdev_cb_interrupt_conf(struct virtio_netdev *netdev)
 			continue;
 
 		queue->cb_intr_addr = dev->cb_intr_addr[intr_idx];
+		queue->cb_ack_addr = dev->cb_ack_addr[intr_idx];
 		queue->cb_intr_val = dev->cb_intr_val;
 		queue->cb_notify_addr = queue->notify_addr + 1;
 		__atomic_store_n(queue->cb_notify_addr, 0, __ATOMIC_RELAXED);
+		dao_dbg("[dev %u] queue[%u] mapped to MSI-X vector %u, cb_intr_addr=%p, cb_ack_addr=%p",
+			dev->dev_id, i, intr_idx, (void *)queue->cb_intr_addr,
+			(void *)queue->cb_ack_addr);
 		intr_idx = (intr_idx + 1) % dev->nb_cb_intrs;
 	}
 
@@ -996,6 +1000,16 @@ virtio_net_desc_validate(struct virtio_net_queue *q, uint16_t start, uint16_t co
 	}
 }
 
+static __rte_always_inline void
+virtio_net_intr_trigger(uint64_t *cb_intr_addr, uint64_t *cb_ack_addr, uint64_t cb_intr_val)
+{
+	__atomic_store_n(cb_intr_addr, cb_intr_val, __ATOMIC_RELAXED);
+	if (cb_ack_addr) {
+		rte_io_wmb();
+		__atomic_store_n(cb_ack_addr, cb_intr_val, __ATOMIC_RELAXED);
+	}
+}
+
 static  __rte_always_inline int
 virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 {
@@ -1054,7 +1068,7 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 		if (q->cb_intr_addr && q->pend_compl &&
 		    dao_dma_op_status(mem2dev, q->pend_compl_idx)) {
 			__atomic_store_n(q->cb_notify_addr, 1, __ATOMIC_RELAXED);
-			__atomic_store_n(q->cb_intr_addr, q->cb_intr_val, __ATOMIC_RELAXED);
+			virtio_net_intr_trigger(q->cb_intr_addr, q->cb_ack_addr, q->cb_intr_val);
 			q->pend_compl = 0;
 		}
 
@@ -1087,7 +1101,7 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 		if (q->cb_intr_addr && q->pend_compl &&
 		    dao_dma_op_status(mem2dev, q->pend_compl_idx)) {
 			__atomic_store_n(q->cb_notify_addr, 1, __ATOMIC_RELAXED);
-			__atomic_store_n(q->cb_intr_addr, q->cb_intr_val, __ATOMIC_RELAXED);
+			virtio_net_intr_trigger(q->cb_intr_addr, q->cb_ack_addr, q->cb_intr_val);
 			q->pend_compl = 0;
 		}
 
@@ -1129,7 +1143,7 @@ dao_virtio_netdev_link_sts_update(uint16_t devid, struct dao_virtio_netdev_link_
 	dev_cfg->speed = link_info->speed;
 	/* Notify host with link interrupt */
 	*(uint8_t *)dev->isr = 0x2;
-	__atomic_store_n(dev->cb_intr_addr[0], dev->cb_intr_val, __ATOMIC_RELAXED);
+	virtio_net_intr_trigger(dev->cb_intr_addr[0], dev->cb_ack_addr[0], dev->cb_intr_val);
 
 	return 0;
 }

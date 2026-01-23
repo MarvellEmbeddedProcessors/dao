@@ -1211,8 +1211,8 @@ virtio_dev_init(struct virtio_dev *dev)
 	dev->feature_bits = dev->dev_feature_bits;
 
 	/* Setup virtio device host interrupt for the vring call */
-	dev->nb_cb_intrs =
-		dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1, dev->cb_intr_addr);
+	dev->nb_cb_intrs = dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1,
+							dev->cb_intr_addr, dev->cb_ack_addr);
 
 	/* Set platform-specific interrupt trigger value */
 	dev->cb_intr_val = virtio_dev_get_cb_intr_val();

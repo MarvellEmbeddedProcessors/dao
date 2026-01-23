@@ -31,7 +31,8 @@ struct iliad_device {
 int iliad_dev_init(struct iliad_device *ili_dev);
 void iliad_dev_fini(struct iliad_device *ili_dev);
 
-uint8_t iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_addr);
+uint8_t iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_addr,
+				       uint64_t **ack_addr);
 
 size_t iliad_dev_bar4_size_get(void);
 void *iliad_dev_bar4_base_get(struct iliad_device *ili_dev);

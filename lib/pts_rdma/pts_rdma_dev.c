@@ -241,8 +241,8 @@ dao_pts_rdma_dev_init(uint16_t devid, struct dao_pts_rdma_dev_conf *conf)
 	pts_rdma_dev_signature_add(dev);
 
 	/* Setup pts_rdma_dev device host interrupt for the vring call */
-	dev->nb_cb_intrs =
-		dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1, dev->cb_intr_addr);
+	dev->nb_cb_intrs = dao_pem_host_interrupt_setup(dev->pem_devid, dev->dev_id + 1,
+							dev->cb_intr_addr, dev->cb_ack_addr);
 
 	dev->mbox_usr_rsp_mem = rte_zmalloc("mbox_usr_rsp_mem", MBOX_USR_RSP_SIZE, 0);
 	if (!dev->mbox_usr_rsp_mem)

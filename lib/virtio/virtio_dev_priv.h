@@ -217,6 +217,7 @@ struct virtio_dev {
 	uint32_t prev_drv_feature_select;
 	uint64_t cb_intr_val;
 	uint64_t *cb_intr_addr[VIRTIO_MAX_CB_INTRS];
+	uint64_t *cb_ack_addr[VIRTIO_MAX_CB_INTRS];
 	uint8_t nb_cb_intrs;
 
 	uint8_t driver_ok_pend;

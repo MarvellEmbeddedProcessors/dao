@@ -83,13 +83,14 @@ iliad_dev_bar4_size_get(void)
 }
 
 uint8_t
-iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_addr)
+iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_addr,
+			       uint64_t **ack_addr)
 {
 	uint8_t intr_cnt = 0;
 	void *odm_base;
 	int i;
 
-	if (!ili_dev || !intr_addr) {
+	if (!ili_dev || !intr_addr || !ack_addr) {
 		dao_err("Invalid parameters for interrupt setup");
 		return 0;
 	}
@@ -108,7 +109,10 @@ iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_add
 		ili_odm_reg_write(odm_base, ODM_EPF0_GENX_INT_ENA_W1S(i), 0x1);
 		__atomic_store_n(intr_addr, ili_odm_reg_addr(odm_base, ODM_EPF0_GENX_INT_W1S(i)),
 				 __ATOMIC_RELAXED);
+		__atomic_store_n(ack_addr, ili_odm_reg_addr(odm_base, ODM_EPF0_GENX_INT(i)),
+				 __ATOMIC_RELAXED);
 		intr_addr++;
+		ack_addr++;
 		intr_cnt++;
 
 		/* Limit the number of interrupts to the maximum number of vectors */
