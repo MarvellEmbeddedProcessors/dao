@@ -1,3 +1,6 @@
 subprojects/dpdk.wrap
 bfs/configs/octeon_cn9k_lc_defconfig
 *.swp
+kmod
+build-deps
+.cache

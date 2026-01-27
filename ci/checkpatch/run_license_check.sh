@@ -34,6 +34,8 @@ IGNORE_FILES=(
 	"tests/ct-func/ct_test.pcap"
 	"kmod/iliad/README.md"
 	"kmod/rdma/README"
+	".vscode/c_cpp_properties.json"
+	".vscode/settings.json"
 )
 
 IGNORE_DIRECTORIES=(

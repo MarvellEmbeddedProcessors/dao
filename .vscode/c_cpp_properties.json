@@ -1,0 +1,206 @@
+{
+    "configurations": [
+        {
+            "name": "Linux ARM64 (CN10K)",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/lib/common",
+                "${workspaceFolder}/lib/conntrack",
+                "${workspaceFolder}/lib/eth_transport",
+                "${workspaceFolder}/lib/grpc_service/client_card",
+                "${workspaceFolder}/lib/grpc_service/client_lc",
+                "${workspaceFolder}/lib/grpc_service/server",
+                "${workspaceFolder}/lib/liquid_crypto",
+                "${workspaceFolder}/lib/portgroup",
+                "${workspaceFolder}/lib/vfio",
+                "${workspaceFolder}/lib/pem",
+                "${workspaceFolder}/lib/virtio",
+                "${workspaceFolder}/lib/virtio_net",
+                "${workspaceFolder}/lib/virtio_crypto",
+                "${workspaceFolder}/lib/virtio_blk",
+                "${workspaceFolder}/lib/blk_dev",
+                "${workspaceFolder}/lib/workers",
+                "${workspaceFolder}/lib/netlink",
+                "${workspaceFolder}/lib/pal",
+                "${workspaceFolder}/lib/featurearc",
+                "${workspaceFolder}/lib/flow",
+                "${workspaceFolder}/lib/pts_rdma",
+                "${workspaceFolder}/app/smart-nic/include",
+                "${workspaceFolder}/app/ovs-offload/include",
+                "${workspaceFolder}/app/crypto-agent",
+                "${workspaceFolder}/app/secgw-graph",
+                "${workspaceFolder}/app/virtio-crypto",
+                "${workspaceFolder}/app/virtio-blkio",
+                "${workspaceFolder}/build"
+            ],
+            "defines": [
+                "_FILE_OFFSET_BITS=64",
+                "ALLOW_EXPERIMENTAL_API",
+                "ALLOW_INTERNAL_API",
+                "RTE_LIBRTE_MBUF_DEBUG",
+                "RTE_LIBRTE_MEMPOOL_DEBUG"
+            ],
+            "compilerPath": "/usr/bin/aarch64-linux-gnu-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-arm64",
+            "compilerArgs": [
+                "-mcpu=neoverse-n2",
+                "-flax-vector-conversions",
+                "-Wno-address-of-packed-member",
+                "-Wno-packed-not-aligned",
+                "-Wno-missing-field-initializers",
+                "-Wdeprecated",
+                "-Wformat-nonliteral",
+                "-Wformat-security",
+                "-Wmissing-declarations",
+                "-Wmissing-prototypes",
+                "-Wnested-externs",
+                "-Wold-style-definition",
+                "-Wpointer-arith",
+                "-Wsign-compare",
+                "-Wstrict-prototypes",
+                "-Wundef",
+                "-Wwrite-strings",
+                "-Wno-zero-length-bounds"
+            ],
+            "configurationProvider": "ms-vscode.makefile-tools",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "${workspaceFolder}/lib",
+                    "${workspaceFolder}/app",
+                    "${workspaceFolder}/build"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        },
+        {
+            "name": "Linux ARM64 (CN9K)",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/lib/common",
+                "${workspaceFolder}/lib/conntrack",
+                "${workspaceFolder}/lib/eth_transport",
+                "${workspaceFolder}/lib/grpc_service/client_card",
+                "${workspaceFolder}/lib/grpc_service/client_lc",
+                "${workspaceFolder}/lib/grpc_service/server",
+                "${workspaceFolder}/lib/liquid_crypto",
+                "${workspaceFolder}/lib/portgroup",
+                "${workspaceFolder}/lib/vfio",
+                "${workspaceFolder}/lib/pem",
+                "${workspaceFolder}/lib/virtio",
+                "${workspaceFolder}/lib/virtio_net",
+                "${workspaceFolder}/lib/virtio_crypto",
+                "${workspaceFolder}/lib/virtio_blk",
+                "${workspaceFolder}/lib/blk_dev",
+                "${workspaceFolder}/lib/workers",
+                "${workspaceFolder}/lib/netlink",
+                "${workspaceFolder}/lib/pal",
+                "${workspaceFolder}/lib/featurearc",
+                "${workspaceFolder}/lib/flow",
+                "${workspaceFolder}/lib/pts_rdma",
+                "${workspaceFolder}/app/smart-nic/include",
+                "${workspaceFolder}/app/ovs-offload/include",
+                "${workspaceFolder}/app/crypto-agent",
+                "${workspaceFolder}/app/secgw-graph",
+                "${workspaceFolder}/app/virtio-crypto",
+                "${workspaceFolder}/app/virtio-blkio",
+                "${workspaceFolder}/build"
+            ],
+            "defines": [
+                "_FILE_OFFSET_BITS=64",
+                "ALLOW_EXPERIMENTAL_API",
+                "ALLOW_INTERNAL_API",
+                "RTE_LIBRTE_MBUF_DEBUG",
+                "RTE_LIBRTE_MEMPOOL_DEBUG"
+            ],
+            "compilerPath": "/usr/bin/aarch64-linux-gnu-gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-arm64",
+            "compilerArgs": [
+                "-mcpu=thunderx2t99",
+                "-flax-vector-conversions",
+                "-Wno-address-of-packed-member",
+                "-Wno-packed-not-aligned",
+                "-Wno-missing-field-initializers"
+            ],
+            "configurationProvider": "ms-vscode.makefile-tools",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "${workspaceFolder}/lib",
+                    "${workspaceFolder}/app",
+                    "${workspaceFolder}/build"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        },
+        {
+            "name": "Linux x86_64 (Host)",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/lib/common",
+                "${workspaceFolder}/lib/conntrack",
+                "${workspaceFolder}/lib/eth_transport",
+                "${workspaceFolder}/lib/grpc_service/client_card",
+                "${workspaceFolder}/lib/grpc_service/client_lc",
+                "${workspaceFolder}/lib/grpc_service/server",
+                "${workspaceFolder}/lib/liquid_crypto",
+                "${workspaceFolder}/lib/portgroup",
+                "${workspaceFolder}/lib/vfio",
+                "${workspaceFolder}/lib/pem",
+                "${workspaceFolder}/lib/virtio",
+                "${workspaceFolder}/lib/virtio_net",
+                "${workspaceFolder}/lib/virtio_crypto",
+                "${workspaceFolder}/lib/virtio_blk",
+                "${workspaceFolder}/lib/blk_dev",
+                "${workspaceFolder}/lib/workers",
+                "${workspaceFolder}/lib/netlink",
+                "${workspaceFolder}/lib/pal",
+                "${workspaceFolder}/lib/featurearc",
+                "${workspaceFolder}/lib/flow",
+                "${workspaceFolder}/lib/pts_rdma",
+                "${workspaceFolder}/app/smart-nic/include",
+                "${workspaceFolder}/app/ovs-offload/include",
+                "${workspaceFolder}/app/crypto-agent",
+                "${workspaceFolder}/app/secgw-graph",
+                "${workspaceFolder}/app/virtio-crypto",
+                "${workspaceFolder}/app/virtio-blkio",
+                "${workspaceFolder}/build",
+                "/usr/include",
+                "/usr/local/include"
+            ],
+            "defines": [
+                "_FILE_OFFSET_BITS=64",
+                "ALLOW_EXPERIMENTAL_API",
+                "ALLOW_INTERNAL_API"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerArgs": [
+                "-flax-vector-conversions",
+                "-Wno-address-of-packed-member",
+                "-Wno-packed-not-aligned",
+                "-Wno-missing-field-initializers"
+            ],
+            "configurationProvider": "ms-vscode.makefile-tools",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}",
+                    "${workspaceFolder}/lib",
+                    "${workspaceFolder}/app",
+                    "${workspaceFolder}/build"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}
