@@ -181,8 +181,8 @@ void dao_ds_put_format_valist(struct dao_ds *ds, const char *format, va_list va)
 
 /**
  * Append buffer 'buf' of 'size' bytes to 'ds' and convert each character in
- * printable format. In other words, print ascii characters in range of [@,A-Z,
- * a-z,\,^.`,~,_,{,},|,]
+ * printable format. In other words, print ascii characters in range of
+ * [@, A-Z, [, \, ], ^, _, \`, a-z, {, |, }, ~]
  *
  * @param ds
  *   "dynamic string" object

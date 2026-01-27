@@ -94,6 +94,114 @@ dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_
 }
 
 int
+dao_dma_lcore_dev2mem_set_ops(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr,
+			      uint16_t nb_ops)
+{
+	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_dma_vchan_state *state;
+	uint16_t vchan_idx, i, j, ring_sz;
+	uint32_t elem_sz, mem_sz, arr_sz, rsz;
+	uintptr_t op_addr;
+
+	if (!rte_dma_is_valid(dma_devid)) {
+		dao_err("Invalid dma device for worker cores");
+		return -1;
+	}
+
+	flush_thr = resolve_flush_thr(dma_devid, flush_thr);
+	if (!flush_thr)
+		return -1;
+
+	if (!vchan_info) {
+		vchan_info = rte_zmalloc("vchan_info", sizeof(struct dao_dma_vchan_info),
+					 RTE_CACHE_LINE_SIZE);
+		if (!vchan_info)
+			return -ENOMEM;
+		RTE_PER_LCORE(dao_dma_vchan_info) = vchan_info;
+
+		vchan_info_p[rte_lcore_id()] = vchan_info;
+	}
+
+	vchan_idx = vchan_info->nb_dev2mem;
+	if (vchan_idx + nb_vchans > DAO_DMA_MAX_VCHAN_PER_LCORE) {
+		dao_err("Cannot have more than %u dma rings per lcore",
+			DAO_DMA_MAX_VCHAN_PER_LCORE);
+		return -1;
+	}
+
+	elem_sz =
+		sizeof(struct rte_dma_op) + (sizeof(struct rte_dma_sge) * DAO_DMA_MAX_POINTER * 2);
+	elem_sz = RTE_ALIGN_CEIL(elem_sz, RTE_CACHE_LINE_SIZE);
+
+	/* Ring needs ceil(nb_ops/flush_thr) entries (each op packs flush_thr SGEs) */
+	rsz = ((uint32_t)nb_ops + (uint32_t)flush_thr - 1U) / (uint32_t)flush_thr;
+	if (rsz == 0U)
+		rsz = 1U;
+	ring_sz = (uint16_t)rte_align32pow2(rsz);
+
+	for (i = 0; i < nb_vchans; i++) {
+		state = &vchan_info->dev2mem[vchan_idx + i];
+		state->devid = dma_devid;
+		state->vchan = i;
+		state->flush_thr = flush_thr;
+
+		/* Allocate ops memory buffer */
+		mem_sz = elem_sz * ring_sz;
+		state->ops_mem = rte_zmalloc_socket("dao_dma_ops_mem", mem_sz, RTE_CACHE_LINE_SIZE,
+						    rte_socket_id());
+		if (!state->ops_mem) {
+			dao_err("Failed to alloc dma ops mem for lcore %u", rte_lcore_id());
+			goto err_free;
+		}
+
+		/* Allocate ops pointer array - 2x size to avoid wrap-around handling */
+		arr_sz = sizeof(struct rte_dma_op *) * ring_sz * 2;
+		state->dma_ops = rte_zmalloc_socket("dao_dma_ops_arr", arr_sz, RTE_CACHE_LINE_SIZE,
+						    rte_socket_id());
+		if (!state->dma_ops) {
+			dao_err("Failed to alloc dma ops array for lcore %u", rte_lcore_id());
+			rte_free(state->ops_mem);
+			state->ops_mem = NULL;
+			goto err_free;
+		}
+
+		/* Precompute all op pointers */
+		op_addr = (uintptr_t)state->ops_mem;
+		for (j = 0; j < ring_sz; j++) {
+			state->dma_ops[j] = (struct rte_dma_op *)op_addr;
+			op_addr += elem_sz;
+		}
+		/* Duplicate pointers for wrap-around free access */
+		for (j = 0; j < ring_sz; j++)
+			state->dma_ops[ring_sz + j] = state->dma_ops[j];
+
+		state->ops_head = ring_sz; /* Start with full ring */
+		state->ops_tail = 0;
+		state->ops_mask = ring_sz - 1;
+
+		dao_dbg("Lcore=%u vchan=%u dev2mem dma_ops=%p ring_sz=%u elem_sz=%u",
+			rte_lcore_id(), vchan_idx + i, state->dma_ops, ring_sz, elem_sz);
+	}
+	vchan_info->nb_dev2mem += nb_vchans;
+
+	dao_dbg("Lcore=%u, dev2mem_id=%d, vchans=%u, flush_thr=%d, nb_ops=%u", rte_lcore_id(),
+		dma_devid, nb_vchans, flush_thr, nb_ops);
+	return 0;
+
+err_free:
+	/* Free any allocations made before the failure */
+	while (i > 0) {
+		i--;
+		state = &vchan_info->dev2mem[vchan_idx + i];
+		rte_free(state->dma_ops);
+		state->dma_ops = NULL;
+		rte_free(state->ops_mem);
+		state->ops_mem = NULL;
+	}
+	return -ENOMEM;
+}
+
+int
 dao_dma_lcore_mem2dev_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr)
 {
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
@@ -419,16 +527,9 @@ dao_dma_flush_submit_ops(void)
 
 	for (i = 0; i < nb_dev2mem; i++) {
 		state = &vchan_info->dev2mem[i];
-
-		dao_dma_flush(state, DAO_DMA_MAX_POINTER);
-
-		if (likely(state->pend_ops)) {
-			rte_dma_submit(state->devid, state->vchan);
-			state->pend_ops = 0;
-			if (dao_dma_has_stats_feature())
-				state->dbells++;
-		}
-		dao_dma_check_meta_compl(state, 0 /* ATOMIC update */);
+		if (i + 1 < nb_dev2mem)
+			rte_prefetch0(&vchan_info->dev2mem[i + 1]);
+		dao_dma_check_meta_compl_ops(state, 1 /* ATOMIC update */);
 	}
 
 	for (i = 0; i < nb_mem2dev; i++) {

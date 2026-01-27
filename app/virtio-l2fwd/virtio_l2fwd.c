@@ -141,8 +141,8 @@ static int promiscuous_on;
 
 static bool enable_l4_csum; /**< Enable IPv4 checksum offload feature */
 static int disable_tx_mseg; /**< disable default ethdev Tx multi-seg offload */
-static int per_port_pool; /**< Use separate buffer pools per port; disabled */
-			  /**< by default */
+static int per_port_pool;   /**< Use separate buffer pools per port; disabled */
+			    /**< by default */
 
 static volatile bool force_quit;
 
@@ -187,22 +187,27 @@ static struct vlan_filter_head virtio_dev_vlan_filters[DAO_VIRTIO_DEV_MAX];
 bool drop_rule_added;
 
 static struct rte_eth_conf port_conf = {
-	.rxmode = {
-		.mq_mode = RTE_ETH_MQ_RX_RSS,
-	},
-	.rx_adv_conf = {
-		.rss_conf = {
-			.rss_key = NULL,
-			.rss_hf = RTE_ETH_RSS_IP,
+	.rxmode =
+		{
+			.mq_mode = RTE_ETH_MQ_RX_RSS,
 		},
-	},
-	.txmode = {
-		.mq_mode = RTE_ETH_MQ_TX_NONE,
-		.offloads = RTE_ETH_TX_OFFLOAD_MULTI_SEGS,
-	},
-	.intr_conf = {
-		.lsc = 1,
-	},
+	.rx_adv_conf =
+		{
+			.rss_conf =
+				{
+					.rss_key = NULL,
+					.rss_hf = RTE_ETH_RSS_IP,
+				},
+		},
+	.txmode =
+		{
+			.mq_mode = RTE_ETH_MQ_TX_NONE,
+			.offloads = RTE_ETH_TX_OFFLOAD_MULTI_SEGS,
+		},
+	.intr_conf =
+		{
+			.lsc = 1,
+		},
 };
 
 static int stats_enable;
@@ -402,7 +407,7 @@ init_lcore_virtio_rx(void)
 
 			lcore_conf[lcore].virtio_rx[nb_virtio_rx].virtio_devid = virtio_devid;
 			snprintf(lcore_conf[lcore].virtio_rx[nb_virtio_rx].node_name,
-				 RTE_NODE_NAMESIZE, "l2_virtio_rx-%u", virtio_devid);
+				 RTE_NODE_NAMESIZE, "l2_virtio_rx_ops-%u", virtio_devid);
 			lcore_conf[lcore].nb_virtio_rx++;
 		}
 	}
@@ -1089,7 +1094,7 @@ check_all_ports_link_status(void)
 		if (force_quit)
 			return;
 		all_ports_up = 1;
-		RTE_ETH_FOREACH_DEV(portid) {
+		RTE_ETH_FOREACH_DEV (portid) {
 			if (force_quit)
 				return;
 			if (!is_ethdev_enabled(portid))
@@ -1292,7 +1297,8 @@ graph_main_loop(void *conf)
 	}
 
 	/* Set per lcore DMA device id */
-	rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
+	rc = dao_dma_lcore_dev2mem_set_ops(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr,
+					   VCHAN_NB_DESC);
 	rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr,
 					    VCHAN_NB_DESC);
 	for (i = 0; i < qconf->nb_vchans; i++)
@@ -1728,7 +1734,7 @@ vlan_default_drop_rule_del(uint16_t portid, struct vlan_filter_head *list)
 	int rc = 0;
 
 	/* if no vlan filter is present then delete drop rule too */
-	TAILQ_FOREACH(node, list, next) {
+	TAILQ_FOREACH (node, list, next) {
 		if (node->vlan_tci == 0) {
 			drop_node = node;
 			flow = node->flow;
@@ -1921,7 +1927,7 @@ vlan_add(uint16_t virtio_devid, uint16_t vlan_tci)
 	int rc = 0;
 
 	list = &virtio_dev_vlan_filters[virtio_devid];
-	TAILQ_FOREACH(node, list, next) {
+	TAILQ_FOREACH (node, list, next) {
 		if (node->vlan_tci == vlan_tci) {
 			flow_found = true;
 			break;
@@ -2034,7 +2040,7 @@ vlan_del(uint16_t virtio_devid, uint16_t vlan_tci)
 	int rc = 0;
 
 	list = &virtio_dev_vlan_filters[virtio_devid];
-	TAILQ_FOREACH(node, list, next) {
+	TAILQ_FOREACH (node, list, next) {
 		if (node->vlan_tci == vlan_tci) {
 			flow = node->flow;
 			flow_found = true;
@@ -2189,8 +2195,8 @@ virtio_to_ethdev_rss_offloads(uint64_t virtio_hash_types)
 	uint64_t rss_offloads = 0;
 
 	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IPV4)
-		rss_offloads |= RTE_ETH_RSS_IPV4 | RTE_ETH_RSS_FRAG_IPV4 |
-			RTE_ETH_RSS_NONFRAG_IPV4_OTHER;
+		rss_offloads |=
+			RTE_ETH_RSS_IPV4 | RTE_ETH_RSS_FRAG_IPV4 | RTE_ETH_RSS_NONFRAG_IPV4_OTHER;
 
 	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCPV4)
 		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV4_TCP;
@@ -2199,8 +2205,8 @@ virtio_to_ethdev_rss_offloads(uint64_t virtio_hash_types)
 		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV4_UDP;
 
 	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_IPV6)
-		rss_offloads |= RTE_ETH_RSS_IPV6 | RTE_ETH_RSS_FRAG_IPV6 |
-			RTE_ETH_RSS_NONFRAG_IPV6_OTHER;
+		rss_offloads |=
+			RTE_ETH_RSS_IPV6 | RTE_ETH_RSS_FRAG_IPV6 | RTE_ETH_RSS_NONFRAG_IPV6_OTHER;
 
 	if (virtio_hash_types & VIRTIO_NET_HASH_TYPE_TCPV6)
 		rss_offloads |= RTE_ETH_RSS_NONFRAG_IPV6_TCP;
@@ -2257,7 +2263,7 @@ rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 
 	if (eth_dev_info[portid].hash_key_size == rss->hash_key_length) {
 		local_port_conf->rx_adv_conf.rss_conf.rss_hf =
-				virtio_to_ethdev_rss_offloads(rss->hash_types);
+			virtio_to_ethdev_rss_offloads(rss->hash_types);
 		local_port_conf->rx_adv_conf.rss_conf.rss_key = rss->hash_key_data;
 		local_port_conf->rx_adv_conf.rss_conf.rss_key_len = rss->hash_key_length;
 	} else {
@@ -2288,8 +2294,9 @@ rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 				" mismatched reta table size (ethdev=%u, virtio=%u)\n",
 				eth_dev_info[portid].reta_size, reta_size);
 			APP_ERR("Please relaunch application with ethdev '%s' reta_size devarg"
-			       " as %u.", rte_dev_name(eth_dev_info[portid].device),
-			       virtio_netdev_reta_sz[virtio_devid]);
+				" as %u.",
+				rte_dev_name(eth_dev_info[portid].device),
+				virtio_netdev_reta_sz[virtio_devid]);
 			return -ENOTSUP;
 		}
 		next_q = rss->indirection_table[i] + 1;
@@ -2309,8 +2316,7 @@ rss_reta_configure(uint16_t virtio_devid, struct virtio_net_ctrl_rss *rss)
 
 	rc = rte_eth_dev_rss_reta_update(portid, reta_conf, eth_dev_info[portid].reta_size);
 	if (rc) {
-		APP_ERR("Failed to update RSS reta table for portid=%d, rc=%d\n",
-			portid, rc);
+		APP_ERR("Failed to update RSS reta table for portid=%d, rc=%d\n", portid, rc);
 		return rc;
 	}
 
@@ -2476,7 +2482,7 @@ setup_mempools(void)
 
 	APP_INFO("Setting up mempools with %d mbufs\n", pktmbuf_count);
 	/* Initialize all ports. 8< */
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		/* Skip ports that are not enabled */
 		if (!is_ethdev_enabled(portid)) {
 			APP_INFO("Skipping disabled port %d\n", portid);
@@ -2529,7 +2535,7 @@ setup_eth_devices(void)
 
 	APP_INFO("\n");
 
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		const char *edge_name = name;
 		uint16_t pem_id = get_pem_id_of_vf(portid);
 
@@ -2691,7 +2697,7 @@ setup_eth_devices(void)
 
 	APP_INFO("\n");
 	/* Dump L2FWD map */
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		if (!is_ethdev_enabled(portid))
 			continue;
 		if (eth_map[portid].type == ETHDEV_NEXT)
@@ -2736,6 +2742,10 @@ setup_dma_devices(void)
 		memset(&dma_conf, 0, sizeof(dma_conf));
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
+		/* Enable ops flag for worker DMA devices (skip first 2 pairs for control) */
+		if (cnt >= 4)
+			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
+
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
 			rte_exit(EXIT_FAILURE, "Error with rte_dma_configure()\n");
 
@@ -2778,6 +2788,7 @@ setup_dma_devices(void)
 
 		dev2mem_ids[dev2mem_cnt++] = dma_devid;
 		dma_devid++;
+		cnt++;
 
 		/* Setup Outbound dma device with one vchan per virtio netdev */
 		dma_devid = rte_dma_next_dev(dma_devid);
@@ -2790,12 +2801,13 @@ setup_dma_devices(void)
 		memset(&dma_conf, 0, sizeof(dma_conf));
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
-		if (cnt >= 2)
+		/* Enable ops flag for worker DMA devices (skip first 2 pairs for control) */
+		if (cnt >= 4)
 			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
 
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
 			rte_exit(EXIT_FAILURE, "Error with rte_dma_configure()\n");
-		cnt++;
+
 		mask = virtio_mask_ena[0];
 		base = 0;
 		for (vchan = 0; vchan < nb_virtio_netdevs; vchan++) {
@@ -2845,6 +2857,7 @@ setup_dma_devices(void)
 			rte_exit(EXIT_FAILURE, "Error with rte_dma_start()\n");
 		mem2dev_ids[mem2dev_cnt++] = dma_devid;
 		dma_devid++;
+		cnt++;
 	}
 
 	if (!dev2mem_cnt || !mem2dev_cnt)
@@ -3009,7 +3022,7 @@ setup_virtio_devices(void)
 
 		/* Clone virtio rx and tx nodes for this ethdev */
 		snprintf(name, sizeof(name), "%u", virtio_devid);
-		node_reg = l2_virtio_rx_node_get();
+		node_reg = l2_virtio_rx_ops_node_get();
 		virtio_rx_nodes[virtio_devid] = rte_node_clone(node_reg->id, name);
 
 		node_reg = l2_virtio_tx_ops_node_get();
@@ -3097,7 +3110,8 @@ release_dma_devices(void)
 	int rc;
 
 	/* stop DMA devices */
-	RTE_DMA_FOREACH_DEV(dma_devid) {
+	RTE_DMA_FOREACH_DEV(dma_devid)
+	{
 		rc = rte_dma_stop(dma_devid);
 		if (rc)
 			APP_ERR("Failed to stop dma dev %u: %s\n", dma_devid, rte_strerror(-rc));
@@ -3115,7 +3129,7 @@ release_eth_devices(void)
 	int rc;
 
 	/* Stop ports */
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		if (!is_ethdev_enabled(portid))
 			continue;
 		APP_INFO("Closing port %d...", portid);
@@ -3225,7 +3239,7 @@ main(int argc, char **argv)
 		rte_exit(EXIT_FAILURE, "rte_rcu_qsbr_init(): failed to init, rc=%d\n", rc);
 
 	/* Start ports */
-	RTE_ETH_FOREACH_DEV(portid) {
+	RTE_ETH_FOREACH_DEV (portid) {
 		if (!is_ethdev_enabled(portid))
 			continue;
 
@@ -3381,7 +3395,7 @@ main(int argc, char **argv)
 	APP_INFO("\n");
 
 	if (per_port_pool) {
-		RTE_ETH_FOREACH_DEV(portid) {
+		RTE_ETH_FOREACH_DEV (portid) {
 			if (!is_ethdev_enabled(portid))
 				continue;
 

@@ -12,35 +12,11 @@
 #include "virtio_net_priv.h"
 
 dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[VIRTIO_NET_DEQ_OFFLOAD_LAST << 1] = {
-#define R(name, flags)[flags] = virtio_net_deq_##name,
+#define R(name, flags) [flags] = virtio_net_deq_##name,
 	VIRTIO_NET_DEQ_FASTPATH_MODES
 #undef R
 };
 
-#define TX_OFFLOAD_SHIFT 52
-
-#define TX_IPV4_UDP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_UDP_CKSUM)
-#define TX_IPV4_TCP_OFFLOAD (RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM)
-
-#define TX_IPV4_TCP_GSO_OFFLOAD                                                                    \
-	(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV4 | RTE_MBUF_F_TX_TCP_CKSUM |                   \
-	 RTE_MBUF_F_TX_TCP_SEG)
-
-#define TX_IPV6_TCP_GSO_OFFLOAD                                                                    \
-	(RTE_MBUF_F_TX_IP_CKSUM | RTE_MBUF_F_TX_IPV6 | RTE_MBUF_F_TX_TCP_CKSUM |                   \
-	 RTE_MBUF_F_TX_TCP_SEG)
-
-static __rte_always_inline void
-free_mbuf_seg_chain(struct rte_mbuf *mbuf)
-{
-	struct rte_mbuf *mb = mbuf, *mb_next;
-
-	while (mb) {
-		mb_next = mb->next;
-		rte_pktmbuf_free_seg(mb);
-		mb = mb_next;
-	}
-}
 void
 virtio_net_flush_deq(struct virtio_net_queue *q)
 {
@@ -71,223 +47,6 @@ virtio_net_flush_deq(struct virtio_net_queue *q)
 	nb_avail = sd_mbuf_off - last_off;
 	if (nb_avail)
 		rte_pktmbuf_free_bulk(&q->mbuf_arr[DESC_OFF(last_off)], nb_avail);
-}
-
-static __rte_always_inline uint16_t
-post_process_pkts(struct virtio_net_queue *q, struct rte_mbuf **d_mbufs, uint16_t *nb_mbufs,
-		  const uint16_t flags)
-{
-	const uint64_t rearm_data = 0x100010000ULL | RTE_PKTMBUF_HEADROOM;
-	struct rte_mbuf **mbuf_arr, *mbuf0, *mbuf1, *mbuf2, *mbuf3;
-	uintptr_t desc_base = (uintptr_t)q->sd_desc_base;
-	uint16_t last_off = DESC_OFF(q->last_off), off;
-	uint64x2_t desc0, desc1, desc2, desc3, doff;
-	const uint16_t vhdr_sz = q->virtio_hdr_sz;
-	uint64x2_t mbuf01, mbuf23, hdr01, hdr23;
-	uint32x4_t csum_off, tx_offload, olflags;
-	uint32x4_t hdr0, hdr1, hdr2, hdr3;
-	uint16_t total_mbufs = *nb_mbufs;
-	uint16_t data_off = q->data_off;
-	uint16_t q_sz = q->q_sz, segs;
-	uint64x2_t flags01, flags23;
-	uint32x4_t d0, d1, len_mask;
-	struct virtio_net_hdr *hdr;
-	uint64_t ol_flags, dflags;
-	int count, i, num = 0;
-	uint16_t l3_len = 0;
-
-	doff = vdupq_n_u64(data_off);
-	mbuf_arr = q->mbuf_arr;
-	count = total_mbufs & ~(0x3u);
-	for (i = 0; i < count; i += 4) {
-		const uint8x16_t tbl = {
-			0, 0, 0, 0, 0, TX_IPV4_UDP_OFFLOAD >> TX_OFFLOAD_SHIFT, 0, 0, 0, 0,
-			0, 0, 0, 0, 0, TX_IPV4_TCP_OFFLOAD >> TX_OFFLOAD_SHIFT,
-		};
-
-		if (unlikely(last_off + 3 >= q_sz))
-			break;
-
-		desc0 = vld1q_u64(DESC_PTR_OFF(desc_base, last_off, 0));
-		desc1 = vld1q_u64(DESC_PTR_OFF(desc_base, last_off + 1, 0));
-		desc2 = vld1q_u64(DESC_PTR_OFF(desc_base, last_off + 2, 0));
-		desc3 = vld1q_u64(DESC_PTR_OFF(desc_base, last_off + 3, 0));
-
-		flags01 = vzip2q_u64(desc0, desc1);
-		flags23 = vzip2q_u64(desc2, desc3);
-
-		flags01 = vtrn2q_u32(flags01, flags23);
-		const uint64x2_t xflags = {
-			0x0001000000010000,
-			0x0001000000010000,
-		};
-		flags01 = vandq_u64(flags01, xflags);
-		flags01 = vceqzq_u64(flags01);
-		/* If VRING_DESC_F_NEXT is set in any then process remaining mbufs in scalar way */
-		if (unlikely(!vgetq_lane_u64(flags01, 0) || !vgetq_lane_u64(flags01, 1)))
-			break;
-
-		/* Prefetch next line */
-		rte_prefetch0(DESC_PTR_OFF(desc_base, last_off + 16, 0));
-		rte_prefetch0(mbuf_arr + last_off + 12);
-		if (last_off + 11 < q_sz) {
-			rte_prefetch0((uint8_t *)mbuf_arr[last_off + 8] + data_off);
-			rte_prefetch0((uint8_t *)mbuf_arr[last_off + 9] + data_off);
-			rte_prefetch0((uint8_t *)mbuf_arr[last_off + 10] + data_off);
-			rte_prefetch0((uint8_t *)mbuf_arr[last_off + 11] + data_off);
-		}
-
-		if (!(flags & VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM))
-			goto skip_csum;
-
-		mbuf01 = vld1q_u64((uint64_t *)&mbuf_arr[last_off]);
-		mbuf23 = vld1q_u64((uint64_t *)&mbuf_arr[last_off + 2]);
-
-		/* Move mbuf to data offset */
-		hdr01 = vaddq_u64(mbuf01, doff);
-		hdr23 = vaddq_u64(mbuf23, doff);
-
-		/* Load virtio Net headers */
-		hdr0 = vld1q_u32((void *)vgetq_lane_u64(hdr01, 0));
-		hdr1 = vld1q_u32((void *)vgetq_lane_u64(hdr01, 1));
-		hdr2 = vld1q_u32((void *)vgetq_lane_u64(hdr23, 0));
-		hdr3 = vld1q_u32((void *)vgetq_lane_u64(hdr23, 1));
-
-		/* If at least one buffer has gso type set, go to scalar processing */
-		if (flags & VIRTIO_NET_DEQ_OFFLOAD_GSO) {
-			if ((hdr0[0] & 0XFF00) || (hdr1[0] & 0XFF00) || (hdr2[0] & 0XFF00) ||
-			    (hdr3[0] & 0XFF00))
-				break;
-		}
-		/* Combine 4 packet headers into single 128 bit */
-		d0 = vtrn1q_u32(hdr0, hdr1);
-		d1 = vtrn1q_u32(hdr2, hdr3);
-
-		/* Retrieve csum_offset values and get ol_flags based on csum offset
-		 * For UDP, csum offset will be 6, and for TCP, it will be 0x10.
-		 * Subtract csum offset with -1 for table lookup
-		 */
-		csum_off = vzip2q_u32(d0, d1);
-		csum_off = vandq_u32(csum_off, vdupq_n_u32(0x0000FFFF));
-		csum_off = vsubq_u32(csum_off, vdupq_n_u32(0x00000001));
-		olflags = vqtbl1q_u8(tbl, csum_off);
-
-		/* Extract csum start info from packets */
-		d0 = vtrn2q_u32(hdr0, hdr1);
-		d1 = vtrn2q_u32(hdr2, hdr3);
-		tx_offload = vzip1q_u32(d0, d1);
-		tx_offload = vshrq_n_u32(tx_offload, 16);
-
-		/* l2_len = csum_start - 20. Update BIT0_BIT6 */
-		tx_offload = vsubq_u32(tx_offload, vdupq_n_u32(20));
-		len_mask = vcltq_u32(tx_offload, vdupq_n_u32(0x0000003F));
-		tx_offload = vandq_u32(tx_offload, len_mask);
-
-		/* Assuming IPv4 packets with 20 bytes header length.
-		 * Update len value from BIT_7 to BIT_15
-		 */
-		tx_offload = vorrq_u32(tx_offload, vdupq_n_u32(0x00000A00));
-
-		mbuf0 = (struct rte_mbuf *)vgetq_lane_u64(mbuf01, 0);
-		mbuf1 = (struct rte_mbuf *)vgetq_lane_u64(mbuf01, 1);
-		mbuf2 = (struct rte_mbuf *)vgetq_lane_u64(mbuf23, 0);
-		mbuf3 = (struct rte_mbuf *)vgetq_lane_u64(mbuf23, 1);
-
-		mbuf0->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 0)) << TX_OFFLOAD_SHIFT;
-		mbuf1->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 1)) << TX_OFFLOAD_SHIFT;
-		mbuf2->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 2)) << TX_OFFLOAD_SHIFT;
-		mbuf3->ol_flags = ((uint64_t)vgetq_lane_u32(olflags, 3)) << TX_OFFLOAD_SHIFT;
-
-		mbuf0->tx_offload = vgetq_lane_u32(tx_offload, 0);
-		mbuf1->tx_offload = vgetq_lane_u32(tx_offload, 1);
-		mbuf2->tx_offload = vgetq_lane_u32(tx_offload, 2);
-		mbuf3->tx_offload = vgetq_lane_u32(tx_offload, 3);
-
-	skip_csum:
-		memcpy(d_mbufs + num, &mbuf_arr[last_off], 32);
-		num += 4;
-		last_off = (last_off + 4) & (q_sz - 1);
-	}
-
-	count = i;
-	segs = 0;
-	while (i < total_mbufs) {
-		rte_prefetch0((uint8_t *)mbuf_arr[last_off + 1] + data_off);
-		mbuf0 = mbuf_arr[last_off];
-
-		dflags = (*DESC_PTR_OFF(desc_base, last_off, 8) >> 48) & VRING_DESC_F_NEXT;
-
-		mbuf1 = mbuf0;
-		off = last_off;
-
-		/* Calculate additional segments required for mbuf-chain */
-		while (unlikely(dflags)) {
-			off = (off + 1) & (q_sz - 1);
-			dflags = (*DESC_PTR_OFF(desc_base, off, 8) >> 48) & VRING_DESC_F_NEXT;
-			segs++;
-		}
-
-		if (unlikely((i + segs >= total_mbufs)))
-			break;
-
-		/* Create mbuf chain from descriptors */
-		while (unlikely(segs)) {
-			/* Internal mbufs can also have chain based on descriptor length vs
-			 * mbuf length variation.
-			 */
-			while (mbuf1->next)
-				mbuf1 = mbuf1->next;
-
-			last_off = (last_off + 1) & (q_sz - 1);
-			mbuf2 = mbuf_arr[last_off];
-			mbuf1->next = mbuf2;
-			mbuf2->data_len += vhdr_sz;
-			mbuf2->pkt_len += vhdr_sz;
-			mbuf0->nb_segs += mbuf2->nb_segs;
-			mbuf0->pkt_len += mbuf2->pkt_len;
-			*((uint64_t *)&mbuf2->rearm_data) = rearm_data;
-			mbuf1 = mbuf2;
-			i++;
-			segs--;
-		}
-
-		d_mbufs[num++] = mbuf0;
-
-		if (flags & VIRTIO_NET_DEQ_OFFLOAD_CHECKSUM) {
-			hdr = (struct virtio_net_hdr *)((uintptr_t)mbuf0 + data_off);
-			ol_flags = 0;
-			if (hdr->csum_start && hdr->csum_offset) {
-				ol_flags = (hdr->csum_offset == 6) ? TX_IPV4_UDP_OFFLOAD :
-								     TX_IPV4_TCP_OFFLOAD;
-				l3_len = sizeof(struct rte_ipv4_hdr);
-				if (flags & VIRTIO_NET_DEQ_OFFLOAD_GSO) {
-					if (hdr->gso_type != VIRTIO_NET_HDR_GSO_NONE) {
-						mbuf0->tso_segsz = hdr->gso_size;
-						mbuf0->l4_len = hdr->hdr_len - hdr->csum_start;
-
-						if (hdr->gso_type == VIRTIO_NET_HDR_GSO_TCPV4) {
-							ol_flags = TX_IPV4_TCP_GSO_OFFLOAD;
-						} else if (hdr->gso_type ==
-							   VIRTIO_NET_HDR_GSO_TCPV6) {
-							l3_len = sizeof(struct rte_ipv6_hdr);
-							ol_flags = TX_IPV6_TCP_GSO_OFFLOAD;
-						}
-					}
-				}
-				mbuf0->l3_len = l3_len;
-				mbuf0->l2_len = hdr->csum_start - l3_len;
-				mbuf0->ol_flags |= ol_flags;
-			}
-		}
-		last_off = (last_off + 1) & (q_sz - 1);
-		i++;
-		count = i;
-	}
-	/* Return consumed descriptor mbufs to update last_off,
-	   And num will hold number of copied mbufs.
-	 */
-	*nb_mbufs = count;
-	return num;
 }
 
 static __rte_always_inline uint16_t
@@ -344,20 +103,16 @@ fetch_host_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *dev2mem,
 
 	/* Start DMA of mbuf data */
 	count = nb_mbufs & ~(0x3u);
-	for (i = 0; i < count; ) {
-		const uint64x2_t hoff = { 0, vhdr_sz };
+	for (i = 0; i < count;) {
+		const uint64x2_t hoff = {0, vhdr_sz};
 		uint64x2_t doff = vdupq_n_u64(data_off);
 		uint64x2_t f0, f1, f2, f3;
 		const uint64x2_t rearm = {rearm_data + vhdr_sz, 0};
 		const uint8x16_t shuf_msk = {
-			0xFF, 0xFF,
-			0xFF, 0xFF,
-			8, 9,
-			0xFF, 0xFF,
-			8, 9,
-			0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+			0xFF, 0xFF, 0xFF, 0xFF, 8,    9,    0xFF, 0xFF,
+			8,    9,    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
 		};
-		const uint32x4_t vbuf_len = { buf_len, 0, buf_len, 0};
+		const uint32x4_t vbuf_len = {buf_len, 0, buf_len, 0};
 		const uint64x2_t xflags = {
 			~(VIRT_PACKED_RING_DESC_F_USED),
 			~(VIRT_PACKED_RING_DESC_F_USED),

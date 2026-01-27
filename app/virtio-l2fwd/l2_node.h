@@ -83,6 +83,7 @@ l2_mbuf_tx_priv1(struct rte_mbuf *m)
 DAO_STATIC_ASSERT(sizeof(struct l2_mbuf_tx_priv1) <= 4);
 
 struct rte_node_register *l2_virtio_rx_node_get(void);
+struct rte_node_register *l2_virtio_rx_ops_node_get(void);
 struct rte_node_register *l2_virtio_tx_node_get(void);
 struct rte_node_register *l2_virtio_tx_ops_node_get(void);
 struct rte_node_register *l2_ethdev_rx_node_get(void);

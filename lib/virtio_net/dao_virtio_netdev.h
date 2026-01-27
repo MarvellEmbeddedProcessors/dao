@@ -114,6 +114,8 @@ typedef int (*dao_net_desc_manage_fn_t)(uint16_t devid, uint16_t qp_count);
 
 /** Array of dequeue functions */
 extern dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[];
+/** Array of dequeue functions (DMA ops mode) */
+extern dao_virtio_net_deq_fn_t dao_virtio_net_deq_ops_fns[];
 /** Array of enqueue functions */
 extern dao_virtio_net_enq_fn_t dao_virtio_net_enq_fns[];
 /** Array of enqueue functions (DMA ops mode) */
@@ -321,6 +323,42 @@ dao_virtio_net_dequeue_burst(uint16_t devid, uint16_t qid, struct rte_mbuf **mbu
 		return 0;
 
 	deq_fn = dao_virtio_net_deq_fns[netdev->deq_fn_id];
+
+	return (*deq_fn)(q, mbufs, nb_mbufs);
+}
+
+/**
+ * Virtio netdev receive from Host (DMA ops mode)
+ *
+ * Uses DMA ops API for better batching performance.
+ *
+ * @param devid
+ *    Virtio net device ID.
+ * @param qid
+ *    Virtio queue id in range of { 1, 3, 5, ... N + 1} as they are host Tx queue id's.
+ * @param mbufs
+ *    Array to store mbuf pointers of received pkts.
+ * @param nb_mbufs
+ *    Size of mbuf array.
+ * @return
+ *    Number of mbufs received from host.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_net_dequeue_burst_ops(uint16_t devid, uint16_t qid, struct rte_mbuf **mbufs,
+				 uint16_t nb_mbufs)
+{
+	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
+	dao_virtio_net_deq_fn_t deq_fn;
+	void *q = netdev->qs[qid];
+
+	if (unlikely(!q))
+		return 0;
+
+	rte_prefetch0(q);
+	rte_prefetch0(RTE_PTR_ADD(q, RTE_CACHE_LINE_SIZE * 2));
+	rte_prefetch0(RTE_PTR_ADD(q, RTE_CACHE_LINE_SIZE * 6));
+
+	deq_fn = dao_virtio_net_deq_ops_fns[netdev->deq_fn_id];
 
 	return (*deq_fn)(q, mbufs, nb_mbufs);
 }

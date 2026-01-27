@@ -189,6 +189,23 @@ int dao_dma_stats_get(uint16_t lcore_id, struct dao_dma_stats *stats);
 int dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr);
 
 /**
+ * Assign dev2mem dma device to an lcore with ops support.
+ *
+ * @param dma_devid
+ *   DMA device id to assign to lcore.
+ * @param nb_vchans
+ *   Number of vchans available in DMA device
+ * @param flush_thr
+ *   Flush threshold.
+ * @param nb_ops
+ *   Number of DMA operations per vchan.
+ * @return
+ *   Zero on success.
+ */
+int dao_dma_lcore_dev2mem_set_ops(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr,
+				  uint16_t nb_ops);
+
+/**
  * Assign mem2dev dma device to an lcore.
  *
  * @param dma_devid
