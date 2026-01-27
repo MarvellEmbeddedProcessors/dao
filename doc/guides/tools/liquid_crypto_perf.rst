@@ -210,6 +210,17 @@ The following are the application-specific command-line options:
 	Maximum time (in minutes) to drain remaining operations after enqueue loop completes.
 	Default: ``30`` minutes.
 
+* ``--throughput-limit <n>``
+
+	Specify the total throughput limit in Gbps (Gigabits per second). This limit is
+	automatically divided equally among all worker threads. When set to a non-zero value,
+	the application will rate-limit its operations to stay within the specified throughput.
+	Setting this to ``0`` means unlimited throughput (no rate limiting). Replace ``<n>``
+	with the desired throughput limit (e.g., 10, 25, 50). This option is useful for
+	controlled performance testing and simulating real-world bandwidth constraints.
+
+	Default: ``0`` (unlimited)
+
 Examples
 --------
 

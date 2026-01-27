@@ -31,6 +31,7 @@
 #define LCPERF_ECC_CURVE         ("ecc-curve")
 #define LCPERF_ENQ_TIMEOUT       ("enq-timeout")
 #define LCPERF_DRAIN_TIMEOUT     ("drain-timeout")
+#define LCPERF_THROUGHPUT_LIMIT  ("throughput-limit")
 
 #define MAX_LIST 1
 
@@ -123,6 +124,9 @@ struct lcperf_options {
 	uint32_t enq_timeout;
 	/** Drain timeout in minutes */
 	uint32_t drain_timeout;
+
+	/** Total throughput limit in Gbps, divided among workers (0 = unlimited) */
+	double throughput_limit_gbps;
 };
 
 void lcperf_options_default(struct lcperf_options *options);

@@ -277,6 +277,8 @@ lcperf_throughput_test_runner(void *test_ctx)
 	uint32_t lcore = rte_lcore_id();
 	struct lcperf_test_data *tdata;
 	bool timeout_occurred = false;
+	double tsc_per_op = 0.0;
+	bool rate_limit_enabled;
 	uint64_t remaining_ops;
 	uint64_t total_ops, j;
 	struct dao_lc_res res;
@@ -309,6 +311,34 @@ lcperf_throughput_test_runner(void *test_ctx)
 	dev_id = ctx->dev_id;
 	qp_id = ctx->qp_id;
 
+	/* Calculate rate limiting parameters if enabled */
+	rate_limit_enabled = (ctx->options->throughput_limit_gbps > 0);
+	if (rate_limit_enabled) {
+		/*
+		 * Calculate per-worker throughput limit from total limit:
+		 * per_worker_gbps = total_limit_gbps / num_workers
+		 *
+		 * Calculate target ops per second from per-worker Gbps limit:
+		 * target_ops_per_sec = (per_worker_gbps * 1e9) / (buffer_size_bytes * 8)
+		 *
+		 * Then calculate TSC cycles per operation:
+		 * tsc_per_op = tsc_hz / target_ops_per_sec
+		 */
+		double per_worker_gbps, target_ops_per_sec;
+		uint16_t num_workers;
+
+		num_workers = rte_lcore_count() - 1; /* Exclude main lcore */
+		if (num_workers == 0) {
+			RTE_LOG(WARNING, USER1,
+				"Throughput limit specified but no worker lcores detected.\n");
+			return -1;
+		}
+
+		per_worker_gbps = ctx->options->throughput_limit_gbps / num_workers;
+		target_ops_per_sec = (per_worker_gbps * 1e9) / (ctx->options->test_buffer_size * 8);
+		tsc_per_op = (double)rte_get_tsc_hz() / target_ops_per_sec;
+	}
+
 	time_limit_tsc = rte_get_tsc_hz() * ctx->options->enq_timeout * 60;
 	tsc_start = rte_rdtsc_precise();
 
@@ -333,6 +363,14 @@ lcperf_throughput_test_runner(void *test_ctx)
 
 		ops_enqd_total += ops_enqd;
 		total_ops_enqd_failed += ops_enqd_failed;
+
+		/* Rate limiting: wait if we're ahead of schedule */
+		if (rate_limit_enabled) {
+			uint64_t target_tsc = tsc_start + (uint64_t)(ops_enqd_total * tsc_per_op);
+
+			while (rte_rdtsc_precise() < target_tsc)
+				rte_pause();
+		}
 
 		/* Check if time limit has been reached */
 		if ((ops_enqd_failed > 0) && ((rte_rdtsc_precise() - tsc_start) > time_limit_tsc)) {

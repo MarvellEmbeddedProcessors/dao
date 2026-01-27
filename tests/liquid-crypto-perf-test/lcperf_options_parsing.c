@@ -2,7 +2,9 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <errno.h>
 #include <getopt.h>
+#include <math.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -45,6 +47,7 @@ usage(char *progname)
 	       "set ECC curve type\n"
 	       " --enq-timeout N : set enqueue timeout in minutes (default %d minutes)\n"
 	       " --drain-timeout N : set drain timeout in minutes (default %d minutes)\n"
+	       " --throughput-limit N : limit total throughput to N Gbps, divided among workers (0 = unlimited)\n"
 	       " -h: prints this help\n"
 	       "\n"
 	       "Example: %s --enable-ooo --total-ops 1000000 --ptest throughput\n",
@@ -458,6 +461,49 @@ parse_drain_timeout(struct lcperf_options *opts, const char *arg)
 	return 0;
 }
 
+static int
+parse_double(double *value, const char *arg)
+{
+	char *end = NULL;
+	double n;
+
+	errno = 0;
+	n = strtod(arg, &end);
+
+	if ((arg[0] == '\0') || (end == NULL) || (*end != '\0'))
+		return -1;
+
+	/* Check for overflow/underflow */
+	if (errno == ERANGE)
+		return -1;
+
+	/* Reject non-finite values (NaN, Inf) */
+	if (!isfinite(n))
+		return -1;
+
+	*value = n;
+
+	return 0;
+}
+
+static int
+parse_throughput_limit(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_double(&opts->throughput_limit_gbps, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse throughput limit\n");
+		return -1;
+	}
+
+	if (opts->throughput_limit_gbps < 0) {
+		RTE_LOG(ERR, USER1, "Throughput limit cannot be negative\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -490,6 +536,8 @@ lcperf_options_default(struct lcperf_options *opts)
 
 	opts->enq_timeout = ENQ_TIMEOUT;
 	opts->drain_timeout = DRAIN_TIMEOUT;
+
+	opts->throughput_limit_gbps = 0.0; /* 0 = unlimited */
 }
 
 typedef int (*option_parser_t)(struct lcperf_options *opts, const char *arg);
@@ -518,6 +566,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_ECC_CURVE, required_argument, 0, 0},
 				 {LCPERF_ENQ_TIMEOUT, required_argument, 0, 0},
 				 {LCPERF_DRAIN_TIMEOUT, required_argument, 0, 0},
+				 {LCPERF_THROUGHPUT_LIMIT, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -543,6 +592,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_ECC_CURVE, parse_ecc_curve},
 		{LCPERF_ENQ_TIMEOUT, parse_enq_timeout},
 		{LCPERF_DRAIN_TIMEOUT, parse_drain_timeout},
+		{LCPERF_THROUGHPUT_LIMIT, parse_throughput_limit},
 	};
 	unsigned int i;
 
@@ -596,6 +646,13 @@ lcperf_options_dump(struct lcperf_options *opts)
 	printf("# buffer size: %u bytes\n", opts->test_buffer_size);
 	printf("\n");
 	printf("# burst size: %u\n", opts->burst_size);
+	printf("\n");
+
+	if (opts->throughput_limit_gbps > 0)
+		printf("# throughput limit: %.2f Gbps (total, divided among workers)\n",
+		       opts->throughput_limit_gbps);
+	else
+		printf("# throughput limit: unlimited\n");
 	printf("\n");
 
 	printf("# lcperf operation type: %s\n", lcperf_op_type_strs[opts->op_type]);
