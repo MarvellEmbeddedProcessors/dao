@@ -8,6 +8,7 @@ endif
 sources = files(
 	'virtio_net_deq.c',
 	'virtio_net_enq.c',
+	'virtio_net_enq_ops.c',
 	'virtio_net_deq_ext.c',
 	'virtio_net_enq_ext.c',
 	'virtio_netdev.c',

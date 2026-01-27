@@ -15,6 +15,8 @@
 
 #include <rte_dmadev.h>
 #include <rte_lcore.h>
+#include <rte_mempool.h>
+#include <rte_prefetch.h>
 #include <rte_vect.h>
 
 #include <dao_config.h>
@@ -83,6 +85,16 @@ struct dao_dma_vchan_state {
 	uint64_t dma_enq_errs;
 	/** DMA completion errors */
 	uint64_t dma_compl_errs;
+	/** Ops memory buffer base */
+	void *ops_mem;
+	/** Precomputed ops pointer array */
+	struct rte_dma_op **dma_ops;
+	/** Ops ring head (consumer/free index) */
+	uint16_t ops_head;
+	/** Ops ring tail (producer/alloc index) */
+	uint16_t ops_tail;
+	/** Ops ring mask (size - 1, must be power of 2) */
+	uint16_t ops_mask;
 	/** DMA events meta data */
 	struct dao_dma_cmpl_mdata mdata[DAO_DMA_MAX_INFLIGHT_MDATA];
 } __rte_cache_aligned;
@@ -143,6 +155,14 @@ int dao_dma_flush_submit(void);
 int dao_dma_flush_submit_v2(void);
 
 /**
+ * Flush DMA requests and submit ops
+ *
+ * @return
+ *   Zero on success.
+ */
+int dao_dma_flush_submit_ops(void);
+
+/**
  * Get DMA stats from DAO library
  *
  * @param lcore_id
@@ -181,6 +201,23 @@ int dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t fl
  *   Zero on success.
  */
 int dao_dma_lcore_mem2dev_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr);
+
+/**
+ * Assign mem2dev dma device to an lcore.
+ *
+ * @param dma_devid
+ *   DMA device id to assign to lcore.
+ * @param nb_vchans
+ *   Number of vchans available in DMA device
+ * @param flush_thr
+ *   Flush threshold.
+ * @param nb_ops
+ *   Number of DMA operations per vchan.
+ * @return
+ *   Zero on success.
+ */
+int dao_dma_lcore_mem2dev_set_ops(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr,
+				  uint16_t nb_ops);
 
 /**
  * Enable or Disable auto free on a mem2dev dma device's vchan of a given lcore.
@@ -233,12 +270,20 @@ int16_t dao_dma_ctrl_mem2dev(void);
 void dao_dma_compl_wait(uint16_t vchan);
 
 /**
- *  Check and wait for all DMA requests to complete v2
+ *  Check and wait for all DMA ops requests to complete
  *
  * @param vchan
  *    Vchan ID
  */
-void dao_dma_compl_wait_v2(uint16_t vchan);
+void dao_dma_compl_wait_ops(uint16_t vchan);
+
+/**
+ * Check and wait for all DMA requests to complete
+ *
+ * @param vchan
+ *    Vchan ID
+ */
+void dao_dma_compl_wait_sp(uint16_t vchan);
 
 /**
  * Tests DMA stats support
@@ -556,6 +601,84 @@ dao_dma_check_compl(struct dao_dma_vchan_state *vchan)
 }
 
 /**
+ * Get available ops count from ring buffer.
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @return
+ *    Number of available ops in the ring.
+ */
+static __rte_always_inline uint16_t
+dao_dma_ops_avail(struct dao_dma_vchan_state *vchan)
+{
+	return vchan->ops_head - vchan->ops_tail;
+}
+
+/**
+ * Get ops pointers from ring buffer.
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @param n
+ *    Number of ops requested
+ * @return
+ *    Pointer to contiguous ops array (2x ring avoids wrap handling).
+ */
+static __rte_always_inline struct rte_dma_op **
+dao_dma_ops_get(struct dao_dma_vchan_state *vchan, uint16_t n)
+{
+	uint16_t tail = vchan->ops_tail;
+
+	vchan->ops_tail = tail + n;
+	return &vchan->dma_ops[tail & vchan->ops_mask];
+}
+
+/**
+ * Return ops to ring buffer (bulk) - advances head.
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @param n
+ *    Number of ops to return (must match dequeue order)
+ */
+static __rte_always_inline void
+dao_dma_ops_put(struct dao_dma_vchan_state *vchan, uint16_t n)
+{
+	vchan->ops_head += n;
+}
+
+/**
+ * Reset ops tail to release unsubmitted ops.
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @param n
+ *    Number of ops to release from tail
+ */
+static __rte_always_inline void
+dao_dma_ops_release(struct dao_dma_vchan_state *vchan, uint16_t n)
+{
+	vchan->ops_tail -= n;
+}
+
+/**
+ * Store completion metadata directly in rte_dma_op header fields.
+ *
+ * Layout:
+ *   op->user_meta  = ptr       (descriptor offset pointer)
+ *   op->event_meta = pend_ptr  (pending counter pointer)
+ *   op->rsvd       = val << 16 | pend_val  (non-zero == valid)
+ */
+static __rte_always_inline void
+dao_dma_op_set_cmpl(struct rte_dma_op *op, uint16_t *ptr, uint16_t val, uint16_t *pend_ptr,
+		    uint16_t pend_val)
+{
+	op->user_meta = (uint64_t)(uintptr_t)ptr;
+	op->event_meta = (uint64_t)(uintptr_t)pend_ptr;
+	op->rsvd = ((uint32_t)val << 16) | pend_val;
+}
+
+/**
  * Check and update DMA completions with metadata.
  *
  * @param vchan
@@ -588,6 +711,56 @@ dao_dma_check_meta_compl(struct dao_dma_vchan_state *vchan, const int mem_order)
 		}
 		vchan->mdata[idx].cnt = 0;
 	}
+	vchan->head += cmpl;
+}
+
+/**
+ * Check and update DMA completions with metadata version2.
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @param mem_order
+ *    Memory order to update address
+ */
+
+static __rte_always_inline void
+dao_dma_check_meta_compl_ops(struct dao_dma_vchan_state *vchan, const int mem_order)
+{
+#define DEQ_SZ 128
+	uint32_t cmpl, i;
+	struct rte_dma_op *deq_ops[DEQ_SZ];
+
+	/* Skip costly dequeue call when no ops are inflight */
+	if (vchan->head == vchan->tail)
+		return;
+
+	cmpl = rte_dma_dequeue_ops(vchan->devid, vchan->vchan, deq_ops, DEQ_SZ);
+	if (!cmpl)
+		return;
+
+	for (i = 0; i < cmpl; i++) {
+		struct rte_dma_op *op = deq_ops[i];
+
+		if (unlikely(op->status != RTE_DMA_STATUS_SUCCESSFUL))
+			vchan->dma_compl_errs++;
+
+		if (op->rsvd) {
+			uint16_t *ptr = (uint16_t *)(uintptr_t)op->user_meta;
+			uint16_t *pend_ptr = (uint16_t *)(uintptr_t)op->event_meta;
+			uint16_t val = op->rsvd >> 16;
+			uint16_t pend_val = op->rsvd & 0xFFFF;
+
+			if (mem_order)
+				__atomic_store_n(ptr, val, __ATOMIC_RELEASE);
+			else
+				*ptr = val;
+			*pend_ptr -= pend_val;
+			op->rsvd = 0;
+		}
+	}
+
+	/* Return ops to ring buffer */
+	dao_dma_ops_put(vchan, cmpl);
 	vchan->head += cmpl;
 }
 

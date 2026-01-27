@@ -12,7 +12,7 @@
 struct dao_virtio_netdev dao_virtio_netdevs[DAO_VIRTIO_DEV_MAX + 1];
 
 dao_net_desc_manage_fn_t dao_net_desc_manage_fns[VIRTIO_NET_DESC_MANAGE_LAST << 1] = {
-#define M(name, flags)[flags] = virtio_net_desc_manage_##name,
+#define M(name, flags) [flags] = virtio_net_desc_manage_##name,
 	VIRTIO_NET_DESC_MANAGE_MODES
 #undef M
 };
@@ -734,8 +734,8 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 			dao_netdev->enq_fn_id |= VIRTIO_NET_ENQ_OFFLOAD_CHECKSUM;
 
 		dao_netdev->deq_fn_id &= ~VIRTIO_NET_DEQ_OFFLOAD_NOINOR;
-		dao_netdev->mgmt_fn_id &= ~(VIRTIO_NET_DESC_MANAGE_NOINORDER |
-					    VIRTIO_NET_DESC_MANAGE_MSEG);
+		dao_netdev->mgmt_fn_id &=
+			~(VIRTIO_NET_DESC_MANAGE_NOINORDER | VIRTIO_NET_DESC_MANAGE_MSEG);
 		if (!(dev->feature_bits & RTE_BIT64(VIRTIO_F_IN_ORDER))) {
 			dao_netdev->deq_fn_id |= VIRTIO_NET_DEQ_OFFLOAD_NOINOR;
 			dao_netdev->mgmt_fn_id |= VIRTIO_NET_DESC_MANAGE_NOINORDER;
@@ -753,14 +753,12 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 
 		return user_cbs.status_cb(netdev->dev.dev_id, status);
 	} else if (status == VIRTIO_DEV_RESET) {
-		struct virtio_net_queue *q;
 		uint32_t i;
 
 		rc = user_cbs.status_cb(netdev->dev.dev_id, status);
 		for (i = 0; i < (DAO_VIRTIO_MAX_QUEUES - 1); i++) {
 			if (netdev->qs[i]) {
-				q = (struct virtio_net_queue *)netdev->qs[i];
-				dao_dma_compl_wait(q->dma_vchan);
+				dao_dma_compl_wait_sp(dev->dma_vchan);
 				break;
 			}
 		}
@@ -1000,17 +998,7 @@ virtio_net_desc_validate(struct virtio_net_queue *q, uint16_t start, uint16_t co
 	}
 }
 
-static __rte_always_inline void
-virtio_net_intr_trigger(uint64_t *cb_intr_addr, uint64_t *cb_ack_addr, uint64_t cb_intr_val)
-{
-	__atomic_store_n(cb_intr_addr, cb_intr_val, __ATOMIC_RELAXED);
-	if (cb_ack_addr) {
-		rte_io_wmb();
-		__atomic_store_n(cb_ack_addr, cb_intr_val, __ATOMIC_RELAXED);
-	}
-}
-
-static  __rte_always_inline int
+static __rte_always_inline int
 virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 {
 	struct dao_virtio_netdev *virtio_netdev = &dao_virtio_netdevs[devid];
@@ -1059,6 +1047,8 @@ virtio_net_desc_manage(uint16_t devid, uint16_t qp_count, const uint16_t flags)
 		dev2mem->src_i += sg_i;
 		dev2mem->dst_i += sg_i;
 	}
+
+	dao_dma_flush(dev2mem, DAO_DMA_MAX_POINTER);
 
 	/* Process Host Tx queue completion marking */
 	for (i = 0; i < qp_count; i++) {

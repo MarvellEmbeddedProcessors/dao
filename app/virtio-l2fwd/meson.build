@@ -6,6 +6,7 @@ sources = files(
 	'l2_eth_tx.c',
 	'l2_virtio_rx.c',
 	'l2_virtio_tx.c',
+	'l2_virtio_tx_ops.c',
 	'virtio_l2fwd.c',
 )
 

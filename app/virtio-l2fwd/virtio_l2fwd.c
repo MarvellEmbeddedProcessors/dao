@@ -64,6 +64,7 @@
 #define NB_SOCKETS 8
 
 #define MAX_DMA_VCHANS 4
+#define VCHAN_NB_DESC  2048
 
 #define APP_INFO(fmt, args...) RTE_LOG(INFO, VIRTIO_L2FWD, fmt, ##args)
 
@@ -1292,7 +1293,8 @@ graph_main_loop(void *conf)
 
 	/* Set per lcore DMA device id */
 	rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
-	rc |= dao_dma_lcore_mem2dev_set(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr);
+	rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr,
+					    VCHAN_NB_DESC);
 	for (i = 0; i < qconf->nb_vchans; i++)
 		rc |= dao_dma_lcore_mem2dev_autofree_set(qconf->mem2dev_id, i,
 							 virtio_netdev_autofree);
@@ -1313,7 +1315,7 @@ graph_main_loop(void *conf)
 		rte_graph_walk(graph);
 
 		/* Flush and submit DMA ops */
-		dao_dma_flush_submit();
+		dao_dma_flush_submit_ops();
 
 		/* Update quiescent state */
 		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
@@ -2681,7 +2683,7 @@ setup_eth_devices(void)
 			rte_node_edge_update(ethdev_rx_nodes[portid], RTE_EDGE_ID_INVALID,
 					     &edge_name, 1);
 		} else {
-			snprintf(name, sizeof(name), "l2_virtio_tx-%u", eth_map[portid].id);
+			snprintf(name, sizeof(name), "l2_virtio_tx_ops-%u", eth_map[portid].id);
 			rte_node_edge_update(ethdev_rx_nodes[portid], RTE_EDGE_ID_INVALID,
 					     &edge_name, 1);
 		}
@@ -2711,14 +2713,15 @@ setup_dma_devices(void)
 	struct rte_dma_conf dma_conf;
 	struct lcore_conf *qconf;
 	uint32_t virtio_devid;
+	uint16_t vchan, cnt;
 	uint32_t lcore_id;
 	int16_t dma_devid;
-	uint16_t vchan;
 	uint64_t mask;
 	int i, base;
 
 	APP_INFO("\n");
 
+	cnt = 0;
 	dma_devid = 0;
 	/* Prepare half of the worker DMA devices half as dev2mem and half as mem2dev */
 	for (i = 0; i < wrkr_dma_devs; i += 2) {
@@ -2749,7 +2752,7 @@ setup_dma_devices(void)
 
 			memset(&dma_qconf, 0, sizeof(dma_qconf));
 			dma_qconf.direction = RTE_DMA_DIR_DEV_TO_MEM;
-			dma_qconf.nb_desc = 2048;
+			dma_qconf.nb_desc = VCHAN_NB_DESC;
 			dma_qconf.src_port.pcie.coreid = 0; /* TODO PEM id */
 			dma_qconf.src_port.pcie.vfen = 1;
 			dma_qconf.src_port.pcie.vfid = virtio_devid + 1;
@@ -2787,9 +2790,12 @@ setup_dma_devices(void)
 		memset(&dma_conf, 0, sizeof(dma_conf));
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
+		if (cnt >= 2)
+			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
+
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
 			rte_exit(EXIT_FAILURE, "Error with rte_dma_configure()\n");
-
+		cnt++;
 		mask = virtio_mask_ena[0];
 		base = 0;
 		for (vchan = 0; vchan < nb_virtio_netdevs; vchan++) {
@@ -2802,7 +2808,7 @@ setup_dma_devices(void)
 
 			memset(&dma_qconf, 0, sizeof(dma_qconf));
 			dma_qconf.direction = RTE_DMA_DIR_MEM_TO_DEV;
-			dma_qconf.nb_desc = 2048;
+			dma_qconf.nb_desc = VCHAN_NB_DESC;
 			dma_qconf.dst_port.pcie.coreid = 0; /* TODO PEM id */
 			dma_qconf.dst_port.pcie.vfen = 1;
 			dma_qconf.dst_port.pcie.vfid = virtio_devid + 1;
@@ -3006,12 +3012,12 @@ setup_virtio_devices(void)
 		node_reg = l2_virtio_rx_node_get();
 		virtio_rx_nodes[virtio_devid] = rte_node_clone(node_reg->id, name);
 
-		node_reg = l2_virtio_tx_node_get();
+		node_reg = l2_virtio_tx_ops_node_get();
 		virtio_tx_nodes[virtio_devid] = rte_node_clone(node_reg->id, name);
 
 		/* Prepare graph edge name for next node */
 		if (virtio_map[virtio_devid].type == VIRTIO_NEXT) {
-			snprintf(name, sizeof(name), "l2_virtio_tx-%u",
+			snprintf(name, sizeof(name), "l2_virtio_tx_ops-%u",
 				 virtio_map[virtio_devid].id);
 			rte_node_edge_update(virtio_rx_nodes[virtio_devid], RTE_EDGE_ID_INVALID,
 					     &edge_name, 1);

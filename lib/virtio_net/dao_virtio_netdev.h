@@ -11,8 +11,10 @@
 #ifndef __INCLUDE_DAO_VIRTIO_NET_H__
 #define __INCLUDE_DAO_VIRTIO_NET_H__
 
-#include <dao_virtio.h>
+#include <rte_prefetch.h>
+
 #include <dao_util.h>
+#include <dao_virtio.h>
 
 #include <spec/virtio_net.h>
 
@@ -114,6 +116,8 @@ typedef int (*dao_net_desc_manage_fn_t)(uint16_t devid, uint16_t qp_count);
 extern dao_virtio_net_deq_fn_t dao_virtio_net_deq_fns[];
 /** Array of enqueue functions */
 extern dao_virtio_net_enq_fn_t dao_virtio_net_enq_fns[];
+/** Array of enqueue functions (DMA ops mode) */
+extern dao_virtio_net_enq_fn_t dao_virtio_net_enq_ops_fns[];
 /** Array of management functions */
 extern dao_net_desc_manage_fn_t dao_net_desc_manage_fns[];
 
@@ -306,8 +310,8 @@ dao_virtio_net_desc_manage(uint16_t devid, uint16_t qp_count)
  *    Number of mbufs received from host.
  */
 static __rte_always_inline uint16_t
-dao_virtio_net_dequeue_burst(uint16_t devid, uint16_t qid,
-			     struct rte_mbuf **mbufs, uint16_t nb_mbufs)
+dao_virtio_net_dequeue_burst(uint16_t devid, uint16_t qid, struct rte_mbuf **mbufs,
+			     uint16_t nb_mbufs)
 {
 	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
 	dao_virtio_net_deq_fn_t deq_fn;
@@ -336,8 +340,8 @@ dao_virtio_net_dequeue_burst(uint16_t devid, uint16_t qid,
  *    Number of mbufs sent to host.
  */
 static __rte_always_inline uint16_t
-dao_virtio_net_enqueue_burst(uint16_t devid, uint16_t qid,
-			     struct rte_mbuf **mbufs, uint16_t nb_mbufs)
+dao_virtio_net_enqueue_burst(uint16_t devid, uint16_t qid, struct rte_mbuf **mbufs,
+			     uint16_t nb_mbufs)
 {
 	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
 	dao_virtio_net_enq_fn_t enq_fn;
@@ -347,6 +351,42 @@ dao_virtio_net_enqueue_burst(uint16_t devid, uint16_t qid,
 		return 0;
 
 	enq_fn = dao_virtio_net_enq_fns[netdev->enq_fn_id];
+
+	return (*enq_fn)(q, mbufs, nb_mbufs);
+}
+
+/**
+ * Virtio netdev send to Host (DMA ops mode)
+ *
+ * Uses DMA ops API for better batching performance.
+ *
+ * @param devid
+ *    Virtio net device ID.
+ * @param qid
+ *    Virtio queue id in range of { 0, 2, 4, ... N } as they are host Rx queue id's.
+ * @param mbufs
+ *    Array of mbuf pointers of pkts to send to host.
+ * @param nb_mbufs
+ *    Number of pkts to send.
+ * @return
+ *    Number of mbufs sent to host.
+ */
+static __rte_always_inline uint16_t
+dao_virtio_net_enqueue_burst_ops(uint16_t devid, uint16_t qid, struct rte_mbuf **mbufs,
+				 uint16_t nb_mbufs)
+{
+	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
+	dao_virtio_net_enq_fn_t enq_fn;
+	void *q = netdev->qs[qid];
+
+	if (unlikely(!q))
+		return 0;
+
+	rte_prefetch0(q);
+	rte_prefetch0(RTE_PTR_ADD(q, RTE_CACHE_LINE_SIZE * 2));
+	rte_prefetch0(RTE_PTR_ADD(q, RTE_CACHE_LINE_SIZE * 6));
+
+	enq_fn = dao_virtio_net_enq_ops_fns[netdev->enq_fn_id];
 
 	return (*enq_fn)(q, mbufs, nb_mbufs);
 }

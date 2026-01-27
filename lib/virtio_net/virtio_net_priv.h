@@ -114,6 +114,16 @@ virtio_netdev_to_dao(struct virtio_netdev *netdev)
 					    offsetof(struct dao_virtio_netdev, reserved));
 }
 
+static __rte_always_inline void
+virtio_net_intr_trigger(uint64_t *cb_intr_addr, uint64_t *cb_ack_addr, uint64_t cb_intr_val)
+{
+	__atomic_store_n(cb_intr_addr, cb_intr_val, __ATOMIC_RELAXED);
+	if (cb_ack_addr) {
+		rte_io_wmb();
+		__atomic_store_n(cb_ack_addr, cb_intr_val, __ATOMIC_RELAXED);
+	}
+}
+
 /*
  * Virtio Net Rx Offloads
  */
@@ -191,7 +201,8 @@ VIRTIO_NET_DEQ_FASTPATH_MODES
 
 #define T(name, flags)                                                                             \
 	uint16_t virtio_net_enq_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);         \
-	uint16_t virtio_net_enq_ext_##name(void *q, void **pkts, uint16_t nb_pkts);
+	uint16_t virtio_net_enq_ext_##name(void *q, void **pkts, uint16_t nb_pkts);                \
+	uint16_t virtio_net_enq_ops_##name(void *q, struct rte_mbuf **pkts, uint16_t nb_pkts);
 
 VIRTIO_NET_ENQ_FASTPATH_MODES
 #undef T

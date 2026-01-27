@@ -113,7 +113,7 @@ pts_rdma_qp_dma_finish(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 	rq = &qp->rq;
 	/* All the QPs (in turn CQ/RQ/SQ) of a RDMA device  belong to the same DMA vchan */
 	dma_vchan = rq->dma_vchan;
-	dao_dma_compl_wait_v2(dma_vchan);
+	dao_dma_compl_wait_sp(dma_vchan);
 }
 
 void
