@@ -13,3 +13,6 @@ deployment best practices, and benchmark performance results achieved on Marvell
    white_papers/accelerated-nginx
    white_papers/accelerated-nginx-with-vpp
    white_papers/accelerated-openssl
+   white_papers/mcp-nginxplus-dpuOperator
+   white_papers/accelerated-ipsec-dpuOperator
+   white_papers/k8s-cni-offload
