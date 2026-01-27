@@ -1224,7 +1224,7 @@ l2_virtio_desc_process(uint64_t netdev_map, uint16_t *netdev_qp_count)
 			dev_id++;
 			continue;
 		}
-		dao_virtio_net_desc_manage(dev_id, netdev_qp_count[dev_id]);
+		dao_virtio_net_desc_manage_ops(dev_id, netdev_qp_count[dev_id]);
 		netdev_map >>= 1;
 		dev_id++;
 	}
@@ -1246,8 +1246,10 @@ service_main_loop(void *conf)
 	qs_v = qconf->qs_v;
 
 	/* Set per lcore DMA device id */
-	rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
-	rc |= dao_dma_lcore_mem2dev_set(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr);
+	rc = dao_dma_lcore_dev2mem_set_ops(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr,
+					   VCHAN_NB_DESC);
+	rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr,
+					    VCHAN_NB_DESC);
 	if (rc) {
 		APP_ERR("Error in setting DMA device on lcore\n");
 		return -1;
@@ -1264,7 +1266,7 @@ service_main_loop(void *conf)
 		l2_virtio_desc_process(qconf->netdev_map, qconf->netdev_qp_count);
 
 		/* Flush and submit DMA ops */
-		dao_dma_flush_submit();
+		dao_dma_flush_submit_ops();
 
 		/* Update quiescent state */
 		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
@@ -2743,7 +2745,7 @@ setup_dma_devices(void)
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
 		/* Enable ops flag for worker DMA devices (skip first 2 pairs for control) */
-		if (cnt >= 4)
+		if (cnt >= 2)
 			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
 
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
@@ -2802,7 +2804,7 @@ setup_dma_devices(void)
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
 		/* Enable ops flag for worker DMA devices (skip first 2 pairs for control) */
-		if (cnt >= 4)
+		if (cnt >= 2)
 			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
 
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)

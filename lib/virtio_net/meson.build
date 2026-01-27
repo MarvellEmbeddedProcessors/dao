@@ -12,6 +12,7 @@ sources = files(
 	'virtio_net_enq_ops.c',
 	'virtio_net_deq_ext.c',
 	'virtio_net_enq_ext.c',
+	'virtio_net_desc_manage_ops.c',
 	'virtio_netdev.c',
 )
 

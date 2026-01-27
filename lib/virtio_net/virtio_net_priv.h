@@ -233,7 +233,9 @@ VIRTIO_NET_ENQ_FASTPATH_MODES
 	M(mseg_extbuf, M_MSEG_F | M_EBUF_F)                                                        \
 	M(noinorder_mseg_extbuf, M_MSEG_F | M_NOORDER_F | M_EBUF_F)
 
-#define M(name, flags) int virtio_net_desc_manage_##name(uint16_t devid, uint16_t qp_count);
+#define M(name, flags)                                                                             \
+	int virtio_net_desc_manage_##name(uint16_t devid, uint16_t qp_count);                      \
+	int virtio_net_desc_manage_ops_##name(uint16_t devid, uint16_t qp_count);
 
 VIRTIO_NET_DESC_MANAGE_MODES
 #undef M

@@ -120,6 +120,8 @@ extern dao_virtio_net_deq_fn_t dao_virtio_net_deq_ops_fns[];
 extern dao_virtio_net_enq_fn_t dao_virtio_net_enq_fns[];
 /** Array of enqueue functions (DMA ops mode) */
 extern dao_virtio_net_enq_fn_t dao_virtio_net_enq_ops_fns[];
+/** Array of desc manage functions (DMA ops mode) */
+extern dao_net_desc_manage_fn_t dao_net_desc_manage_ops_fns[];
 /** Array of management functions */
 extern dao_net_desc_manage_fn_t dao_net_desc_manage_fns[];
 
@@ -293,6 +295,17 @@ dao_virtio_net_desc_manage(uint16_t devid, uint16_t qp_count)
 	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
 	dao_net_desc_manage_fn_t mgmt_fn;
 	mgmt_fn = dao_net_desc_manage_fns[netdev->mgmt_fn_id];
+
+	return (*mgmt_fn)(devid, qp_count);
+}
+
+static __rte_always_inline int
+dao_virtio_net_desc_manage_ops(uint16_t devid, uint16_t qp_count)
+{
+	struct dao_virtio_netdev *netdev = &dao_virtio_netdevs[devid];
+	dao_net_desc_manage_fn_t mgmt_fn;
+
+	mgmt_fn = dao_net_desc_manage_ops_fns[netdev->mgmt_fn_id];
 
 	return (*mgmt_fn)(devid, qp_count);
 }
