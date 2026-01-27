@@ -144,7 +144,7 @@ function ep_device_op_bg()
 	local op=$2
 	local args=${@:3}
 
-	ep_ssh_cmd EP_DEVICE true $wait "$EP_DEVICE_SUDO EP_DEVICE=$EP_DEVICE EP_DIR=$EP_DIR nohup $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
+	ep_ssh_cmd EP_DEVICE true $wait "$EP_DEVICE_SUDO EP_DEVICE=$EP_DEVICE EP_DIR=$EP_DIR LD_LIBRARY_PATH=${EP_DIR}/deps-prefix/ep/lib:${LD_LIBRARY_PATH:-} nohup $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
 }
 
 function test_run()
