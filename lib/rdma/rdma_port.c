@@ -8,6 +8,7 @@
 #include "rdma_av.h"
 #include "rdma_dev_cap_priv.h"
 #include "rdma_kernel_abi.h"
+#include "rdma_pd_mr.h"
 #include "rdma_port_priv.h"
 #include "rdma_qp.h"
 
@@ -111,6 +112,42 @@ rdma_port_link_state_update(uint16_t port_num, uint16_t link_state)
 		 rport->state == RDMA_PORT_ST_DOWN ? "RDMA_PORT_ST_DOWN" : "RDMA_PORT_ST_UP");
 
 	return 0;
+}
+
+void
+rdma_cleanup_resources(uint16_t port_num)
+{
+	struct octep_rdma_pd_delete_req pd = {0};
+	struct rdma_av av = {0};
+	struct rdma_port *rport;
+	uint32_t i;
+
+	if (port_num >= RDMA_PORT_MAX) {
+		dao_err("Invalid port number %u", port_num);
+		return;
+	}
+
+	for (i = 0; i < RDMA_QP_MAX; i++)
+		rdma_qp_destroy(port_num, i);
+
+	for (i = 0; i < RDMA_ADDR_VEC_MAX; i++) {
+		av.port_num = port_num;
+		av.index = i;
+		rdma_av_remove(&av);
+	}
+
+	for (i = 0; i < RDMA_MAX_PD; i++) {
+		pd.port_num = port_num;
+		pd.pd_id = i;
+		pd_delete(&pd);
+	}
+
+	// Make port state down
+	rport = &port[port_num];
+	rport->state = RDMA_PORT_ST_DOWN;
+
+	dao_info("Port %u is %s", port_num,
+		 rport->state == RDMA_PORT_ST_DOWN ? "RDMA_PORT_ST_DOWN" : "RDMA_PORT_ST_UP");
 }
 
 inline struct rdma_port *

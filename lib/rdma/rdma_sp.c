@@ -4,6 +4,7 @@
 
 #include "dao_rdma_sp.h"
 #include "rdma_av.h"
+#include "rdma_cq.h"
 #include "rdma_dev_cap_priv.h"
 #include "rdma_port_priv.h"
 #include "rdma_qp.h"
@@ -21,8 +22,20 @@ dao_rdma_av_remove(void *av_data)
 	return rdma_av_remove(av_data);
 }
 
-/* QP */
+/* CQ */
+int
+dao_rdma_cq_insert(uint64_t addr, uint8_t index)
+{
+	return rdma_cq_insert(addr, index);
+}
 
+int
+dao_rdma_cq_remove(uint8_t index)
+{
+	return rdma_cq_remove(index);
+}
+
+/* QP */
 int
 dao_rdma_qp_create(void *data)
 {
@@ -57,6 +70,12 @@ int
 dao_rdma_port_link_state_update(uint16_t port, uint16_t link_state)
 {
 	return rdma_port_link_state_update(port, link_state);
+}
+
+void
+dao_rdma_cleanup_resources(uint16_t port)
+{
+	rdma_cleanup_resources(port);
 }
 
 int

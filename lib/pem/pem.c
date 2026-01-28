@@ -628,3 +628,54 @@ dao_pem_max_vfs_get(uint16_t pem_devid)
 
 	return max_vfs;
 }
+
+int
+dao_pem_sdp_reg_write(uint16_t pem_devid, uint64_t offset, uint64_t value)
+{
+	struct pem *pem;
+
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX) {
+		dao_err("Invalid PEM device ID %d", pem_devid);
+		return -EINVAL;
+	}
+
+	pem = &pem_devices[pem_devid];
+	if (!pem) {
+		dao_err("PEM device %d not initialized", pem_devid);
+		return -ENODEV;
+	}
+
+	/* Write to SDP register via the PEM's SDP device */
+	dao_dbg("Writing to SDP register: offset=0x%lx, value=0x%lx", offset, value);
+	sdp_reg_write(&pem->cn10k.sdp_pdev, offset, value);
+
+	return 0;
+}
+
+int
+dao_pem_sdp_reg_read(uint16_t pem_devid, uint64_t offset, uint64_t *value)
+{
+	struct pem *pem;
+
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX) {
+		dao_err("Invalid PEM device ID %d", pem_devid);
+		return -EINVAL;
+	}
+
+	if (!value) {
+		dao_err("Invalid value pointer");
+		return -EINVAL;
+	}
+
+	pem = &pem_devices[pem_devid];
+	if (!pem) {
+		dao_err("PEM device %d not initialized", pem_devid);
+		return -ENODEV;
+	}
+
+	/* Read from SDP register via the PEM's SDP device */
+	*value = sdp_reg_read(&pem->cn10k.sdp_pdev, offset);
+	dao_dbg("Reading from SDP register: offset=0x%lx, value=0x%lx", offset, *value);
+
+	return 0;
+}

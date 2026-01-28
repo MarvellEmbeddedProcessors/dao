@@ -162,7 +162,7 @@ mbox_msg_cq_create_handle(volatile void *data)
 
 	dao_dbg("cq_id %d cq_size %d cq_base 0x%lx", req->cq_id, req->size, req->cq_base);
 
-	rdma_cq_insert(req->cq_base, req->cq_id);
+	dao_rdma_cq_insert(req->cq_base, req->cq_id);
 
 	return 0;
 }
@@ -175,7 +175,7 @@ mbox_msg_cq_destroy_handle(volatile void *data)
 
 	dao_dbg("cq_id %d", req->cq_id);
 
-	rdma_cq_remove(req->cq_id);
+	dao_rdma_cq_remove(req->cq_id);
 
 	return 0;
 }

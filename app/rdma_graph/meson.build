@@ -7,6 +7,7 @@ sources = files(
 		'rdma_eth_rx.c',
 		'rdma_eth_tx.c',
 		'rdma_graph_init.c',
+		'rdma_heartbeat.c',
 		'rdma_main.c',
 		'rdma_node_ctrl.c',
 		'rdma_process.c',

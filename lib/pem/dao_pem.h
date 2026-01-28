@@ -208,4 +208,36 @@ int dao_pem_host_dev_add(uint16_t pem_devid, int vfid);
  */
 int dao_pem_host_dev_del(uint16_t pem_devid, int vfid);
 
+/**
+ * PEM SDP register write.
+ *
+ * Write to SDP register for triggering OEI interrupts (e.g., heartbeat).
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param offset
+ *    SDP register offset
+ * @param value
+ *    Value to write to the register
+ * @return
+ *    Zero on success.
+ */
+int dao_pem_sdp_reg_write(uint16_t pem_devid, uint64_t offset, uint64_t value);
+
+/**
+ * PEM SDP register read.
+ *
+ * Read from SDP register for polling acknowledgments (e.g., heartbeat ACK).
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param offset
+ *    SDP register offset
+ * @param value
+ *    Pointer to store the read value
+ * @return
+ *    Zero on success.
+ */
+int dao_pem_sdp_reg_read(uint16_t pem_devid, uint64_t offset, uint64_t *value);
+
 #endif /* __INCLUDE_DAO_PEM_H__ */

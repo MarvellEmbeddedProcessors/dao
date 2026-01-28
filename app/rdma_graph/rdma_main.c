@@ -38,6 +38,7 @@
 
 #include "rdma_dma_init.h"
 #include "rdma_graph.h"
+#include "rdma_heartbeat.h"
 #include "rdma_init.h"
 #include "rdma_lcore.h"
 #include "rdma_pem_init.h"
@@ -453,6 +454,11 @@ main(int argc, char *argv[])
 	if (rc)
 		DAO_ERR_GOTO(rc, fail, "Failed to initialize ethernet ports");
 
+	/* Initialize link status monitoring */
+	rc = rdma_link_status_init();
+	if (rc < 0)
+		dao_warn("Failed to initialize link status monitoring: %d", rc);
+
 	/* Setting up DMA devices */
 	rc = rdma_dma_init(rdma_main_cfg);
 	if (rc)
@@ -466,6 +472,13 @@ main(int argc, char *argv[])
 	dao_rdma_port_alloc(rdma_main_cfg->cfg_prm->num_rport);
 	if (dao_rdma_lib_init(&cb, rdma_main_cfg->cfg_prm->disable_cc) < 0) {
 		dao_err("Failed to initialize RDMA library\n");
+		goto close_pem;
+	}
+
+	/* Initialize heartbeat system after PEM and RDMA library are ready */
+	rc = rdma_heartbeat_init();
+	if (rc < 0) {
+		dao_err("Failed to initialize heartbeat system\n");
 		goto close_pem;
 	}
 
@@ -524,6 +537,8 @@ main(int argc, char *argv[])
 		rte_thread_join(rdma_main_cfg->graph_prm->graph_stats_thread, NULL);
 
 close_pem:
+	rdma_heartbeat_cleanup();
+	rdma_link_status_cleanup();
 	dao_rdma_lib_close();
 	dao_rdma_port_free();
 	release_pem_device();

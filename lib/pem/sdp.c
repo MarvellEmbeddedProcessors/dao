@@ -13,9 +13,75 @@
 #include "sdp.h"
 #include <dao_log.h>
 #include <dao_util.h>
+#include <rte_io.h>
 
 #define SDP0_PCIE_DEV_NAME "0002:18:00.0"
 #define SDP1_PCIE_DEV_NAME "0002:19:00.0"
+
+static inline void
+cp_write64(uint64_t value, volatile void *addr)
+{
+	rte_io_wmb();
+	/* Direct write to memory mapped address */
+	*(volatile uint64_t *)addr = value;
+}
+
+static inline void *
+devmem_map_oei_reg(uint64_t addr, size_t len, off_t *offset)
+{
+	off_t pg_addr, pg_offset;
+	long pg_sz;
+	void *map;
+	int fd;
+
+	fd = open("/dev/mem", O_RDWR | O_SYNC);
+	if (fd <= 0)
+		return NULL;
+
+	/* Page alignment calculation */
+	pg_sz = sysconf(_SC_PAGESIZE);
+	pg_addr = ((addr / pg_sz) * pg_sz); /* Page-aligned base address */
+	pg_offset = addr % pg_sz;           /* Offset within page */
+
+	/* Map page-aligned region */
+	map = mmap(0, (pg_offset + len), PROT_READ | PROT_WRITE, MAP_SHARED, fd, pg_addr);
+	if (map == MAP_FAILED) {
+		dao_err("mmap[0x%lx] error: %s", addr, strerror(errno));
+		close(fd);
+		return NULL;
+	}
+	close(fd);
+
+	if (offset)
+		*offset = pg_offset;
+
+	return ((char *)map + pg_offset);
+}
+
+int
+sdp_oei_reg_write(uint64_t offset, uint64_t val)
+{
+	/* OEI trigger registers - these are physical addresses, not BAR offsets.
+	 * Need mapping for proper page alignment.
+	 */
+	dao_dbg("OEI trigger register write: offset=0x%lx, value=0x%lx", offset, val);
+
+	off_t pg_offset;
+	void *mapped_addr = devmem_map_oei_reg(offset, sizeof(uint64_t), &pg_offset);
+
+	if (mapped_addr) {
+		dao_dbg("OEI mapped: addr=%p, page_offset=0x%lx", mapped_addr, pg_offset);
+		cp_write64(val, mapped_addr);
+
+		/* Unmap the region (calculate original map size) */
+		munmap((char *)mapped_addr - pg_offset, pg_offset + sizeof(uint64_t));
+		dao_dbg("OEI trigger write completed successfully");
+		return 0;
+	}
+
+	dao_err("Failed to map OEI trigger register at 0x%lx", offset);
+	return -1;
+}
 
 /* Valid pointers and offsets are always guaranteed; no validation checks are necessary */
 static inline void

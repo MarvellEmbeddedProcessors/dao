@@ -14,6 +14,10 @@
 int dao_rdma_av_insert(void *av_data);
 int dao_rdma_av_remove(void *av_data);
 
+/* CQ */
+int dao_rdma_cq_insert(uint64_t addr, uint8_t index);
+int dao_rdma_cq_remove(uint8_t index);
+
 /* QP */
 int dao_rdma_qp_create(void *data);
 int dao_rdma_qp_destroy(uint8_t port, uint32_t qid);
@@ -29,6 +33,9 @@ int dao_rdma_get_port_attributes(int port, void *attr);
 
 /* Device */
 int dao_rdma_port_link_state_update(uint16_t port, uint16_t link_state);
+
+/* Cleanup Resources */
+void dao_rdma_cleanup_resources(uint16_t port);
 
 int dao_rdma_port_alloc(int nport);
 int dao_rdma_port_free(void);

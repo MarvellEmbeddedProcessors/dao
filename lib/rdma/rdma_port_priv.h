@@ -54,5 +54,6 @@ int rdma_port_alloc(int nport);
 int rdma_port_free(void);
 struct rdma_port *rdma_port_lookup(uint8_t portid);
 int rdma_port_link_state_update(uint16_t port_num, uint16_t link_state);
+void rdma_cleanup_resources(uint16_t port_num);
 
 #endif /* __RDMA_PORT_PRIV_H__ */
