@@ -18,6 +18,7 @@
 
 #include "octep_mbox.h"
 #include "octep_mbox_priv.h"
+#include "octep_pfvf_mbox.h"
 
 #include <asm/io.h>
 
@@ -58,6 +59,16 @@
 enum octep_wq_flag {
 	OCTEP_WQ_EMPTY,
 	OCTEP_WQ_POST,
+};
+
+/* Device status */
+enum octep_dev_status {
+	OCTEP_DEV_STATUS_INVALID,
+	OCTEP_DEV_STATUS_ALLOC,
+	OCTEP_DEV_STATUS_WAIT_FOR_FW,
+	OCTEP_DEV_STATUS_INIT,
+	OCTEP_DEV_STATUS_READY,
+	OCTEP_DEV_STATUS_UNINIT
 };
 
 enum octep_wq_status {
@@ -508,6 +519,87 @@ struct octep_hw_ops {
 	void (*reset_iqueue)(struct octep_sdp_dev *octep_dev, int q);
 };
 
+/* PFVF mailbox data */
+struct octep_mbox_data {
+	u32 cmd;
+	u32 total_len;
+	u32 recv_len;
+	u32 rsvd;
+	u64 *data;
+};
+
+#define MAX_VF_PF_MBOX_DATA_SIZE 384
+/* wrappers around work structs */
+struct octep_pfvf_mbox_wk {
+	struct work_struct work;
+	void *ctxptr;
+	u64 ctxul;
+};
+
+/* SDP device PFVF mailbox */
+struct octep_sdp_mbox {
+	/* A mutex to protect access to this q_mbox. */
+	struct mutex lock;
+	u32 vf_id;
+	u32 config_data_index;
+	u32 message_len;
+	u8 __iomem *pf_vf_data_reg;
+	u8 __iomem *vf_pf_data_reg;
+	struct octep_pfvf_mbox_wk wk;
+	struct octep_sdp_dev *octep_dev;
+	struct octep_mbox_data mbox_data;
+	u8 config_data[MAX_VF_PF_MBOX_DATA_SIZE];
+};
+
+/* VF information structure */
+struct octep_pfvf_info {
+	u8 mac_addr[ETH_ALEN];
+	u32 mbox_version;
+	u32 flags;
+	struct net_device *netdev; /* VF's network device */
+};
+
+/* Octeon VF mailbox data */
+struct octep_vf_mbox_data {
+	/* Holds the offset of received data via mailbox. */
+	u32 data_index;
+
+	/* Holds the received data via mailbox. */
+	u8 recv_data[OCTEP_RDMA_PFVF_MBOX_MAX_DATA_BUF_SIZE];
+};
+
+struct octep_vf_mbox_wk {
+	struct work_struct work;
+	void *ctxptr;
+};
+
+/* Octeon SDP VF mailbox */
+struct octep_sdp_vf_mbox {
+	/* A mutex to protect access to this q_mbox. */
+	struct mutex lock;
+
+	u32 state;
+
+	/* SLI_MAC_PF_MBOX_INT for PF, SLI_PKT_MBOX_INT for VF. */
+	u8 __iomem *mbox_int_reg;
+
+	/* SLI_PKT_PF_VF_MBOX_SIG(0) for PF,
+	 * SLI_PKT_PF_VF_MBOX_SIG(1) for VF.
+	 */
+	u8 __iomem *mbox_write_reg;
+
+	/* SLI_PKT_PF_VF_MBOX_SIG(1) for PF,
+	 * SLI_PKT_PF_VF_MBOX_SIG(0) for VF.
+	 */
+	u8 __iomem *mbox_read_reg;
+
+	/* Octeon VF mailbox data */
+	struct octep_vf_mbox_data mbox_data;
+
+	/* Octeon VF mailbox work handler to process Mbox messages */
+	struct octep_vf_mbox_wk wk;
+};
+
 /* Tx/Rx queue vector per interrupt. */
 struct octep_ioq_vector {
 	char name[OCTEP_MSIX_NAME_SIZE];
@@ -576,12 +668,34 @@ struct octep_sdp_dev {
 	wait_queue_head_t wait_queue;
 	enum octep_wq_flag wq_flag;
 	enum octep_wq_status wq_state;
+	/* PF VF mailbox */
+	struct octep_sdp_mbox *mbox[OCTEP_MAX_VF];
+	/* VFs info */
+	struct octep_pfvf_info vf_info[OCTEP_MAX_VF];
+	/* VF mailbox */
+	struct octep_sdp_vf_mbox *vf_mbox;
+	/* Enable non-ioq interrupt polling */
+	bool poll_non_ioq_intr;
+	/* Work entry to poll non-ioq interrupts */
+	struct delayed_work intr_poll_task;
+	/* Device status */
+	atomic_t status;
+	/* Firmware heartbeat timer */
+	struct timer_list hb_timer;
+	/* Firmware heartbeat miss count tracked by timer */
+	atomic_t hb_miss_cnt;
+	/* Task to reset device on heartbeat miss */
+	/* Task to reset device on heartbeat miss */
+	struct delayed_work hb_task;
+	/* Task to reset VF device on heartbeat miss */
+	struct delayed_work vf_hb_task;
 	/* Device state */
 	unsigned long state;
+	/* Negotiated Mbox version */
+	u32 mbox_neg_ver;
 };
 
-static inline u16
-OCTEP_MAJOR_REV(struct octep_sdp_dev *octep_dev)
+static inline u16 OCTEP_MAJOR_REV(struct octep_sdp_dev *octep_dev)
 {
 	u16 rev = (octep_dev->rev_id & 0xC) >> 2;
 
@@ -654,6 +768,8 @@ void octep_device_setup_cnxk_pf(struct octep_sdp_dev *octep_dev);
 void octep_device_setup_cnxk_vf(struct octep_sdp_dev *octep_dev);
 int octep_rdma_probe_dev(struct octep_sdp_dev *octep_dev);
 void octep_device_cleanup(struct octep_sdp_dev *octep_dev);
+int octep_setup_irqs(struct octep_sdp_dev *octep_dev);
+void octep_clean_irqs(struct octep_sdp_dev *octep_dev);
 int octep_device_qp_setup(struct octep_sdp_dev *octep_dev, int q_no, uint16_t sq_size,
 			  uint16_t rq_size);
 int octep_tx(struct octep_sdp_dev *octep_dev, int q_no, union octep_rdma_sqe *sqe);
@@ -665,4 +781,10 @@ int octep_oq_check_hw_for_pkts(struct octep_sdp_dev *octep_dev, struct octep_oq 
 int octep_oq_refill(struct octep_sdp_dev *octep_dev, struct octep_oq *oq);
 int octep_oq_fill_ring_buffers_custom(struct octep_sdp_dev *octep_dev, int q_no,
 				      union octep_rdma_rqe *rqe, int i);
+
+/* Function prototypes for work queue tasks and interrupt handlers */
+void octep_intr_poll_task(struct work_struct *work);
+void octep_hb_timeout_task(struct work_struct *work);
+void cancel_all_tasks(struct octep_sdp_dev *octep_dev);
+
 #endif /* __OCTEP_SDP_H__ */

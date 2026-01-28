@@ -10,9 +10,12 @@
 #include "octep_rdma.h"
 #include "octep_sdp.h"
 #include "octep_sdp_regs.h"
+#include "octep_pfvf_mbox.h"
 
-static const char *
-octep_devid_to_str(struct octep_sdp_dev *octep_dev)
+#define OCTEP_INTR_POLL_TIME_MSECS 100
+struct workqueue_struct *octep_wq;
+
+static const char *octep_devid_to_str(struct octep_sdp_dev *octep_dev)
 {
 	switch (octep_dev->chip_id) {
 	case OCTEP_RDMA_DEVID_CN106K_PF:
@@ -111,6 +114,7 @@ octep_enable_msix_range(struct octep_sdp_dev *octep_dev)
 	num_msix = octep_dev->num_oqs + CFG_GET_NON_IOQ_MSIX(octep_dev->conf) +
 		   octep_dev->num_custom_irqs;
 	octep_dev->msix_entries = kcalloc(num_msix, sizeof(struct msix_entry), GFP_KERNEL);
+
 	if (!octep_dev->msix_entries)
 		goto msix_alloc_err;
 
@@ -119,6 +123,8 @@ octep_enable_msix_range(struct octep_sdp_dev *octep_dev)
 
 	msix_allocated =
 		pci_enable_msix_range(octep_dev->pdev, octep_dev->msix_entries, num_msix, num_msix);
+
+	printk("MSI-X allocated %d entries (requested %d)\n", msix_allocated, num_msix);
 	if (msix_allocated != num_msix) {
 		dev_err(&octep_dev->pdev->dev, "Failed to enable %d msix irqs; got only %d\n",
 			num_msix, msix_allocated);
@@ -274,6 +280,8 @@ octep_request_irqs(struct octep_sdp_dev *octep_dev)
 
 		snprintf(irq_name, OCTEP_MSIX_NAME_SIZE, "%s-%s", netdev->name,
 			 non_ioq_msix_names[i]);
+		dev_info(&octep_dev->pdev->dev, "Registering interrupt %d: %s (vector=%d)\n", i,
+			 irq_name, msix_entry->vector);
 		if (!strncmp(non_ioq_msix_names[i], "epf_mbox_rint", strlen("epf_mbox_rint"))) {
 			ret = request_irq(msix_entry->vector, octep_mbox_intr_handler, 0, irq_name,
 					  octep_dev);
@@ -349,7 +357,6 @@ ioq_irq_err:
 		--j;
 		ioq_vector = octep_dev->ioq_vector[j];
 		msix_entry = &octep_dev->msix_entries[j + num_non_ioq_msix];
-
 		irq_set_affinity_hint(msix_entry->vector, NULL);
 		free_irq(msix_entry->vector, ioq_vector);
 	}
@@ -386,8 +393,7 @@ octep_free_irqs(struct octep_sdp_dev *octep_dev)
 	}
 }
 
-static int
-octep_setup_irqs(struct octep_sdp_dev *octep_dev)
+int octep_setup_irqs(struct octep_sdp_dev *octep_dev)
 {
 	if (octep_alloc_ioq_vectors(octep_dev))
 		goto ioq_vector_err;
@@ -408,8 +414,7 @@ ioq_vector_err:
 	return -1;
 }
 
-static void
-octep_clean_irqs(struct octep_sdp_dev *octep_dev)
+void octep_clean_irqs(struct octep_sdp_dev *octep_dev)
 {
 	octep_free_irqs(octep_dev);
 	octep_disable_msix(octep_dev);
@@ -622,8 +627,120 @@ oq_setup_err:
 	return -1;
 }
 
-static int
-octep_sdp_dev_setup(struct octep_sdp_dev *octep_dev)
+/* Cancel all tasks except hb task */
+void cancel_all_tasks(struct octep_sdp_dev *octep_dev)
+{
+	octep_dev->poll_non_ioq_intr = false;
+	cancel_delayed_work_sync(&octep_dev->intr_poll_task);
+}
+
+/**
+ * octep_hb_timeout_task - work queue task to check firmware heartbeat.
+ *
+ * @work: pointer to hb work_struct
+ *
+ * Check for heartbeat miss count. Uninitialize oct device if miss count
+ * exceeds configured max heartbeat miss count.
+ *
+ **/
+void octep_hb_timeout_task(struct work_struct *work)
+{
+	struct octep_sdp_dev *octep_dev = container_of(work, struct octep_sdp_dev, hb_task.work);
+
+	int status, miss_cnt;
+
+	status = atomic_read(&octep_dev->status);
+	if (status != OCTEP_DEV_STATUS_INIT && status != OCTEP_DEV_STATUS_READY)
+		return;
+
+	miss_cnt = atomic_inc_return(&octep_dev->hb_miss_cnt);
+	dev_info(&octep_dev->pdev->dev, "miss cnt %d %s", miss_cnt, __func__);
+
+	if (miss_cnt < octep_dev->conf->fw_info.hb_miss_count) {
+		queue_delayed_work(octep_wq, &octep_dev->hb_task,
+				   msecs_to_jiffies(octep_dev->conf->fw_info.hb_interval));
+
+		/* Write acknowledgment to scratch register */
+		u64 ack_value = 0x2;
+
+		octep_write_csr64(octep_dev, CNXK_SDP_EPF_SCRATCH, ack_value);
+		dev_dbg(&octep_dev->pdev->dev,
+			"Heartbeat ACK "
+			" written to scratch register: 0x%llx",
+			ack_value);
+		return;
+	}
+
+	/* Heartbeat missed - clear scratch register to reset state */
+	octep_write_csr64(octep_dev, CNXK_SDP_EPF_SCRATCH, 0x0);
+	dev_info(&octep_dev->pdev->dev, "Heartbeat missed, scratch reg cleared");
+
+	/* Send heartbeat miss notification to all VFs */
+	octep_rdma_send_heartbeat_miss_to_all_vfs(octep_dev, miss_cnt);
+	dev_info(&octep_dev->pdev->dev, "Missed %u heartbeats. carrier off, stopping polling",
+		 miss_cnt);
+
+	/* Set device status to failed */
+	atomic_set(&octep_dev->status, OCTEP_DEV_STATUS_UNINIT);
+
+	dev_err(&octep_dev->pdev->dev,
+		"Device marked as failed and cleaned up due to heartbeat timeout\n");
+}
+
+/**
+ * octep_intr_poll_task - work queue task to process non-ioq interrupts.
+ *
+ * @work: pointer to mbox work_struct
+ *
+ * Process non-ioq interrupts to handle control mailbox, pfvf mailbox.
+ **/
+void octep_intr_poll_task(struct work_struct *work)
+{
+	struct octep_sdp_dev *octep_dev =
+		container_of(work, struct octep_sdp_dev, intr_poll_task.work);
+	int status;
+
+	status = atomic_read(&octep_dev->status);
+	if ((status != OCTEP_DEV_STATUS_INIT && status != OCTEP_DEV_STATUS_READY) ||
+	    !octep_dev->poll_non_ioq_intr) {
+		dev_info(&octep_dev->pdev->dev, "Interrupt poll task stopped");
+		return;
+	}
+
+	octep_dev->hw_ops.poll_non_ioq_interrupts(octep_dev);
+	queue_delayed_work(octep_wq, &octep_dev->intr_poll_task,
+			   msecs_to_jiffies(OCTEP_INTR_POLL_TIME_MSECS));
+}
+
+/**
+ * octep_vf_hb_timeout_task - work queue task to check PF state.
+ *
+ * @work: pointer to hb work_struct
+ *
+ * Check for PF state by reading PF VF data Mailbox register.
+ * if the read value is all F's means PF/PCIe is in reset state,
+ * Then turn off netif carrier.
+ *
+ **/
+static void octep_vf_hb_timeout_task(struct work_struct *work)
+{
+	struct octep_sdp_dev *octep_dev = container_of(work, struct octep_sdp_dev, vf_hb_task.work);
+	struct octep_sdp_vf_mbox *mbox = NULL;
+	u64 pf_vf_data;
+
+	mbox = octep_dev->vf_mbox;
+	pf_vf_data = readq(mbox->mbox_read_reg);
+	if (pf_vf_data == 0xFFFFFFFFFFFFFFFFU) {
+		dev_info(&octep_dev->pdev->dev, "VF interface :%s. carrier off\n",
+			 octep_dev->netdev->name);
+		netif_carrier_off(octep_dev->netdev);
+		return;
+	}
+	queue_delayed_work(octep_wq, &octep_dev->vf_hb_task,
+			   msecs_to_jiffies(OCTEP_DEFAULT_VF_HB_INTERVAL));
+}
+
+static int octep_sdp_dev_setup(struct octep_sdp_dev *octep_dev)
 {
 	struct pci_dev *pdev = octep_dev->pdev;
 	int i;
@@ -1104,6 +1221,29 @@ octep_open(struct net_device *netdev)
 	octep_napi_add(octep_dev);
 	octep_napi_enable(octep_dev);
 
+	/* Stop PF polling when first VF interface opens to avoid conflicts */
+	if (octep_dev->pdev && octep_dev->pdev->is_virtfn) {
+		/* Increment active VF count and stop PF polling if first VF */
+		struct pci_dev *pf_dev = pci_physfn(octep_dev->pdev);
+
+		if (pf_dev) {
+			struct octep_pf *octpf = pci_get_drvdata(pf_dev);
+
+			if (octpf && octpf->octep_dev) {
+				int prev_count;
+
+				prev_count = atomic_fetch_inc(&octpf->active_vf_count);
+				if (prev_count == 0) {
+					/* First VF opening - stop PF polling and heartbeat */
+					dev_info(
+						&octep_dev->pdev->dev,
+						"First VF interface opening - stopping PF polling and heartbeat\n");
+					octpf->octep_dev->poll_non_ioq_intr = false;
+				}
+			}
+		}
+	}
+
 	/* Enable Octeon device interrupts */
 	octep_dev->hw_ops.enable_interrupts(octep_dev);
 
@@ -1195,6 +1335,12 @@ octep_stop(struct net_device *netdev)
 	octep_napi_delete(octep_dev);
 	octep_dev->hw_ops.disable_interrupts(octep_dev);
 
+	/* Cancel VF heartbeat timeout task if this is a VF */
+	if (octep_dev->pdev && octep_dev->pdev->is_virtfn)
+		if (cancel_delayed_work(&octep_dev->vf_hb_task))
+			dev_info(&octep_dev->pdev->dev,
+				 "VF heartbeat task stopped during interface stop\n");
+
 	octep_clean_irqs(octep_dev);
 	octep_clean_iqs(octep_dev);
 
@@ -1203,6 +1349,36 @@ octep_stop(struct net_device *netdev)
 	octep_free_oqs(octep_dev);
 	octep_free_iqs(octep_dev);
 
+	/* Restart PF polling when last VF interface closes */
+	struct pci_dev *pf_dev = pci_physfn(octep_dev->pdev);
+
+	if (pf_dev) {
+		struct octep_pf *octpf = pci_get_drvdata(pf_dev);
+
+		if (octpf && octpf->octep_dev &&
+		    atomic_read(&octpf->octep_dev->status) == OCTEP_DEV_STATUS_READY) {
+			int prev_count;
+
+			prev_count = atomic_fetch_dec(&octpf->active_vf_count);
+			if (prev_count == 1) {
+				/* Last VF closing - restart PF polling and heartbeat */
+				dev_info(&octep_dev->pdev->dev,
+					 "Last VF interface closing "
+					 "restarting PF polling and heartbeat\n");
+				octpf->octep_dev->poll_non_ioq_intr = true;
+				queue_delayed_work(octep_wq, &octpf->octep_dev->intr_poll_task,
+						   msecs_to_jiffies(OCTEP_INTR_POLL_TIME_MSECS));
+				/* Reset heartbeat miss count and restart heartbeat monitoring */
+				atomic_set(&octpf->octep_dev->hb_miss_cnt, 0);
+				queue_delayed_work(
+					octep_wq, &octpf->octep_dev->hb_task,
+					msecs_to_jiffies(
+						octpf->octep_dev->conf->fw_info.hb_interval));
+			}
+		}
+	}
+
+	clear_bit(OCTEP_DEV_STATE_DOWN_IN_PROGRESS, &octep_dev->state);
 	/* Memory Barrier */
 	smp_mb__after_atomic();
 
@@ -1210,8 +1386,7 @@ octep_stop(struct net_device *netdev)
 	return 0;
 }
 
-static int
-octep_iq_full_check(struct octep_iq *iq)
+static int octep_iq_full_check(struct octep_iq *iq)
 {
 	if (likely((IQ_INSTR_SPACE(iq)) > OCTEP_WAKE_QUEUE_THRESHOLD))
 		return 0;
@@ -1697,6 +1872,19 @@ octep_rdma_probe_dev(struct octep_sdp_dev *octep_dev)
 	netdev->netdev_ops = &octep_netdev_ops;
 	netif_carrier_off(netdev);
 
+	if (octep_vf_setup_mbox(octep_dev)) {
+		dev_err(&octep_dev->pdev->dev, "VF Mailbox setup failed\n");
+		err = -ENOMEM;
+		//Todo - Add cleanups for this API
+		return -1;
+	}
+
+	if (octep_vf_mbox_version_check(octep_dev)) {
+		dev_err(&octep_dev->pdev->dev, "PF VF Mailbox version mismatch\n");
+		err = -EINVAL;
+		return -1;
+	}
+
 	netdev->hw_features = NETIF_F_SG;
 	if (OCTEP_TX_IP_CSUM(octep_dev->conf->fw_info.tx_ol_flags))
 		netdev->hw_features |= (NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM);
@@ -1723,11 +1911,14 @@ octep_rdma_probe_dev(struct octep_sdp_dev *octep_dev)
 
 	clear_bit(OCTEP_DEV_STATE_OPEN, &octep_dev->state);
 
+	INIT_DELAYED_WORK(&octep_dev->vf_hb_task, octep_vf_hb_timeout_task);
+	queue_delayed_work(octep_wq, &octep_dev->vf_hb_task,
+			   msecs_to_jiffies(OCTEP_DEFAULT_VF_HB_INTERVAL));
+
 	return 0;
 }
 
-void
-octep_device_cleanup(struct octep_sdp_dev *octep_dev)
+void octep_device_cleanup(struct octep_sdp_dev *octep_dev)
 {
 	int i;
 

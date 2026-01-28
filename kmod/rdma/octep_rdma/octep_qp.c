@@ -484,7 +484,6 @@ octep_rdma_prepare_user_qp_modify_cmd(struct octep_rdma_dev *rdma_dev, struct oc
 	qp_mod->rq_psn = qp->attrs.qp_mod_attr->rq_psn;
 	qp_mod->sq_psn = qp->attrs.qp_mod_attr->sq_psn;
 	qp_mod->dest_qpn = qp->attrs.qp_mod_attr->dest_qpn;
-	/* HP - Check this */
 	qp_mod->network_type = qp->attrs.qp_mod_attr->mod_av.network_type;
 	qp_mod->s_addr = qp->attrs.qp_mod_attr->mod_av.sgid_addr._sockaddr_in.sin_addr.s_addr;
 	qp_mod->d_addr = qp->attrs.qp_mod_attr->mod_av.dgid_addr._sockaddr_in.sin_addr.s_addr;

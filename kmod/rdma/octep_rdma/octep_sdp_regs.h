@@ -523,13 +523,19 @@
 #define CNXK_SDP_EPF_OEI_RINT_DATA_BIT_MBOX BIT_ULL(0)
 /* bit 1 for firmware heartbeat interrupt */
 #define CNXK_SDP_EPF_OEI_RINT_DATA_BIT_HBEAT BIT_ULL(1)
+/* bit 2-17 for link status interrupt */
+#define CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_STATUS_MASK (GENMASK_ULL(17, 2) | GENMASK_ULL(33, 18))
+#define CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_DOWN_MASK GENMASK_ULL(17, 2)
+#define CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_UP_MASK GENMASK_ULL(33, 18)
 
+/* Firmware status definitions */
 #define FW_STATUS_DOWNING 0ULL
-#define FW_STATUS_READY   1ULL
+#define FW_STATUS_READY 1ULL
 #define FW_STATUS_RUNNING 2ULL
-#define CNXK_PEMX_PFX_CSX_PFCFGX(pem, pf, offset)                                                  \
-	((0x8e0000008000 | (uint64_t)(pem) << 36 | (pf) << 18 | (((offset) >> 16) & 1) << 16 |     \
-	  (offset >> 3) << 3) +                                                                    \
+
+#define CNXK_PEMX_PFX_CSX_PFCFGX(pem, pf, offset)                                              \
+	((0x8e0000008000 | (uint64_t)(pem) << 36 | (pf) << 18 | (((offset) >> 16) & 1) << 16 | \
+	  (offset >> 3) << 3) +                                                                \
 	 (((offset >> 2) & 1) << 2))
 
 /* Register defines for use with CNXK_PEMX_PFX_CSX_PFCFGX */
@@ -586,43 +592,46 @@
 #define OCTEP_DEFAULT_MTU 1500
 
 /* pf heartbeat interval in milliseconds */
-#define OCTEP_DEFAULT_FW_HB_INTERVAL 1000
-/* pf heartbeat miss count */
-#define OCTEP_DEFAULT_FW_HB_MISS_COUNT 20
+#define OCTEP_DEFAULT_FW_HB_INTERVAL 5000
+/* pf heartbeat miss count - 5 attempts × 5s = 25 seconds total timeout */
+#define OCTEP_DEFAULT_FW_HB_MISS_COUNT 5
 
 /* Macros to get octeon config params */
-#define CFG_GET_IQ_CFG(cfg)            ((cfg)->iq)
-#define CFG_GET_IQ_NUM_DESC(cfg)       ((cfg)->iq.num_descs)
-#define CFG_GET_IQ_INSTR_TYPE(cfg)     ((cfg)->iq.instr_type)
-#define CFG_GET_IQ_INSTR_SIZE(cfg)     (64)
-#define CFG_GET_IQ_DB_MIN(cfg)         ((cfg)->iq.db_min)
+#define CFG_GET_IQ_CFG(cfg) ((cfg)->iq)
+#define CFG_GET_IQ_NUM_DESC(cfg) ((cfg)->iq.num_descs)
+#define CFG_GET_IQ_INSTR_TYPE(cfg) ((cfg)->iq.instr_type)
+#define CFG_GET_IQ_INSTR_SIZE(cfg) (64)
+#define CFG_GET_IQ_DB_MIN(cfg) ((cfg)->iq.db_min)
 #define CFG_GET_IQ_INTR_THRESHOLD(cfg) ((cfg)->iq.intr_threshold)
 
-#define CFG_GET_OQ_NUM_DESC(cfg)         ((cfg)->oq.num_descs)
-#define CFG_GET_OQ_BUF_SIZE(cfg)         ((cfg)->oq.buf_size)
+#define CFG_GET_OQ_NUM_DESC(cfg) ((cfg)->oq.num_descs)
+#define CFG_GET_OQ_BUF_SIZE(cfg) ((cfg)->oq.buf_size)
 #define CFG_GET_OQ_REFILL_THRESHOLD(cfg) ((cfg)->oq.refill_threshold)
-#define CFG_GET_OQ_INTR_PKT(cfg)         ((cfg)->oq.oq_intr_pkt)
-#define CFG_GET_OQ_INTR_TIME(cfg)        ((cfg)->oq.oq_intr_time)
-#define CFG_GET_OQ_WMARK(cfg)            ((cfg)->oq.wmark)
+#define CFG_GET_OQ_INTR_PKT(cfg) ((cfg)->oq.oq_intr_pkt)
+#define CFG_GET_OQ_INTR_TIME(cfg) ((cfg)->oq.oq_intr_time)
+#define CFG_GET_OQ_WMARK(cfg) ((cfg)->oq.wmark)
 
-#define CFG_GET_PORTS_MAX_IO_RINGS(cfg)    ((cfg)->ring_cfg.max_io_rings)
+#define CFG_GET_PORTS_MAX_IO_RINGS(cfg) ((cfg)->ring_cfg.max_io_rings)
 #define CFG_GET_PORTS_ACTIVE_IO_RINGS(cfg) ((cfg)->ring_cfg.active_io_rings)
-#define CFG_GET_PORTS_PF_SRN(cfg)          ((cfg)->ring_cfg.srn)
+#define CFG_GET_PORTS_PF_SRN(cfg) ((cfg)->ring_cfg.srn)
 
-#define CFG_GET_CORE_TICS_PER_US(cfg)   ((cfg)->core_cfg.core_tics_per_us)
+#define CFG_GET_CORE_TICS_PER_US(cfg) ((cfg)->core_cfg.core_tics_per_us)
 #define CFG_GET_COPROC_TICS_PER_US(cfg) ((cfg)->core_cfg.coproc_tics_per_us)
 
-#define CFG_GET_MAX_VFS(cfg)     ((cfg)->sriov_cfg.max_vfs)
-#define CFG_GET_ACTIVE_VFS(cfg)  ((cfg)->sriov_cfg.active_vfs)
-#define CFG_GET_MAX_RPVF(cfg)    ((cfg)->sriov_cfg.max_rings_per_vf)
+#define CFG_GET_MAX_VFS(cfg) ((cfg)->sriov_cfg.max_vfs)
+#define CFG_GET_ACTIVE_VFS(cfg) ((cfg)->sriov_cfg.active_vfs)
+#define CFG_GET_MAX_RPVF(cfg) ((cfg)->sriov_cfg.max_rings_per_vf)
 #define CFG_GET_ACTIVE_RPVF(cfg) ((cfg)->sriov_cfg.active_rings_per_vf)
-#define CFG_GET_VF_SRN(cfg)      ((cfg)->sriov_cfg.vf_srn)
+#define CFG_GET_VF_SRN(cfg) ((cfg)->sriov_cfg.vf_srn)
 
-#define CFG_GET_IOQ_MSIX(cfg)           ((cfg)->msix_cfg.ioq_msix)
-#define CFG_GET_NON_IOQ_MSIX(cfg)       ((cfg)->msix_cfg.non_ioq_msix)
+#define CFG_GET_IOQ_MSIX(cfg) ((cfg)->msix_cfg.ioq_msix)
+#define CFG_GET_NON_IOQ_MSIX(cfg) ((cfg)->msix_cfg.non_ioq_msix)
 #define CFG_GET_NON_IOQ_MSIX_NAMES(cfg) ((cfg)->msix_cfg.non_ioq_msix_names)
 
 #define CFG_GET_CTRL_MBOX_MEM_ADDR(cfg) ((cfg)->ctrl_mbox_cfg.barmem_addr)
+
+/* PF/PCIe device state check interval in milliseconds - aligned with DPU (5 seconds) */
+#define OCTEP_DEFAULT_VF_HB_INTERVAL 5000
 
 /* Hardware Tx Queue configuration. */
 struct octep_iq_config {

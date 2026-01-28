@@ -81,6 +81,8 @@ struct octep_pf {
 	int enabled_vfs;
 	u32 vf_stride;
 	u16 vf_devid;
+	struct octep_sdp_dev *octep_dev;
+	atomic_t active_vf_count;
 };
 
 struct octep_rdma_dev {

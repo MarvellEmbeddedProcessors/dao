@@ -10,6 +10,7 @@ octep_rdma_sources = files(
 		'octep_sdp.c',
 		'octep_sdp_custom.c',
 		'octep_sdp_regs.c',
+		'octep_pfvf_mbox.c',
 		'octep_verbs.c',
 		'octep_mbox.c',
 		'octep_qp.c',

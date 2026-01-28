@@ -4,9 +4,11 @@
 
 #include <linux/etherdevice.h>
 #include <linux/pci.h>
+#include <linux/workqueue.h>
 
 #include "octep_sdp.h"
 #include "octep_sdp_regs.h"
+#include "octep_pfvf_mbox.h"
 
 /* We will support 128 pf's in control mbox */
 #define CTRL_MBOX_MAX_PF 128
@@ -392,25 +394,143 @@ octep_setup_oq_regs_cnxk_pf(struct octep_sdp_dev *octep_dev, int oq_no)
 	return 0;
 }
 
+/* Setup registers for a PF mailbox */
+static void octep_setup_mbox_regs_cnxk_pf(struct octep_sdp_dev *octep_dev, int q_no)
+{
+	struct octep_sdp_mbox *mbox = octep_dev->mbox[q_no];
+
+	/* PF to VF DATA reg. PF writes into this reg */
+	mbox->pf_vf_data_reg = octep_dev->mmio[0].hw_addr + CNXK_SDP_MBOX_PF_VF_DATA(q_no);
+
+	/* VF to PF DATA reg. PF reads from this reg */
+	mbox->vf_pf_data_reg = octep_dev->mmio[0].hw_addr + CNXK_SDP_MBOX_VF_PF_DATA(q_no);
+}
+
+static void octep_poll_pfvf_mailbox_cnxk_pf(struct octep_sdp_dev *octep_dev)
+{
+	u32 vf, active_vfs, active_rings_per_vf, vf_mbox_queue;
+	int handled = 0;
+	u64 reg0;
+
+	reg0 = octep_read_csr64(octep_dev, CNXK_SDP_EPF_MBOX_RINT(0));
+	if (reg0) {
+		active_vfs = CFG_GET_ACTIVE_VFS(octep_dev->conf);
+		active_rings_per_vf = CFG_GET_ACTIVE_RPVF(octep_dev->conf);
+		for (vf = 0; vf < active_vfs; vf++) {
+			vf_mbox_queue = vf * active_rings_per_vf;
+			if (!(reg0 & (0x1UL << vf_mbox_queue)))
+				continue;
+
+			if (!octep_dev->mbox[vf_mbox_queue]) {
+				dev_err(&octep_dev->pdev->dev, "bad mbox vf %d\n", vf);
+				continue;
+			}
+			schedule_work(&octep_dev->mbox[vf_mbox_queue]->wk.work);
+		}
+		if (reg0)
+			octep_write_csr64(octep_dev, CNXK_SDP_EPF_MBOX_RINT(0), reg0);
+
+		handled = 1;
+	}
+}
+
+/* Mailbox Interrupt handler */
+static irqreturn_t octep_pfvf_mbox_intr_handler_cnxk_pf(void *dev)
+{
+	struct octep_sdp_dev *octep_dev = (struct octep_sdp_dev *)dev;
+
+	octep_poll_pfvf_mailbox_cnxk_pf(octep_dev);
+	return IRQ_HANDLED;
+}
+
+/* Poll OEI events like heartbeat */
+static void octep_poll_oei_cnxk_pf(struct octep_sdp_dev *octep_dev)
+{
+	u64 reg0;
+	int handled = 0;
+	u32 active_vfs, vf;
+
+	/* Check for OEI INTR */
+	reg0 = octep_read_csr64(octep_dev, CNXK_SDP_EPF_OEI_RINT);
+	if (reg0) {
+		/* Clear the interrupt bits by writing back the same value */
+		octep_write_csr64(octep_dev, CNXK_SDP_EPF_OEI_RINT, reg0);
+
+		if (reg0 & CNXK_SDP_EPF_OEI_RINT_DATA_BIT_HBEAT) {
+			int current_count = atomic_read(&octep_dev->hb_miss_cnt);
+
+			dev_dbg(&octep_dev->pdev->dev,
+				"*** HEARTBEAT INTERRUPT (miss_cnt: %d -> 0) ***", current_count);
+			atomic_set(&octep_dev->hb_miss_cnt, 0);
+		}
+
+		if (reg0 & CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_STATUS_MASK) {
+			active_vfs = CFG_GET_ACTIVE_VFS(octep_dev->conf);
+			if (!active_vfs) {
+				dev_err(&octep_dev->pdev->dev, "No active VFs to notify");
+				return;
+			}
+
+			/* Check for Link DOWN events (bits 2-17) */
+			if (reg0 & CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_DOWN_MASK) {
+				for (vf = 0; vf < active_vfs; vf++) {
+					if (reg0 & (0x1UL << (vf + 2))) {
+						dev_warn(
+							&octep_dev->pdev->dev,
+							"*** LINK DOWN INTERRUPT FOR VF %d (port %d) ***",
+							vf, vf);
+						octep_rdma_send_link_status(
+							octep_dev, vf,
+							OCTEP_RDMA_PFVF_LINK_STATUS_DOWN);
+					}
+				}
+			}
+
+			/* Check for Link UP events (bits 18-33) */
+			if (reg0 & CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_UP_MASK) {
+				for (vf = 0; vf < active_vfs; vf++) {
+					if (reg0 & (0x1UL << (vf + 18))) {
+						dev_warn(
+							&octep_dev->pdev->dev,
+							"*** LINK UP INTERRUPT FOR VF %d (port %d) ***",
+							vf, vf);
+						octep_rdma_send_link_status(
+							octep_dev, vf,
+							OCTEP_RDMA_PFVF_LINK_STATUS_UP);
+					}
+				}
+			}
+		}
+
+		if (!(reg0 & (CNXK_SDP_EPF_OEI_RINT_DATA_BIT_HBEAT |
+			      CNXK_SDP_EPF_OEI_RINT_DATA_BIT_LINK_STATUS_MASK))) {
+			dev_warn(&octep_dev->pdev->dev,
+				 "*** OEI interrupt with unknown bits: 0x%llx ***", reg0);
+		}
+
+		handled = 1;
+	}
+}
+
 /* OEI interrupt handler */
-static irqreturn_t
-octep_oei_intr_handler_cnxk_pf(void *dev)
+static irqreturn_t octep_oei_intr_handler_cnxk_pf(void *dev)
 {
 	struct octep_sdp_dev *octep_dev = (struct octep_sdp_dev *)dev;
 
 	dev_info(&octep_dev->pdev->dev, "Received OEI_RINT intr\n");
+	octep_poll_oei_cnxk_pf(octep_dev);
 	return IRQ_HANDLED;
 }
 
-static void
-octep_poll_non_ioq_interrupts_cnxk_pf(struct octep_sdp_dev *octep_dev)
+static void octep_poll_non_ioq_interrupts_cnxk_pf(struct octep_sdp_dev *octep_dev)
 {
+	octep_poll_pfvf_mailbox_cnxk_pf(octep_dev);
+	octep_poll_oei_cnxk_pf(octep_dev);
 	dev_info(&octep_dev->pdev->dev, "Polling non-ioq interrupts\n");
 }
 
 /* Interrupt handler for input ring error interrupts. */
-static irqreturn_t
-octep_ire_intr_handler_cnxk_pf(void *dev)
+static irqreturn_t octep_ire_intr_handler_cnxk_pf(void *dev)
 {
 	struct octep_sdp_dev *octep_dev = (struct octep_sdp_dev *)dev;
 	struct pci_dev *pdev = octep_dev->pdev;
@@ -615,8 +735,7 @@ octep_soft_reset_cnxk_pf(struct octep_sdp_dev *octep_dev)
 }
 
 /* Re-initialize Octeon hardware registers */
-static void
-octep_reinit_regs_cnxk_pf(struct octep_sdp_dev *octep_dev)
+static void octep_reinit_regs_cnxk_pf(struct octep_sdp_dev *octep_dev)
 {
 	u32 i;
 
@@ -662,8 +781,7 @@ octep_enable_interrupts_cnxk_pf(struct octep_sdp_dev *octep_dev)
 }
 
 /* Disable all interrupts */
-static void
-octep_disable_interrupts_cnxk_pf(struct octep_sdp_dev *octep_dev)
+static void octep_disable_interrupts_cnxk_pf(struct octep_sdp_dev *octep_dev)
 {
 	u64 reg_val, intr_mask = 0ULL;
 	int srn, num_rings, i;
@@ -698,8 +816,7 @@ octep_disable_interrupts_cnxk_pf(struct octep_sdp_dev *octep_dev)
 }
 
 /* Get new Octeon Read Index: index of descriptor that Octeon reads next. */
-static u32
-octep_update_iq_read_index_cnxk_pf(struct octep_iq *iq)
+static u32 octep_update_iq_read_index_cnxk_pf(struct octep_iq *iq)
 {
 	u32 pkt_in_done = readl(iq->inst_cnt_reg);
 	u32 last_done, new_idx;
@@ -837,7 +954,9 @@ octep_device_setup_cnxk_pf(struct octep_sdp_dev *octep_dev)
 {
 	octep_dev->hw_ops.setup_iq_regs = octep_setup_iq_regs_cnxk_pf;
 	octep_dev->hw_ops.setup_oq_regs = octep_setup_oq_regs_cnxk_pf;
+	octep_dev->hw_ops.setup_mbox_regs = octep_setup_mbox_regs_cnxk_pf;
 
+	octep_dev->hw_ops.mbox_intr_handler = octep_pfvf_mbox_intr_handler_cnxk_pf;
 	octep_dev->hw_ops.oei_intr_handler = octep_oei_intr_handler_cnxk_pf;
 	octep_dev->hw_ops.ire_intr_handler = octep_ire_intr_handler_cnxk_pf;
 	octep_dev->hw_ops.ore_intr_handler = octep_ore_intr_handler_cnxk_pf;
@@ -1153,12 +1272,37 @@ octep_vf_setup_oq_regs_cnxk(struct octep_sdp_dev *octep_dev, int oq_no)
 	return 0;
 }
 
+/* Setup registers for a VF mailbox */
+static void octep_vf_setup_mbox_regs_cnxk(struct octep_sdp_dev *octep_dev, int q_no)
+{
+	struct octep_sdp_vf_mbox *mbox = octep_dev->vf_mbox;
+
+	/* PF to VF DATA reg. VF reads from this reg */
+	mbox->mbox_read_reg = octep_dev->mmio[0].hw_addr + CNXK_VF_SDP_R_MBOX_PF_VF_DATA(q_no);
+
+	/* VF mbox interrupt reg */
+	mbox->mbox_int_reg = octep_dev->mmio[0].hw_addr + CNXK_VF_SDP_R_MBOX_PF_VF_INT(q_no);
+
+	/* VF to PF DATA reg. VF writes into this reg */
+	mbox->mbox_write_reg = octep_dev->mmio[0].hw_addr + CNXK_VF_SDP_R_MBOX_VF_PF_DATA(q_no);
+}
+
+/* Mailbox Interrupt handler */
+static void cnxk_handle_vf_mbox_intr(struct octep_sdp_dev *octep_dev)
+{
+	if (octep_dev->vf_mbox)
+		schedule_work(&octep_dev->vf_mbox->wk.work);
+	else
+		dev_err(&octep_dev->pdev->dev, "cannot schedule work on invalid mbox\n");
+}
+
 /* Tx/Rx queue interrupt handler */
-static irqreturn_t
-octep_vf_ioq_intr_handler_cnxk(void *data)
+static irqreturn_t octep_vf_ioq_intr_handler_cnxk(void *data)
 {
 	struct octep_ioq_vector *vector = (struct octep_ioq_vector *)data;
+	struct octep_sdp_dev *octep_dev;
 	struct octep_oq *oq;
+	u64 reg_val = 0ULL;
 
 	if (!vector)
 		return IRQ_HANDLED;
@@ -1166,6 +1310,17 @@ octep_vf_ioq_intr_handler_cnxk(void *data)
 	oq = vector->oq;
 	if (!oq)
 		return IRQ_HANDLED;
+
+	octep_dev = vector->octep_dev;
+
+	/* Mailbox interrupt arrives along with interrupt of tx/rx ring pair 0 */
+	if (oq->q_no == 0) {
+		reg_val = octep_read_csr64(octep_dev, CNXK_VF_SDP_R_MBOX_PF_VF_INT(0));
+		if (reg_val & CNXK_VF_SDP_R_MBOX_PF_VF_INT_STATUS) {
+			cnxk_handle_vf_mbox_intr(octep_dev);
+			octep_write_csr64(octep_dev, CNXK_VF_SDP_R_MBOX_PF_VF_INT(0), reg_val);
+		}
+	}
 
 	if (!(oq->napi))
 		return IRQ_HANDLED;
@@ -1175,8 +1330,7 @@ octep_vf_ioq_intr_handler_cnxk(void *data)
 }
 
 /* Re-initialize Octeon hardware registers */
-static void
-octep_vf_reinit_regs_cnxk(struct octep_sdp_dev *octep_dev)
+static void octep_vf_reinit_regs_cnxk(struct octep_sdp_dev *octep_dev)
 {
 	u32 i;
 
@@ -1210,6 +1364,10 @@ octep_vf_enable_interrupts_cnxk(struct octep_sdp_dev *octep_dev)
 		reg_val |= (0x1ULL << 62);
 		octep_write_csr64(octep_dev, CNXK_VF_SDP_R_OUT_INT_LEVELS(q), reg_val);
 	}
+
+	/* Enable PF to VF mbox interrupt by setting 2nd bit*/
+	octep_write_csr64(octep_dev, CNXK_VF_SDP_R_MBOX_PF_VF_INT(0),
+			  CNXK_VF_SDP_R_MBOX_PF_VF_INT_ENAB);
 }
 
 /* Disable all interrupts */
@@ -1218,6 +1376,10 @@ octep_vf_disable_interrupts_cnxk(struct octep_sdp_dev *octep_dev)
 {
 	int num_rings, q;
 	u64 reg_val;
+
+	/* Disable PF to VF mbox interrupt by setting 2nd bit*/
+	if (octep_dev->vf_mbox)
+		octep_write_csr64(octep_dev, CNXK_VF_SDP_R_MBOX_PF_VF_INT(0), 0x0);
 
 	num_rings = CFG_GET_PORTS_ACTIVE_IO_RINGS(octep_dev->conf);
 	for (q = 0; q < num_rings; q++) {
@@ -1232,8 +1394,7 @@ octep_vf_disable_interrupts_cnxk(struct octep_sdp_dev *octep_dev)
 }
 
 /* Get new Octeon Read Index: index of descriptor that Octeon reads next. */
-static u32
-octep_vf_update_iq_read_index_cnxk(struct octep_iq *iq)
+static u32 octep_vf_update_iq_read_index_cnxk(struct octep_iq *iq)
 {
 	u32 pkt_in_done = readl(iq->inst_cnt_reg);
 	u32 last_done, new_idx;
@@ -1400,6 +1561,7 @@ octep_device_setup_cnxk_vf(struct octep_sdp_dev *octep_dev)
 {
 	octep_dev->hw_ops.setup_iq_regs = octep_vf_setup_iq_regs_cnxk;
 	octep_dev->hw_ops.setup_oq_regs = octep_vf_setup_oq_regs_cnxk;
+	octep_dev->hw_ops.setup_mbox_regs = octep_vf_setup_mbox_regs_cnxk;
 
 	octep_dev->hw_ops.ioq_intr_handler = octep_vf_ioq_intr_handler_cnxk;
 	octep_dev->hw_ops.reinit_regs = octep_vf_reinit_regs_cnxk;

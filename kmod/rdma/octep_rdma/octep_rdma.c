@@ -11,8 +11,11 @@
 #include "octep_qp.h"
 #include "octep_rdma.h"
 #include "octep_verbs.h"
+#include "octep_sdp_regs.h"
+#include "octep_pfvf_mbox.h"
 
 #define MAC_OFFSET 9
+#define OCTEP_INTR_POLL_TIME_MSECS 100
 static const struct ib_device_ops octep_rdma_device_ops = {
 	.owner = THIS_MODULE,
 	.driver_id = RDMA_DRIVER_OCTEP,
@@ -574,6 +577,9 @@ octep_rdma_remove_vf(struct pci_dev *pdev)
 	struct octep_rdma_dev *rdma_dev = pci_get_drvdata(pdev);
 	struct octep_caps_region *caps_rgn = rdma_dev->caps_rgn;
 
+	if (rdma_dev->octep_dev)
+		cancel_delayed_work_sync(&rdma_dev->octep_dev->vf_hb_task);
+	octep_vf_delete_mbox(rdma_dev->octep_dev);
 	octep_rdma_dev_release(rdma_dev);
 
 	if (caps_rgn->base[OCTEP_HW_MBOX_BAR])
@@ -865,6 +871,28 @@ octep_rdma_remove_pf(struct pci_dev *pdev)
 
 	pci_disable_sriov(pdev);
 
+	printk("Removing PF\n");
+	if (octpf->octep_dev) {
+		/* Cancel any pending work */
+		cancel_all_tasks(octpf->octep_dev);
+		cancel_delayed_work_sync(&octpf->octep_dev->hb_task);
+		/* Clear scratch register during device cleanup to signal host down */
+		printk("Device cleanup: clearing scratch register\n");
+		octep_write_csr64(octpf->octep_dev, CNXK_SDP_EPF_SCRATCH, 0x3);
+		/* Clean up PF-VF mailbox */
+		octep_delete_pfvf_mbox(octpf->octep_dev);
+
+		/* Clean up interrupts */
+		octep_clean_irqs(octpf->octep_dev);
+
+		/* Free configuration */
+		kfree(octpf->octep_dev->conf);
+
+		/* Free netdev */
+		free_netdev(octpf->octep_dev->netdev);
+		octpf->octep_dev = NULL;
+	}
+
 	if (octpf->base[OCTEP_HW_MBOX_BAR])
 		octep_iounmap_region(pdev, octpf->base, OCTEP_HW_MBOX_BAR);
 
@@ -919,9 +947,15 @@ octep_sriov_enable(struct pci_dev *pdev, int num_vfs)
 	u8 rpvf;
 	u64 val;
 
+	if (pf->octep_dev && pf->octep_dev->conf)
+		CFG_GET_ACTIVE_VFS(pf->octep_dev->conf) = num_vfs;
 	ret = pci_enable_sriov(pdev, num_vfs);
-	if (ret)
+	if (ret) {
+		dev_warn(&pdev->dev, "Failed to enable SRIOV err=%d\n", ret);
+		if (pf->octep_dev && pf->octep_dev->conf)
+			CFG_GET_ACTIVE_VFS(pf->octep_dev->conf) = 0;
 		return ret;
+	}
 
 	pf->enabled_vfs = num_vfs;
 
@@ -958,6 +992,8 @@ octep_sriov_disable(struct pci_dev *pdev)
 
 	pci_disable_sriov(pdev);
 	pf->enabled_vfs = 0;
+	if (pf->octep_dev && pf->octep_dev->conf)
+		CFG_GET_ACTIVE_VFS(pf->octep_dev->conf) = 0;
 
 	return 0;
 }
@@ -1002,17 +1038,18 @@ octep_rdma_pf_setup(struct octep_pf *octpf)
 	int totalvfs;
 	size_t len;
 	u64 val;
+	int err;
 
 	totalvfs = pci_sriov_get_totalvfs(pdev);
 	if (unlikely(!totalvfs)) {
-		dev_info(&pdev->dev, "Total VFs are %d in PF sriov configuration\n", totalvfs);
+		dev_info(&pdev->dev, "Total VFs are %d in PF sriov configuration", totalvfs);
 		return 0;
 	}
 
 	addr = octpf->base[OCTEP_HW_REGS_BAR];
 	val = readq(addr + OCTEP_EPF_RINFO(0));
 	if (val == 0) {
-		dev_err(&pdev->dev, "Invalid device configuration\n");
+		dev_err(&pdev->dev, "Invalid device configuration");
 		return -EINVAL;
 	}
 
@@ -1022,6 +1059,61 @@ octep_rdma_pf_setup(struct octep_pf *octpf)
 	octpf->vf_devid = octep_get_vf_devid(pdev);
 
 	octep_rdma_pf_bar_shrink(octpf);
+	struct net_device *netdev = alloc_etherdev_mq(sizeof(struct octep_sdp_dev), 1);
+
+	if (!netdev) {
+		dev_err(&pdev->dev, "PF: failed to allocate temp netdev for OEI");
+		return 0;
+	}
+	SET_NETDEV_DEV(netdev, &pdev->dev);
+	struct octep_sdp_dev *octep_dev = netdev_priv(netdev);
+
+	octep_dev->netdev = netdev;
+	octep_dev->pdev = pdev;
+	octep_dev->mmio[0].hw_addr = octpf->base[OCTEP_HW_REGS_BAR];
+
+	/* Allocate and initialize configuration for heartbeat */
+	octep_dev->conf = kzalloc(sizeof(struct octep_config), GFP_KERNEL);
+	if (!octep_dev->conf) {
+		dev_err(&pdev->dev, "PF: failed to allocate config for heartbeat");
+		free_netdev(netdev);
+		return 0;
+	}
+
+	/* Set default heartbeat parameters for PF to match firmware */
+	octep_dev->conf->fw_info.hb_interval = 5000; /* 5 seconds to match firmware */
+	octep_dev->conf->fw_info.hb_miss_count = 3; /* Allow 3 missed heartbeats = 15 seconds */
+
+	octep_device_setup_cnxk_pf(octep_dev);
+
+	err = octep_setup_pfvf_mbox(octep_dev);
+	if (err) {
+		dev_err(&pdev->dev, " pfvf mailbox setup failed");
+		return err;
+	}
+	/* Initialize polling and heartbeat tasks */
+	INIT_DELAYED_WORK(&octep_dev->intr_poll_task, octep_intr_poll_task);
+	octep_dev->poll_non_ioq_intr = true;
+	queue_delayed_work(octep_wq, &octep_dev->intr_poll_task,
+			   msecs_to_jiffies(OCTEP_INTR_POLL_TIME_MSECS));
+	atomic_set(&octep_dev->hb_miss_cnt, 0);
+	INIT_DELAYED_WORK(&octep_dev->hb_task, octep_hb_timeout_task);
+
+	octpf->octep_dev = octep_dev;
+	dev_info(&pdev->dev, "PF: OEI handler + poll_non_ioq + heartbeat enabled");
+
+	octep_write_csr64(octep_dev, CNXK_SDP_EPF_SCRATCH, 0x1);
+
+	/* Set a proper device name for PF interrupt registration */
+	snprintf(octep_dev->netdev->name, IFNAMSIZ, "octep_pf%d", pdev->bus->number);
+
+	octep_setup_irqs(octep_dev);
+
+	/* Enable hardware interrupts */
+	if (octep_dev->hw_ops.enable_interrupts) {
+		octep_dev->hw_ops.enable_interrupts(octep_dev);
+		dev_info(&pdev->dev, "PF: Hardware interrupts enabled");
+	}
 
 	return 0;
 }
@@ -1048,6 +1140,9 @@ octep_rdma_probe_pf(struct pci_dev *pdev)
 	if (!octpf)
 		return -ENOMEM;
 
+	/* Initialize VF active count */
+	atomic_set(&octpf->active_vf_count, 0);
+
 	ret = octep_iomap_region(pdev, octpf->base, OCTEP_HW_REGS_BAR);
 	if (ret) {
 		dev_err(dev, "Failed to map REGs BAR:%u\n", OCTEP_HW_REGS_BAR);
@@ -1061,6 +1156,26 @@ octep_rdma_probe_pf(struct pci_dev *pdev)
 	ret = octep_rdma_pf_setup(octpf);
 	if (ret)
 		goto unmap_region;
+
+	if (octpf->octep_dev) {
+		/* Set device status to READY */
+		atomic_set(&octpf->octep_dev->status, OCTEP_DEV_STATUS_READY);
+
+		/* Start heartbeat timer to monitor firmware health */
+		dev_info(&pdev->dev,
+			 "PF: Starting heartbeat timer - interval %u msecs, miss count %u\n",
+			 octpf->octep_dev->conf->fw_info.hb_interval,
+			 octpf->octep_dev->conf->fw_info.hb_miss_count);
+		queue_delayed_work(octep_wq, &octpf->octep_dev->hb_task,
+				   msecs_to_jiffies(octpf->octep_dev->conf->fw_info.hb_interval));
+
+		/* Start interrupt polling task to handle non-IOQ interrupts */
+		octpf->octep_dev->poll_non_ioq_intr = true;
+		queue_delayed_work(octep_wq, &octpf->octep_dev->intr_poll_task,
+				   msecs_to_jiffies(OCTEP_INTR_POLL_TIME_MSECS));
+
+		dev_info(&pdev->dev, "PF: Started heartbeat and polling tasks\n");
+	}
 
 	return 0;
 
@@ -1088,37 +1203,48 @@ octep_rdma_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 }
 
 static struct pci_device_id octep_pci_rdma_map[] = {
-	{PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN106K_PF)},
-	{PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN106K_VF)},
-	{PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN105K_PF)},
-	{PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN105K_VF)},
-	{PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN103K_PF)},
-	{PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN103K_VF)},
-	{0},
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN106K_PF) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN106K_VF) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN105K_PF) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN105K_VF) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN103K_PF) },
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN103K_VF) },
+	{ 0 },
 };
 
-static struct pci_driver octep_pci_rdma = {.name = OCTEP_RDMA_DRV_NAME,
-					   .id_table = octep_pci_rdma_map,
-					   .probe = octep_rdma_probe,
-					   .remove = octep_rdma_remove,
-					   .sriov_configure = octep_rdma_sriov_configure};
+static struct pci_driver octep_pci_rdma = { .name = OCTEP_RDMA_DRV_NAME,
+					    .id_table = octep_pci_rdma_map,
+					    .probe = octep_rdma_probe,
+					    .remove = octep_rdma_remove,
+					    .sriov_configure = octep_rdma_sriov_configure };
 
-static int __init
-octep_rdma_init(void)
+static int __init octep_rdma_init_module(void)
 {
-	return pci_register_driver(&octep_pci_rdma);
+	int ret;
+
+	octep_wq = create_singlethread_workqueue(OCTEP_RDMA_DRV_NAME);
+	if (!octep_wq)
+		return -ENOMEM;
+
+	ret = pci_register_driver(&octep_pci_rdma);
+	if (ret) {
+		destroy_workqueue(octep_wq);
+		return ret;
+	}
+
+	return 0;
 }
 
-static void __exit
-octep_rdma_exit(void)
+static void __exit octep_rdma_exit_module(void)
 {
 	pci_unregister_driver(&octep_pci_rdma);
+	destroy_workqueue(octep_wq);
 
 	/* Ensure the kernel thread is completely stopped */
 	octep_rdma_kern_cq_poll_thread_force_cleanup();
 }
 
-module_init(octep_rdma_init);
-module_exit(octep_rdma_exit);
+module_init(octep_rdma_init_module);
+module_exit(octep_rdma_exit_module);
 MODULE_DESCRIPTION(OCTEP_DRV_STRING);
 MODULE_LICENSE("GPL");
