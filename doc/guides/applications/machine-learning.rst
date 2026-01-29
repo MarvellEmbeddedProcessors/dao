@@ -982,6 +982,161 @@ For the example input image, we get the following output after interpretation.
 
     Predicted: lesser panda
 
+Resnet101_v1b
+-------------
+
+ResNet101 is a deep convolutional neural network architecture with 101 layers, known for its success in image classification tasks.  It is designed for image classification, object detection, and feature extraction, extending the ideas of residual learning to enable training of networks with over 100 layers.
+
+Resnet101 model is available in the Onnx models Github repository. Use `convert_shape_d2s.py` to convert the dynamic shape into static.
+
+.. code-block:: bash
+
+    wget https://github.com/onnx/models/raw/main/Computer_Vision/gluon_resnet101_v1b_Opset16_timm/gluon_resnet101_v1b_Opset16.onnx -O resnet101.onnx
+
+    cd ${ML_TOOLS_DIR}
+    git checkout ml-models
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx resnet101.onnx \
+    --output_onnx model.onnx
+
+The image given below is used an example to demonstrate the image classification task performed by the model.
+
+.. figure:: ./img/input2.jpg
+   :width: 250px
+   :align: center
+
+Preprocess the image to match the model's expected input format. The script below resizes the image to 224x224, normalizes pixel values, and saves it as input.bin.
+
+.. code-block:: bash
+
+    python -c "import numpy as np, cv2; img=cv2.resize(cv2.imread('input.jpg'), (224,224)); img=img.astype(np.float32)/255; img=np.transpose(img, (2,0,1)); input=np.expand_dims(img, axis=0); input.tofile('input.bin')"
+
+Set compilation environment variables and compile the model.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+        --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
+        --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=0' \
+        --target-mrvl-num_tiles=8 \
+        --output model.tar \
+        model.onnx
+
+
+Use the dpdk-test-mldev application to run inference with the compiled model and preprocessed input.
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+        --test inference_ordered \
+        --filelist <model_name>_0.bin,input.bin,output.bin \
+        --tolerance 5 \
+        --stats \
+        --repetitions 1000
+
+Download the imagenet class labels and use the given script to map the numeric indices in the output vector to human-readable class names to identify the predicted object.
+
+.. code-block:: bash
+
+    wget https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt -O imagenet_classes.txt
+
+    python -c " import numpy as np; labels=[l.strip() for l in open('imagenet_classes.txt')]; output=np.fromfile('output.bin', dtype=np.float32); print('Predicted:', labels[np.argmax(output)])"
+
+For the example input image, we get the following output after interpretation.
+
+.. code-block:: bash
+
+    Predicted: goldfish
+
+Darknet-53
+----------
+
+DarkNet-53 is a convolutional neural network that is 53 layers deep. It comprises of 53 convolutional layers, making it deeper and more powerful. This increase in depth allows the network to capture more complex features, improving its detection capabilities.
+
+Download the Darknet-53 model from Onnx models Github repository and convert the dynamic shape into static to ensure compatibility with MMLC backend.
+
+.. code-block:: bash
+
+    wget https://github.com/onnx/models/raw/main/Computer_Vision/darknet53_Opset16_timm/darknet53_Opset16.onnx -O darknet53.onnx
+
+    cd ${ML_TOOLS_DIR}
+    git checkout ml-models
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx darknet53.onnx \
+    --output_onnx model.onnx
+
+Any .jpg, .jpeg, or .png image can be used as input for the image classification task.
+
+.. figure:: ./img/input5.jpg
+   :width: 250px
+   :align: center
+
+Preprocess the input image to match the Darknet-53 model's required input size (the ONNX variant here expects 256×256) and save it as input.bin.
+
+.. code-block:: bash
+
+    python -c " from PIL import Image; import numpy as np; img = np.array(Image.open('input.jpg').convert('RGB').resize((256,256)), dtype=np.float32)/255.0; np.expand_dims(np.transpose(img,(2,0,1)),0).tofile('input.bin')"
+
+Compile the model for execution on hardware.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+        --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+        --cross-compiler="${TARGET_TRIPLET}-gcc" \
+        --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=0' \
+        --target-mrvl-num_tiles=8 \
+        --output model.tar \
+        model.onnx
+
+Use the dpdk-test-mldev application to run inference with the compiled model and preprocessed input.
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+        --test inference_ordered \
+        --filelist <model_name>_0.bin,input.bin,output.bin \
+        --tolerance 5 \
+        --stats \
+        --repetitions 1000
+
+The generated output.bin file contains the model's logits for all ImageNet classes. To find the prediction, just take the index of the highest logit (argmax) and match that index with the corresponding label in imagenet_classes.txt.
+
+.. code-block:: bash
+
+    python -c "import numpy as np; labels=[l.strip() for l in open('imagenet_classes.txt')]; output=np.fromfile('output.bin',dtype=np.float32); print('Predicted class:', labels[np.argmax(output)])"
+
+For the example input image, we get obtain the following predicted class.
+
+.. code-block:: bash
+
+    Predicted class: vulture
+
 References
 ----------
 
