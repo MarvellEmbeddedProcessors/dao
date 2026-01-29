@@ -341,6 +341,8 @@ int dao_pts_rdma_desc_manage(uint16_t devid);
  *   Array to store the dequeued packets
  * @param nb_pkts
  *   Maximum number of packets to dequeue
+ *   bit 0-7 indicates packets to dequeue from host
+ *   bit 8-15 indicates read reply packets count
  * @return
  *   Number of packets received
  */

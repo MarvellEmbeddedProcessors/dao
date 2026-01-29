@@ -408,6 +408,7 @@ pts_rdma_dequeue_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf *
 	uint16_t q_sz, nb_read = 0, nb_deq_pkts = 0, nb_to_process = 0, nb_deq_hint = 0;
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
 	struct pts_rdma_qp_sq *sq = &qp->sq;
+	uint8_t nb_host_pkts, nb_read_pkts;
 	uint16_t dma_vchan = sq->dma_vchan;
 	struct dao_dma_vchan_state *vchan;
 	uint16_t nb_avail, last_off;
@@ -420,10 +421,13 @@ pts_rdma_dequeue_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf *
 	/* Update completed DMA ops */
 	dao_dma_check_meta_compl_v2(vchan, 0 /* No ATOMIC update */);
 
-	nb_read_hint = nb_mbufs / 2;
+	nb_host_pkts = nb_mbufs & 0xFF;
+	nb_read_pkts = (nb_mbufs >> 8) & 0xFF;
+
+	nb_read_hint = nb_read_pkts;
 	nb_read = fetch_pending_read(qp, nb_read_hint, mbufs, flags);
 
-	nb_deq_hint = (nb_mbufs - nb_read_hint) + (nb_read_hint - nb_read);
+	nb_deq_hint = nb_host_pkts;
 	fetch_host_data(devid, sq, vchan, nb_deq_hint, flags);
 	sd_mbuf_dma_off = sq->sd_mbuf_dma_off;
 	last_off = sq->last_off;
