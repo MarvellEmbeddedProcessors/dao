@@ -381,7 +381,6 @@ rdma_qp_query(uint32_t qid, int portid)
 
 	qp = (struct rdma_qp *)port->qp[qid];
 	if (qp == NULL || !qp->valid) {
-		dao_err("QP %d does not exist or invalid", qid);
 		return NULL;
 	}
 

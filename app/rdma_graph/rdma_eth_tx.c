@@ -75,7 +75,8 @@ rdma_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **
 
 		/* If still have unsent items in this chunk after retries, stop and drop the rest */
 		if (todo > 0) {
-			dao_err("RDMA ETH TX: enqueue partial on port %u queue %u; failed within chunk: %u (retries=%u)",
+			dao_dbg("RDMA ETH TX: enqueue partial on port %u queue %u; "
+				"failed within chunk: %u (retries=%u)",
 				port, queue, todo, retries);
 			break;
 		}

@@ -417,6 +417,27 @@ rdma_prep_read_ack(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rdma_ack *a
 	return opcode;
 }
 
+/*
+ * Free all mbufs in wqe->mbuf_list EXCEPT the first one (which is owned by caller).
+ * This handles cleanup when dropping a read reply to prevent memory leaks.
+ */
+static inline void
+rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
+{
+	struct rdma_mbufs *rmbuf, *next_rmbuf;
+	bool first = true;
+
+	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	while (rmbuf) {
+		next_rmbuf = STAILQ_NEXT(rmbuf, next);
+		if (!first && rmbuf->mbuf)
+			rte_pktmbuf_free(rmbuf->mbuf);
+		first = false;
+		rmbuf = next_rmbuf;
+	}
+	memset(wqe, 0, sizeof(*wqe));
+}
+
 int
 rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mbuf **mbufs,
 			uint16_t *n_mbufs)
@@ -430,16 +451,44 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	/*
 	 * Get the first ACK entry.
 	 * ACK list is maintained in receive order, and replies MUST
-	 * be sent in order. If mbuf doesn't match, drop this completion.
+	 * be sent in order.
 	 */
 	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
-	if (!ack || !ack->is_read || ack->mbuf != mbuf) {
+	if (!ack || !ack->is_read) {
 #ifdef RDMA_DEBUG
-		dao_dbg("[RESP-READ] QP %d: mbuf mismatch or no ack, dropping "
-			"(ack=%p is_read=%d ack_mbuf=%p mbuf=%p)",
-			qp->qid, ack, ack ? ack->is_read : 0, ack ? ack->mbuf : NULL, mbuf);
+		dao_dbg("[RESP-READ] QP %d: no ack entry or not READ, dropping", qp->qid);
 #endif
+		rdma_read_reply_cleanup(wqe);
 		return -1;
+	}
+
+	/*
+	 * If mbuf doesn't match but this is a valid READ ack entry,
+	 * check if PSN matches. This handles the case where a duplicate
+	 * READ replaced the original entry, and the old DMA completes.
+	 * The old mbuf has valid DMA data, so we can process it.
+	 */
+	if (ack->mbuf != mbuf) {
+		/* Get PSN from incoming mbuf's private data */
+		uint32_t incoming_psn = rdma_rx_priv_ack(mbuf)->psn;
+
+		if (ack->psn == incoming_psn) {
+#ifdef RDMA_DEBUG
+			dao_dbg("[RESP-READ] QP %d PSN %u: mbuf mismatch but PSN matches, "
+				"processing (ack_mbuf=%p mbuf=%p)",
+				qp->qid, ack->psn, ack->mbuf, mbuf);
+#endif
+			/* Update ack entry to use current mbuf */
+			ack->mbuf = mbuf;
+		} else {
+#ifdef RDMA_DEBUG
+			dao_dbg("[RESP-READ] QP %d: mbuf and PSN mismatch, dropping "
+				"(ack_psn=%u incoming_psn=%u ack_mbuf=%p mbuf=%p)",
+				qp->qid, ack->psn, incoming_psn, ack->mbuf, mbuf);
+#endif
+			rdma_read_reply_cleanup(wqe);
+			return -1;
+		}
 	}
 
 #ifdef RDMA_DEBUG
@@ -941,12 +990,11 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 		/* Check if request is in ack pending list */
 		old_mbuf = rdma_ack_pending_list_remove_by_psn(qp, pkt->rinfo.psn);
 		if (old_mbuf) {
-			/* Duplicate READ while previous is pending - replace it */
+			qp->resp.resp_read_rq_bal++;
 #ifdef RDMA_DEBUG
 			dao_dbg("Duplicate READ PSN %u: replacing old mbuf %p with new %p",
 				pkt->rinfo.psn, old_mbuf, pkt->mbuf);
 #endif
-			rte_pktmbuf_free(old_mbuf);
 			requeue_dma = true;
 		} else if (rdma_is_last_acked_request(qp, pkt->rinfo.psn, pkt) &&
 			   rdma_read_rkey_validate(qp, pkt)) {

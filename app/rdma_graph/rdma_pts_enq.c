@@ -46,6 +46,8 @@ rdma_pts_enq_node_process(struct rte_graph *graph, struct rte_node *node, void *
 		if (count != nb_pkts) {
 			mbuf->ol_flags = 0;
 			rte_node_enqueue(graph, node, 0, &objs[i + count], nb_pkts - count);
+			dao_dbg("RDMA PTS Enqueue failed on dev %u qp %u, sent %u/%u pkts\n",
+				devid, qp_id, count, nb_pkts);
 		}
 		i += nb_pkts;
 	}

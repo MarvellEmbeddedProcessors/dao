@@ -111,7 +111,7 @@ rdma_hdr_check(struct pkt_info *pinfo)
 
 	qp = rdma_qp_query_fast(qpn, pinfo->port_num);
 	if (unlikely(qp == NULL)) {
-		dao_err("QP lookup failed: port %d qpn %d", pinfo->port_num, qpn);
+		dao_dbg("QP lookup failed: port %d qpn %d", pinfo->port_num, qpn);
 		return -1;
 	}
 
