@@ -43,6 +43,36 @@ dao_rdma_pkt_check(struct rte_mbuf *mbuf)
 	return false;
 }
 
+/*
+ * Adjust burst count (packed format: upper=resp_bal, lower=req_bal)
+ * to fit within the given limit. Returns adjusted packed count.
+ */
+static __rte_always_inline uint16_t
+dao_rdma_adjust_burst_count(uint16_t count, uint16_t burst_limit)
+{
+	uint16_t req_bal = count & 0xFF;
+	uint16_t resp_bal = count >> 8;
+	uint16_t total = req_bal + resp_bal;
+
+	if (likely(total <= burst_limit))
+		return count;
+
+	if (unlikely(!total))
+		return 0;
+
+	/* Scale down proportionally */
+	req_bal = (req_bal * burst_limit) / total;
+	resp_bal = (resp_bal * burst_limit) / total;
+
+	/* Ensure at least 1 if original was non-zero */
+	if (!req_bal && (count & 0xFF))
+		req_bal = 1;
+	if (!resp_bal && (count >> 8))
+		resp_bal = 1;
+
+	return (resp_bal << 8) | req_bal;
+}
+
 typedef int (*rdma_qp_status_cb_t)(uint16_t devid, uint16_t qp_id, bool enable);
 typedef void (*rcu_cb_t)(void);
 typedef uint16_t (*rdma_map_cb_t)(uint16_t port_num, uint8_t *pause_flag);

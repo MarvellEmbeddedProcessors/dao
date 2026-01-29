@@ -115,7 +115,7 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 	*qpn = bth_qpn(&pinfo.rinfo);
 
 	if (rdma_hdr_check(&pinfo)) {
-		dao_err("RX: header check failed\n");
+		dao_dbg("RX: header check failed\n");
 		return -1;
 	}
 
@@ -299,7 +299,6 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	if (qp->resp.read_reply.n_rdma_segs) {
 		ret = rdma_process_read_reply(qp, mbuf, mbufs, n_mbufs);
 		if (ret < 0) {
-			dao_err("[%s::%d] rdma process read reply error\n", __func__, __LINE__);
 			return -1;
 		}
 		return 0;
@@ -375,10 +374,8 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 		if (!qp->req.dummy_mbuf)
 			qp->req.dummy_mbuf = rte_pktmbuf_alloc(mbuf->pool);
 		ret = rdma_process_rc_packets(qp, mbuf, mbufs, n_mbufs);
-		if (ret < 0) {
-			dao_err("[%s::%d] rdma RC process error\n", __func__, __LINE__);
+		if (ret < 0)
 			goto error;
-		}
 		qp->req.dummy_mbuf->port = RTE_MAX_ETHPORTS + devid;
 	} else {
 		qp->req.opcode = -1;
@@ -627,6 +624,7 @@ uint16_t
 dao_is_qp_stalled(uint32_t qp_id, int devid)
 {
 	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
+	uint8_t req_bal, resp_bal;
 
 	if (qp && (qp->req.cur_wqe == STAILQ_FIRST(&qp->req.wqe_head)))
 		qp->attr.sq_draining = 0;
@@ -635,7 +633,12 @@ dao_is_qp_stalled(uint32_t qp_id, int devid)
 		     qp->req.in_retransmission || (qp->req.unacked_window <= 0)))
 		return 0;
 
-	return qp->req.read_rq_bal;
+	/* Lower byte: requester read queue balance (available slots for outgoing READs) */
+	req_bal = (uint8_t)qp->req.read_rq_bal;
+	/* Upper byte: responder pending D2M completions (READ requests in DMA) */
+	resp_bal = (uint8_t)(qp->attr.max_dest_rd_atomic - qp->resp.resp_read_rq_bal);
+
+	return ((uint16_t)resp_bal << 8) | req_bal;
 }
 
 struct rte_mbuf *

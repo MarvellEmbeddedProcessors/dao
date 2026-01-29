@@ -120,8 +120,12 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 			}
 		}
 
-		count = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP, count);
-		count = RTE_MIN(count, max_pkts - nb_pkts);
+		{
+			uint16_t limit = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP, max_pkts - nb_pkts);
+
+			count = dao_rdma_adjust_burst_count(count, limit);
+		}
+
 		count = dao_pts_rdma_dequeue_burst(devid, qp_id, &mbufs[nb_pkts], count);
 		if (likely(count)) {
 			/* Only annotate first mbuf of this QP run; downstream will read nb_pkts */
@@ -139,7 +143,8 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 						rte_prefetch0(mbufs[nb_pkts + 2]);
 				}
 			} else {
-				dao_err("Got NULL mbuf for qp %d devid %d\n", qp_id, devid);
+				dao_err("Got NULL mbuf for qp %d devid %d count %d\n", qp_id, devid,
+					count);
 			}
 
 			nb_pkts += count;

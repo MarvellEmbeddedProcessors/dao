@@ -425,17 +425,20 @@ static inline void
 rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
 {
 	struct rdma_mbufs *rmbuf, *next_rmbuf;
-	bool first = true;
 
+	/* Skip the first mbuf - it is owned by the caller who will free it */
 	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	if (rmbuf)
+		rmbuf = STAILQ_NEXT(rmbuf, next);
+
 	while (rmbuf) {
 		next_rmbuf = STAILQ_NEXT(rmbuf, next);
-		if (!first && rmbuf->mbuf)
+		if (rmbuf->mbuf)
 			rte_pktmbuf_free(rmbuf->mbuf);
-		first = false;
 		rmbuf = next_rmbuf;
 	}
 	memset(wqe, 0, sizeof(*wqe));
+	STAILQ_INIT(&wqe->mbuf_list);
 }
 
 int
@@ -529,6 +532,7 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	}
 
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
+	STAILQ_INIT(&qp->resp.read_reply.mbuf_list);
 	qp->resp.resp_read_rq_bal++;
 
 	return 0;

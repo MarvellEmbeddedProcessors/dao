@@ -100,7 +100,6 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 			ret = dao_rdma_rx_process(&mbuf, queue, &node_mbuf_priv1(mbuf, dyn)->qp_id,
 						  devid);
 			if (ret < 0) {
-				dao_err("dao_rdma_rx_process error");
 				next = RDMA_NEXT_PKT_DROP;
 			} else if (ret == RDMA_RESPONDER_MBUF_CONSUMED) {
 				/* Responder consumed the mbuf, nothing to forward */
