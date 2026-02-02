@@ -97,7 +97,7 @@ Installing the NGINX package
 
        ~# export LD_LIBRARY_PATH=/usr/lib/cn10k/openssl-1.1.1q/lib:$LD_LIBRARY_PATH
 
-- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
+- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/dao-devel/gsg/install.html#development-version>`_
 
 Compiling from Sources
 ----------------------

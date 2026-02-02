@@ -52,7 +52,7 @@ Install the VPP package
 
     ~# apt-get install vpp-25.02.0-cn10k
 
-- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
+- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/dao-devel/gsg/install.html#development-version>`_
 
 .. raw:: html
   :file: ../_static/demo/vpp_pktio.html

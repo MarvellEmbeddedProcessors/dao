@@ -39,10 +39,20 @@ Install the Snort package and verify
 
 .. code-block:: console
 
-    ~# apt-get install snort-3-cn10k
-    ~# /usr/local/bin/snort -V
+   # apt-get install snort-3-cn10k
+   # /usr/local/bin/snort -V
 
-- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
+- `steps to install the Development version <https://marvellembeddedprocessors.github.io/dao/guides/dao-devel/gsg/install.html#development-version>`_
+
+Path layout
+-----------
+
+After installation, files are located at:
+
+- **Snort binary:** ``/usr/local/bin/snort``
+- **Snort config:** ``/usr/local/etc/snort/snort.lua``
+- **DAQ runtime library:** ``/usr/local/lib/daq/libdaq.so.3``
+- **DAQ modules:** ``/usr/local/lib/daq/daq/`` (e.g., ``daq_pcap.so``)
 
 VectorScan Benchmarking
 =======================
@@ -101,9 +111,25 @@ to the first core on the system.
 Snort Benchmarking
 ==================
 
+Configure library path
+----------------------
+
+Before running snort, configure the DAQ library path using ldconfig:
+
+.. code-block:: console
+
+   # echo "/usr/local/lib/daq" > /etc/ld.so.conf.d/libdaq.conf
+   # ldconfig
+
+Running Snort
+-------------
+
 The following is an example to run snort with vectorscan enabled.
 
 .. code-block:: console
 
-  # snort -c  /usr/local/etc/snort/snort.lua --lua 'search_engine.search_method="hyperscan"'
-  --daq-dir /usr/local/lib/daq --daq pcap -r /snort_test/inside.pcap
+   # snort -c /usr/local/etc/snort/snort.lua \
+   --lua 'search_engine.search_method="hyperscan"' \
+   --daq-dir /usr/local/lib/daq/daq \
+   --daq pcap \
+   -r /snort_test/inside.pcap

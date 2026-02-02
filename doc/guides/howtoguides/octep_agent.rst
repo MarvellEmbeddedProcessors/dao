@@ -40,7 +40,7 @@ Installing the octep CP agent package
 
  # apt-get install oct-ep-target-cn10k
 
-- `Development repository <https://marvellembeddedprocessors.github.io/dao/guides/gsg/install.html#development-version>`_
+- `Development repository <https://marvellembeddedprocessors.github.io/dao/guides/dao-devel/gsg/install.html#development-version>`_
 
 .. _octep_cp_agent:
 
