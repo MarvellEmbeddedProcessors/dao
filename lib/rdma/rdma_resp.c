@@ -437,8 +437,8 @@ rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
 			rte_pktmbuf_free(rmbuf->mbuf);
 		rmbuf = next_rmbuf;
 	}
+	/* memset zeros everything including mbuf_list head pointers */
 	memset(wqe, 0, sizeof(*wqe));
-	STAILQ_INIT(&wqe->mbuf_list);
 }
 
 int
@@ -473,9 +473,9 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	 */
 	if (ack->mbuf != mbuf) {
 		/* Get PSN from incoming mbuf's private data */
-		uint32_t incoming_psn = rdma_rx_priv_ack(mbuf)->psn;
+		uint32_t mbuf_psn = rdma_rx_priv_ack(mbuf)->psn;
 
-		if (ack->psn == incoming_psn) {
+		if (ack->psn == mbuf_psn) {
 #ifdef RDMA_DEBUG
 			dao_dbg("[RESP-READ] QP %d PSN %u: mbuf mismatch but PSN matches, "
 				"processing (ack_mbuf=%p mbuf=%p)",
@@ -486,8 +486,8 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		} else {
 #ifdef RDMA_DEBUG
 			dao_dbg("[RESP-READ] QP %d: mbuf and PSN mismatch, dropping "
-				"(ack_psn=%u incoming_psn=%u ack_mbuf=%p mbuf=%p)",
-				qp->qid, ack->psn, incoming_psn, ack->mbuf, mbuf);
+				"(ack_psn=%u mbuf_psn=%u ack_mbuf=%p mbuf=%p)",
+				qp->qid, ack->psn, mbuf_psn, ack->mbuf, mbuf);
 #endif
 			rdma_read_reply_cleanup(wqe);
 			return -1;
