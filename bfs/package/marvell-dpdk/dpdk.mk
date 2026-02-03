@@ -27,8 +27,8 @@ MARVELL_DPDK_DEPENDENCIES = \
 	host-python-pyelftools
 
 ifeq ($(BR2_PACKAGE_MARVELL_DPDK_BUILD_MINIMAL),y)
-MARVELL_DPDK_CONF_OPTS += -Denable_libs=cfgfile,cryptodev,dmadev,eventdev,security,timer
-MARVELL_DPDK_CONF_OPTS += -Denable_drivers=common/cnxk,crypto/cnxk,mempool/cnxk,dma/cnxk,net/cnxk,event/cnxk
+MARVELL_DPDK_CONF_OPTS += -Denable_libs=cfgfile,compressdev,cryptodev,dmadev,eventdev,security,timer
+MARVELL_DPDK_CONF_OPTS += -Denable_drivers=common/cnxk,common/octeontx,compress/octeontx,crypto/cnxk,dma/cnxk,event/cnxk,mempool/cnxk,mempool/octeontx,net/cnxk
 endif
 
 ifeq ($(BR2_PACKAGE_MARVELL_DPDK_DEBUG_BUILD),y)
