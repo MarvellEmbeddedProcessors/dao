@@ -105,7 +105,7 @@ function build_dpdk() {
 	# Cloning the repositories
 	mkdir -p $DPDK_DIR
 	cd $DPDK_DIR
-	git clone ssh://$GIT_USER@$DPDK_REPO --single-branch --branch $DPDK_BRANCH .
+	git clone $DPDK_REPO --single-branch --branch $DPDK_BRANCH .
 	git checkout $DPDK_COMMIT
 
 	# enable verbose
