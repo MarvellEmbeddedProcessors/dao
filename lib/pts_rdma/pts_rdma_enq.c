@@ -732,6 +732,12 @@ process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_ba
 	uint32_t nb_enq_sges, dlen;
 
 	slen = mbuf->pkt_len;
+	if (unlikely(slen == 0)) {
+		rte_pktmbuf_free(mbuf);
+		*len = 0;
+		return 0;
+	}
+
 	nb_enq_sges = calcualte_nb_enq_sges(desc_base, ci, slen);
 	if (nb_enq_sges == UINT16_MAX)
 		return -1;
@@ -880,6 +886,7 @@ push_enq_buffers(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbufs
 				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
 			}
+			nb_cqe++;
 		} else if (type == DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE) {
 			ret = process_m2d_rqe_with_cqe(qp, mem2dev, mbuf);
 			if (ret) {

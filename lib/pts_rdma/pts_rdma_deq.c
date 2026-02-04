@@ -282,7 +282,7 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 	uint16_t buf_len = sq->buf_len;
 	uint16_t mtu = sq->mtu;
 	struct rte_mbuf *mbuf;
-	uint32_t used = 0, read_used = 0, num_sges;
+	uint32_t used = 0, num_sges;
 	uint32_t nb_mbufs, nb_desc;
 	uint32_t i = 0, slen, dlen, len;
 	struct rte_mbuf **mbuf_arr;
@@ -333,7 +333,6 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 		if (DAO_BIT(opcode) & PTS_RDMA_M2D_MASK) {
 			i += (next_desc + 1);
 			off = (off + next_desc + 1) & (q_sz - 1);
-			read_used = i;
 			continue;
 		}
 
@@ -349,6 +348,13 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 		*((uint64_t *)&mbuf->rearm_data) = rearm_data;
 		mbuf->pkt_len = slen;
 		mbuf->ol_flags = 0;
+
+		if (unlikely(slen == 0)) {
+			mbuf->data_len = 0;
+			i += (next_desc + 1);
+			off = (off + next_desc + 1) & (q_sz - 1);
+			continue;
+		}
 
 		if (likely(num_sges == 1 && dlen <= buf_len && dlen <= mtu)) {
 			src[0].addr = *SQ_DESC_PTR_OFF(desc_base, off, 32) & PTS_RDMA_DEV_IOVA_MASK;
@@ -382,15 +388,14 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 	}
 
 exit:
-	if (used) {
-		mbuf_off = desc_off_add32(sq->sd_mbuf_off, used, sq->q_sz);
+	if (i > 0) {
+		mbuf_off = desc_off_add32(sq->sd_mbuf_off, i, sq->q_sz);
+		if (used)
+			dao_dma_update_cmpl_meta_v2(vchan, &sq->sd_mbuf_dma_off, mbuf_off,
+						    last_idx);
+		else
+			__atomic_store_n(&sq->sd_mbuf_dma_off, mbuf_off, __ATOMIC_RELEASE);
 		sq->sd_mbuf_off = mbuf_off;
-		dao_dma_update_cmpl_meta_v2(vchan, &sq->sd_mbuf_dma_off, mbuf_off, last_idx);
-	}
-	if (read_used) {
-		mbuf_off = desc_off_add32(sq->sd_mbuf_off, read_used, sq->q_sz);
-		sq->sd_mbuf_off = mbuf_off;
-		sq->sd_mbuf_dma_off = mbuf_off;
 	}
 	return 0;
 }
