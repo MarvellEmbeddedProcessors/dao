@@ -8,12 +8,88 @@ source $EP_DIR/ci/test/dao-test/common/utils.sh
 source $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh
 source $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh
 
+# Set RDMA environment variables only if both paths are configured
+REMOTE_ENV=""
+HOST_ENV=""
+if [[ -n "${EP_REMOTE_RDMA_PATH:-}" ]] && [[ -n "${EP_HOST_RDMA_PATH:-}" ]]; then
+	REMOTE_ENV="export PATH=\"${EP_REMOTE_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_REMOTE_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
+	HOST_ENV="export PATH=\"${EP_HOST_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_HOST_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
+fi
+
 function rdma_tests_cleanup() {
 
 	ep_host_op rdma_test_cleanup
 	ep_remote_op rdma_test_cleanup
+	ep_host_op rdma_cleanup
+	ep_remote_op guest_rdma_cleanup $EP_REMOTE_IFACE
+	ep_device_rdma_app_cleanup
 
 	return 0
+}
+
+function rdma_setup_configure()
+{
+	local host_ip=${1:-"30.0.0.3"}
+	local remote_ip=${2:-"30.0.0.11"}
+	local ext_iface
+	local remote_iface
+	local pci_devs=""
+	local cur_sdp_idx
+	local sdp_pcie_vf
+	local num_eth_ifcs=1
+
+	ext_iface=${EP_DEVICE_EXT_IFACE:-}
+	remote_iface=${EP_REMOTE_IFACE:-}
+
+	if [[ -n $EP_REMOTE ]]; then
+		if [[ -z $ext_iface ]] || [[ -z $remote_iface ]]; then
+			echo "Failed to find a valid interface pair"
+			exit 1
+		fi
+	fi
+
+	pci_devs="$pci_devs $ext_iface"
+
+	# launch the rdma app
+	# For RDMA sdp vf shall start from index-2
+	cur_sdp_idx=2
+	sdp_pcie_vf=$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_SDP_VF)
+	for iface in $sdp_pcie_vf; do
+		local sdp_pcie_addr=$(get_vf_pcie_addr ${sdp_pcie_vf} $cur_sdp_idx)
+		ep_common_bind_driver pci $sdp_pcie_addr vfio-pci
+		pci_devs="$pci_devs $sdp_pcie_addr"
+
+		if (( cur_sdp_idx == num_eth_ifcs + 1 )); then
+			break
+		fi
+
+		((cur_sdp_idx++))
+	done
+
+	# Add DPI VFs
+	read -r -a dpi_vfs <<< "$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
+	for dpi in "${dpi_vfs[@]}"; do
+		pci_devs="$pci_devs $dpi"
+	done
+
+	# Launch RDMA application with all PCI devices
+	args=()
+	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
+	serialized_args=$(printf '%q ' "${args[@]}")
+	rdma_app_launch $serialized_args
+
+
+	# Configure Octeon Host
+	ep_host_op rdma_setup 1
+	sleep 1
+	sdp_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
+
+	# Configure Remote
+	ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
+	sleep 1
+
+	ep_host_op if_configure --pcie-addr $sdp_vfs --ip $host_ip
+	ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
 }
 
 function rdma_app_launch()
@@ -25,7 +101,7 @@ function rdma_app_launch()
 	local num_mbuf=524288
 	local num_dma_desc=8192
 	local max_cores=$num_cores
-	local cpu_mask="0x7"
+	local cpu_mask="0x3f"
 	local port_mask="0x3"
 	local num_queues=1
 	local file_prefix="ep"

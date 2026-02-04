@@ -117,6 +117,13 @@ function verify_rdma_setup()
 	echo "Checking $sdp_vfs (Host) <-> $remote_iface (Remote)"
 	ping_status=$(ep_host_op ping $host_ip $remote_ip 2)
 
+	# Undo all the configurations
+	ep_host_op if_configure --pcie-addr $sdp_vfs --down
+	ep_remote_op if_configure --pcie-addr $remote_iface --down
+
+	ep_host_op rdma_cleanup
+	ep_device_op rdma_app_cleanup
+
 	# Check output of ping
 	if [[ "$ping_status" == "SUCCESS" ]]; then
 		echo "Setup verified"
@@ -145,12 +152,10 @@ function dao_rdma_setup()
 	echo "Setting up EP device for rdma tests"
 	ep_device_op dpi_setup
 
-	ep_device_op hugepage_setup 524288 24 12
+	ep_device_op hugepage_setup 524288 24 32
 
 	ep_device_op pem_setup
 
 	echo "Verifying rdma setup"
 	verify_rdma_setup
-
-	ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
 }

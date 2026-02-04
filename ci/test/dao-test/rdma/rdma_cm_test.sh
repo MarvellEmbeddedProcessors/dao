@@ -25,8 +25,11 @@ function rdma_cm_test()
 	# Register signal handler
 	rdma_register_sig_handler
 
-	remote_env="export PATH=\"${EP_REMOTE_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_REMOTE_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
-	host_env="export PATH=\"${EP_HOST_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_HOST_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
+	rdma_setup_configure
+	sleep 1
+
+	remote_env=$REMOTE_ENV
+	host_env=$HOST_ENV
 
 	# Test 1: Host as server and Remote as client
 	echo "RDMA CM Tests: Host as Server -> Remote as Client"

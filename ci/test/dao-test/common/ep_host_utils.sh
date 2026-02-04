@@ -93,6 +93,7 @@ function ep_host_rdma_cleanup()
 	# Remove octep_rdma module
 	if grep -q 'octep_rdma' /proc/modules; then
 		rmmod octep_rdma
+		sleep 10
 	fi
 
 	set -e

@@ -392,7 +392,7 @@ function ep_common_rdma_test_cleanup()
 	for binary in "${test_binaries[@]}"; do
 		if pgrep -f "$binary" >/dev/null 2>&1; then
 			echo "Stopping $binary processes..."
-			pkill -9 -f "$binary" 2>/dev/null || echo "Warning: Failed to stop some $binary processes"
+			safe_kill "$binary"
 			sleep 2
 
 			# Verify cleanup
