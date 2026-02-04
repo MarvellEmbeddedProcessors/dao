@@ -188,6 +188,11 @@ jobs:
             echo "Depends: cpt-firmware-cn10k${FW_PKG_POSTFIX} (= ${CPT_PKG_VERSION}), dpdk-${DPDK_BASE_PKG_VERSION}-cn10k${PKG_POSTFIX} (>= ${DPDK_PKG_VERSION}), openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (>= ${PKG_VERSION_NAME_BASE}), openssl-${OPENSSL_VERSION}-cn10k${PKG_POSTFIX} (<< ${PKG_VERSION_NAME_UPPER})" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: DPDK based OpenSSL Engine for Marvell Octeon 10" >> DEBIAN/control
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            SOURCE_COMMIT=$(git -C .. rev-parse --short HEAD)
+            SOURCE_MSG=$(git -C .. log -1 --format=%s | head -c 60)
+            echo "X-Build-Date: ${BUILD_DATE}" >> DEBIAN/control
+            echo "X-Source-Commit: ${SOURCE_COMMIT} ${SOURCE_MSG}" >> DEBIAN/control
             cd ..
             rm -rf "${PWD}/install/~" "${PWD}/install/home"
             mv "${PWD}/install" "${PWD}/openssl-engine-${ENGINE_VERSION}-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"

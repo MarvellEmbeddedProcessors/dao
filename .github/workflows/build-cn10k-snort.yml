@@ -149,6 +149,11 @@ jobs:
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: Snort 3 with Vectorscan for Marvell Octeon 10" >> DEBIAN/control
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            SOURCE_COMMIT=$(git -C "${BASE_DIR}" rev-parse --short HEAD)
+            SOURCE_MSG=$(git -C "${BASE_DIR}" log -1 --format=%s | head -c 60)
+            echo "X-Build-Date: ${BUILD_DATE}" >> DEBIAN/control
+            echo "X-Source-Commit: ${SOURCE_COMMIT} ${SOURCE_MSG}" >> DEBIAN/control
             cd ..
             rm -rf "${PWD}/install/~" "${PWD}/install/home"
             mv "${PWD}/install" "${PWD}/snort-3-cn10k${PKG_POSTFIX}_${PKG_VERSION_NAME}_arm64"

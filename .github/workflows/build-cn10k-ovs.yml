@@ -157,6 +157,11 @@ jobs:
             echo "Architecture: arm64" | sudo tee -a DEBIAN/control
             echo "Homepage: https://www.openvswitch.org/" | sudo tee -a DEBIAN/control
             echo "Description: Open vSwitch (OVS) for Marvell Octeon 10" | sudo tee -a DEBIAN/control
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            SOURCE_COMMIT=$(git -C "${BASE_DIR}" rev-parse --short HEAD)
+            SOURCE_MSG=$(git -C "${BASE_DIR}" log -1 --format=%s | head -c 60)
+            echo "X-Build-Date: ${BUILD_DATE}" | sudo tee -a DEBIAN/control
+            echo "X-Source-Commit: ${SOURCE_COMMIT} ${SOURCE_MSG}" | sudo tee -a DEBIAN/control
             sudo rm -rf debian
             cd -
             rm -rf "${PWD}/install/~" "${PWD}/install/home"

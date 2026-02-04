@@ -145,6 +145,11 @@ jobs:
             echo "Maintainer: Jerin Jacob (jerinj@marvell.com)" >> DEBIAN/control
             echo "Architecture: arm64" >> DEBIAN/control
             echo "Description: Octeon-ep agent for Marvell Octeon 10" >> DEBIAN/control
+            BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            SOURCE_COMMIT=$(git -C .. rev-parse --short HEAD)
+            SOURCE_MSG=$(git -C .. log -1 --format=%s | head -c 60)
+            echo "X-Build-Date: ${BUILD_DATE}" >> DEBIAN/control
+            echo "X-Source-Commit: ${SOURCE_COMMIT} ${SOURCE_MSG}" >> DEBIAN/control
             rm -rf debian
             cd -
             rm -rf "${PWD}/install/~" "${PWD}/install/home"
