@@ -98,7 +98,10 @@ html[data-theme="light"] {
 .bd-content a,
 .toctree-wrapper a {
   color: var(--dao-accent-color);
-  text-decoration: none;
+  text-decoration: underline;
+  text-decoration-color: rgba(26, 26, 26, 0.35);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
 }
 
 .bd-content a:hover,
@@ -106,8 +109,8 @@ html[data-theme="light"] {
 .toctree-wrapper a:hover,
 .toctree-wrapper a:focus {
   color: var(--dao-accent-color-hover);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration-color: var(--dao-accent-color-hover);
+  text-decoration-thickness: 2px;
 }
 
 /* Cards */
