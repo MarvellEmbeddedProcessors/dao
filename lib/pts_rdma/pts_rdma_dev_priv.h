@@ -27,6 +27,9 @@
 
 #define PTS_RDMA_DEV_MAX_CB_INTRS 8
 
+#define IB_CQ_SOLICITED 1
+#define IB_CQ_NEXT_COMP 2
+
 #define PCI_CAP_ID_VNDR 0x09
 #define PCI_CAP_BAR     4
 
@@ -102,6 +105,12 @@ struct pts_rdma_cq {
 	uint16_t dma_vchan;
 	uint16_t cq_id;
 	uint16_t enable;
+
+	uint64_t *cb_intr_addr __rte_cache_aligned;
+	uint32_t *cb_notify_addr;
+	uint32_t *cb_cq_req_notify_addr;
+	uint16_t pend_dma_idx;
+	uint8_t pend_dma;
 };
 
 struct pts_rdma_cq_data {
@@ -235,6 +244,13 @@ static __rte_always_inline uint16_t
 is_queue_full(uint16_t pi, uint16_t ci)
 {
 	return (pi + 1 == ci);
+}
+
+static __rte_always_inline void
+pts_rdma_cq_intr_trigger(struct pts_rdma_cq *cq)
+{
+	__atomic_store_n(cq->cb_notify_addr, 1, __ATOMIC_RELEASE);
+	__atomic_store_n(cq->cb_intr_addr, (1UL << 59), __ATOMIC_RELEASE);
 }
 
 static __rte_always_inline uint16_t
@@ -389,6 +405,10 @@ push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *
 	cq_data->ci_data = ci;
 	dao_dma_update_cmpl_meta_v2(mem2dev, &cq_data->ci, ci, mem2dev->tail);
 	dao_dma_update_cmpl_meta_v2(mem2dev, cq->pi_addr, hpi, mem2dev->tail);
+	if (likely(j > 0)) {
+		cq->pend_dma_idx = mem2dev->tail;
+		cq->pend_dma = 1;
+	}
 	return j;
 }
 

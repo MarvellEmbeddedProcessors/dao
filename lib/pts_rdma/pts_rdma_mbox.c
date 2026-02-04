@@ -373,6 +373,15 @@ pts_rdma_populate_cq_info(struct pts_rdma_dev *dev,
 				   (((cq_id * dev->notify_qs_mltpr) + 2) * dev->notify_off_mltpr));
 	cq->ci_addr = cq->pi_addr + 2;
 	cq->dma_vchan = dev->dma_vchan;
+	cq->pend_dma = 0;
+
+	cq->cb_intr_addr = dev->cb_intr_addr[cq_id % dev->nb_cb_intrs];
+
+	cq->cb_notify_addr = (uint32_t *)cq->pi_addr + 4;
+	__atomic_store_n(cq->cb_notify_addr, 1, __ATOMIC_RELAXED);
+
+	cq->cb_cq_req_notify_addr = (uint32_t *)(cq->pi_addr + 6);
+	__atomic_store_n(cq->cb_cq_req_notify_addr, 1, __ATOMIC_RELAXED);
 
 	dev->cqs[cq_id] = cq;
 

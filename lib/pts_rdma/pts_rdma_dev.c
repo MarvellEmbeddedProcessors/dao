@@ -437,11 +437,12 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
 	struct dao_dma_vchan_state *dev2mem, *mem2dev;
 	struct pts_rdma_cq_data *cq_data;
+	uint32_t i, cq_req_notify_state;
 	struct rte_dma_sge *src, *dst;
 	struct pts_rdma_qp *qp;
+	struct pts_rdma_cq *cq;
 	uint16_t dma_vchan;
 	uint16_t sg_i = 0;
-	uint32_t i;
 
 	dma_vchan = dev->dma_vchan;
 	dev2mem = &vchan_info->dev2mem[dma_vchan];
@@ -496,6 +497,26 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 		sg_i = push_cq_desc_prep(cq_data, mem2dev, src, dst);
 		mem2dev->src_i += sg_i;
 		mem2dev->dst_i += sg_i;
+	}
+	for (i = 0; i < dev->max_cqs; i++) {
+		cq = dev->cqs[i];
+
+		if (!cq || !cq->enable)
+			continue;
+
+		if (cq->cb_intr_addr && cq->pend_dma &&
+		    dao_dma_op_status(mem2dev, cq->pend_dma_idx)) {
+			cq->pend_dma = 0;
+			cq_req_notify_state =
+				__atomic_load_n(cq->cb_cq_req_notify_addr, __ATOMIC_ACQUIRE);
+			if (cq_req_notify_state == IB_CQ_NEXT_COMP)
+				/* Default state - trigger interrupt for all completions */
+				pts_rdma_cq_intr_trigger(cq);
+			else if (cq_req_notify_state == IB_CQ_SOLICITED)
+				/* FIXME:
+				 * Only trigger, if CQE has solicited event bit */
+				pts_rdma_cq_intr_trigger(cq);
+		}
 	}
 
 	return 0;
