@@ -235,16 +235,28 @@ populate_cqe(struct dao_pts_rdma_cqe *cqe, struct rdma_qp *qp, rdma_send_wr_t *w
 static inline void
 rdma_populate_wr(struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
+	struct rdma_qp *qp = pkt->rinfo.qp;
 	struct rte_mbuf *mbuf = wqe->read_mbuf;
 	struct dao_pts_rdma_cqe *cqe = rdma_rx_priv_cqe(mbuf);
 	uint8_t *sges = (uint8_t *)rdma_rx_priv_sge_base(mbuf);
+	bool need_cqe;
+	uint64_t enq_flag;
 
 	memcpy(sges, &wqe->wr->sges0[0], sizeof(struct octep_rdma_sge) * wqe->wr->num_sges);
-	populate_cqe(cqe, pkt->rinfo.qp, wqe->wr);
 	pkt->mbuf = mbuf;
 	mbuf->l2_len = wqe->wr->num_sges;
 	pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
-	mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE << OFFLD_UPPER_BITS;
+
+	need_cqe = ((qp->sq_sig_type == RDMA_SIGNAL_ALL_WR) ||
+		    (wqe->wr->send_flags & RDMA_SEND_SIGNALED));
+	if (need_cqe) {
+		populate_cqe(cqe, qp, wqe->wr);
+		enq_flag = DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE;
+	} else {
+		enq_flag = DAO_PTS_RDMA_ENQ_M2D_SQE;
+	}
+	mbuf->ol_flags |= enq_flag << OFFLD_UPPER_BITS;
+
 	wqe->read_mbuf = NULL;
 	wqe->read_tail = NULL;
 }
