@@ -21,13 +21,15 @@ sources = files(
 	'rdma_port.c',
 	'rdma_pd_mr.c',
 	'rdma_cc.c',
+	'rdma_counter.c',
 )
 
 headers = files(
 	'dao_rdma_fp.h',
 	'dao_rdma_sp.h',
 	'dao_rdma_mbox.h',
-	'rdma_cq.h'
+	'rdma_cq.h',
+	'rdma_counter.h'
 )
 
 deps += ['common', 'pem', 'pts_rdma']

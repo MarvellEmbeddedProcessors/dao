@@ -7,6 +7,7 @@
 
 #include "rdma_qp.h"
 #include "rdma_utils.h"
+#include "rdma_counter.h"
 
 #if defined(__aarch64__)
 #include <arm_acle.h>
@@ -94,47 +95,50 @@ rdma_check_addr(struct pkt_info *pinfo, struct rdma_qp *qp)
 int
 rdma_hdr_check(struct pkt_info *pinfo)
 {
+	unsigned int lcore_id = rte_lcore_id();
 	uint32_t qpn = bth_qpn(&pinfo->rinfo);
+	uint32_t port_id = pinfo->port_num;
 	struct rdma_qp *qp;
 	int err;
 
 	if (unlikely(bth_tver(&pinfo->rinfo) != BTH_TVER)) {
-		dao_err("BTH tver mismatch: got %d expected %d", bth_tver(&pinfo->rinfo), BTH_TVER);
+		RDMA_INC_PORT_COUNTER(lcore_id, port_id, RDMA_RX_PORT_HDR_CHK_BTH_TVER_FAIL);
 		return -1;
 	}
 
 	/* XXX: Multicast QP is not supported in initial version. */
 	if (unlikely(is_multicast_qpn(qpn))) {
-		dao_err("Multicast QPN %d not supported", qpn);
+		RDMA_INC_PORT_COUNTER(lcore_id, port_id, RDMA_RX_PORT_HDR_CHK_MULTICAST_QP_FAIL);
 		return -1;
 	}
 
 	qp = rdma_qp_query_fast(qpn, pinfo->port_num);
 	if (unlikely(qp == NULL)) {
-		dao_dbg("QP lookup failed: port %d qpn %d", pinfo->port_num, qpn);
+		RDMA_INC_PORT_COUNTER(lcore_id, port_id, RDMA_RX_PORT_HDR_CHK_QP_INV);
 		return -1;
 	}
 
 	if (qp->lcore != rte_lcore_id()) {
-		dao_err("QP %d on port %d owned by lcore %d, current lcore %d", qpn,
-			pinfo->port_num, qp->lcore, rte_lcore_id());
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qpn,
+				    RDMA_RX_QP_HDR_CHK_ACCESS_QP_BY_NON_OWNER_LCORE);
 		return -1;
 	}
 
 	err = rdma_qp_state_check(&pinfo->rinfo, qp);
 	if (unlikely(err)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qpn, RDMA_RX_QP_HDR_CHK_QP_STATE_INV);
 		return -1;
 	}
 
 	err = rdma_check_addr(pinfo, qp);
 	if (unlikely(err)) {
-		dao_err("QP %d: address check failed", qpn);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qpn, RDMA_RX_QP_HDR_CHK_ADDR_INV);
 		return -1;
 	}
 
 	err = rdma_check_keys(&pinfo->rinfo, qpn, qp);
 	if (unlikely(err)) {
-		dao_err("QP %d: key check failed", qpn);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qpn, RDMA_RX_QP_HDR_CHK_KEYS_INV);
 		return -1;
 	}
 
@@ -358,12 +362,17 @@ rdma_icrc_check(struct rte_mbuf *mbuf, struct pkt_info *info)
 {
 	struct rdma_pkt_info *pinfo = &info->rinfo;
 	struct rdma_bth *bth = (struct rdma_bth *)(pinfo->hdr);
+	struct rdma_qp *qp = pinfo->qp;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 	rte_be32_t pkt_icrc;
 	rte_be32_t icrc;
 	int pad_len;
 
 	if (get_last_n_bytes_from_mbuf(mbuf, (uint8_t *)&pkt_icrc, RDMA_ICRC_SIZE) < 0) {
-		dao_err("Failed to get ICRC from mbuf\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_ICRC_CHK_PKT_ICRC_EXTRACT_FAIL);
 		return -1;
 	}
 
@@ -371,7 +380,7 @@ rdma_icrc_check(struct rte_mbuf *mbuf, struct pkt_info *info)
 	icrc = rdma_icrc_calculate(mbuf, pinfo);
 	icrc = ~icrc;
 	if (unlikely(icrc != pkt_icrc)) {
-		dao_err("ICRC check failed: calculated 0x%x, expected 0x%x\n", icrc, pkt_icrc);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ICRC_CHECK_ICRC_MISMATCH);
 		return -1;
 	}
 
@@ -405,6 +414,10 @@ rdma_mbuf_tail_extend(struct rte_mbuf *mbuf, size_t size, struct rdma_pkt_info *
 int
 rdma_icrc_generate(struct rte_mbuf *mbuf, struct rdma_pkt_info *pinfo)
 {
+	rdma_qp_t *qp = (rdma_qp_t *)pinfo->qp;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 	rte_be32_t *icrcp;
 	rte_be32_t icrc;
 
@@ -413,7 +426,8 @@ rdma_icrc_generate(struct rte_mbuf *mbuf, struct rdma_pkt_info *pinfo)
 	if (!icrcp) {
 		icrcp = rdma_mbuf_tail_extend(mbuf, RDMA_ICRC_SIZE, pinfo);
 		if (!icrcp) {
-			dao_err("Failed to append ICRC to mbuf\n");
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL);
 			return -1;
 		}
 	}

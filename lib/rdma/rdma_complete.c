@@ -4,6 +4,7 @@
 #include "dao_rdma_fp.h"
 #include "rdma_common.h"
 #include "rdma_comp.h"
+#include "rdma_counter.h"
 #include "rdma_hdr.h"
 #include "rdma_opcode.h"
 #include "rdma_qp.h"
@@ -106,12 +107,11 @@ static inline comp_state_t
 rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
 	unsigned int mask = pkt->rinfo.mask;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
 	uint8_t syn;
 
-#ifdef RDMA_DEBUG
-	dao_dbg("ACK psn %d expected psn %d opcode %d mask %x\n", pkt->rinfo.psn, qp->comp.psn,
-		pkt->rinfo.opcode, mask);
-#endif
 	/* Check the sequence only */
 	switch (qp->comp.opcode) {
 	case -1:
@@ -142,7 +142,7 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		}
 		break;
 	default:
-		dao_err("unexpected opcode %d\n", qp->comp.opcode);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_ACK_OPCODE_MISMATCH);
 	}
 
 	/* Check operation validity. */
@@ -176,20 +176,21 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 			return RDMA_COMPST_WRITE_SEND;
 
 		case AETH_RNR_NAK:
-			dao_info("RNR NAK\n");
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_ACK_RNR_NAK);
 			return RDMA_COMPST_RNR_RETRY;
 
 		case AETH_NAK:
 			switch (syn) {
 			case AETH_NAK_PSN_SEQ_ERROR:
 				if (psn_compare(pkt->rinfo.psn, qp->comp.psn) > 0) {
-					dao_err("[COMP] QP_ID %d remote SEQ Number ERR remote psn %d"
-						" qp->comp.psn %d\n",
-						qp->qid, pkt->rinfo.psn, qp->comp.psn);
+					RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+							    RDMA_RX_QP_CHK_ACK_REMOTE_PSN_SEQ_ERR);
 					qp->comp.psn = pkt->rinfo.psn;
 					if (qp->req.stop_psn)
 						qp->req.stop_psn = 0;
 				}
+				RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+						    RDMA_RX_QP_CHK_ACK_NAK_PSN_SEQ_ERR);
 				return RDMA_COMPST_ERROR_RETRY;
 
 			case AETH_NAK_INVALID_REQ:
@@ -205,7 +206,8 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 				return RDMA_COMPST_ERROR;
 
 			default:
-				dao_err("unexpected nak %x\n", syn);
+				RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+						    RDMA_RX_QP_CHK_ACK_UNEXPECTED_NAK);
 				wqe->status = RDMA_WC_REM_OP_ERR;
 				return RDMA_COMPST_ERROR;
 			}
@@ -216,7 +218,7 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		break;
 
 	default:
-		dao_err("unexpected opcode\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_ACK_UNEXPECTED_OPCODE);
 	}
 
 	return RDMA_COMPST_ERROR;
@@ -269,7 +271,6 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 	RTE_SET_USED(qp);
 
 	if (!mbuf) {
-		dao_err("Invalid mbuf\n");
 		return RDMA_COMPST_ERROR;
 	}
 
@@ -372,10 +373,7 @@ do_complete(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 		qp->req.in_retransmission = 0;
 		qp->req.retransmit.curr_wqe = NULL;
 	}
-#ifdef RDMA_DEBUG
-	dao_dbg("[COMP] WQE completed qp id %d psn %u wqe->status %u\n", qp->qid, qp->comp.psn,
-		wqe->status);
-#endif
+
 	rdma_delete_wqe(qp, wqe);
 	reset_retry_timer(qp);
 }
@@ -471,6 +469,10 @@ rdma_complete_wqe(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe
 static inline comp_state_t
 rdma_error_retry(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
+
 	RTE_SET_USED(pkt);
 	RTE_SET_USED(wqe);
 	/**
@@ -483,7 +485,8 @@ rdma_error_retry(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe 
 	if (qp->req.in_retransmission) {
 		return RDMA_COMPST_DONE;
 	} else if (rdma_check_retransmission_limit(qp) < 0) {
-		dao_err("Max retry reached qp id %d qp state %d\n", qp->qid, qp->state);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_ERR_RETRY_RETRANS_LIMIT_EXC);
 		return RDMA_COMPST_DONE;
 	}
 	rdma_setup_retransmission(qp);
@@ -499,17 +502,19 @@ calculate_rnrnak_timeout(struct pkt_info *pkt)
 	uint64_t usec = rnrnak_usec[rnrnak];
 	uint64_t cycles = usec * rte_get_timer_hz() / 1000000;
 
-	dao_info("RNR timeout %lu\n", cycles);
-
 	return cycles;
 }
 
 static inline comp_state_t
 rdma_rnr_retry(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
-	RTE_SET_USED(pkt);
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
 	comp_state_t state;
 	uint64_t cycles;
+
+	RTE_SET_USED(pkt);
 
 	if (qp->comp.rnr_retry > 0) {
 		if (qp->comp.rnr_retry != 7)
@@ -517,7 +522,6 @@ rdma_rnr_retry(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 
 		qp->req.wait_rnr_exp = 1;
 		qp->timer_data->timer_type |= RDMA_RNR_TIMER;
-		dao_info("set rnr nak timer\n");
 
 		cycles = calculate_rnrnak_timeout(pkt);
 
@@ -526,6 +530,7 @@ rdma_rnr_retry(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		state = RDMA_COMPST_DONE;
 	} else {
 		wqe->status = RDMA_WC_RNR_RETRY_EXC_ERR;
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RNR_RETRY_LIMIT_EXC_ERR);
 		state = RDMA_COMPST_ERROR;
 	}
 
@@ -535,8 +540,13 @@ rdma_rnr_retry(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 static inline comp_state_t
 rdma_error(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
+
 	RTE_SET_USED(pkt);
 
+	RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RDMA_COMPST_ERR);
 	do_complete(qp, wqe);
 	return RDMA_COMPST_DONE;
 }
@@ -561,8 +571,12 @@ state_func_t comp_state_funcs[] = {
 static comp_state_t
 rdma_get_wqe(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe **wq)
 {
-	RTE_SET_USED(pkt);
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
 	rdma_send_wqe_t *wqe = NULL;
+
+	RTE_SET_USED(pkt);
 
 	wqe = STAILQ_FIRST(&qp->req.wqe_head);
 
@@ -571,13 +585,13 @@ rdma_get_wqe(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe **wq
 		return RDMA_COMPST_DONE;
 
 	if (wqe->state == wqe_state_done) {
-		dao_err("WQE already completed\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_GET_WQE_WQE_STATE_DONE);
 		return RDMA_COMPST_COMP_WQE;
 	}
 
 	/* WQE caused an error */
 	if (wqe->state == wqe_state_error) {
-		dao_err("WQE in error state\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_GET_WQE_WQE_STATE_ERR);
 		return RDMA_COMPST_ERROR;
 	}
 
@@ -590,11 +604,13 @@ int
 rdma_process_ack(struct pkt_info *pinfo)
 {
 	struct rdma_qp *qp = (struct rdma_qp *)pinfo->rinfo.qp;
+	unsigned int lcore_id = rte_lcore_id();
+	uint32_t port_id = pinfo->port_num;
 	struct rdma_send_wqe *wqe = NULL;
 	comp_state_t state;
 
 	if (!qp->valid || qp->state == QP_STATE_ERROR || qp->state == QP_STATE_RESET) {
-		dao_err("[%s::%d] qp error\n", __func__, __LINE__);
+		RDMA_INC_PORT_COUNTER(lcore_id, port_id, RDMA_RX_PORT_PROC_ACK_QP_INV);
 		// rdma_flush_sqe(qp); TODO
 		return -1;
 	}

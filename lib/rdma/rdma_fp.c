@@ -13,6 +13,7 @@
 
 #include "dao_pts_rdma_dev.h"
 #include "dao_rdma_fp.h"
+#include "dao_rdma_sp.h"
 #include "rdma_common.h"
 #include "rdma_comp.h"
 #include "rdma_cq.h"
@@ -23,6 +24,7 @@
 #include "rdma_resp.h"
 #include "rdma_retransmit.h"
 #include "rdma_utils.h"
+#include "rdma_counter.h"
 
 rcu_cb_t rcu_cb;
 struct rdma_wr_opcode_info rdma_wr_opcode_info[] = {
@@ -110,17 +112,22 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 {
 	struct pkt_info pinfo = {0};
 	struct rte_mbuf *mbuf = *mbuf_p;
+	unsigned int lcore_id = rte_lcore_id();
+	uint32_t port_id;
+	uint32_t qp_id;
 
 	rdma_pkt_extract(mbuf, &pinfo, rx_queue, devid);
 	*qpn = bth_qpn(&pinfo.rinfo);
+	port_id = pinfo.port_num;
 
 	if (rdma_hdr_check(&pinfo)) {
-		dao_dbg("RX: header check failed\n");
+		RDMA_INC_PORT_COUNTER(lcore_id, port_id, RDMA_RX_PORT_RX_PROC_HDR_CHK_FAIL);
 		return -1;
 	}
 
+	qp_id = ((struct rdma_qp *)pinfo.rinfo.qp)->qid;
 	if (rdma_icrc_check(mbuf, &pinfo)) {
-		dao_err("RX: icrc check failed\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RX_PROC_ICRC_CHK_FAIL);
 		return -1;
 	}
 
@@ -164,13 +171,15 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 
 	if (pinfo.rinfo.mask & RDMA_REQ_MASK) {
 		if (rdma_responder(&pinfo)) {
-			dao_err("RX: responder failed\n");
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_RX_QP_RX_PROC_RESPONDER_FAIL);
 			return -1;
 		}
 		result = RDMA_RESPONDER_DONE;
 	} else {
 		if (rdma_process_ack(&pinfo)) {
-			dao_err("RX: process ack failed\n");
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_RX_QP_RX_PROC_PROCESS_ACK_FAIL);
 			return -1;
 		}
 		result = RDMA_COMPLETION_DONE;
@@ -231,9 +240,13 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 	struct rdma_mbufs *next_r = NULL;
 	struct rdma_mbufs *rmbuf = NULL;
 	struct rdma_send_wqe *wqe = qp->req.cur_wqe;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 
 	if (wqe == NULL) {
-		dao_err("[%s::%d] WQE list is empty\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_PROC_REMAINING_SEGS_WQE_EMPTY);
 		return -1;
 	}
 	rmbuf = qp->req.cur_mbuf;
@@ -246,7 +259,8 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 		if (ret < 0) {
 			rdma_requester_error2(qp, wqe);
 			*n_mbufs = 0;
-			dao_err("[%s::%d] rdma RC requester error\n", __func__, __LINE__);
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL);
 			rte_mbuf_refcnt_update(qp->req.dummy_mbuf, 1);
 			return -1;
 		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
@@ -262,13 +276,6 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 			break;
 	}
 
-#ifdef RDMA_DEBUG
-	dao_dbg("[%s::%d] qp id %d Processed remaining segs, n_mbufs %u wqe->state %d "
-		"wqe->n_rdma_segs %d qp->req.unacked_window %d cur psn %d\n",
-		__func__, __LINE__, qp->qid, *n_mbufs, wqe->state, wqe->n_rdma_segs,
-		qp->req.unacked_window, qp->req.psn);
-#endif
-
 	return 0;
 }
 
@@ -282,6 +289,9 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	struct rdma_mbufs *next_r = NULL;
 	struct rdma_mbufs *rmbuf = NULL;
 	struct rdma_send_wqe *wqe = qp->req.cur_wqe;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 
 	if (wqe && wqe->state == wqe_state_processing)
 		return dao_rdma_process_remaining_segs(qp, mbufs, n_mbufs);
@@ -293,12 +303,15 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	qp->req.opcode = -1;
 	ret = dao_rdma_preprocess_dequeued_pkts(qp, mbuf);
 	if (ret < 0) {
-		dao_err("[%s::%d] rdma preprocess error\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_PROC_RC_PKTS_PREPROC_DEQ_PKTS_FAIL);
 		return -1;
 	}
 	if (qp->resp.read_reply.n_rdma_segs) {
 		ret = rdma_process_read_reply(qp, mbuf, mbufs, n_mbufs);
 		if (ret < 0) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL);
 			return -1;
 		}
 		return 0;
@@ -307,7 +320,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	wqe = qp->req.cur_wqe ? STAILQ_NEXT(qp->req.cur_wqe, next) :
 				STAILQ_FIRST(&qp->req.wqe_head);
 	if (wqe == NULL) {
-		dao_err("[%s::%d] WQE list is empty\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_PROC_RC_PKTS_WQE_EMPTY);
 		return -1;
 	}
 
@@ -323,7 +336,8 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		if (ret < 0) {
 			rdma_requester_error(qp, wqe);
 			*n_mbufs = 0;
-			dao_err("[%s::%d] rdma RC requester error\n", __func__, __LINE__);
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_PROC_RC_REQUESTER_FAIL);
 			return -1;
 		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
 			qp->req.cur_mbuf = next_r;
@@ -337,13 +351,6 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 			break;
 		rmbuf = next_r;
 	}
-
-#ifdef RDMA_DEBUG
-	dao_dbg("[REQ] qp_id %d, dma_len %u, current nb_segs %d, total segs %d, "
-		"start psn %u end psn %u current qp psn %u qp->req.unacked_window %d\n",
-		qp->qid, wqe->dma_length, *n_mbufs, wqe->n_rdma_segs + *n_mbufs, wqe->first_psn,
-		wqe->last_psn, qp->req.psn, qp->req.unacked_window);
-#endif
 	qp->req.cur_wqe = wqe;
 
 	return 0;
@@ -358,15 +365,17 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 	uint32_t nb = 1;
 	struct rdma_qp *qp = NULL;
 	struct rdma_send_wqe wqe = {0};
+	unsigned int lcore_id = rte_lcore_id();
 
 	qp = rdma_qp_query_fast(qp_id, devid);
 	if (qp == NULL || qp->state == QP_STATE_ERROR) {
-		dao_err("qp error: qp_id %d qp %p state %d", qp_id, qp, qp ? (int)qp->state : -1);
+		RDMA_INC_PORT_COUNTER(lcore_id, devid, RDMA_TX_PORT_TX_PROC_QP_INV);
 		return -1;
 	}
 
 	if (qp->lcore != rte_lcore_id()) {
-		dao_err("QP %d on port %d is not owned by lcore %d", qp_id, devid, rte_lcore_id());
+		RDMA_INC_QP_COUNTER(lcore_id, devid, qp_id,
+				    RDMA_TX_QP_TX_PROC_ACC_QP_BY_NON_OWNER_LCORE);
 		return -1;
 	}
 
@@ -374,27 +383,28 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 		if (!qp->req.dummy_mbuf)
 			qp->req.dummy_mbuf = rte_pktmbuf_alloc(mbuf->pool);
 		ret = rdma_process_rc_packets(qp, mbuf, mbufs, n_mbufs);
-		if (ret < 0)
+		if (ret < 0) {
+			RDMA_INC_QP_COUNTER(lcore_id, devid, qp_id,
+					    RDMA_TX_QP_TX_PROC_RC_PKT_PROCESS_FAIL);
 			goto error;
+		}
 		qp->req.dummy_mbuf->port = RTE_MAX_ETHPORTS + devid;
 	} else {
 		qp->req.opcode = -1;
 		wqe.wr = rdma_tx_priv_wr(mbuf);
 		ret = rdma_requester(qp, &wqe, mbuf, flag, nb);
 		if (ret < 0) {
-			dao_err("[%s::%d] rdma UD requester error\n", __func__, __LINE__);
+			RDMA_INC_QP_COUNTER(lcore_id, devid, qp_id,
+					    RDMA_TX_QP_TX_PROC_UD_REQUESTER_FAIL);
 			goto error;
 		}
-#ifdef RDMA_DEBUG
-		dao_dbg("[REQ] qp_id %d, pktlen %u, qp->req.psn %u\n", qp->qid, mbuf->pkt_len,
-			qp->req.psn);
-#endif
 		dao_send_cqe(qp, false, &wqe);
 	}
 	return 0;
 
 error:
 	mbuf->ol_flags &= ~(0x7ULL << OFFLD_UPPER_BITS);
+	RDMA_INC_QP_COUNTER(lcore_id, devid, qp_id, RDMA_TX_QP_TX_PROC_REQUESTER_FAIL);
 	return -1;
 }
 
@@ -402,6 +412,9 @@ int
 dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe)
 {
 	struct dao_pts_rdma_cqe cqe = {0};
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 	bool post = false;
 	int rc;
 
@@ -413,18 +426,16 @@ dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe)
 	if (post) {
 		rdma_make_send_cqe(qp, wqe, &cqe);
 		rc = dao_pts_rdma_enqueue_cqe(qp->port_id, qp->qid, host_recv, &cqe, 1);
-		if (unlikely(rc < 1))
-			dao_err("enqueue_cqe failed, ret=%d\n", rc);
+		if (unlikely(rc < 1)) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_SEND_CQE_ENQ_CQE_FAIL);
+		}
 	}
 
-	/* Always log errors */
 	if (wqe->status != RDMA_WC_SUCCESS)
-		dao_err("QP %d: CQE generated for wr_id %lu, status %d, opcode %d, byte_len %u\n",
-			qp->qid, wqe->wr->wr_id, wqe->status, wqe->wr->opcode, wqe->dma_length);
-#ifdef RDMA_DEBUG
-	dao_dbg("QP %d: CQE generated for wr_id %lu, status %d, opcode %d, byte_len %u\n", qp->qid,
-		wqe->wr->wr_id, wqe->status, wqe->wr->opcode, wqe->dma_length);
-#endif
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_SEND_CQE_FAIL);
+
 	return 0;
 }
 
@@ -500,6 +511,9 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	struct rdma_mbufs *rdma_mbuf;
 	uint32_t packet_type = mbuf->packet_type;
 	struct rte_mbuf *mtu_head = NULL, *mtu_tail = NULL;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 
 	/* On TX, private area holds wr, wqe, and rdma_mbuf nodes */
 	wr = rdma_tx_priv_wr(mbuf);
@@ -510,7 +524,8 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 		wqe = rdma_tx_priv_wqe(mbuf);
 
 	if (unlikely(!wqe)) {
-		dao_err("Failed to get WQE space in mbuf priv\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_PREPROC_DEQ_PKTS_EXTRACT_WQE_FAIL);
 		rdma_free_mbuf_generate_cqe(qp, wr, RDMA_WC_LOC_QP_OP_ERR);
 		return -1;
 	}
@@ -522,9 +537,8 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 		rte_pktmbuf_reset(mbuf);
 
 	if (!wqe->dma_length || wqe->dma_length > RDMA_PORT_MAX_MSG_SZ) {
-		dao_err("Invalid dma_length %u for wr_id %lu max supported %u received req %u\n",
-			wqe->dma_length, wr->wr_id, (uint32_t)RDMA_PORT_MAX_MSG_SZ,
-			wqe->dma_length);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_PREPROC_DEQ_PKTS_DMA_LEN_INV);
 		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 		dao_send_cqe(qp, false, wqe);
 		return -1;
@@ -589,7 +603,7 @@ dao_rdma_get_pvt_len(void)
  * @brief: This function initializes the RDMA library.
  */
 int
-dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc)
+dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport)
 {
 	int ret = 0;
 	/* Initialize the timer subsystem */
@@ -600,6 +614,12 @@ dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc)
 	}
 	ret = rdma_cb_register(cb);
 	rcu_cb = cb->rcu_cb;
+
+	ret = rdma_counter_init(nport);
+	if (ret < 0) {
+		dao_err("Failed to allocate memory for RDMA counters\n");
+		return ret;
+	}
 
 	/* Register RDMA map callback if provided */
 	if (cb->rdma_map_cb)

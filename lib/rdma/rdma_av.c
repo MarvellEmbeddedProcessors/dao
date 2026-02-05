@@ -25,7 +25,6 @@ rdma_av_get(uint8_t port_num, uint16_t index)
 
 	port = rdma_port_lookup(port_num);
 	if (port == NULL) {
-		dao_err("Invalid RDMA port number");
 		return NULL;
 	}
 

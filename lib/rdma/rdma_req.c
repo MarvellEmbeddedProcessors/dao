@@ -11,6 +11,7 @@
 #include "rdma_req.h"
 #include "rdma_retransmit.h"
 #include "rdma_utils.h"
+#include "rdma_counter.h"
 
 static int
 next_opcode_rc(struct rdma_qp *qp, uint32_t opcode, bool no_segs)
@@ -127,9 +128,7 @@ rdma_get_av(struct rdma_pkt_info *pinfo)
 
 	if (!pinfo->wqe)
 		return NULL;
-#ifdef RDMA_DEBUG
-	dao_info("wqe->wr->ud.ah: %u\n", wqe->wr->ud.ah);
-#endif
+
 	return (struct rdma_av *)rdma_av_get(pinfo->port_num, wqe->wr->ud.ah);
 }
 
@@ -198,7 +197,10 @@ static int
 rdma_hdr_insert(struct rte_mbuf *pkt, struct rdma_av *av, uint32_t payload,
 		struct rdma_pkt_info *pinfo)
 {
-	struct rdma_qp *qp;
+	struct rdma_qp *qp = pinfo->qp;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id  = qp->qid;
 	int ret = -1;
 
 	RTE_SET_USED(payload);
@@ -208,7 +210,8 @@ rdma_hdr_insert(struct rte_mbuf *pkt, struct rdma_av *av, uint32_t payload,
 	/* RDMA specific headers and payload */
 	ret = rdma_proto_hdr_insert(pkt, pinfo, payload);
 	if (ret < 0) {
-		dao_err("ERROR: RDMA proto header error\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_HDR_INSERT_PROTO_HDR_INS_FAIL);
 		return ret;
 	}
 
@@ -216,13 +219,15 @@ rdma_hdr_insert(struct rte_mbuf *pkt, struct rdma_av *av, uint32_t payload,
 
 	ret = rdma_net_hdr_insert(pkt, av, qp->sport);
 	if (ret < 0) {
-		dao_err("ERROR: offset error\n");
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_HDR_INS_NET_HDR_INS_FAIL);
 		return ret;
 	}
 
 	/* Packet formation is done. Time to calculate icrc. */
-	if (rdma_icrc_generate(pkt, pinfo))
+	if (rdma_icrc_generate(pkt, pinfo)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_HDR_INSERT_ICRC_GEN_FAIL);
 		return -1;
+	}
 
 	return ret;
 }
@@ -247,10 +252,6 @@ update_wqe_psn(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rdma_pkt_in
 	if (pinfo->mask & RDMA_START_MASK) {
 		wqe->first_psn = qp->req.psn;
 		wqe->last_psn = (qp->req.psn + num_pkt - 1) & BTH_PSN_MASK;
-#ifdef RDMA_DEBUG
-		dao_dbg("[SEND] wqe->first_psn %u wqe->last_psn %u\n", wqe->first_psn,
-			wqe->last_psn);
-#endif
 	}
 
 	if (pinfo->mask & RDMA_READ_MASK)
@@ -347,7 +348,10 @@ int
 rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *mbuf, bool more_segs,
 	       int num_pkt)
 {
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
 	struct rdma_pkt_info pinfo;
+	uint32_t qp_id  = qp->qid;
 	enum rdma_hdr_mask mask;
 	struct rdma_av *av;
 	uint32_t payload;
@@ -356,18 +360,18 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 	int ret = -1;
 
 	if (unlikely(!qp->valid)) {
-		dao_err("[%s::%d] QP not valid\n", __func__, __LINE__);
+		RDMA_INC_PORT_COUNTER(lcore_id, port_id, RDMA_TX_PORT_REQ_QP_INV);
 		goto exit;
 	}
 
 	if (unlikely(qp->state == QP_STATE_ERROR)) {
 		wqe->status = RDMA_WC_WR_FLUSH_ERR;
-		dao_err("[%s::%d] QP in error state\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_QP_STATE_ERR);
 		goto err;
 	}
 
 	if (unlikely(qp->state == QP_STATE_RESET)) {
-		dao_err("[%s::%d] QP in RESET state\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_QP_STATE_RESET);
 		qp->req.opcode = -1;
 		qp->req.stop_psn = 0;
 		qp->req.wait_rnr_exp = 0;
@@ -375,23 +379,24 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 	}
 
 	if (rdma_wqe_is_fenced(qp, wqe)) {
-		dao_err("[%s::%d] WQE is fenced\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_WQE_FENCED);
 		qp->req.wait_fence = 1;
 		goto exit;
 	}
 
 	if (wqe->mask & WR_LOCAL_OP_MASK) {
 		ret = rdma_do_local_ops(qp, wqe);
-		if (unlikely(ret))
+		if (unlikely(ret)) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_LOCAL_OP_FAIL);
 			goto err;
-		else
+		} else {
 			goto done;
+		}
 	}
 
 	opcode = next_opcode(qp, wqe->wr->opcode, more_segs);
 	if (unlikely(opcode < 0)) {
-		dao_err("[%s::%d] opcode error %d vs wqe->wr->opcode %d QP type %d\n", __func__,
-			__LINE__, opcode, wqe->wr->opcode, qp->type);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_OPCODE_ERR);
 		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 		goto exit;
 	}
@@ -417,7 +422,8 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 
 	if (unlikely(mask & (RDMA_READ_MASK))) {
 		if (check_init_depth(qp, wqe)) {
-			dao_err("[%s::%d] read rq depth error\n", __func__, __LINE__);
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_REQ_READ_CREDIT_EXHAUSTED);
 			goto exit;
 		}
 	}
@@ -443,13 +449,10 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 			qp->req.cur_wqe = wqe;
 			rdma_make_send_cqe(qp, wqe, &cqe);
 			dao_pts_rdma_enqueue_cqe(qp->port_id, qp->qid, false, &cqe, 1);
-			dao_err("[%s::%d] payload error\n", __func__, __LINE__);
 			goto done;
 		} else {
-			dao_err("[%s::%d] pkt_len %d data_len %u exceeds mtu %d nb_segs %u qp id %d mbuf refcnt %u"
-				" nb_pkts %u\n",
-				__func__, __LINE__, mbuf->pkt_len, mbuf->data_len, mtu,
-				mbuf->nb_segs, qp->qid, mbuf->refcnt, num_pkt);
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_REQ_PAYLOAD_EXC_MTU);
 			goto exit;
 		}
 	}
@@ -464,14 +467,14 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 
 	av = rdma_get_av(&pinfo);
 	if (unlikely(av == NULL)) {
-		dao_err("[%s::%d] av error\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_AV_FAIL);
 		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 		goto err;
 	}
 
 	ret = rdma_hdr_insert(mbuf, av, payload, &pinfo);
 	if (unlikely(ret)) {
-		dao_err("[%s::%d] hdr insert error\n", __func__, __LINE__);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_INSERT_HDR_FAIL);
 		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 		goto exit;
 	}
@@ -487,7 +490,7 @@ done:
 err:
 	/* update wqe_index for each wqe completion */
 	wqe->state = wqe_state_error;
-	dao_err("QP %d: setting state to ERROR (requester)", qp->qid);
+	RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_REQ_WQE_STATE_ERR);
 	qp->state = QP_STATE_ERROR;
 exit:
 	ret = -EAGAIN;

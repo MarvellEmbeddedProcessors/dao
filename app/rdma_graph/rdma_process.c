@@ -200,8 +200,6 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 
 			ret = dao_rdma_tx_process(mbuf, qp_id, devid, mbufs, &n_segs);
 			if (ret < 0) {
-				dao_err("rdma_tx_process error: dev %u queue %u qp %u", devid,
-					queue, qp_id);
 				next = RDMA_NEXT_PKT_DROP;
 			}
 			node_mbuf_priv1(mbuf, dyn)->queue = queue;

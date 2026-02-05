@@ -45,7 +45,6 @@ ipv4_hdr_insert(struct rte_mbuf *pkt, rte_be32_t saddr, rte_be32_t daddr, uint8_
 	struct rte_ipv4_hdr *iph = (void *)rte_pktmbuf_prepend(pkt, sizeof(struct rte_ipv4_hdr));
 
 	if (unlikely(iph == NULL)) {
-		dao_err("Failed to prepend IPv4 header to mbuf");
 		return IP4_HDR_ERR;
 	}
 
@@ -69,7 +68,6 @@ udp_hdr_insert(struct rte_mbuf *pkt, rte_be16_t src_port, rte_be16_t dst_port)
 	struct rte_udp_hdr *udph = (void *)rte_pktmbuf_prepend(pkt, sizeof(struct rte_udp_hdr));
 
 	if (unlikely(udph == NULL)) {
-		dao_err("Failed to prepend UDP header to mbuf");
 		return UDP_HDR_ERR;
 	}
 

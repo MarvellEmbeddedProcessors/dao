@@ -470,7 +470,8 @@ main(int argc, char *argv[])
 	rdma_pem_init(rdma_main_cfg);
 
 	dao_rdma_port_alloc(rdma_main_cfg->cfg_prm->num_rport);
-	if (dao_rdma_lib_init(&cb, rdma_main_cfg->cfg_prm->disable_cc) < 0) {
+	if (dao_rdma_lib_init(&cb, rdma_main_cfg->cfg_prm->disable_cc,
+			      rdma_main_cfg->cfg_prm->num_rport) < 0) {
 		dao_err("Failed to initialize RDMA library\n");
 		goto close_pem;
 	}

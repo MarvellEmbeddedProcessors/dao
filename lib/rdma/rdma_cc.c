@@ -6,6 +6,7 @@
 #include <rte_ethdev.h>
 #include <rte_mbuf.h>
 
+#include "rdma_counter.h"
 #include "rdma_hdr.h"
 #include "rdma_net.h"
 #include "rdma_opcode.h"
@@ -16,8 +17,14 @@
 int
 rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 {
+	uint32_t port_id, lcore_id, qp_id;
+
 	if (unlikely(!qp || !rx_mbuf))
 		return -1;
+
+	port_id = qp->port_id;
+	lcore_id = qp->lcore;
+	qp_id = qp->qid;
 	if (!qp->cc.cc_enabled)
 		return 0;
 
@@ -29,8 +36,10 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 	/* Allocate new mbuf from same pool as triggering packet */
 	struct rte_mbuf *mbuf = rte_pktmbuf_alloc(rx_mbuf->pool);
 
-	if (unlikely(!mbuf))
+	if (unlikely(!mbuf)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_SEND_CNP_MBUF_ALLOC_FAIL);
 		return -1;
+	}
 
 	struct rdma_pkt_info pinfo = {0};
 
@@ -42,6 +51,8 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 	pinfo.hdr = (uint8_t *)rte_pktmbuf_prepend(mbuf, RDMA_BTH_BYTES);
 	if (unlikely(!pinfo.hdr)) {
 		rte_pktmbuf_free(mbuf);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_SEND_CNP_MBUF_PREPEND_FAIL);
 		return -1;
 	}
 
@@ -51,12 +62,15 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 	/* Insert L2/L3/L4 headers */
 	if (rdma_net_hdr_insert(mbuf, &qp->av, qp->sport) < 0) {
 		rte_pktmbuf_free(mbuf);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_SEND_CNP_NET_HDR_INS_FAIL);
 		return -1;
 	}
 
 	/* Compute ICRC */
 	if (rdma_icrc_generate(mbuf, &pinfo) < 0) {
 		rte_pktmbuf_free(mbuf);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_SEND_CNP_ICRC_GEN_FAIL);
 		return -1;
 	}
 
@@ -65,6 +79,7 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 
 	if (sent != 1) {
 		rte_pktmbuf_free(mbuf);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_SEND_CNP_TX_BURST_FAIL);
 		return -1;
 	}
 

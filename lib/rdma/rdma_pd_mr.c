@@ -12,12 +12,10 @@ pd_find_by_id(uint32_t pd_id, uint32_t port_num)
 	struct pd_entry **pd_array = rdma_port_get_pd_array(port_num);
 
 	if (!pd_array) {
-		dao_err("PD array not initialized for port %u", port_num);
 		return NULL;
 	}
 
 	if (pd_id >= RDMA_MAX_PD) {
-		dao_err("Invalid PD id: %u", pd_id);
 		return NULL;
 	}
 

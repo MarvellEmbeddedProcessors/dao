@@ -88,7 +88,7 @@ int dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct
 			uint16_t *n_mbufs);
 int dao_rdma_get_pvt_len(void);
 /* Initialize RDMA library; disable_cc=1 disables baseline congestion control for all new QPs */
-int dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc);
+int dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport);
 void dao_rdma_lib_close(void);
 int dump_few_bytes(struct rte_mbuf *mbuf);
 void dao_rdma_register_rdma_map_cb(rdma_map_cb_t cb);

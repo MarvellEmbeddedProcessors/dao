@@ -19,9 +19,7 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 	struct rdma_mbufs *rmbuf;
 	rdma_send_wqe_t *wqe;
 
-	dao_dbg("Timer expired setting up retransmission\n");
 	if (qp->req.in_retransmission) {
-		dao_dbg("Retransmission already in progress\n");
 		return;
 	}
 
@@ -56,7 +54,6 @@ rdma_reset_and_send_cqe(rdma_qp_t *qp, int status)
 {
 	struct rdma_send_wqe *wqe_next, *tmp;
 
-	dao_err("QP %d: setting state to ERROR (retransmit timeout, status=%d)", qp->qid, status);
 	qp->req.cur_wqe = NULL;
 	qp->state = QP_STATE_ERROR;
 	qp->comp.retry_cnt = qp->attr.max_retry_cnt;
@@ -76,7 +73,6 @@ int
 rdma_check_retransmission_limit(rdma_qp_t *qp)
 {
 	if (qp->comp.retry_cnt == 0) {
-		dao_info("No retries left, marking WQE as failed\n");
 		rdma_reset_and_send_cqe(qp, RDMA_WC_RETRY_EXC_ERR);
 		return -1;
 	}
