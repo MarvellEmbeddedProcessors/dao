@@ -81,6 +81,7 @@ enum dao_pts_rdma_send_flags {
 #define DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE (0X4ULL) /* SEND or RDMA_WRITE_WITH_IMM */
 #define DAO_PTS_RDMA_ENQ_M2D_WITH_CQE     (0X5ULL) /* RDMA_WRITE_WITH_IMM */
 #define DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE (0X6ULL) /* RDMA_READ_RESPONSE */
+#define DAO_PTS_RDMA_ENQ_M2D_SQE          (0X7ULL) /* RDMA_READ_RESPONSE_WITHOUT_CQE */
 
 /* Structure for PTS RDMA CQE DESCRIPTOR */
 struct dao_pts_rdma_cqe {

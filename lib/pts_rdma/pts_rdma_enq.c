@@ -330,6 +330,26 @@ process_rdma_read_resp(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem2d
 }
 
 static inline int
+process_rdma_read_resp_no_cqe(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
+{
+	struct dao_pts_rdma_sge *sges;
+	uint32_t pkt_len;
+	uint16_t nb_sge;
+
+	nb_sge = mbuf->l2_len;
+	pkt_len = mbuf->pkt_len;
+	sges = DAO_PTS_RDMA_MBUF_TO_SGES(mbuf);
+
+	if (unlikely(!validate_sge_len(sges, nb_sge, pkt_len)))
+		return -1;
+
+	if (unlikely(read_resp_enqueue(mem2dev, mbuf, sges)))
+		return -1;
+
+	return 0;
+}
+
+static inline int
 process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 {
 	struct dao_pts_rdma_sge *sges;
@@ -764,6 +784,10 @@ push_enq_buffers(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbufs
 			if (ret)
 				goto exit;
 			nb_read_cqe++;
+		} else if (type == DAO_PTS_RDMA_ENQ_M2D_SQE) {
+			ret = process_rdma_read_resp_no_cqe(mem2dev, mbuf);
+			if (ret)
+				goto exit;
 		} else if (type == DAO_PTS_RDMA_ENQ_D2M) {
 			ret = process_rdma_read_req(devid, qp, dev2mem, mbuf, &roff);
 			if (ret)
