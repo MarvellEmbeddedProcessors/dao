@@ -10,6 +10,8 @@
 #include <rte_common.h>
 #include <rte_mempool.h>
 
+#include <dao_util.h>
+
 #include <liquid_crypto_sym.h>
 
 #define LIQUID_CRYPTO_BUF_SZ_MIN          64ull
@@ -85,8 +87,8 @@ struct liquid_crypto_qp {
 	struct rte_mempool *rx_mp;
 	/** TX mempool */
 	struct rte_mempool *tx_mp;
-	/** Inflight request queue */
-	struct liquid_crypto_inflight_req *req_queue;
+	/* Inflight request queue for CPT or Compress device */
+	union liquid_crypto_inflight_req *req_queue;
 	/** Inflight request bitmap */
 	struct rte_bitmap *req_bm;
 	/** Inflight request bitmap memory */
@@ -105,7 +107,8 @@ struct liquid_crypto_qp {
 	uint8_t *cmd_req_bm_mem;
 } __rte_cache_aligned;
 
-struct liquid_crypto_inflight_req {
+/** CPT engine inflight request entry */
+struct liquid_crypto_cpt_inflight_req {
 	/** Field provided by application during request submission */
 	uint64_t op_cookie;
 	union {
@@ -171,6 +174,48 @@ struct liquid_crypto_inflight_req {
 		/* Is AES key wrap operation */
 		bool is_wrap;
 	};
+};
+
+/* This structure is only to find the padding bytes required to align with
+ * liquid_crypto_cpt_inflight_req structure. If any new fields need to be
+ * added for liquid_crypto_compdev_inflight_req make sure to add here.
+ */
+struct __liquid_crypto_compdev_inflight_req {
+	/** Field provided by application during compress dev request submission */
+	uint64_t op_cookie;
+	/** Output buffer given for compress device operation. */
+	uint8_t *data_out;
+	/** Data length */
+	uint32_t out_data_len;
+	/** Compress device operation type */
+	enum dao_lc_comp_op op_type;
+};
+
+/** Compress device inflight request entry */
+struct liquid_crypto_compdev_inflight_req {
+	/** Field provided by application during compress dev request submission */
+	uint64_t op_cookie;
+	/** Output buffer given for compress device operation. */
+	uint8_t *data_out;
+	/** Data length */
+	uint32_t out_data_len;
+	/** Compress device operation type */
+	enum dao_lc_comp_op op_type;
+	/** Reserved padding to maintain same alignment with CPT inflight request */
+	DAO_PAD_BYTES_TO_MATCH(struct liquid_crypto_cpt_inflight_req,
+			       struct __liquid_crypto_compdev_inflight_req);
+};
+
+DAO_STATIC_ASSERT(sizeof(struct liquid_crypto_cpt_inflight_req) ==
+		  sizeof(struct liquid_crypto_compdev_inflight_req));
+
+/**
+ * Union for the inflight request queue element so the same memory can be
+ * accessed as either CPT or compdev inflight request.
+ */
+union liquid_crypto_inflight_req {
+	struct liquid_crypto_cpt_inflight_req cpt;
+	struct liquid_crypto_compdev_inflight_req compdev;
 };
 
 static inline uint32_t

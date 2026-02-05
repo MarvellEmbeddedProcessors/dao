@@ -178,6 +178,11 @@ available:
    initial state and ensures it is ready to handle requests. Note that this command must be executed
    before any other commands can be run on the card.
 
+   Optional second argument: ``enable-compress-dev`` instructs the crypto agent to initialize
+   compress devices and expose compress offload to the host. When omitted, compress offload is disabled
+   on the card (default). See :doc:`../prog_guide/liquid_crypto_lib`
+   and :doc:`../applications/crypto-agent`.
+
 * ``card_info``
 
    This command retrieves information about the DAO card, including its capabilities, status,

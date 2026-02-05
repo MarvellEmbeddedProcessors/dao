@@ -28,7 +28,7 @@ static struct option long_options[] = {
 
 /* Command specifications table */
 const struct dao_card_cmd_spec dao_card_cmd_specs[] = {
-	{DAO_CARD_MGR_CARD_INIT, 1, 1, "", "Initialize card"},
+	{DAO_CARD_MGR_CARD_INIT, 1, 2, "[enable-compress-dev]", "Initialize card"},
 	{DAO_CARD_MGR_CARD_FINI, 1, 1, "", "Stop card and free resources"},
 	{DAO_CARD_MGR_CARD_INFO, 1, 1, "", "Show card information"},
 	{DAO_CARD_MGR_IMAGE_VERSION, 1, 1, "", "Show rootfs and app version from card"},

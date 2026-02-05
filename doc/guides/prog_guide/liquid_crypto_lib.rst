@@ -6,28 +6,32 @@ Liquid Crypto Library
 *********************
 
 Liquid crypto library provides a set of cryptographic primitives that can be used to offload
-cryptographic operations to hardware accelerators. The library is optimized for performance
-and low power consumption.
+cryptographic, compression and decompression operations to hardware accelerators. The library
+is optimized for performance and low power consumption.
 
 The library provides a set of APIs for various cryptographic operations, including symmetric
-encryption, hashing, and public key cryptography. The library is designed to be modular and
-can be easily extended to support new algorithms and hardware accelerators.
+encryption, hashing, and public key cryptography. The library also provides support for hardware
+accelerated compression APIs, enabling high performance, hardware offloaded data compression
+operations. The library is designed to be modular and can be easily extended to support new
+algorithms and hardware accelerators.
 
 Architecture Overview
 ---------------------
 
 The Liquid Crypto Library is designed to be modular and extensible. The library is built on top of
 the 'eth_transport' library from DAO, which provides a set of APIs for managing hardware
-accelerators and pushing cryptographic operations to the hardware accelerators. The 'eth_transport'
+accelerators and pushing cryptographic operations to the hardware accelerators. It also provides
+APIs for pushing compression and decompression operations to hardware accelerators. The 'eth_transport'
 library internally uses the 'rte_ethdev' library from DPDK to manage the hardware accelerators.
 
 For more information about the 'eth_transport' library, see the :doc:`eth_transport` guide.
 
 The Liquid Crypto Library uses a queue-based architecture to manage the execution of
-cryptographic operations. The queue is used to manage the execution of cryptographic operations
-in a non-blocking manner, allowing multiple operations to be executed concurrently. The library
-provides a set of APIs for various cryptographic operations, including symmetric encryption,
-hashing, and public key cryptography.
+cryptographic and compression related operations. The queues are used to manage the execution of
+cryptographic and compression/decompression operations in a non-blocking manner, allowing multiple
+operations to be executed concurrently. The library provides a set of APIs for various cryptographic
+operations, including symmetric encryption, hashing, and public key cryptography. It also provides APIs
+for deflate algorithm compression and decompression operations.
 
 .. note::
 
@@ -240,11 +244,43 @@ AES Key Wrap (KW) and AES Key Wrap with Padding (KWP) Algorithms
 	* AES Key Wrap (KW) algorithm does not support padding; the input data length must be a multiple of 8 bytes.
 	* Padding is supported by the AES Key Wrap with Padding (KWP) algorithm; input data can be any length from 1 to 3072 bytes.
 
+Compression and Decompression Device (ZIP)
+++++++++++++++++++++++++++++++++++++++++++
+
+When the compress device support is enabled, the host library can offload
+DEFLATE compress and decompress operations to ZIP devices.
+
++------------------+------------------+------------------------------------------+
+| Algorithm        | Direction        | Notes                                    |
++==================+==================+==========================================+
+| DEFLATE          | Compress         | Levels **1** or **9**; Huffman in        |
+|                  |                  | ``enum dao_lc_comp_huffman``.            |
++------------------+------------------+------------------------------------------+
+| DEFLATE          | Decompress       | Decompresses DEFLATE-formatted input.    |
++------------------+------------------+------------------------------------------+
+
+DEFLATE Parameters
+++++++++++++++++++
+
++-----------------+---------------------------+
+| Parameter       | Supported Values          |
++=================+===========================+
+| Huffman Coding  | Dynamic/Fixed             |
++-----------------+---------------------------+
+| Level           | 1 and 9                   |
++-----------------+---------------------------+
+
+.. note::
+
+	* Only DEFLATE algorithm is supported for both compression and decompression.
+	* Compression/decompression operations are supported in "stateless" mode only.
+
+
 Control Plane
 -------------
 
-Liquid crypto library provides a set of APIs for configuring devices and managing queues. Queues
-are used to submit cryptographic operations to the hardware accelerators and retrieve the results.
+Liquid crypto library provides a set of APIs for configuring devices and managing queues. Queues are used
+to submit both cryptographic and compression operations to the hardware accelerators and retrieve the results.
 One device can have multiple queues, and each queue can be used to submit multiple operations.
 
 Setup Device and Queues
@@ -440,6 +476,27 @@ Enqueue API - Random Number Generation
 The following API is used to enqueue random number generation operations:
 
 * ``dao_liquid_crypto_enq_op_random()``: Enqueue a hardware-based random number generation operation.
+
+Compression/Decompression Capability
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Before using compression/decompression APIs, call ``dao_liquid_crypto_dev_caps_get()`` and verify that
+``struct dao_lc_dev_caps`` has ``compdev_en`` set.
+When clear, the agent does not expose compression/decompression offload.
+
+Enqueue API - Compression Deflate
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following API is used to enqueue deflate compress operation:
+
+#. ``dao_liquid_crypto_enq_comp_op_deflate`` : Enqueue DEFLATE compress operation.
+
+Enqueue API - Decompression Deflate
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following API is used to enqueue deflate decompress operation:
+
+#. ``dao_liquid_crypto_enq_decomp_op_deflate`` : Enqueue DEFLATE decompress operation.
 
 Buffer Usage
 ++++++++++++

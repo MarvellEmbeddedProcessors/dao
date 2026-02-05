@@ -42,6 +42,8 @@
 #define DAO_CARD_MGR_SOFT_RESET       "card_soft_reset"
 #define DAO_CMD_ARGS_ANY              -1 /* variable args */
 
+#define DAO_CARD_MGR_ENABLE_COMPRESS_DEV "enable-compress-dev"
+
 #define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256
 #define DAO_CARD_MGR_MAX_SENSORS_LEN 4096
 

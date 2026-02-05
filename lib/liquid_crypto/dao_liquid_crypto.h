@@ -50,6 +50,12 @@
 #define DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN 511
 /** Maximum supported authentication key for KMAC operations */
 #define DAO_LC_KMAC_MAX_AUTH_KEY_LEN 511
+/** Compress operation minimum compression level */
+#define DAO_LC_COMPRESS_MIN_COMP_LEVEL 1
+/** Compress operation maximum compression level */
+#define DAO_LC_COMPRESS_MAX_COMP_LEVEL 9
+/** Compress device maximum segment size */
+#define DAO_LC_COMPRESS_MAX_SEG_SIZE 16384
 
 /**
  * The params required for KMAC operations.
@@ -278,6 +284,74 @@ enum dao_uc_comp_code {
 	DAO_UC_RSA_OAEP_DECODING_ERROR = 0x9c,
 };
 
+/** Compression device operation types */
+enum dao_lc_comp_op {
+	/** Compress operation */
+	DAO_LC_COMP_OP_COMPRESS = 0,
+	/** Decompress operation */
+	DAO_LC_COMP_OP_DECOMPRESS,
+	/** End of valid operations */
+	DAO_LC_COMP_OP_INVALID
+};
+
+/** Compression Algorithms */
+enum dao_lc_comp_algo {
+	/** No Compression algorithm */
+	DAO_LC_COMP_ALGO_UNSPECIFIED = 0,
+	/**
+	 * No compression. Pass-through, data is copied unchanged from source buffer to
+	 * destination buffer
+	 */
+	DAO_LC_COMP_ALGO_NULL,
+	/** DEFLATE compression algorithm */
+	DAO_LC_COMP_ALGO_DEFLATE,
+	/** Max algorithm */
+	DAO_LC_COMP_ALGO_MAX,
+};
+
+/** Compression Huffman Type - used by DEFLATE algorithm */
+enum dao_lc_comp_huffman {
+	/**
+	 * Use Fixed Huffman codes. Skipping PMD Default type.
+	 */
+	DAO_LC_COMP_HUFFMAN_FIXED,
+	/** Use Dynamic Huffman codes */
+	DAO_LC_COMP_HUFFMAN_DYNAMIC,
+	/** Max Huffman Type */
+	DAO_LC_COMP_HUFFMAN_MAX,
+};
+
+/** Status of compress device operations */
+enum dao_lc_comp_op_status {
+	/** Operation completed successfully */
+	DAO_LC_COMP_OP_STATUS_SUCCESS = 0,
+	/** Operation has not yet been processed by the device */
+	DAO_LC_COMP_OP_STATUS_NOT_PROCESSED,
+	/** Operation failed due to invalid arguments in request */
+	DAO_LC_COMP_OP_STATUS_INVALID_ARGS,
+	/** Error handling operation */
+	DAO_LC_COMP_OP_STATUS_ERROR,
+	/** Operation is invoked in invalid state */
+	DAO_LC_COMP_OP_STATUS_INVALID_STATE,
+	/**
+	 * Output buffer ran out of space before operation completed.
+	 * Error case. Application must resubmit all data with a larger
+	 * output buffer.
+	 */
+	DAO_LC_COMP_OP_STATUS_OUT_OF_SPACE_TERMINATED,
+	/**
+	 * Output buffer ran out of space before operation completed, but this
+	 * is not an error case. Output data up to op.produced can be used and
+	 * next op in the stream should continue on from op.consumed+1.
+	 */
+	DAO_LC_COMP_OP_STATUS_OUT_OF_SPACE_RECOVERABLE,
+	/**
+	 * Produced output cannot fit in the response buffer.
+	 * Resubmit the operation with larger response buffer.
+	 */
+	DAO_LC_COMP_OP_STATUS_RESP_BUF_SPACE_ISSUE,
+};
+
 /**
  * PQC completion codes.
  */
@@ -396,6 +470,8 @@ struct dao_lc_dev_caps {
 		struct {
 			/** PQC support bit */
 			uint64_t pqc_en : 1;
+			/** Compress device enable bit */
+			uint64_t compdev_en : 1;
 		};
 		/** 64-bit representation of capabilities */
 		uint64_t feature_mask0;
@@ -431,13 +507,64 @@ struct dao_lc_qp_conf {
 };
 
 /**
+ * Compress device operation result.
+ */
+struct dao_compdev_res {
+	/** Bytes from the source buffer which were compressed/decompressed. */
+	uint32_t consumed;
+	/** Bytes written to the destination buffer which were compressed/decompressed. */
+	uint32_t produced;
+	/** Bytes required to accommodate response from compress device */
+	uint32_t required;
+	/** Compress operation status returned by PMD. */
+	enum dao_lc_comp_op_status status;
+};
+
+/**
+ * Compress operation request parameters
+ */
+struct dao_lc_comp_req_params {
+	/** Pointer to plain text data to compress (Deflate format) */
+	uint8_t *in_data;
+	/** Pointer to output buffer where compressed data will be written */
+	uint8_t *out_data;
+	/** Length of plain text in bytes */
+	uint32_t in_data_len;
+	/** Size of the output buffer in bytes (expected compressed size) */
+	uint32_t out_data_len;
+	/** Compression level */
+	uint32_t level;
+	/** Compression huffman encoding type */
+	enum dao_lc_comp_huffman huff_enc_type;
+};
+
+/**
+ * Decompress operation request parameters
+ */
+struct dao_lc_decomp_req_params {
+	/** Pointer to compressed input data (Deflate format) */
+	uint8_t *in_data;
+	/** Pointer to output buffer where decompressed data will be written */
+	uint8_t *out_data;
+	/** Length of compressed input data in bytes */
+	uint32_t in_data_len;
+	/** Size of the output buffer in bytes (expected decompressed size) */
+	uint32_t out_data_len;
+};
+
+/**
  * The liquid crypto result structure.
  *
  * This structure is used to store the result of a liquid crypto operation.
  */
 struct dao_lc_res {
-	/** The result of the operation returned by CPT */
-	union dao_cpt_res_s res;
+	/** Result from the LC card */
+	union {
+		/** The result of the operation returned by CPT */
+		union dao_cpt_res_s res;
+		/** The result of the operation returned by compress device */
+		struct dao_compdev_res compdev_res;
+	};
 	/** Additional metadata from the operation */
 	union {
 		/** Metadata associated with RSA operations */
@@ -875,6 +1002,11 @@ struct dao_lc_feature_params {
 	struct {
 		bool is_pqc_enabled;
 	} pqc;
+
+	/* Flag to indicate compress device is enabled or not */
+	struct {
+		bool is_compdev_enabled;
+	} compdev;
 
 	/**
 	 * Specifies whether the size calculation is for the command queue pair.
@@ -2112,4 +2244,48 @@ int dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id
 						  uint8_t *qInv, uint8_t *em, uint8_t *msg,
 						  uint64_t op_cookie);
 
+/**
+ * Enqueue compress operation with deflate algo on the compress device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param req
+ *  Compress operation request parameters
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
+					  struct dao_lc_comp_req_params *req, uint64_t op_cookie);
+
+/**
+ * Enqueue decompress operation with deflate algo on the compress device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param req
+ *  Decompress operation request parameters
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left on the device.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
+					    struct dao_lc_decomp_req_params *req,
+					    uint64_t op_cookie);
 #endif /* __DAO_LIQUID_CRYPTO_H__ */

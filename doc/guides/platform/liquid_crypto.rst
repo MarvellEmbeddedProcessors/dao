@@ -47,6 +47,9 @@ Crypto operations supported by the LiquidCrypto card include:
 #. SHA
 #. RNG
 
+Optional DEFLATE compress and decompress offload is available when the crypto agent is started
+with compress support; see :doc:`../prog_guide/liquid_crypto_lib` and :doc:`../applications/crypto-agent`.
+
 Crypto operations supported by the LiquidCrypto card are exposed to the user application
 through DAO Liquid Crypto library. The library provides a set of APIs for performing
 cryptographic operations using the LiquidCrypto card. The library abstracts the underlying

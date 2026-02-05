@@ -121,9 +121,14 @@ dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
 	}
 
 	if (strcmp(spec->name, DAO_CARD_MGR_CARD_INIT) == 0) {
-		if (argc != 1) {
-			fprintf(stderr,
-				"Error: '%s' requires no additional arguments.\n Usage: %s %s -> %s\n",
+		if ((int)argc > spec->max_args) {
+			fprintf(stderr, "Error: '%s' too many arguments.\n Usage: %s %s -> %s\n",
+				spec->name, spec->name, spec->usage, spec->desc);
+			free(tmp);
+			return false;
+		}
+		if ((int)argc < spec->min_args) {
+			fprintf(stderr, "Error: '%s' missing arguments.\n Usage: %s %s -> %s\n",
 				spec->name, spec->name, spec->usage, spec->desc);
 			free(tmp);
 			return false;

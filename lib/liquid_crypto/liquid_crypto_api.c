@@ -431,7 +431,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	qp->tx_mp = mp;
 
 	snprintf(name, sizeof(name), "lc_req_q_%hhu_%hu", dev_id, qp_id);
-	size = nb_desc * sizeof(struct liquid_crypto_inflight_req);
+	size = nb_desc * sizeof(union liquid_crypto_inflight_req);
 
 	qp->req_queue = rte_zmalloc(name, size, 0);
 	if (qp->req_queue == NULL) {
@@ -886,6 +886,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
 	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0, pqc_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
+	uint16_t compdev_seg_sz = 0;
 	/* Number of ECC components:
 	 * public key X, public key Y, private key, nonce,
 	 * signature r, signature s, prime, order, constant A, constant B.
@@ -1188,9 +1189,13 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			pqc_seg_sz += sizeof(struct __dao_lc_req_pqc);
 		}
 
+		if (params->compdev.is_compdev_enabled)
+			compdev_seg_sz = DAO_LC_COMPRESS_MAX_SEG_SIZE;
+
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
 		max_seg_size = RTE_MAX(max_seg_size, rng_seg_size);
 		max_seg_size = RTE_MAX(max_seg_size, pqc_seg_sz);
+		max_seg_size = RTE_MAX(max_seg_size, compdev_seg_sz);
 	}
 	max_seg_size = RTE_MAX(max_seg_size, LIQUID_CRYPTO_SEG_SZ_MIN);
 
@@ -1214,7 +1219,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 }
 
 static inline void
-lc_inflight_req_reset(struct liquid_crypto_inflight_req *req)
+lc_inflight_cpt_req_reset(struct liquid_crypto_cpt_inflight_req *req)
 {
 	req->digest = NULL;
 	req->digest_len = 0;
@@ -1278,8 +1283,8 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
 
 	buf_len = RTE_MAX(sizeof(struct __dao_lc_hdr), LIQUID_CRYPTO_BUF_SZ_MIN);
 
@@ -1426,10 +1431,10 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = em;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_ENCRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = em;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_ENCRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1591,10 +1596,10 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = msg;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_DECRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = msg;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_DECRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1760,10 +1765,10 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = em;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_ENCRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = em;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_ENCRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1927,10 +1932,10 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = msg;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_DECRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = msg;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_DECRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -2133,7 +2138,7 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC;
 	req->hdr.req_idx = req_idx;
 
-	qp->req_queue[req_idx].op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
 
 	/* Add instruction */
 	switch (op->op_type) {
@@ -2144,8 +2149,8 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		w4.s.param2 = op->alg;
 		w4.s.dlen = 0; /* No data length for keygen */
 		req->w4 = w4.u64;
-		qp->req_queue[req_idx].keygen.pub_key = op->keygen.pub_key;
-		qp->req_queue[req_idx].keygen.priv_key = op->keygen.priv_key;
+		qp->req_queue[req_idx].cpt.keygen.pub_key = op->keygen.pub_key;
+		qp->req_queue[req_idx].cpt.keygen.priv_key = op->keygen.priv_key;
 		break;
 	case DAO_LC_ML_KEM_OP_ENCAP:
 		rc = lc_pqc_key_validate(op->encap.enc_key, pqc_ml_pub_key_len[op->alg],
@@ -2161,8 +2166,8 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		req->w4 = w4.u64;
 		dptr = req->dptr;
 		memcpy(dptr, op->encap.enc_key, pqc_ml_pub_key_len[op->alg]);
-		qp->req_queue[req_idx].encap.shared_secret = op->encap.shared_secret;
-		qp->req_queue[req_idx].encap.ciphertext = op->encap.ciphertext;
+		qp->req_queue[req_idx].cpt.encap.shared_secret = op->encap.shared_secret;
+		qp->req_queue[req_idx].cpt.encap.ciphertext = op->encap.ciphertext;
 		break;
 	case DAO_LC_ML_KEM_OP_DECAP:
 		rc = lc_pqc_key_validate(op->decap.dec_key, pqc_ml_priv_key_len[op->alg],
@@ -2180,7 +2185,7 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		memcpy(dptr, op->decap.dec_key, pqc_ml_priv_key_len[op->alg]);
 		dptr += pqc_ml_priv_key_len[op->alg];
 		memcpy(dptr, op->decap.ciphertext, pqc_ml_ciphertext_len[op->alg]);
-		qp->req_queue[req_idx].decap.shared_secret = op->decap.shared_secret;
+		qp->req_queue[req_idx].cpt.decap.shared_secret = op->decap.shared_secret;
 		break;
 	case DAO_LC_ML_DSA_OP_KEYGEN:
 		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_DSA;
@@ -2189,8 +2194,8 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		w4.s.param2 = op->alg - 3; /* Adjust for DSA algorithms */
 		w4.s.dlen = 0;             /* No data length for keygen */
 		req->w4 = w4.u64;
-		qp->req_queue[req_idx].keygen.pub_key = op->keygen.pub_key;
-		qp->req_queue[req_idx].keygen.priv_key = op->keygen.priv_key;
+		qp->req_queue[req_idx].cpt.keygen.pub_key = op->keygen.pub_key;
+		qp->req_queue[req_idx].cpt.keygen.priv_key = op->keygen.priv_key;
 		break;
 	case DAO_LC_ML_DSA_OP_SIGN:
 		rc = lc_pqc_key_validate(op->sign.priv_key, pqc_ml_priv_key_len[op->alg],
@@ -2211,7 +2216,7 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		memcpy(dptr, op->sign.ctx, op->sign.ctx_len);
 		dptr += op->sign.ctx_len;
 		memcpy(dptr, op->sign.msg, op->sign.msg_len);
-		qp->req_queue[req_idx].signature = op->sign.signature;
+		qp->req_queue[req_idx].cpt.signature = op->sign.signature;
 		break;
 	case DAO_LC_ML_DSA_OP_VERIFY:
 		rc = lc_pqc_key_validate(op->verify.pub_key, pqc_ml_pub_key_len[op->alg],
@@ -2304,7 +2309,7 @@ idx_put:
 }
 
 static inline void
-dao_lc_post_process_pqc(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+dao_lc_post_process_pqc(struct liquid_crypto_cpt_inflight_req *req, struct dao_lc_res *res,
 			struct rte_mbuf *mbuf)
 {
 	struct __dao_lc_resp_pqc *resp;
@@ -2352,7 +2357,7 @@ dao_lc_post_process_pqc(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 }
 
 static inline void
-dao_lc_post_process_asym(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+dao_lc_post_process_asym(struct liquid_crypto_cpt_inflight_req *req, struct dao_lc_res *res,
 			 struct rte_mbuf *mbuf)
 {
 	struct __dao_lc_resp_asym *resp;
@@ -2441,7 +2446,7 @@ dao_lc_buf_copy_from_mem(uint8_t *src, struct dao_lc_buf *dst, uint32_t len)
 }
 
 static inline void
-dao_lc_post_process_sym(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+dao_lc_post_process_sym(struct liquid_crypto_cpt_inflight_req *req, struct dao_lc_res *res,
 			struct rte_mbuf *mbuf)
 {
 	uint32_t result_offset, result_len, lc_buf_offset, copied;
@@ -2631,10 +2636,10 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 		dlen = auth_len;
 	}
 
-	qp->req_queue[req_idx].digest = op->digest;
-	qp->req_queue[req_idx].digest_len = digest_len;
-	qp->req_queue[req_idx].op_type = op_type;
-	qp->req_queue[req_idx].is_auth_gen = op->auth_gen;
+	qp->req_queue[req_idx].cpt.digest = op->digest;
+	qp->req_queue[req_idx].cpt.digest_len = digest_len;
+	qp->req_queue[req_idx].cpt.op_type = op_type;
+	qp->req_queue[req_idx].cpt.is_auth_gen = op->auth_gen;
 
 	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -2747,16 +2752,16 @@ dao_lc_sym_prepare_ops_single_cipher_auth(struct liquid_crypto_qp *qp, struct da
 	auth_offset = op->auth_offset;
 	pkt_iv_len = sess_meta->pkt_iv_len;
 	digest_len = sess_meta->digest_len;
-	qp->req_queue[req_idx].digest = op->digest;
+	qp->req_queue[req_idx].cpt.digest = op->digest;
 	if (op->encrypt)
-		qp->req_queue[req_idx].digest_len = digest_len;
+		qp->req_queue[req_idx].cpt.digest_len = digest_len;
 
-	qp->req_queue[req_idx].op_type = op_type;
+	qp->req_queue[req_idx].cpt.op_type = op_type;
 
 	if (op->out_buffer != NULL)
-		qp->req_queue[req_idx].data_out = op->out_buffer;
+		qp->req_queue[req_idx].cpt.data_out = op->out_buffer;
 	else
-		qp->req_queue[req_idx].data_out = op->in_buffer;
+		qp->req_queue[req_idx].cpt.data_out = op->in_buffer;
 
 	lc_buf_offset = op->auth_offset;
 	/* Input length starting from memory pointed by DPTR */
@@ -2817,13 +2822,13 @@ dao_lc_sym_prepare_ops_single_cipher_auth(struct liquid_crypto_qp *qp, struct da
 	/* Add data */
 	dptr = req->dptr;
 
-	qp->req_queue[req_idx].lc_buf_offset = cipher_offset;
-	qp->req_queue[req_idx].cipher_len = cipher_len;
+	qp->req_queue[req_idx].cpt.lc_buf_offset = cipher_offset;
+	qp->req_queue[req_idx].cpt.cipher_len = cipher_len;
 
 	cipher_offset = iv_offset + pkt_iv_len + (cipher_offset - auth_offset);
 	auth_offset = iv_offset + pkt_iv_len;
 
-	qp->req_queue[req_idx].result_offset = cipher_offset;
+	qp->req_queue[req_idx].cpt.result_offset = cipher_offset;
 
 	if (off_ctrl_len != 0) {
 		offset_vaddr = (uint64_t *)dptr;
@@ -2881,21 +2886,21 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		auth_len = cipher_len + aad_len;
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = sess_meta->digest_len;
-		qp->req_queue[req_idx].digest = op->digest;
+		qp->req_queue[req_idx].cpt.digest = op->digest;
 		if (op->encrypt)
-			qp->req_queue[req_idx].digest_len = digest_len;
+			qp->req_queue[req_idx].cpt.digest_len = digest_len;
 	} else {
 		dao_err("Invalid operation type: %d", op_type);
 		rte_errno = EINVAL;
 		return 0;
 	}
 
-	qp->req_queue[req_idx].op_type = op_type;
+	qp->req_queue[req_idx].cpt.op_type = op_type;
 
 	if (op->out_buffer != NULL)
-		qp->req_queue[req_idx].data_out = op->out_buffer;
+		qp->req_queue[req_idx].cpt.data_out = op->out_buffer;
 	else
-		qp->req_queue[req_idx].data_out = op->in_buffer;
+		qp->req_queue[req_idx].cpt.data_out = op->in_buffer;
 
 	lc_buf_offset = op->cipher_offset;
 	/* Input length starting from memory pointed by DPTR */
@@ -2956,13 +2961,13 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	/* Add data */
 	dptr = req->dptr;
 
-	qp->req_queue[req_idx].lc_buf_offset = lc_buf_offset;
-	qp->req_queue[req_idx].cipher_len = cipher_len;
+	qp->req_queue[req_idx].cpt.lc_buf_offset = lc_buf_offset;
+	qp->req_queue[req_idx].cpt.cipher_len = cipher_len;
 
 	cipher_offset = iv_offset + pkt_iv_len + aad_len;
 	auth_offset = iv_offset + pkt_iv_len;
 
-	qp->req_queue[req_idx].result_offset = cipher_offset;
+	qp->req_queue[req_idx].cpt.result_offset = cipher_offset;
 
 	if (off_ctrl_len != 0) {
 		offset_vaddr = (uint64_t *)dptr;
@@ -3032,15 +3037,15 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 	}
 
 	if (op->out_buffer != NULL)
-		qp->req_queue[req_idx].data_out = op->out_buffer;
+		qp->req_queue[req_idx].cpt.data_out = op->out_buffer;
 	else
-		qp->req_queue[req_idx].data_out = op->in_buffer;
+		qp->req_queue[req_idx].cpt.data_out = op->in_buffer;
 
-	qp->req_queue[req_idx].op_type = op_type;
-	qp->req_queue[req_idx].lc_buf_offset = lc_buf_offset;
-	qp->req_queue[req_idx].result_offset = 0;
-	qp->req_queue[req_idx].is_wrap = op->is_wrap;
-	qp->req_queue[req_idx].is_wrap_pad = op->is_wrap_pad;
+	qp->req_queue[req_idx].cpt.op_type = op_type;
+	qp->req_queue[req_idx].cpt.lc_buf_offset = lc_buf_offset;
+	qp->req_queue[req_idx].cpt.result_offset = 0;
+	qp->req_queue[req_idx].cpt.is_wrap = op->is_wrap;
+	qp->req_queue[req_idx].cpt.is_wrap_pad = op->is_wrap_pad;
 
 	if (op->is_wrap_pad) {
 		if (op->is_wrap)
@@ -3052,10 +3057,10 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 	}
 
 	if (op->is_wrap)
-		qp->req_queue[req_idx].wrap_unwrap_key_len =
+		qp->req_queue[req_idx].cpt.wrap_unwrap_key_len =
 			pad_key_len + DAO_LC_AES_KEY_WRAP_IV_LEN;
 	else
-		qp->req_queue[req_idx].wrap_unwrap_key_len =
+		qp->req_queue[req_idx].cpt.wrap_unwrap_key_len =
 			pad_key_len - DAO_LC_AES_KEY_WRAP_IV_LEN;
 
 	buf_len = sizeof(struct __dao_lc_req_sym) + dlen;
@@ -3126,9 +3131,9 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 		}
 
 		sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
-		lc_inflight_req_reset(&qp->req_queue[req_idx]);
-		qp->req_queue[req_idx].op_cookie = op->op_cookie;
-		qp->req_queue[req_idx].sess_meta = sess_meta;
+		lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+		qp->req_queue[req_idx].cpt.op_cookie = op->op_cookie;
+		qp->req_queue[req_idx].cpt.sess_meta = sess_meta;
 
 		op_type = sess_meta->op_type;
 
@@ -3286,7 +3291,7 @@ exit:
 }
 
 static inline void
-dao_lc_post_process_rng(struct liquid_crypto_inflight_req *req, struct dao_lc_res *res,
+dao_lc_post_process_rng(struct liquid_crypto_cpt_inflight_req *req, struct dao_lc_res *res,
 			struct rte_mbuf *mbuf)
 {
 	struct __dao_lc_resp_sym *resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_sym *);
@@ -3305,12 +3310,44 @@ dao_lc_post_process_rng(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	dao_lc_buf_copy_from_mem(resp->rptr, req->data_out, out_len);
 }
 
+static inline void
+dao_lc_post_process_compdev_resp(struct liquid_crypto_compdev_inflight_req *comp_req,
+				 struct dao_lc_res *res, struct rte_mbuf *mbuf)
+{
+	struct __dao_lc_resp_compdev_op *resp;
+
+	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_compdev_op *);
+
+	memcpy(&res->compdev_res, &resp->res, sizeof(struct dao_compdev_res));
+
+	if (resp->res.status != DAO_LC_COMP_OP_STATUS_SUCCESS) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Status: %d Required: %u bytes in output buffer", resp->res.status,
+			resp->res.required);
+#endif
+		return;
+	}
+
+	if (comp_req->out_data_len < res->compdev_res.produced) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Output buffer too small: provided=%u, required=%u bytes",
+			comp_req->out_data_len, res->compdev_res.produced);
+#endif
+		return;
+	}
+	/* Copy compress device response back to the user provided buffer
+	 * in the enqueue API.
+	 */
+	memcpy((void *)comp_req->data_out, resp->output, resp->op_len);
+}
+
 uint16_t
 dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res,
 				uint16_t nb_res)
 {
 	struct rte_mbuf *mbuf, *mbufs[LIQUID_CRYPTO_MAX_BURST];
-	struct liquid_crypto_inflight_req *req;
+	struct liquid_crypto_compdev_inflight_req *comp_req;
+	struct liquid_crypto_cpt_inflight_req *cpt_req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct __dao_lc_hdr *lc_hdr;
@@ -3361,45 +3398,50 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 
 		lc_hdr = rte_pktmbuf_mtod(mbuf, struct __dao_lc_hdr *);
 
-		req = &qp->req_queue[lc_hdr->req_idx];
+		cpt_req = &qp->req_queue[lc_hdr->req_idx].cpt;
 
 		/* Process the packet base on op_type */
 		switch (lc_hdr->trs_hdr.op_type) {
 		case DAO_ETH_TRS_OP_TYPE_REFLECT:
-			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_START:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
-			dao_lc_post_process_sym(req, &res[i], mbuf);
+			dao_lc_post_process_sym(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
-			dao_lc_post_process_asym(req, &res[i], mbuf);
+			dao_lc_post_process_asym(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
-			dao_lc_post_process_rng(req, &res[i], mbuf);
+			dao_lc_post_process_rng(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_ENC:
-			dao_lc_post_process_asym(req, &res[i], mbuf);
+			dao_lc_post_process_asym(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
-			dao_lc_post_process_asym(req, &res[i], mbuf);
+			dao_lc_post_process_asym(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
-			dao_lc_post_process_pqc(req, &res[i], mbuf);
+			dao_lc_post_process_pqc(cpt_req, &res[i], mbuf);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_COMPRESS:
+		case DAO_ETH_TRS_OP_TYPE_DECOMPRESS:
+			comp_req = &qp->req_queue[lc_hdr->req_idx].compdev;
+			dao_lc_post_process_compdev_resp(comp_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
+		case DAO_ETH_TRS_OP_TYPE_COMPRESS_END:
 		default:
 			dao_err("Invalid op_type.");
 			break;
 		}
 
-		res[i].op_cookie = req->op_cookie;
-
-		rte_pktmbuf_free(mbuf);
+		res[i].op_cookie = cpt_req->op_cookie;
 
 		/* Free the request index */
 		liquid_crypto_qp_req_idx_put(qp, lc_hdr->req_idx, false);
+
+		rte_pktmbuf_free(mbuf);
 	}
 
 	return nb_rx;
@@ -3468,9 +3510,9 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 		goto sess_meta_free;
 	}
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].sess_meta = sess_meta;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.sess_meta = sess_meta;
 
 	mb = rte_pktmbuf_alloc(qp->tx_mp);
 	if (unlikely(mb == NULL)) {
@@ -3582,9 +3624,9 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 		return -ENOSPC;
 	}
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = sess_cookie;
-	qp->req_queue[req_idx].sess_meta = sess_meta;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = sess_cookie;
+	qp->req_queue[req_idx].cpt.sess_meta = sess_meta;
 
 	mb = rte_pktmbuf_alloc(qp->tx_mp);
 	if (unlikely(mb == NULL)) {
@@ -3643,7 +3685,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 	struct rte_mbuf *mbuf, *mbufs[LIQUID_CRYPTO_MAX_BURST];
 	struct __dao_lc_req_resp_sess_destroy *sess_destroy;
 	struct __dao_lc_resp_sess_create *sess_create;
-	struct liquid_crypto_inflight_req *req;
+	struct liquid_crypto_cpt_inflight_req *req;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct __dao_lc_hdr *lc_hdr;
@@ -3690,7 +3732,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 
 		lc_hdr = rte_pktmbuf_mtod(mbuf, struct __dao_lc_hdr *);
 
-		req = &qp->req_queue[lc_hdr->req_idx];
+		req = &qp->req_queue[lc_hdr->req_idx].cpt;
 
 		/* Process the packet base on op_type */
 		switch (lc_hdr->trs_hdr.op_type) {
@@ -3840,10 +3882,10 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op->op_cookie;
-	qp->req_queue[req_idx].data_out = op->out_buf;
-	qp->req_queue[req_idx].rand_len = op->rand_len;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op->op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = op->out_buf;
+	qp->req_queue[req_idx].cpt.rand_len = op->rand_len;
 
 	/* TODO: For now support only HW RANDOM. No input required. */
 	buf_len =
@@ -4017,10 +4059,10 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = rs_outdata;
-	qp->req_queue[req_idx].op_type = LC_ASYM_ECDSA_SIGN;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = rs_outdata;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_ECDSA_SIGN;
 
 	if (digest_len > prime_len) {
 		dao_err("Invalid argument. digest_len (%d) cannot be greater than prime_len (%d).",
@@ -4245,9 +4287,9 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].op_type = LC_ASYM_ECDSA_VERIFY;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_ECDSA_VERIFY;
 
 	if (digest_len > prime_len) {
 		dao_err("Invalid argument. digest_len (%d) cannot be greater than prime_len (%d).",
@@ -4488,10 +4530,10 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = em;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_OAEP_ENCRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = em;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_OAEP_ENCRYPT;
 
 	/* For RSA OAEP encryption stage 1 dlen = Label_len + msg_len + 8 (control word) */
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
@@ -4717,10 +4759,10 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_exp_dec(uint8_t dev_id, uint16_t qp_id, ui
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = msg;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_OAEP_DECRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = msg;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_OAEP_DECRYPT;
 
 	/* OAEP Decoding and RSA Decrypt using private exponent (non CRT) */
 	buf_len = sizeof(struct __dao_lc_req_asym);
@@ -4946,10 +4988,10 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id, ui
 	}
 #endif
 
-	lc_inflight_req_reset(&qp->req_queue[req_idx]);
-	qp->req_queue[req_idx].op_cookie = op_cookie;
-	qp->req_queue[req_idx].data_out = msg;
-	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_OAEP_DECRYPT;
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = msg;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_OAEP_DECRYPT;
 
 	/* OAEP Decoding and RSA CRT Decrypt using private exponent (CRT) */
 	buf_len = sizeof(struct __dao_lc_req_asym);
@@ -5043,5 +5085,227 @@ mbuf_free:
 idx_put:
 	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 #endif
+	return rc;
+}
+
+int
+dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
+				      struct dao_lc_comp_req_params *req, uint64_t op_cookie)
+{
+	struct __dao_lc_req_comp_op *comp_req;
+	struct liquid_crypto_dev *dev;
+	struct rte_mbuf *input_mbuf;
+	struct liquid_crypto_qp *qp;
+	uint32_t req_idx = 0;
+	uint32_t buf_len;
+	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (req == NULL) {
+		dao_err("Compress request parameters cannot be NULL");
+		return -EINVAL;
+	}
+
+	if (req->in_data == NULL || req->out_data == NULL) {
+		dao_err("Compress input/output data cannot be NULL");
+		return -EINVAL;
+	}
+
+	if (req->level != DAO_LC_COMPRESS_MIN_COMP_LEVEL &&
+	    req->level != DAO_LC_COMPRESS_MAX_COMP_LEVEL) {
+		dao_err("Invalid compression level. Valid values: 1 or 9");
+		return -EINVAL;
+	}
+
+	if (req->huff_enc_type < DAO_LC_COMP_HUFFMAN_FIXED ||
+	    req->huff_enc_type > DAO_LC_COMP_HUFFMAN_DYNAMIC) {
+		dao_err("Invalid Huffman encoding type. Valid range: %d-%d",
+			DAO_LC_COMP_HUFFMAN_FIXED, DAO_LC_COMP_HUFFMAN_DYNAMIC);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+#endif
+
+	qp = dev->qp[qp_id];
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+	qp->req_queue[req_idx].compdev.op_cookie = op_cookie;
+	qp->req_queue[req_idx].compdev.op_type = DAO_LC_COMP_OP_COMPRESS;
+	qp->req_queue[req_idx].compdev.out_data_len = req->out_data_len;
+	qp->req_queue[req_idx].compdev.data_out = req->out_data;
+
+	/* Allocate mbuf for plain input data */
+	input_mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(input_mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate input mbuf");
+#endif
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+	/* Allocate enough buffer to hold compress request parameters, input data
+	 * in the same request buffer.
+	 */
+	buf_len = sizeof(struct __dao_lc_req_comp_op) + req->in_data_len;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+	if (unlikely(rte_pktmbuf_append(input_mbuf, buf_len) == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Not enough tailroom in compress input mbuf");
+#endif
+		rc = -ENOSPC;
+		goto mbuf_free;
+	}
+
+	/* Add payload to mbuf */
+	comp_req = rte_pktmbuf_mtod(input_mbuf, struct __dao_lc_req_comp_op *);
+	comp_req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_COMPRESS;
+	comp_req->hdr.trs_hdr.op_len = buf_len;
+	comp_req->hdr.req_idx = req_idx;
+	/* Mask last 2-bits*/
+	comp_req->huff_enc_type = (req->huff_enc_type & 0x3);
+	comp_req->level = req->level;
+	comp_req->src_len = req->in_data_len;
+	comp_req->op_buf_len = req->out_data_len;
+	comp_req->comp_algo = DAO_LC_COMP_ALGO_DEFLATE;
+	memcpy(comp_req->input, req->in_data, req->in_data_len);
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &input_mbuf, 1);
+	if (rc != 1) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Failed to transmit compress op packet.");
+#endif
+		rc = -EIO;
+		goto mbuf_free;
+	}
+	return 0;
+
+mbuf_free:
+	rte_pktmbuf_free(input_mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+
+	return rc;
+}
+
+int
+dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
+					struct dao_lc_decomp_req_params *req, uint64_t op_cookie)
+{
+	struct __dao_lc_req_decomp_op *decomp_req;
+	struct liquid_crypto_dev *dev;
+	struct rte_mbuf *input_mbuf;
+	struct liquid_crypto_qp *qp;
+	uint32_t req_idx = 0;
+	uint32_t buf_len;
+	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+
+	if (req == NULL) {
+		dao_err("Decompress request parameters cannot be NULL");
+		return -EINVAL;
+	}
+
+	if (req->in_data == NULL || req->out_data == NULL) {
+		dao_err("Decompress input/output data cannot be NULL");
+		return -EINVAL;
+	}
+
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+#endif
+	qp = dev->qp[qp_id];
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	qp->req_queue[req_idx].compdev.op_cookie = op_cookie;
+	qp->req_queue[req_idx].compdev.op_type = DAO_LC_COMP_OP_DECOMPRESS;
+	qp->req_queue[req_idx].compdev.out_data_len = req->out_data_len;
+	qp->req_queue[req_idx].compdev.data_out = req->out_data;
+
+	/* Allocate mbuf for compressed input data */
+	input_mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	if (unlikely(input_mbuf == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Could not allocate input mbuf");
+#endif
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+
+	/* Allocate enough buffer to hold decompress request parameters and compressed
+	 * input data.
+	 */
+	buf_len = sizeof(struct __dao_lc_req_decomp_op) + req->in_data_len;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+	if (unlikely(rte_pktmbuf_append(input_mbuf, buf_len) == NULL)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Not enough tailroom in decompress input mbuf");
+#endif
+		rc = -ENOSPC;
+		goto mbuf_free;
+	}
+
+	/* Add compress payload to mbuf */
+	decomp_req = rte_pktmbuf_mtod(input_mbuf, struct __dao_lc_req_decomp_op *);
+	decomp_req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_DECOMPRESS;
+	decomp_req->hdr.trs_hdr.op_len = buf_len;
+	decomp_req->hdr.req_idx = req_idx;
+	decomp_req->src_len = req->in_data_len;
+	decomp_req->op_buf_len = req->out_data_len;
+	decomp_req->comp_algo = DAO_LC_COMP_ALGO_DEFLATE;
+	memcpy(decomp_req->input, req->in_data, req->in_data_len);
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &input_mbuf, 1);
+	if (rc != 1) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("Failed to transmit decompress op packet.");
+#endif
+		rc = -EIO;
+		goto mbuf_free;
+	}
+	return 0;
+
+mbuf_free:
+	rte_pktmbuf_free(input_mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+
 	return rc;
 }

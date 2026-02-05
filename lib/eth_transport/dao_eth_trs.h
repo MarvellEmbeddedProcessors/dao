@@ -74,6 +74,15 @@ enum dao_eth_trs_op_type {
 	DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY,
 	/** OP type crypto end */
 	DAO_ETH_TRS_OP_TYPE_CRYPTO_END = 0x1fff,
+
+	/** Compress device OP type start */
+	DAO_ETH_TRS_OP_TYPE_COMPRESS_START = 0x2000,
+	/** Compress Operation */
+	DAO_ETH_TRS_OP_TYPE_COMPRESS,
+	/** Decompress Operation */
+	DAO_ETH_TRS_OP_TYPE_DECOMPRESS,
+	/** Compress device OP type End */
+	DAO_ETH_TRS_OP_TYPE_COMPRESS_END = 0x20ff,
 };
 
 /** DAO ethernet transport header */

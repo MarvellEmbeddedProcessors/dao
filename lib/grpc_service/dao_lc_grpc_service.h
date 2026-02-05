@@ -36,6 +36,8 @@ struct dao_dev_caps {
 		struct {
 			/** PQC support bit */
 			uint64_t pqc_en : 1;
+			/** Compress device enable bit */
+			uint64_t compdev_en : 1;
 		};
 		/** 64-bit representation of capabilities */
 		uint64_t feature_mask0;

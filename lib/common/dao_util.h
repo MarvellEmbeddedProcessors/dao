@@ -84,6 +84,14 @@
 	     (var) = (tvar))
 
 /**
+ * @def DAO_PAD_BYTES_TO_MATCH
+ *
+ * This macro adds padding bytes to struct to match larger struct size.
+ */
+#define DAO_PAD_BYTES_TO_MATCH(larger, smaller)                                                    \
+	uint8_t _pad[sizeof(larger) > sizeof(smaller) ? sizeof(larger) - sizeof(smaller) : 0]
+
+/**
  * Check if bit is set in a no
  *
  * Check if bit at given position is set for a given no.

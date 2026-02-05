@@ -88,4 +88,46 @@ struct __rte_packed_begin __dao_lc_req_resp_sess_destroy {
 	uint64_t sess_id;
 } __rte_packed_end;
 
+struct __rte_packed_begin __dao_lc_req_comp_op {
+	struct __dao_lc_hdr hdr;
+	/** Source data length */
+	uint32_t src_len;
+	/** Output buffer length */
+	uint32_t op_buf_len;
+	/**
+	 * Minimum compression level = 1
+	 * Maximum compression level = 9
+	 */
+	uint32_t level : 4;
+	/**  Compression algorithm */
+	uint32_t comp_algo : 2;
+	/**  Compression huffman encoding type */
+	uint32_t huff_enc_type : 2;
+	/** Padding */
+	uint32_t rsvd_align : 24;
+	/** Plain text to be compressed */
+	uint8_t input[];
+} __rte_packed_end;
+
+struct __rte_packed_begin __dao_lc_resp_compdev_op {
+	struct __dao_lc_hdr hdr;
+	/** Compress device result for compress op */
+	struct dao_compdev_res res;
+	/** Output data length */
+	uint32_t op_len;
+	/** Buffer to store compress device output */
+	uint8_t output[];
+} __rte_packed_end;
+
+struct __rte_packed_begin __dao_lc_req_decomp_op {
+	struct __dao_lc_hdr hdr;
+	/** Source data length */
+	uint32_t src_len;
+	/** Output buffer length */
+	uint32_t op_buf_len;
+	/**  Compression algorithm */
+	enum dao_lc_comp_algo comp_algo;
+	/** Compressed text to be decompressed */
+	uint8_t input[];
+} __rte_packed_end;
 #endif /*  __LIQUID_CRYPTO_TRS_H__ */
