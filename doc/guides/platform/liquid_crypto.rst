@@ -187,17 +187,7 @@ compatible.
 Marvell Octeon PCIe End Point Driver
 ++++++++++++++++++++++++++++++++++++
 
-From Standard kernel distribution
-
-.. code-block:: console
-
-    # On Debian/Red Hat-based systems, check if the module is already preset
-    sudo modinfo octeon_ep
-
-    # On FreeBSD-based systems, check if the module is already preset
-    kldstat | grep octep_driver
-
-If not present on Debian/Red Hat-based systems, build the driver
+For Debian/Red Hat-based systems, build the driver
 
 .. code-block:: console
 
@@ -206,7 +196,7 @@ If not present on Debian/Red Hat-based systems, build the driver
     make
     sudo insmod ./drivers/octeon_ep/octeon_ep.ko
 
-If not present on FreeBSD-based systems, build the driver
+For FreeBSD-based systems, build the driver
 
 .. code-block:: console
 
