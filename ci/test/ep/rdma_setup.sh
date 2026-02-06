@@ -99,6 +99,8 @@ function verify_rdma_setup()
 
 	rdma_utils=$EP_DIR/ci/test/dao-test/rdma/rdma_utils.sh
 	app_cmd="EP_DIR=$EP_DIR; source \"$rdma_utils\"; rdma_app_launch $serialized_args"
+	ld_library_path="export LD_LIBRARY_PATH=\"${EP_DIR}/deps-prefix/ep/lib:\${LD_LIBRARY_PATH:-}\";"
+	app_cmd="$ld_library_path $app_cmd"
 
 	ep_device_ssh_cmd "$EP_DEVICE_SUDO -E bash -lc $(printf %q "$app_cmd")"
 	sleep 1

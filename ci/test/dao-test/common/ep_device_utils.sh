@@ -304,6 +304,7 @@ function ep_device_agent_init()
         ep_common_bind_driver pci $pem_pf_pcie vfio-pci
 
 	if [[ $ep_agent == "" ]]; then
+		LD_LIBRARY_PATH=${EP_DIR}/deps-prefix/ep/lib:${LD_LIBRARY_PATH:-} \
 		$ep_bin_dir/octep_cp_agent \
 			$agent_conf -- --sdp_rvu_pf 0002:18:00.0,0002:19:00.0 \
 			--pem_dev 0001:00:10.0 2>&1 > $ep_bin_dir/octep_cp_agent.log &
