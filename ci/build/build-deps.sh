@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
+# Export CROSS_COMPILE as "aarch64-marvell-linux-gnu" while building for cn9k.
+
 set -euo pipefail
 shopt -s extglob
-#set -x
+
 function fetch_dep() {
 	local url=$1
 	local cache_dir=${PKG_CACHE_DIR:-}
@@ -29,14 +31,15 @@ function fetch_dep() {
 	fi
 }
 
-if [ "$#" -lt 3 ]; then
-  echo "Syntax: build-deps.sh <build-dir> <git-user> <plat> <deps_to_build> <verbose>"
+if [ "$#" -lt 2 ]; then
+  echo "Syntax: build-deps.sh <build-dir> <plat> <deps_to_build> <verbose>"
   exit 1
 fi
 
-PLAT=$3
+CROSS_COMPILE=${CROSS_COMPILE:-aarch64-none-linux-gnu}
+PLAT=$2
 MAKE_J=4
-VERBOSE=${5:-}
+VERBOSE=${4:-}
 BUILD_ROOT=$(realpath $1)
 BUILD_DEPS_ROOT=$BUILD_ROOT/deps
 DEPS_INSTALL_DIR=$BUILD_DEPS_ROOT/deps-prefix
@@ -51,9 +54,8 @@ PKG_CACHE_DIR=${PKG_CACHE_DIR:-}
 HOST_DPDK_DIR=$BUILD_DEPS_ROOT/host/dpdk
 HOST_BUILD_DPDK_DIR=$HOST_DPDK_DIR/build
 HOST_DPDK_BRANCH="v25.11"
-GIT_USER=${2}
 ALL_DEPS="dpdk libnl libpcap grpc libconfig"
-DEPS_TO_BUILD=${4:-$ALL_DEPS}
+DEPS_TO_BUILD=${3:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
 
 # libnl variables
@@ -121,7 +123,7 @@ function build_dpdk() {
 
 	# Select cross file based on platform arg
 	if [ "$plat"  == "cn10k" ] ; then
-		DPDK_CROSS_FILE="--cross config/arm/arm64_cn10k_linux_gcc"
+		DPDK_CROSS_FILE="--cross config/arm/arm64_cn10k_linux_arm_gcc"
 	else if [ "$plat"  == "cn9k" ] ; then
 		DPDK_CROSS_FILE="--cross config/arm/arm64_cn9k_linux_gcc"
 	fi
@@ -178,10 +180,9 @@ function build_libconfig() {
 		fi
 		tar xvf $LIBCONFIG_TARBALL.tar.gz --strip-components=1
 		set -x
-		./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBCONFIG_PREFIX_DIR --enable-static=no
+		./configure --host=${CROSS_COMPILE} --prefix=$LIBCONFIG_PREFIX_DIR --enable-static=no
 		make;
 		make install;
-		set +x
 	fi
 }
 function build_libnl() {
@@ -208,7 +209,7 @@ function build_libnl() {
 			fetch_dep https://github.com/thom311/libnl/releases/download/libnl3_7_0/$LIBNL_TARBALL.tar.gz
 		fi
 		tar xvf $LIBNL_TARBALL.tar.gz --strip-components=1
-		./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBNL_PREFIX_DIR --enable-static=no
+		./configure --host=${CROSS_COMPILE} --prefix=$LIBNL_PREFIX_DIR --enable-static=no
 		make;
 		make install;
 		set +x
@@ -267,8 +268,8 @@ function build_grpc() {
 	build_grpc_host || return
 
 	if [ "$GRPC_CXX_CROSS_COMPILER" = "" ]; then
-		if command -v aarch64-marvell-linux-gnu-g++ >/dev/null 2>&1; then
-			GRPC_CXX_CROSS_COMPILER=aarch64-marvell-linux-gnu-g++
+		if command -v ${CROSS_COMPILE}-g++ >/dev/null 2>&1; then
+			GRPC_CXX_CROSS_COMPILER=${CROSS_COMPILE}-g++
 		elif command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
 			GRPC_CXX_CROSS_COMPILER=aarch64-linux-gnu-g++
 		else
@@ -277,10 +278,8 @@ function build_grpc() {
 		fi
 	fi
 	if [ "$GRPC_C_CROSS_COMPILER" = "" ]; then
-		if command -v aarch64-marvell-linux-gnu-gcc >/dev/null 2>&1; then
-			GRPC_C_CROSS_COMPILER=aarch64-marvell-linux-gnu-gcc
-		elif command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then
-			GRPC_C_CROSS_COMPILER=aarch64-linux-gnu-gcc
+		if command -v ${CROSS_COMPILE}-gcc >/dev/null 2>&1; then
+			GRPC_C_CROSS_COMPILER=${CROSS_COMPILE}-gcc
 		else
 			echo "ERROR: Unable to find suitable aarch64 cross compiler"
 			return 1
@@ -298,7 +297,9 @@ function build_grpc() {
 	echo "set(CMAKE_CXX_COMPILER $GRPC_CROSS_COMPILER_PATH/$GRPC_CXX_CROSS_COMPILER)" >> $GRPC_CMAKE_CROSS_FILE
 	echo "set(CMAKE_CXX_STANDARD $GRPC_CXX_ABI_STANDARD)" >> $GRPC_CMAKE_CROSS_FILE
 	if [[ "$GRPC_C_CROSS_COMPILER" == *"marvell"* ]]; then
-		echo "set(CMAKE_SYSROOT $GRPC_CROSS_COMPILER_PATH/../aarch64-marvell-linux-gnu/sys-root)" >> $GRPC_CMAKE_CROSS_FILE
+		echo "set(CMAKE_SYSROOT $GRPC_CROSS_COMPILER_PATH/../${CROSS_COMPILE}/sys-root)" >> $GRPC_CMAKE_CROSS_FILE
+	else
+		echo "set(CMAKE_SYSROOT $GRPC_CROSS_COMPILER_PATH/../${CROSS_COMPILE}/libc)" >> $GRPC_CMAKE_CROSS_FILE
 	fi
 	if [[ -n $VERBOSE ]]; then
 		echo "set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL "Verbose Makefile" FORCE)" >> $GRPC_CMAKE_CROSS_FILE
@@ -341,10 +342,9 @@ function build_libpcap() {
 		cd libpcap
 		git checkout master
 		./autogen.sh
-		./configure --host=aarch64-marvell-linux-gnu --prefix=$LIBPCAP_PREFIX_DIR --without-libnl
+		./configure --host=${CROSS_COMPILE} --prefix=$LIBPCAP_PREFIX_DIR --without-libnl
 		make;
 		make install;
-		set +x
 			if ($PKGCONFIG --modversion libpcap); then
 				echo "libpcap installed."
 				return 0
