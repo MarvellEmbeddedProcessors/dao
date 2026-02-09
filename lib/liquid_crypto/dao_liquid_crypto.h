@@ -48,6 +48,8 @@
 #define DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN 511
 /** Maximum supported function-name length for KMAC and cSHAKE operations */
 #define DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN 511
+/** Maximum supported authentication key for KMAC operations */
+#define DAO_LC_KMAC_MAX_AUTH_KEY_LEN 511
 
 /**
  * The params required for KMAC operations.
