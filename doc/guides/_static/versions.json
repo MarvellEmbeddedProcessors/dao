@@ -18,5 +18,10 @@
     "version": "dao-lc-26.01",
     "name": "lc-26.01",
     "url": "/dao/guides/dao-lc-26.01/"
+  },
+  {
+    "version": "dao-26.02",
+    "name": "26.02",
+    "url": "/dao/guides/dao-26.02/"
   }
 ]
