@@ -887,6 +887,8 @@ struct dao_lc_feature_params {
 
 /**
  * The liquid crypto HMAC hash context.
+ *
+ * Note: digest_len is ignored for SHA3-KMAC operations.
  */
 struct dao_lc_hmac_hash_ctx {
 	/** Hash type */

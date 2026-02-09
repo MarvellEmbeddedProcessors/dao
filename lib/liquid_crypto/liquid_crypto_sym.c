@@ -140,12 +140,17 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		if (mac_len == 64)
 			return 0;
 		break;
-	case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
-	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+		/*
+		 * KMAC and cSHAKE use output length instead of digest length,
+		 * so session-level digest-len validation is skipped.
+		 */
 	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
 	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
 	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
 	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
 		if ((mac_len >= 1) && (mac_len <= DAO_LC_MAX_DIGEST_LEN))
 			return 0;
 		break;
@@ -575,12 +580,20 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		return -EINVAL;
 	}
 
-	/* hash_ctx->digest_len is uint8_t, so > DAO_LC_MAX_DIGEST_LEN (255) is always false
-	 */
 	digest_len = hash_ctx->digest_len;
-	if ((digest_len == 0) || (digest_len > DAO_LC_MAX_DIGEST_LEN)) {
-		dao_err("Invalid digest length for HMAC.");
-		return -EINVAL;
+	switch (hash_ctx->hmac_hash_type) {
+	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+		/* Skip digest length validation for KMAC and cSHAKE */
+		break;
+	default:
+		if ((digest_len == 0) || (digest_len > DAO_LC_MAX_DIGEST_LEN)) {
+			dao_err("Invalid digest length for HMAC.");
+			return -EINVAL;
+		}
+		break;
 	}
 
 	/*

@@ -538,6 +538,33 @@ cryptographic operations:
 	All cipher and AEAD-related fields (``cipher_offset``, ``cipher_len``, ``cipher_iv``, and
 	``aad``) are ignored for authentication-only operations.
 
+	For KMAC operations (KMAC-128 and KMAC-256), which are supported in XOF=False mode,
+	additional parameters are required and must be provided through the ``kmac_params`` field:
+
+	- ``custom_string``: A pointer to an optional customization string. This string enables domain
+	  separation, allowing different applications to derive independent MAC values even when using
+	  the same key.
+	- ``custom_string_len``: The length of the customization string in bytes. This field specifies
+	  how many bytes of the customization string should be used in the MAC computation.
+	- ``output_len``: The desired output length of the MAC in bytes.
+
+	For cSHAKE operations (cSHAKE-128 and cSHAKE-256), which are supported in XOF=True mode,
+	additional parameters are required and must be provided through the ``cshake_params`` field:
+
+	- ``custom_string``: A pointer to an optional customization string. This string provides domain
+	  separation, allowing applications to create distinct hash function instances for different
+	  contexts.
+	- ``custom_string_len``: The length of the customization string in bytes. This field indicates
+	  how many bytes of the customization string should be processed as part of the cSHAKE operation.
+	- ``function_name``: A pointer to an optional function name string. This string identifies the
+	  specific application or use case for which cSHAKE is being used, providing additional context
+	  and separation between different uses.
+	- ``function_name_len``: The length of the function name string in bytes. This field specifies
+	  how many bytes of the function name should be incorporated into the cSHAKE computation.
+	- ``output_len``: The desired output length in bytes. As an extendable-output function (XOF),
+	  cSHAKE can produce outputs of arbitrary length, making it suitable for applications
+	  requiring variable-length outputs.
+
 **Cipher and Auth Operations**:
 	The ``dao_lc_sym_op`` structure supports combined cipher and authentication operations,
 	such as AES-CBC with SHA1-HMAC. These are often called "chained" operations,
