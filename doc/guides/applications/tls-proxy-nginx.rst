@@ -88,7 +88,7 @@ Installing the NGINX package
    Installing ``openssl-engine-1.0.0-cn10k`` will automatically bring in several essential DAO components as dependencies. These include:
 
    - ``cpt-firmware-cn10k``
-   - ``dpdk-24.11-cn10k``
+   - ``dpdk-25.11-cn10k``
    - ``openssl-1.1.1q-cn10k``
 
    After the installation of ``openssl-1.1.1q-cn10k``, LD_LIBRARY_PATH should be set as shown below to load the correct libraries for the installed openssl version:

@@ -32,7 +32,7 @@ For Ubuntu/Debian systems these can be installed using
 
 * Meson (version 0.53.0+) and ninja
 
-* DPDK 24.11 or later
+* DPDK 25.11 or later
 
 DPDK is a mandatory dependency for compiling DAO, as most of the applications
 are based on DPDK.

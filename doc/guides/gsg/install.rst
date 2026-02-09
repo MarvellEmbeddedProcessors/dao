@@ -24,7 +24,7 @@ Packages available for different distributions
    +=========================+=======================+=======================+
    | DAO 25.05               | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
-   | DPDK 24.11              | Yes                   | Planned               |
+   | DPDK 25.11              | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
    | OVS 3.4.1               | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
@@ -248,7 +248,7 @@ Removing old packages
  # apt-get remove dao-cn10k-devel -y
 
  Remove dpdk package and its dependents
- # apt-get remove dpdk-24.11-cn10k -y
+ # apt-get remove dpdk-25.11-cn10k -y
 
 .. _clear_repo_cache:
 
@@ -257,7 +257,7 @@ Removing old packages
 .. code-block:: console
 
  # rm /var/cache/apt/archives/dao-cn10k*
- # rm /var/cache/apt/archives/dpdk-24.11-cn10k_*
+ # rm /var/cache/apt/archives/dpdk-25.11-cn10k_*
 
 Installation demo
 -----------------

@@ -149,7 +149,7 @@ Steps to build DPDK are as follows:
 
   # git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
   # cd marvell-dpdk
-  # git checkout dpdk-24.11-release
+  # git checkout dpdk-25.11-release
   # meson build –prefix=${PWD}/install
   # ninja -C build install
 
