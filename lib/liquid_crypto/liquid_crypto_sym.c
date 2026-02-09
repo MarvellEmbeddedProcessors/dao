@@ -291,6 +291,19 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		sess_meta->hash_type = ctx->hash.hmac_hash_type;
 		sess_meta->op_type = LC_SYM_OP_HMAC_AUTH_ONLY;
 		sess_meta->auth_key_len = ctx->hash.hmac_key_len;
+		switch (sess_meta->hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+			if (sess_meta->auth_key_len != 0) {
+				dao_err("Unsupported auth-key-len for SHAKE and cSHAKE operations.");
+				goto sess_meta_free;
+			}
+			break;
+		default:
+			break;
+		}
 		memcpy(sess_meta->auth_key, ctx->hash.hmac_auth_key, ctx->hash.hmac_key_len);
 
 		w4.s.opcode_major = ROC_SE_MAJOR_OP_HMAC;
@@ -573,14 +586,33 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		return -EINVAL;
 	}
 
+	/*
+	 * SHAKE and cSHAKE do not use keys, so skip key-length validation.
+	 * KMAC uses its own key length constraints, so validate against KMAC-specific limits.
+	 * All other HMAC algorithms validate key length against DAO_LC_MAX_AUTH_KEY_LEN.
+	 */
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
-		if ((hash_ctx->hmac_hash_type != DAO_LC_HASH_TYPE_SHA3_CSHAKE128) &&
-		    (hash_ctx->hmac_hash_type != DAO_LC_HASH_TYPE_SHA3_CSHAKE256)) {
+		switch (hash_ctx->hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+			break;
+		case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+		case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+			if ((hash_ctx->hmac_key_len == 0) ||
+			    (hash_ctx->hmac_key_len > DAO_LC_KMAC_MAX_AUTH_KEY_LEN)) {
+				dao_err("Invalid key length for KMAC operation.");
+				return -EINVAL;
+			}
+			break;
+		default:
 			if ((hash_ctx->hmac_key_len == 0) ||
 			    (hash_ctx->hmac_key_len > DAO_LC_MAX_AUTH_KEY_LEN)) {
 				dao_err("Invalid HMAC key length.");
 				return -EINVAL;
 			}
+			break;
 		}
 	}
 
