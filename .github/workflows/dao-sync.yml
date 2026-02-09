@@ -10,6 +10,7 @@ on:
       - dao-25.05
       - dao-25.10
       - dao-lc-26.01
+      - dao-26.02
 
 jobs:
   sync:
