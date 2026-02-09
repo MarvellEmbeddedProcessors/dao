@@ -115,6 +115,19 @@ and ``0003:00:00.0``.
 Running DPDK testpmd on Host virtio device
 ------------------------------------------
 
+Build DPDK for host
+~~~~~~~~~~~~~~~~~~~
+DPDK must be built for the host without the ``-Denable_iova_as_pa=false`` option,
+as it disables vdev PMDs like virtio that require IOVA in mbuf.
+
+.. code-block:: console
+
+   git clone https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
+   cd marvell-dpdk
+   git checkout dpdk-25.11-release
+   meson build --prefix=/usr
+   ninja -C build install
+
 Setup huge pages for DPDK application
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Need to enable sufficient enough hugepages for DPDK application to run.
