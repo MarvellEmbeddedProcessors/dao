@@ -142,6 +142,10 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 		break;
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		if ((mac_len >= 1) && (mac_len <= DAO_LC_MAX_DIGEST_LEN))
 			return 0;
 		break;
@@ -152,13 +156,6 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 			return -EINVAL;
 		}
 		if (mac_len >= 1 && mac_len <= 16)
-			return 0;
-		break;
-	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
-	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
-	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
-	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
-		if (mac_len >= 1 && mac_len <= DAO_LC_MAX_DIGEST_LEN)
 			return 0;
 		break;
 	default:
