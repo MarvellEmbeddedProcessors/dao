@@ -1252,6 +1252,129 @@ For the example input image, we get obtain the following predicted class.
 
     Predicted class: vulture
 
+Encrypted Traffic Classification Model
+--------------------------------------
+
+The Traffic Classification model is designed to identify different types of encrypted network traffic, including VPN, non-VPN, etc., by analyzing flow-level features rather than packet payloads. Since traditional port-based and payload-based methods are ineffective for encrypted traffic, the model instead uses static characteristics such as packet size sequences (PSS), byte distribution, TLS handshake details, and DNS information extracted from PCAP files.
+The dataset is processed using the Joy 2.0 tool. The PCAP files are first converted to JSON and then into tabular features. Refer to the repository README for full implementation and usage details. The model repository and dataset used for training are given in the :ref:`references` section.
+
+Clone the Encrypted_Traffic_Classification repository and apply the traffic.patch file available in the repository.
+This patch switches ``TRAIN.sh`` to use ``train_updated.py`` because the original ``train.py`` depends on outdated TensorFlow/Keras and preprocessing logic that no longer works with modern versions, updates ``Table_Generator.py``, and strengthens preprocessing in ``toTrain.py`` by adding improved filtering and cleaning rules.
+
+.. code-block:: bash
+
+    git clone https://github.com/syalavarthi_mrvl/Encrypted_Traffic_Classification.git
+    cd Encrypted_Traffic_Classification
+    git apply patches/traffic.patch
+
+Create a Python environment and install the prerequisites using the ``requirements.txt`` file inside the repository.
+
+.. code-block:: bash
+
+    python3 -m venv myvenv
+    source myvenv/bin/activate
+
+    pip install -r requirements.txt
+
+Clone the Joy tool in home directory and apply the joy.patch file available in the repository.
+This patch updates the Joy script to explicitly run under Python 2.7 and adjusts the library path accordingly because the Joy sleuth tool is Python-2-based and incompatible with Python 3.
+Continue with configuration and building Joy. Joy is used to convert PCAP files into JSON format.
+
+.. code-block:: bash
+
+    git clone https://github.com/cisco/joy.git
+    cd ~/joy
+    git apply ~/Encrypted_Traffic_Classification/patches/joy.patch
+
+    ./config.sh
+    sudo apt-get install build-essential libssl-dev libpcap-dev libcurl4-openssl-dev
+    ./configure --enable-gzip
+    make clean
+    make
+
+Follow the instructions provided in the repository README to preprocess the dataset, train the model, and generate the final Keras model.
+
+After training completes, the final model is saved in .keras format within the ``TEST1212`` folder. This output path is defined in the TRAIN.sh configuration.
+
+.. code-block:: bash
+
+    TEST1212/final_model.keras
+
+To deploy the trained model on MLIP, first convert the .keras model to ONNX using ``tf2onnx``, then convert the ONNX model to static shape using ``convert_shape_d2s.py`` script.
+
+.. code-block:: bash
+
+    pip install tensorflow>=2.16.1 tf2onnx==1.16.1
+    python3 -c "import tensorflow as tf, tf2onnx, onnx;
+    m = tf.keras.models.load_model('TEST1212/final_model.keras');
+    s = [tf.TensorSpec((None, *m.input_shape[1:]), tf.float32, name='input')];
+    p, _ = tf2onnx.convert.from_keras(m, input_signature=s, opset=13);
+    onnx.save(p, 'final_model.onnx')"
+
+    python ${ML_TOOLS_DIR}/utils/convert_shape_d2s.py \
+    --input_onnx final_model.onnx \
+    --output_onnx model.onnx
+
+Set the required environment variables and compile the model.
+
+.. code-block:: bash
+
+    export MRVL_SAVE_MODEL_BIN=1
+    export TVM_CONFIGS_JSON_DIR=${INSTALL_PREFIX_HOST}/share/tvm/configs
+    export MRVL_ENABLE_WB_PIN_OCM=1
+    python -m tvm.driver.tvmc compile \
+    --target="mrvl, llvm -mtriple=${TARGET_TRIPLET} -mcpu=neoverse-n2" \
+    --cross-compiler="${TARGET_TRIPLET}-gcc" \
+    --target-mrvl-mattr='hw -arch=cn10ka -quantize=fp16 -wb_pin_ocm=0' \
+    --target-mrvl-num_tiles=8 \
+    --output model.tar \
+    model.onnx
+
+For testing, use the scripts provided in the model repository to generate inference-ready input. Use ``pcap_to_json.py`` script to convert pcap to json files, and then use ``multi_gen.py`` to convert it to csv file.
+
+.. code-block:: bash
+
+    cd data && sh pcap_to_json.sh pcap_input_path tmp_json_path json_output_path 1
+    cd ../prepro && sh multi_gen.sh json_output_path input.csv 0
+
+Now we need to preprocess the test input using the same feature-engineering pipeline that was applied during training. The model expects fixed input features, so the preprocessing must reproduce the exact training transformations. The inference dataset is assumed to be of the same format as the `VPN-nonVPN dataset (ISCXVPN2016) <https://www.unb.ca/cic/datasets/vpn.html>`_, which was used for training. Each dataset entry contains multiple flows from the same network capture.
+
+The ``generate_inference_files.py`` script applies the same filtering, feature extraction, normalization, and column-alignment steps used during training. It then converts each flow into a separate .bin file, resulting in multiple inference-ready files stored in the inference_bins directory. Any one of the created files from this directory can be used as input for running inference.
+
+.. code-block:: bash
+
+    python generate_inference_files.py input.csv
+
+Set up hugepages, bind the ML device, and run inference:
+
+.. code-block:: bash
+
+    mkdir -p /mnt/huge
+    mount -t hugetlbfs -o pagesize=2M nodev /mnt/huge
+    echo 4096 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+    # Bind ML device
+    dpdk-devbind.py -b vfio-pci 0000:00:10.0
+
+    # Run inferences with dpdk-test-mldev application
+    dpdk-test-mldev --lcores=4-23 -a 0000:00:10.0,fw_path=/lib/firmware/mlip-fw.bin -- \
+    --test inference_ordered \
+    --filelist <model_name>_0.bin,input.bin,output.bin \
+    --tolerance 5 \
+    --stats \
+    --repetitions 1000
+
+After inference, inspect the output and predicted class:
+
+.. code-block:: bash
+
+    python3 -c "import numpy as np;
+    LABEL2DIG={'chat':0,'voip':1,'trap2p':2,'stream':3,'file_trans':4,'email':5,'vpn_chat':6,'vpn_voip':7,'vpn_trap2p':8,'vpn_stream':9,'vpn_file_trans':10,'vpn_email':11};
+    DIG2LABEL={v:k for k,v in LABEL2DIG.items()};
+    a=np.fromfile('output.bin',dtype=np.float32);
+    i=a.argmax();
+    print('\npredicted_label =', DIG2LABEL[i], '| \npredicted_index =', i, '| \nvalues =', a)"
+
 .. _references:
 
 References
