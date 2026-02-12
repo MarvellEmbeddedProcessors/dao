@@ -4,7 +4,7 @@ from datetime import datetime
 
 project   = "Data Accelerator Offload"
 author    = "Marvell"
-release   = "25.05.0"  # display-only; SMV controls per-version output
+release   = "26.02.0"  # display-only; SMV controls per-version output
 copyright = f"2024-{datetime.now().year}, Marvell"
 
 html_logo = "logo/dao_logo.png"
