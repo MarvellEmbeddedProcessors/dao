@@ -15,6 +15,7 @@
 #include <mc/se.h>
 
 #include "ca_asym.h"
+#include "ca_compress_dev.h"
 #include "ca_crypto_queue.h"
 #ifdef DAO_LIBOQS_DEP
 #include "ca_pqc.h"
@@ -23,88 +24,128 @@
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 
+extern struct ca_global_ctx ca_glb_ctx;
+
+static inline void
+cpt_infl_req_init(struct cpt_inflight_req *infl_req, struct rte_mbuf *rx_pkt)
+{
+	infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
+	infl_req->ooo_done = 0;
+	infl_req->mbuf = rx_pkt;
+}
+
+static inline void
+cpt_inst_init(struct cpt_inflight_req *infl_req, struct cpt_inst_s *inst)
+{
+	inst->w0.u64 = 0;
+	inst->res_addr = (uint64_t)&infl_req->res;
+	inst->w2.u64 = 0;
+	inst->w3.u64 = 0;
+}
+
 static inline void
 process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *pq,
-	     struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
+	     struct rte_pmd_cnxk_crypto_qptr *cpt_qptr, struct pending_queue *compdev_pq,
+	     struct dev_desc_cnt *desc_cnt, const bool compdev_enabled)
 {
+	struct comp_dev_inflight_req *compdev_infl_req = NULL;
+	uint16_t pkt_id, nb_cpt_bypass = 0, nb_comp_req = 0;
+	struct rte_comp_op *comp_op[CA_ETHDEV_RX_BURST];
 	struct cpt_inst_s inst[CA_ETHDEV_RX_BURST];
+	struct cpt_inflight_req *infl_req = NULL;
+	uint64_t head, compdev_head = UINT64_MAX;
 	struct __dao_lc_resp_asym *asym_resp;
-	struct cpt_inflight_req *infl_req;
 	struct __dao_lc_req_asym *asym;
-	uint16_t pkt_id, nb_cpt_bypass;
+	uint8_t lcore_id, comp_dev_id;
 	struct __dao_lc_req_sym *sym;
 	struct dao_eth_trs_pkt *req;
+	uint16_t cpt_inst_cnt = 0;
 	uint64_t ctrl_word_be;
 	union cpt_inst_w4 w4;
 	uint64_t ctrl_word;
 	uint16_t label_len;
-	uint64_t head;
-	uint16_t i;
-	int rc = 0;
+	int rc = 0, idx;
 
 	const uint64_t pq_mask = pq->pq_mask;
 
 	head = pq->head;
+	if (compdev_enabled && compdev_pq)
+		compdev_head = compdev_pq->head;
 
-	nb_cpt_bypass = 0;
 	for (pkt_id = 0; pkt_id < nb_pkts; pkt_id++) {
-		infl_req = &pq->req_queue[head];
-
 		req = rte_pktmbuf_mtod(rx_pkts[pkt_id], struct dao_eth_trs_pkt *);
-
-		infl_req->res.cn9k.compcode = DAO_CPT_COMP_NOT_DONE;
-		infl_req->ooo_done = 0;
-
-		i = pkt_id - nb_cpt_bypass;
-		inst[i].w0.u64 = 0;
-		inst[i].res_addr = (uint64_t)&infl_req->res;
-		inst[i].w2.u64 = 0;
-		inst[i].w3.u64 = 0;
-
 		switch (req->hdr.op_type) {
 		case DAO_ETH_TRS_OP_TYPE_REFLECT:
+			infl_req = &pq->cpt_req_queue[head];
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
+			infl_req->ooo_done = 0;
+			/* Save handle of the packet */
+			infl_req->mbuf = rx_pkts[pkt_id];
+			pending_queue_advance(&head, pq_mask);
 			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
+
 			sym = (struct __dao_lc_req_sym *)req;
-			inst[i].w4.s.opcode_major = ROC_SE_MAJOR_OP_MISC;
-			inst[i].w4.s.opcode_minor = ROC_SE_MISC_MINOR_OP_PASSTHROUGH;
-			inst[i].w4.s.param1 = 1;
-			inst[i].w4.s.param2 = 1;
-			inst[i].w4.s.dlen = 0;
-			inst[i].w5.u64 = (uint64_t)sym->dptr;
-			inst[i].w7.u64 = 0;
-			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+			inst[cpt_inst_cnt].w4.s.opcode_major = ROC_SE_MAJOR_OP_MISC;
+			inst[cpt_inst_cnt].w4.s.opcode_minor = ROC_SE_MISC_MINOR_OP_PASSTHROUGH;
+			inst[cpt_inst_cnt].w4.s.param1 = 1;
+			inst[cpt_inst_cnt].w4.s.param2 = 1;
+			inst[cpt_inst_cnt].w4.s.dlen = 0;
+			inst[cpt_inst_cnt].w5.u64 = (uint64_t)sym->dptr;
+			inst[cpt_inst_cnt].w7.u64 = 0;
+			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM:
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
+
 			sym = (struct __dao_lc_req_sym *)req;
 			infl_req->op_type = sym->op_type;
 			infl_req->is_gmac = sym->is_gmac;
-			inst[i].w4.u64 = sym->w4;
-			inst[i].w5.u64 = (uint64_t)sym->dptr;
-			inst[i].w6.u64 = (uint64_t)sym->dptr; /* INPLACE*/
-			inst[i].w7.u64 = sym->w7;
-			infl_req->sym_param2 = inst[i].w4.s.param2;
+			inst[cpt_inst_cnt].w4.u64 = sym->w4;
+			inst[cpt_inst_cnt].w5.u64 = (uint64_t)sym->dptr;
+			inst[cpt_inst_cnt].w6.u64 = (uint64_t)sym->dptr; /* INPLACE*/
+			inst[cpt_inst_cnt].w7.u64 = sym->w7;
+			infl_req->sym_param2 = inst[cpt_inst_cnt].w4.s.param2;
 			infl_req->stage = 0;
 			infl_req->max_stage = 1;
+
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
+
 			asym = (struct __dao_lc_req_asym *)req;
 			asym_resp = (struct __dao_lc_resp_asym *)req;
 			w4.u64 = asym->w4;
-			inst[i].w4.u64 = w4.u64;
-			inst[i].w5.u64 = (uint64_t)asym->dptr;
-			inst[i].w6.u64 = (uint64_t)asym_resp->rptr;
-			inst[i].w7.u64 = 0;
-			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
+			inst[cpt_inst_cnt].w4.u64 = w4.u64;
+			inst[cpt_inst_cnt].w5.u64 = (uint64_t)asym->dptr;
+			inst[cpt_inst_cnt].w6.u64 = (uint64_t)asym_resp->rptr;
+			inst[cpt_inst_cnt].w7.u64 = 0;
+			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			infl_req->op_type = asym->op_type;
-			ca_handle_asym_op(&inst[i], infl_req, asym, asym_resp, w4);
+			ca_handle_asym_op(&inst[cpt_inst_cnt], infl_req, asym, asym_resp, w4);
 			infl_req->stage = 0;
 			infl_req->max_stage = 1;
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_ENC:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
 			/* stage-0 will be OAEP Encode
 			 * stage-1 will be RSA Encrypt
 			 */
@@ -116,16 +157,21 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			infl_req->max_stage = 2;
 			infl_req->rsa_oaep.rsa_exp_len = asym->exp_len;
 			infl_req->rsa_mod_len = w4.s.param1;
-			inst[i].w4.u64 = asym->w4;
-			inst[i].w5.u64 =
+			inst[cpt_inst_cnt].w4.u64 = asym->w4;
+			inst[cpt_inst_cnt].w5.u64 =
 				(uint64_t)(asym->dptr + asym->exp_len + infl_req->rsa_mod_len);
-			inst[i].w6.u64 =
+			inst[cpt_inst_cnt].w6.u64 =
 				(uint64_t)(asym_resp->rptr + asym->exp_len + infl_req->rsa_mod_len);
-			inst[i].w7.u64 = 0;
-			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+			inst[cpt_inst_cnt].w7.u64 = 0;
+			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
 			infl_req->op_type = asym->op_type;
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
 			/* stage-0 will be RSA Decrypt
 			 * stage-1 will be OAEP Decode
 			 */
@@ -140,19 +186,24 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 
 			infl_req->rsa_oaep.hash_type = asym->hash_type;
 			infl_req->rsa_mod_len = w4.s.param1;
-			inst[i].w4.u64 = asym->w4;
-			inst[i].w5.u64 = (uint64_t)(asym->dptr + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE +
-						    label_len);
-			inst[i].w6.u64 = (uint64_t)((uint8_t *)asym_resp->rptr +
-						    CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len);
-			inst[i].w7.u64 = 0;
-			inst[i].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
+			inst[cpt_inst_cnt].w4.u64 = asym->w4;
+			inst[cpt_inst_cnt].w5.u64 =
+				(uint64_t)(asym->dptr + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE +
+					   label_len);
+			inst[cpt_inst_cnt].w6.u64 =
+				(uint64_t)((uint8_t *)asym_resp->rptr +
+					   CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len);
+			inst[cpt_inst_cnt].w7.u64 = 0;
+			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			infl_req->op_type = asym->op_type;
 			infl_req->stage = 0;
 			infl_req->max_stage = 2;
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
-			infl_req->res.pqc.compcode = DAO_PQC_COMP_NOT_DONE;
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
 #ifdef DAO_LIBOQS_DEP
 			rc = ca_pqc_process(rx_pkts[pkt_id], &infl_req->res);
 			if (rc != 0)
@@ -163,48 +214,93 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			CA_INFO("PQC support not available - liboqs not found");
 			infl_req->res.pqc.compcode = DAO_PQC_COMP_LIB_ERROR_LIBOQS;
 #endif
+			pending_queue_advance(&head, pq_mask);
 			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_CREATE:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+
 			rc = ca_sess_handle_create(rx_pkts[pkt_id]);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 			if (rc != 0)
 				CA_INFO("Could not create session: rc: %d", rc);
+			pending_queue_advance(&head, pq_mask);
 			nb_cpt_bypass++;
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+
 			rc = ca_sess_handle_destroy(rx_pkts[pkt_id]);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 			if (rc != 0)
 				CA_INFO("Could not destroy session: rc: %d", rc);
+			pending_queue_advance(&head, pq_mask);
 			nb_cpt_bypass++;
 			break;
+		case DAO_ETH_TRS_OP_TYPE_COMPRESS:
+		case DAO_ETH_TRS_OP_TYPE_DECOMPRESS:
+			if (compdev_enabled) {
+				compdev_infl_req = &compdev_pq->compdev_req_queue[compdev_head];
+				if (ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID]
+					    .compress_dev_pkt_hdlr(req, rx_pkts[pkt_id],
+								   compdev_infl_req,
+								   &comp_op[nb_comp_req]) == 0)
+					continue;
+				pending_queue_advance(&compdev_head, compdev_pq->pq_mask);
+				nb_comp_req++;
+			}
+			break;
 		default:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
 			infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 			nb_cpt_bypass++;
 			CA_INFO("Invalid DAO ETH opcode %d", req->hdr.op_type);
 			req->hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_END;
+			pending_queue_advance(&head, pq_mask);
 		}
-
-		/* Save handle of the packet */
-		infl_req->mbuf = rx_pkts[pkt_id];
-
-		pending_queue_advance(&head, pq_mask);
-
 #ifdef CA_DEBUG_ENABLE
 		if (req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM ||
 		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_SYM ||
 		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_MISC ||
 		    req->hdr.op_type == DAO_ETH_TRS_OP_TYPE_CRYPTO_RNG)
-			cpt_debug_inst_print(&inst[i]);
+			cpt_debug_inst_print(&inst[cpt_inst_cnt - 1]);
 #endif
 	}
 
-	if ((nb_pkts - nb_cpt_bypass) > 0)
-		rte_pmd_cnxk_crypto_submit(cpt_qptr, inst, nb_pkts - nb_cpt_bypass);
+	if (likely(cpt_inst_cnt > 0)) {
+		rte_pmd_cnxk_crypto_submit(cpt_qptr, inst, cpt_inst_cnt);
+		desc_cnt->cpt -= cpt_inst_cnt;
+	}
 
 	pq->time_out = rte_get_timer_cycles() + DEFAULT_COMMAND_TIMEOUT * rte_get_timer_hz();
 	pq->head = head;
+
+	if (compdev_enabled && nb_comp_req > 0) {
+		lcore_id = rte_lcore_id();
+		comp_dev_id = get_compdev_id(lcore_id);
+		rc = rte_compressdev_enqueue_burst(ca_glb_ctx.compdev_ctx[comp_dev_id].dev_id,
+						   ca_glb_ctx.compdev_ctx[comp_dev_id].qp_id,
+						   comp_op, nb_comp_req);
+		desc_cnt->compdev -= rc;
+
+		if (rc < nb_comp_req) {
+			CA_ERR("All (%d) compress requests were not enqueued (%d)", nb_comp_req,
+			       rc);
+			for (idx = rc; idx < nb_comp_req; idx++) {
+				rte_pktmbuf_free(comp_op[idx]->m_dst);
+				rte_pktmbuf_free(comp_op[idx]->m_src);
+				rte_comp_op_free(comp_op[idx]);
+			}
+			/* Roll back compdev_head for operations that failed to enqueue. */
+			compdev_head -= (nb_comp_req - rc);
+		}
+		compdev_pq->time_out =
+			rte_get_timer_cycles() + DEFAULT_COMMAND_TIMEOUT * rte_get_timer_hz();
+		compdev_pq->head = compdev_head;
+	}
 }
 
 #ifdef CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT
@@ -255,23 +351,57 @@ periodic_print(void)
 }
 #endif /* CA_DEBUG_ENABLE_PERIODIC_PRINT */
 
-static inline uint16_t
-ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
-	  uint16_t nb_cpt_avail)
+/*
+ * Process a single COMPRESS or DECOMPRESS packet when compress device is enabled.
+ * Caller must ensure compdev is enabled before calling.
+ * Returns 1 on success (caller should increment nb_comp_req), 0 on failure (caller may continue).
+ */
+static inline int
+process_compdev_pkt(struct dao_eth_trs_pkt *req, struct rte_mbuf *mbuf,
+		    struct comp_dev_inflight_req *infl_req, struct rte_comp_op **comp_op_slot)
 {
-	uint16_t nb_rx, port_id, queue_id, nb_pq_avail;
+	return prepare_comp_op(req, infl_req, comp_op_slot, mbuf);
+}
+
+static inline int
+process_compdev_pkt_noop(struct dao_eth_trs_pkt *req, struct rte_mbuf *mbuf,
+			 struct comp_dev_inflight_req *infl_req, struct rte_comp_op **comp_op_slot)
+{
+	RTE_SET_USED(req);
+	RTE_SET_USED(mbuf);
+	RTE_SET_USED(infl_req);
+	RTE_SET_USED(comp_op_slot);
+	rte_pktmbuf_free(mbuf);
+	return 0;
+}
+static inline uint16_t
+ca_eth_rx(struct lcore_conf *lconf, int pq_id, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
+	  struct dev_desc_cnt *desc_cnt, const bool compdev_enabled)
+{
+	struct pending_queue *cpt_pq, *compdev_pq = NULL;
+	uint16_t nb_cpt_pq_avail, nb_compdev_pq_avail;
 	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
+	uint16_t nb_rx, port_id, queue_id;
 
 #ifdef CA_DEBUG_ENABLE_PERIODIC_PRINT
 	periodic_print();
 #endif
+	cpt_pq = lconf->pq[pq_id];
 
-	port_id = pq->eth_port_id;
-	queue_id = pq->eth_queue_id;
+	port_id = cpt_pq->eth_port_id;
+	queue_id = cpt_pq->eth_queue_id;
 
-	nb_pq_avail = pending_queue_free_cnt(pq->head, pq->tail, pq->pq_mask);
+	nb_cpt_pq_avail = pending_queue_free_cnt(cpt_pq->head, cpt_pq->tail, cpt_pq->pq_mask);
+	nb_rx = RTE_MIN(nb_cpt_pq_avail, desc_cnt->cpt);
 
-	nb_rx = RTE_MIN(nb_pq_avail, nb_cpt_avail);
+	if (compdev_enabled) {
+		compdev_pq = lconf->compdev_pq[pq_id];
+		nb_compdev_pq_avail = pending_queue_free_cnt(compdev_pq->head, compdev_pq->tail,
+							     compdev_pq->pq_mask);
+		nb_rx = RTE_MIN(nb_rx, nb_compdev_pq_avail);
+		nb_rx = RTE_MIN(nb_rx, desc_cnt->compdev);
+	}
+
 	nb_rx = RTE_MIN(nb_rx, CA_ETHDEV_RX_BURST);
 	if (unlikely(nb_rx == 0))
 		return 0;
@@ -283,7 +413,7 @@ ca_eth_rx(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
 		if (nb_rx == 0)
 			return 0;
 #endif /* CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT */
-		process_pkts(mb, nb_rx, pq, cpt_qptr);
+		process_pkts(mb, nb_rx, cpt_pq, cpt_qptr, compdev_pq, desc_cnt, compdev_enabled);
 	}
 
 	return nb_rx;

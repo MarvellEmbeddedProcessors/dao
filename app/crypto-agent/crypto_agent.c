@@ -9,6 +9,7 @@
 
 #include <rte_alarm.h>
 #include <rte_common.h>
+#include <rte_compressdev.h>
 #include <rte_cryptodev.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
@@ -39,6 +40,7 @@ static pthread_t stats_thread;
 #endif
 
 static bool card_initialized;
+bool is_compdev_enabled;
 
 static int host_dev_init(void);
 static int host_dev_fini(void);
@@ -381,14 +383,62 @@ print_stats(__rte_unused void *param)
 }
 #endif /* CA_STATS_PRINT */
 
+static inline void
+eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
+	    struct lcore_conf *lconf, uint16_t cpt_allowed, uint16_t compdev_allowed,
+	    const bool compdev_enabled)
+{
+	struct ca_cryptodev_ctx *cdev_ctx;
+	uint16_t nb_pkts, nb_tx_pkts;
+	struct dev_desc_cnt desc_cnt;
+	int i;
+
+	desc_cnt.cpt = cpt_allowed;
+	desc_cnt.compdev = compdev_allowed;
+
+	while (!force_quit) {
+		/* Update quiet state */
+		rte_rcu_qsbr_quiescent(qsbr, lcore_id);
+
+		if (lconf->nb_pq == 0) {
+			if (lconf->is_soft_reset) {
+				cdev_ctx = &ca_glb_ctx.cryptodev_ctx[lcore_id];
+				/* Restore nb_allowed after soft reset */
+				desc_cnt.cpt = cdev_ctx->nb_allowed;
+				lconf->is_soft_reset = false;
+			}
+			rte_smp_rmb();
+			continue;
+		}
+
+		for (i = 0; i < lconf->nb_pq; i++) {
+			nb_pkts = ca_eth_rx(lconf, i, cpt_qptr, &desc_cnt, compdev_enabled);
+			lconf->rx_packets += nb_pkts;
+
+			nb_tx_pkts = lconf->pq[i]->cpt_deq_fn(lconf->pq[i], cpt_qptr);
+			lconf->tx_packets += nb_tx_pkts;
+			desc_cnt.cpt += nb_tx_pkts;
+
+			if (compdev_enabled) {
+				nb_tx_pkts =
+					lconf->compdev_pq[i]->compdev_deq_fn(lconf->compdev_pq[i]);
+				lconf->tx_packets += nb_tx_pkts;
+				desc_cnt.compdev += nb_tx_pkts;
+			}
+		}
+	}
+}
+
 static int
 worker_thread(__rte_unused void *arg)
 {
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
+	struct ca_compdev_ctx *compdev_ctx;
 	struct ca_cryptodev_ctx *cdev_ctx;
-	uint16_t nb_allowed, nb_pkts;
+	uint16_t nb_compdev_allowed = 0;
 	struct rte_rcu_qsbr *qsbr;
 	struct lcore_conf *lconf;
+	uint16_t nb_cpt_allowed;
 	int i, lcore_id;
 
 	lcore_id = rte_lcore_id();
@@ -412,13 +462,28 @@ worker_thread(__rte_unused void *arg)
 		return -ENODEV;
 	}
 
-	nb_allowed = cdev_ctx->nb_allowed;
-	if (nb_allowed == 0) {
-		CA_ERR("Invalid number of allowed descriptors for lcore: %d", lcore_id);
+	lconf = &lcore_conf[lcore_id];
+
+	nb_cpt_allowed = cdev_ctx->nb_allowed;
+	if (nb_cpt_allowed == 0) {
+		CA_ERR("Invalid number of allowed descriptors for CPT on lcore: %d", lcore_id);
 		return -EINVAL;
 	}
 
-	lconf = &lcore_conf[lcore_id];
+	if (is_compdev_enabled) {
+		compdev_ctx = &ca_glb_ctx.compdev_ctx[lcore_id];
+		ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].compress_dev_pkt_hdlr =
+			process_compdev_pkt;
+		nb_compdev_allowed = compdev_ctx->nb_allowed;
+		if (nb_compdev_allowed == 0) {
+			CA_ERR("Invalid number of allowed descriptors for compress device on lcore: %d",
+			       lcore_id);
+			return -EINVAL;
+		}
+	} else {
+		ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].compress_dev_pkt_hdlr =
+			process_compdev_pkt_noop;
+	}
 
 	/* Register this thread to report quiescent state */
 	rte_rcu_qsbr_thread_register(qsbr, lcore_id);
@@ -428,34 +493,25 @@ worker_thread(__rte_unused void *arg)
 	CA_INFO("[Lcore: %d] Starting worker thread", lcore_id);
 
 	CA_INFO("[Lcore: %d] No of links: %d", lcore_id, lconf->nb_pq);
-	for (i = 0; i < lconf->nb_pq; i++)
-		CA_INFO("[Lcore: %d] \t\tLink %d: Port %u, Queue %u", lcore_id, i,
-			lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id);
 
-	while (!force_quit) {
-		/* Update quiet state */
-		rte_rcu_qsbr_quiescent(qsbr, lcore_id);
-
-		if (lconf->nb_pq == 0) {
-			if (lconf->is_soft_reset) {
-				/* Restore nb_allowed after soft reset */
-				nb_allowed = cdev_ctx->nb_allowed;
-				lconf->is_soft_reset = false;
-			}
-			rte_smp_rmb();
-			continue;
-		}
-
-		for (i = 0; i < lconf->nb_pq; i++) {
-			nb_pkts = ca_eth_rx(lconf->pq[i], cpt_qptr, nb_allowed);
-			lconf->rx_packets += nb_pkts;
-			nb_allowed -= nb_pkts;
-
-			nb_pkts = lconf->pq[i]->deq_fn(lconf->pq[i], cpt_qptr);
-			lconf->tx_packets += nb_pkts;
-			nb_allowed += nb_pkts;
-		}
+	for (i = 0; i < lconf->nb_pq; i++) {
+		if (is_compdev_enabled)
+			CA_INFO("[Lcore: %d] \t\tLink %d: Port %u, Queue %u ZIP_Port: %u Q: %u",
+				lcore_id, i, lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id,
+				lconf->compdev_pq[i]->eth_port_id,
+				lconf->compdev_pq[i]->eth_queue_id);
+		else
+			CA_INFO("[Lcore: %d] \t\tLink %d: Port %u, Queue %u", lcore_id, i,
+				lconf->pq[i]->eth_port_id, lconf->pq[i]->eth_queue_id);
 	}
+
+	/* Packet rx loop starts here */
+	if (is_compdev_enabled)
+		eth_rx_loop(lcore_id, qsbr, cpt_qptr, lconf, nb_cpt_allowed, nb_compdev_allowed,
+			    true);
+	else
+		eth_rx_loop(lcore_id, qsbr, cpt_qptr, lconf, nb_cpt_allowed, nb_compdev_allowed,
+			    false);
 
 	/* Unregister this thread from reporting quiescent state */
 	rte_rcu_qsbr_thread_offline(qsbr, lcore_id);
@@ -483,6 +539,7 @@ stats_thread_cb(void *arg)
 static int
 card_init(struct dao_card_config *config)
 {
+	uint8_t arg_idx;
 	int ret, i;
 
 	/* Check if card is already initialized */
@@ -492,17 +549,35 @@ card_init(struct dao_card_config *config)
 	}
 
 	force_quit = false;
+	is_compdev_enabled = false;
 
 	ret = rte_eal_init(config->argc, config->argv);
 	if (ret < 0) {
 		CA_ERR("Invalid EAL parameters");
 		return ret;
 	}
+	config->argc -= ret;
+	config->argv += ret;
+
+	for (arg_idx = 0; arg_idx < config->argc; arg_idx++) {
+		if (strcmp(config->argv[arg_idx], "enable-compress-dev") == 0) {
+			CA_INFO("Compress Device is enabled");
+			is_compdev_enabled = true;
+		}
+	}
 
 	ret = crypto_devs_validate();
 	if (ret) {
 		CA_ERR("Could not validate crypto devices");
 		goto eal_cleanup;
+	}
+
+	if (is_compdev_enabled) {
+		ret = compress_devs_validate();
+		if (ret) {
+			CA_ERR("Could not validate compress devices");
+			goto eal_cleanup;
+		}
 	}
 
 	ret = eth_devs_validate();
@@ -523,24 +598,32 @@ card_init(struct dao_card_config *config)
 		goto map_fini;
 	}
 
+	if (is_compdev_enabled) {
+		ret = compress_devs_init(config->crypto_nb_desc);
+		if (ret) {
+			CA_ERR("Could not initialize compress devices");
+			goto cdev_fini;
+		}
+	}
+
 	ret = ca_ae_ec_grp_get(ca_glb_ctx.cryptodev_ids[0]);
 	if (ret) {
 		CA_ERR("Could not get AE EC group table for cryptodev: %d, error: %d",
 		       ca_glb_ctx.cryptodev_ids[0], ret);
-		goto cdev_fini;
+		goto compdev_fini;
 	}
 
 	ret = ca_ae_fpm_get(ca_glb_ctx.cryptodev_ids[0]);
 	if (ret) {
 		CA_ERR("Could not get AE FPM table for cryptodev: %d, error: %d",
 		       ca_glb_ctx.cryptodev_ids[0], ret);
-		goto cdev_fini;
+		goto compdev_fini;
 	}
 
 	ret = host_dev_init();
 	if (ret) {
 		CA_ERR("Could not initialize host devices");
-		goto cdev_fini;
+		goto compdev_fini;
 	}
 
 	ret = rcu_qsbr_init();
@@ -573,6 +656,9 @@ qsbr_fini:
 #endif /* CA_STATS_PRINT */
 host_dev_fini:
 	host_dev_fini();
+compdev_fini:
+	if (is_compdev_enabled)
+		compress_devs_fini();
 cdev_fini:
 	crypto_devs_fini();
 map_fini:
@@ -610,6 +696,8 @@ card_fini(void)
 	rcu_qsbr_fini();
 	host_dev_fini();
 	crypto_devs_fini();
+	if (is_compdev_enabled)
+		compress_devs_fini();
 	ca_eth_dev_fini();
 	ca_eth_lcore_map_fini();
 	rte_eal_cleanup();
@@ -640,7 +728,7 @@ ca_cpt_clear_pending_reqs(uint32_t lcore_id, struct pending_queue *pq)
 		return false;
 
 	for (k = 0; k < nb_pending; k++) {
-		infl_req = &pq->req_queue[(pq_tail + k) & mask];
+		infl_req = &pq->cpt_req_queue[(pq_tail + k) & mask];
 		is_err = false;
 		elapsed_ms = 0;
 
@@ -822,6 +910,9 @@ ca_dev_caps_get(struct dao_dev_caps *caps)
 #ifdef DAO_LIBOQS_DEP
 	caps->pqc_en = 1;
 #endif
+	if (is_compdev_enabled)
+		caps->compdev_en = 1;
+
 	return 0;
 }
 
@@ -867,7 +958,7 @@ host_dev_sess_mempool_init(uint8_t dev_id, uint32_t nb_sess)
 static int
 host_dev_init(void)
 {
-	uint16_t i, dev_id, nb_sess;
+	uint16_t i, dev_id, nb_sess, nb_comp_op;
 	int ret;
 
 	for (i = 0; i < CA_MAX_HOST_DEV; i++) {
@@ -878,6 +969,34 @@ host_dev_init(void)
 		if (ret) {
 			CA_ERR("Could not initialize host dev: %u", dev_id);
 			return ret;
+		}
+
+		if (is_compdev_enabled) {
+			nb_comp_op = CA_MAX_COMP_OPERATIONS;
+
+			ret = host_dev_compressdev_pool_init(dev_id, nb_comp_op);
+			if (ret < 0) {
+				CA_ERR("Could not initialize compdev pool: %u", dev_id);
+				rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
+				return ret;
+			}
+
+			ret = compression_priv_xforms_init();
+			if (ret < 0) {
+				CA_ERR("Could not create compress priv_xform");
+				rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
+				host_dev_compress_pools_fini(dev_id);
+				return ret;
+			}
+
+			ret = decompression_priv_xform_init();
+			if (ret < 0) {
+				CA_ERR("Could not create decompress priv_xform");
+				rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
+				host_dev_compress_pools_fini(dev_id);
+				compress_priv_xforms_fini();
+				return ret;
+			}
 		}
 
 		ca_glb_ctx.nb_host_dev++;
@@ -894,6 +1013,15 @@ host_dev_fini(void)
 	for (i = 0; i < ca_glb_ctx.nb_host_dev; i++) {
 		rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
 		ca_glb_ctx.host_ctx[i].sess_mempool = NULL;
+		if (is_compdev_enabled) {
+			if (i != CA_LC_COMPRESS_DEV_ID) {
+				CA_ERR("Invalid compress device id: %d", i);
+				continue;
+			}
+			host_dev_compress_pools_fini(i);
+			compress_priv_xforms_fini();
+			decompress_priv_xform_fini();
+		}
 	}
 
 	ca_glb_ctx.nb_host_dev = 0;

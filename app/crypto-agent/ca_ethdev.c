@@ -7,6 +7,7 @@
 #include <rte_thash.h>
 
 #include "ca_admin.h"
+#include "ca_compress_dev.h"
 #include "ca_ethdev.h"
 #include "crypto_agent.h"
 
@@ -14,8 +15,13 @@
 #define CNXK_NIX_L2_OVERHEAD 26
 #define CNXK_NIX_MIN_MTU     64
 
+#define CPT_DEV  "CPT"
+#define COMP_DEV "COMP"
+#define LC_CARD  "LC"
+
 static struct ca_eth_dev_queue_lcore_map eth_map[CA_MAX_LCORE];
 extern struct lcore_conf lcore_conf[CA_MAX_LCORE];
+extern bool is_compdev_enabled;
 
 /* Forward declarations */
 
@@ -138,7 +144,8 @@ ca_eth_lcore_map_fini(void)
 }
 
 static int
-ca_eth_lcore_map_pq_save(uint8_t port_id, uint16_t queue_id, struct pending_queue *pq)
+ca_eth_lcore_map_pq_save(uint8_t port_id, uint16_t queue_id, struct pending_queue *cpt_pq,
+			 struct pending_queue *compdev_pq)
 {
 	uint16_t i, j;
 
@@ -146,9 +153,12 @@ ca_eth_lcore_map_pq_save(uint8_t port_id, uint16_t queue_id, struct pending_queu
 		for (j = 0; j < eth_map[i].nb_links; j++) {
 			if (eth_map[i].link[j].port_id == port_id &&
 			    eth_map[i].link[j].queue_id == queue_id) {
-				eth_map[i].link[j].pq = pq;
-				pq->eth_port_id = port_id;
-				pq->eth_queue_id = queue_id;
+				eth_map[i].link[j].pq = cpt_pq;
+				eth_map[i].link[j].compdev_pq = compdev_pq;
+				cpt_pq->eth_port_id = port_id;
+				cpt_pq->eth_queue_id = queue_id;
+				compdev_pq->eth_port_id = port_id;
+				compdev_pq->eth_queue_id = queue_id;
 				return 0;
 			}
 		}
@@ -167,6 +177,7 @@ ca_eth_lcore_map_pq_remove(uint8_t port_id, uint16_t queue_id)
 			if (eth_map[i].link[j].port_id == port_id &&
 			    eth_map[i].link[j].queue_id == queue_id) {
 				eth_map[i].link[j].pq = NULL;
+				eth_map[i].link[j].compdev_pq = NULL;
 			}
 		}
 	}
@@ -365,62 +376,99 @@ ca_eth_dev_stop_reset(void)
 }
 
 static int
-ca_eth_dev_q_name_get(uint32_t dev_id, uint32_t qp_id, char *name, size_t len)
+ca_eth_dev_q_name_get(uint32_t dev_id, uint32_t qp_id, char *name, size_t len, const char *dev)
 {
-	return snprintf(name, len, "ca_ethdev_%u_q_%u", dev_id, qp_id);
+	return snprintf(name, len, "ca_ethdev_%s_%u_q_%u", dev, dev_id, qp_id);
 }
 
 static int
-cpt_pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
+pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
 {
-	const struct rte_memzone *pq_mem;
+	const struct rte_memzone *cpt_pq_mem, *compdev_pq_mem;
 	char name[RTE_MEMZONE_NAMESIZE];
 	struct pending_queue *pq;
+	uint16_t infl_req_size;
 	uint16_t port_id;
 	void *req_queue;
-	int len;
+	int len, rc;
 
 	port_id = eth_ctx->port_id;
-	pq = &eth_ctx->cpt_pq[qp_id];
 
 	nb_desc = rte_align32pow2(nb_desc);
 
-	len = nb_desc * sizeof(struct cpt_inflight_req);
+	/* CPT specific pending queue */
+	pq = &eth_ctx->cpt_pq[qp_id];
+	infl_req_size = sizeof(struct cpt_inflight_req);
+	len = nb_desc * infl_req_size;
+	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name), CPT_DEV);
 
-	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name));
-
-	pq_mem = rte_memzone_reserve_aligned(name, len, SOCKET_ID_ANY, 0, RTE_CACHE_LINE_SIZE);
-	if (pq_mem == NULL) {
+	cpt_pq_mem = rte_memzone_reserve_aligned(name, len, SOCKET_ID_ANY, 0, RTE_CACHE_LINE_SIZE);
+	if (cpt_pq_mem == NULL) {
 		CA_ERR("Could not reserve memzone for pending queue: %d, %d", port_id, qp_id);
 		return -ENOMEM;
 	}
 
-	req_queue = pq_mem->addr;
+	req_queue = cpt_pq_mem->addr;
+	memset(req_queue, 0, len);
+	memset(pq, 0, sizeof(struct pending_queue));
 
+	pq->cpt_req_queue = req_queue;
+	pq->pq_mask = (len / infl_req_size) - 1;
+	pq->eth_port_id = port_id;
+	pq->eth_queue_id = qp_id;
+
+	/**
+	 * Compress device specific pending queue memory is allocated regardless of whether the
+	 * device is enabled or not. This is to avoid check in process_pkts function.
+	 */
+	pq = &eth_ctx->compdev_pq[qp_id];
+	infl_req_size = sizeof(struct comp_dev_inflight_req);
+	len = nb_desc * infl_req_size;
+	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name), COMP_DEV);
+
+	compdev_pq_mem =
+		rte_memzone_reserve_aligned(name, len, SOCKET_ID_ANY, 0, RTE_CACHE_LINE_SIZE);
+	if (compdev_pq_mem == NULL) {
+		CA_ERR("Could not reserve memzone for pending queue: %d, %d", port_id, qp_id);
+		rc = -ENOMEM;
+		goto cpt_pq_mem_free;
+	}
+	req_queue = compdev_pq_mem->addr;
 	memset(req_queue, 0, len);
 
 	memset(pq, 0, sizeof(struct pending_queue));
-	pq->req_queue = req_queue;
-	pq->pq_mask = (len / sizeof(struct cpt_inflight_req)) - 1;
+	pq->compdev_req_queue = req_queue;
+	pq->pq_mask = (len / infl_req_size) - 1;
 	pq->eth_port_id = port_id;
 	pq->eth_queue_id = qp_id;
 
 	return 0;
+
+cpt_pq_mem_free:
+	rte_memzone_free(cpt_pq_mem);
+	memset(&eth_ctx->cpt_pq[qp_id], 0, sizeof(struct pending_queue));
+	return rc;
 }
 
 static int
-cpt_pq_destroy(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id)
+pq_destroy(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id)
 {
 	char name[RTE_MEMZONE_NAMESIZE];
 	uint16_t port_id;
 
 	port_id = eth_ctx->port_id;
 
-	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name));
+	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name), CPT_DEV);
 
 	rte_memzone_free(rte_memzone_lookup(name));
 
 	memset(&eth_ctx->cpt_pq[qp_id], 0, sizeof(struct pending_queue));
+
+	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name), COMP_DEV);
+
+	rte_memzone_free(rte_memzone_lookup(name));
+
+	memset(&eth_ctx->compdev_pq[qp_id], 0, sizeof(struct pending_queue));
 
 	return 0;
 }
@@ -471,7 +519,7 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		return ret;
 	}
 
-	ret = ca_eth_dev_q_name_get(conf->dev_id, conf->qp_id, name, sizeof(name));
+	ret = ca_eth_dev_q_name_get(conf->dev_id, conf->qp_id, name, sizeof(name), LC_CARD);
 	if (ret < 0) {
 		CA_ERR("Could not get mempool name for ethdev: %u, q: %u", conf->dev_id,
 		       conf->qp_id);
@@ -504,23 +552,30 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		goto mp_free;
 	}
 
-	ret = cpt_pq_init(eth_ctx, conf->qp_id, conf->nb_desc);
+	ret = pq_init(eth_ctx, conf->qp_id, conf->nb_desc);
 	if (ret) {
-		CA_ERR("Could not initialize CPT PQ: %d, %d.", conf->dev_id, conf->qp_id);
-		goto mp_free;
+		CA_ERR("Could not initialize CPT/Compress device PQ: %d, %d.", conf->dev_id,
+		       conf->qp_id);
+		goto pq_free;
 	}
 
 	/* Set dequeue function pointer based on configuration */
 	eth_ctx->cpt_pq[conf->qp_id].out_of_order_delivery_en = conf->out_of_order_delivery_en;
 	if (conf->out_of_order_delivery_en)
-		eth_ctx->cpt_pq[conf->qp_id].deq_fn = ca_cpt_deq_ooo;
+		eth_ctx->cpt_pq[conf->qp_id].cpt_deq_fn = ca_cpt_deq_ooo;
 	else
-		eth_ctx->cpt_pq[conf->qp_id].deq_fn = ca_cpt_deq;
+		eth_ctx->cpt_pq[conf->qp_id].cpt_deq_fn = ca_cpt_deq;
 
-	ret = ca_eth_lcore_map_pq_save(conf->dev_id, conf->qp_id, &eth_ctx->cpt_pq[conf->qp_id]);
+	if (is_compdev_enabled)
+		eth_ctx->compdev_pq[conf->qp_id].compdev_deq_fn = ca_compdev_deq;
+	else
+		eth_ctx->compdev_pq[conf->qp_id].compdev_deq_fn = ca_compdev_deq_noop;
+
+	ret = ca_eth_lcore_map_pq_save(conf->dev_id, conf->qp_id, &eth_ctx->cpt_pq[conf->qp_id],
+				       &eth_ctx->compdev_pq[conf->qp_id]);
 	if (ret) {
-		CA_ERR("Could not save PQ: %d, %d.", conf->dev_id, conf->qp_id);
-		goto mp_free;
+		CA_ERR("Could not save CPT/Compress Dev PQ: %d, %d.", conf->dev_id, conf->qp_id);
+		goto pq_free;
 	}
 
 	eth_ctx->mtu = RTE_MAX(eth_ctx->mtu, conf->max_seg_size);
@@ -528,6 +583,8 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 	eth_ctx->init_q_mask |= (1 << conf->qp_id);
 
 	return 0;
+pq_free:
+	pq_destroy(eth_ctx, conf->qp_id);
 
 mp_free:
 	rte_mempool_free(mp);
@@ -559,7 +616,7 @@ ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 		return -EINVAL;
 	}
 
-	ret = ca_eth_dev_q_name_get(dev_id, qp_id, name, sizeof(name));
+	ret = ca_eth_dev_q_name_get(dev_id, qp_id, name, sizeof(name), LC_CARD);
 	if (ret < 0) {
 		CA_ERR("Could not get mempool name for ethdev: %u, q: %u", dev_id, qp_id);
 		return ret;
@@ -569,7 +626,7 @@ ca_eth_dev_q_destroy(uint32_t dev_id, uint32_t qp_id)
 
 	ca_eth_lcore_map_pq_remove(dev_id, qp_id);
 
-	cpt_pq_destroy(eth_ctx, qp_id);
+	pq_destroy(eth_ctx, qp_id);
 
 	rte_mempool_free(rte_mempool_lookup(name));
 
@@ -695,6 +752,7 @@ ca_eth_dev_start(uint32_t port_id)
 
 			/* Save pq to lconf */
 			lconf->pq[nb_pq] = eth_map->link[i].pq;
+			lconf->compdev_pq[nb_pq] = eth_map->link[i].compdev_pq;
 			nb_pq++;
 		}
 
@@ -770,10 +828,12 @@ ca_eth_dev_stop(uint32_t dev_id)
 			/* Clear pq for the current ethdev */
 			if (lconf->pq[i]->eth_port_id == dev_id) {
 				lconf->pq[i] = NULL;
+				lconf->compdev_pq[i] = NULL;
 				continue;
 			}
 
 			lconf->pq[nb_pq] = lconf->pq[i];
+			lconf->compdev_pq[nb_pq] = lconf->compdev_pq[i];
 			nb_pq++;
 		}
 

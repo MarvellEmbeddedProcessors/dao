@@ -428,7 +428,7 @@ ca_cpt_deq(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
 	nb_pending = RTE_MIN(nb_pending, CA_ETHDEV_TX_BURST);
 
 	for (i = 0; i < nb_pending; i++) {
-		infl_req = &pq->req_queue[(pq_tail + i) & mask];
+		infl_req = &pq->cpt_req_queue[(pq_tail + i) & mask];
 		res.u64[0] = __atomic_load_n(&infl_req->res.u64[0], __ATOMIC_RELAXED);
 		if (unlikely(res.cn9k.compcode == DAO_CPT_COMP_NOT_DONE)) {
 			if (unlikely(rte_get_timer_cycles() > pq->time_out)) {
@@ -510,12 +510,12 @@ ca_cpt_deq_ooo(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qp
 
 	/* First pass: scan window, post-process completions, collect TX */
 	for (uint16_t off = 0; off < scan; off++) {
-		struct cpt_inflight_req *req = &pq->req_queue[(tail + off) & mask];
+		struct cpt_inflight_req *req = &pq->cpt_req_queue[(tail + off) & mask];
 		union dao_cpt_res_s res;
 
 		/* Prefetch next request to reduce cache misses */
 		if (likely(off + 1 < scan))
-			rte_prefetch0(&pq->req_queue[(tail + off + 1) & mask]);
+			rte_prefetch0(&pq->cpt_req_queue[(tail + off + 1) & mask]);
 
 		/* If already marked done (final stage processed earlier) skip processing */
 		if (req->ooo_done)
@@ -555,7 +555,7 @@ ca_cpt_deq_ooo(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qp
 
 	/* Tail reclamation: advance tail past completed packets */
 	while (infl) {
-		struct cpt_inflight_req *req = &pq->req_queue[tail & mask];
+		struct cpt_inflight_req *req = &pq->cpt_req_queue[tail & mask];
 
 		/* Can only reclaim if processing is done */
 		if (!req->ooo_done)

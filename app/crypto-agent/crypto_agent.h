@@ -5,6 +5,7 @@
 #ifndef __CRYPTO_AGENT_H__
 #define __CRYPTO_AGENT_H__
 
+#include <rte_compressdev.h>
 #include <rte_cryptodev.h>
 #include <rte_log.h>
 #include <rte_mempool.h>
@@ -32,6 +33,9 @@
 #define CA_ETHDEV_RX_BURST    32
 #define CA_CPT_MAX_TIMEOUT_MS 3000
 
+#define CA_LC_DEV_ID          0
+#define CA_LC_COMPRESS_DEV_ID 0
+
 DAO_STATIC_ASSERT(CA_MAX_ETH_DEV <= RTE_MAX_ETHPORTS);
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= RTE_MAX_QUEUES_PER_PORT);
 DAO_STATIC_ASSERT(CA_MAX_LCORE <= RTE_MAX_LCORE);
@@ -44,6 +48,9 @@ DAO_STATIC_ASSERT(CA_MAX_LCORE <= RTE_MAX_LCORE);
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
 #define CA_DEBUG(fmt, args...)   RTE_LOG(DEBUG, AGENT, fmt "\n", ##args)
 
+#define COMP_DEV_HUFFMAN_TYPES      2
+#define COMP_DEV_COMPRESSION_LEVELS 2 /* MIN and MAX only */
+
 extern struct ca_global_ctx ca_glb_ctx;
 
 struct ca_eth_dev_ctx {
@@ -55,11 +62,20 @@ struct ca_eth_dev_ctx {
 	uint16_t nb_queue_avail;
 	uint64_t init_q_mask;
 	struct pending_queue cpt_pq[CA_MAX_ETH_QUEUE];
+	struct pending_queue compdev_pq[CA_MAX_ETH_QUEUE];
 };
 
 struct ca_hostdev_ctx {
 	uint16_t nb_sym_sess;
 	struct rte_mempool *sess_mempool;
+	/* Compress device operation memory pool */
+	struct rte_mempool *comp_op_mempool;
+	/* Pool for destination mbufs for compress operations */
+	struct rte_mempool *comp_dst_mbuf_pool;
+	/* Function pointer to compress device packet handler */
+	int (*compress_dev_pkt_hdlr)(struct dao_eth_trs_pkt *pkt, struct rte_mbuf *mb,
+				     struct comp_dev_inflight_req *infl_req,
+				     struct rte_comp_op **op);
 };
 
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= 64);
@@ -68,6 +84,25 @@ struct ca_cryptodev_ctx {
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	uint32_t nb_allowed;
 	uint32_t cpt_qp_id;
+};
+
+struct ca_compdev_ctx {
+	uint8_t dev_id;
+	uint8_t qp_id;
+	uint32_t nb_allowed;
+	/**
+	 * Private xforms for compress operations.
+	 * For compress operation, min & max level = 1 & 9
+	 * Huffman encoding 2-types.
+	 * For each level & huffman type one xform will be created.
+	 */
+
+	void *comp_priv_xform[COMP_DEV_COMPRESSION_LEVELS][COMP_DEV_HUFFMAN_TYPES];
+	/**
+	 * For decompress operation only one private xform is enough for deflate
+	 * algorithm.
+	 */
+	void *decomp_priv_xform;
 };
 
 struct ca_global_ctx {
@@ -83,15 +118,28 @@ struct ca_global_ctx {
 	uint16_t nb_ae_ec_max_entries;
 	uint64_t *ca_ae_fpm_iova;
 	struct rte_pmd_cnxk_crypto_ae_ec_group_params **ca_ec_grp;
+
+	uint8_t compdev_ids[RTE_COMPRESS_MAX_DEVS];
+	uint8_t nb_compdevs;
+	uint16_t nb_compdev_qp;
+	struct ca_compdev_ctx compdev_ctx[CA_MAX_LCORE];
 };
 
 struct lcore_conf {
 	uint16_t nb_pq;
 	bool is_soft_reset;
+	/* For CPT */
 	struct pending_queue *pq[CA_MAX_QUEUE_PER_CORE];
+	struct pending_queue *compdev_pq[CA_MAX_QUEUE_PER_CORE];
 	uint64_t rx_packets;
 	uint64_t tx_packets;
 } __rte_cache_aligned;
+
+/* Maintains available descriptors count */
+struct dev_desc_cnt {
+	uint16_t cpt;
+	uint16_t compdev;
+};
 
 struct ca_eth_dev_ctx *ca_eth_dev_ctx_get(uint16_t port_id);
 struct rte_rcu_qsbr *ca_rcu_qsbr_get(void);

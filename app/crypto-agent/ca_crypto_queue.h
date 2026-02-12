@@ -41,9 +41,37 @@ struct __rte_aligned(ROC_ALIGN) cpt_inflight_req
 
 DAO_STATIC_ASSERT(sizeof(struct cpt_inflight_req) == 128);
 
+/* This structure is only to find the padding bytes required to align with
+ * cpt_inflight_req structure. If any new fields need to be added for
+ * comp_dev_inflight_req make sure to add here.
+ */
+struct __rte_aligned(ROC_ALIGN) _comp_dev_inflight_req
+{
+	struct rte_mbuf *mbuf;
+	uint32_t src_len;
+	uint32_t op_buf_len;
+	void *priv_xform;
+};
+
+struct __rte_aligned(ROC_ALIGN) comp_dev_inflight_req
+{
+	struct rte_mbuf *mbuf;
+	uint32_t src_len;
+	uint32_t op_buf_len;
+	void *priv_xform;
+	/* Add padding bytes */
+	DAO_PAD_BYTES_TO_MATCH(struct cpt_inflight_req, struct _comp_dev_inflight_req);
+};
+
+DAO_STATIC_ASSERT(sizeof(struct comp_dev_inflight_req) == 128);
+
 struct pending_queue {
-	/** Array of pending requests */
-	struct cpt_inflight_req *req_queue;
+	union {
+		/** Array of pending CPT requests */
+		struct cpt_inflight_req *cpt_req_queue;
+		/** Array of pending compress dev requests */
+		struct comp_dev_inflight_req *compdev_req_queue;
+	};
 	/** Head of the queue to be used for enqueue */
 	uint64_t head;
 	/** Tail of the queue to be used for dequeue */
@@ -58,8 +86,12 @@ struct pending_queue {
 	uint16_t eth_queue_id;
 	/** Enable out of order delivery */
 	bool out_of_order_delivery_en;
-	/** Dequeue function pointer - set at configuration time */
-	uint16_t (*deq_fn)(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
+	union {
+		/** Dequeue function pointer - set at configuration time */
+		uint16_t (*cpt_deq_fn)(struct pending_queue *pq,
+				       struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
+		uint16_t (*compdev_deq_fn)(struct pending_queue *pq);
+	};
 };
 
 /* Function declarations for dequeue function pointers */

@@ -16,7 +16,9 @@
 struct ca_eth_dev_queue_lcore_link {
 	uint8_t port_id;
 	uint16_t queue_id;
+	/* For CPT */
 	struct pending_queue *pq;
+	struct pending_queue *compdev_pq;
 };
 
 struct ca_eth_dev_queue_lcore_map {

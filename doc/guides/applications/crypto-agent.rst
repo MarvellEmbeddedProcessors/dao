@@ -12,12 +12,19 @@ hardware, collects completions, and returns results to the host.
 Its primary goal is to provide a low‑latency, high throughput path between
 host software and CPT hardware resources.
 
+Optionally, when built and started with compress support, the agent also accepts
+DEFLATE compress/decompress requests from the host, schedules them on compression/
+decompression (ZIP) device, and returns results over the same Ethernet transport
+as CPT operations.
+
 Core responsibilities:
 
 * Initialize platform (DPDK EAL, memory pools, queues, ports)
 * Manage cryptodev queue pairs and session resources
 * Schedule and enqueue incoming crypto operations to CPT
 * Dequeue CPT completions and format responses
+* Schedule and enqueue compress/decompress operations to ZIP (optional)
+* Dequeue ZIP completions and format responses
 * Expose lightweight control & info operations (init, info, stats, shutdown)
 
 While a gRPC interface is available for lifecycle and informational queries,
@@ -28,17 +35,22 @@ Architecture Summary
 * Control Plane: thin gRPC handlers translate host control requests into local
 	setup / query functions.
 * Data Plane: per-lcore workers pull host-submitted operations, enqueue to CPT,
-	and dequeue completions (poll mode) for return.
+	and dequeue completions (poll mode) for return. Optionally when compress
+	device is enabled, enqueue compress/decompress operations to ZIP and
+	dequeue completions (poll mode) for return.
 * Hardware Interface: CPT cryptodev queues sized per configuration; session
-	objects cached for reuse.
+	objects cached for reuse. Compression devices use DPDK compressdev PMD
+	queue pairs to perform compression and decompression using the DEFLATE
+	algorithm.
 * Synchronization: lockless fast path; RCU / QSBR (where applicable) for safe
 	teardown of shared objects.
 
 Lifecycle
 ---------
 1. Startup (card boot): service binary is launched via init scripts.
-2. Host issues ``card_init``: resources (mbuf pools, cryptodev QPs, ethernet
-	 devices if required) are allocated and configured.
+2. Host issues ``card_init`` (optionally with ``enable-compress-dev``): resources
+	 (mbuf pools, cryptodev QPs, ethernet devices if required, and compress
+	 devices if enabled) are allocated and configured.
 3. Operational: workers process host requests and generate statistics.
 4. Info/Stats: host may call ``card_info`` / stats RPCs at any time.
 5. Teardown: host requests shutdown; workers quiesce, resources freed.
