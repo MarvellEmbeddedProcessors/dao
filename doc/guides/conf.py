@@ -54,7 +54,10 @@ html_static_path = ["_static"]
 html_css_files   = ["css/custom.css"]
 html_js_files    = [
     "js/version_switcher_match.js",  # keeps button label synced with URL
+    "js/titleprefix.js",             # adds "DAO - " prefix to tab title
 ]
+
+html_title = ""  # use only page heading as tab title
 
 html_favicon       = "_static/tab_logo.jpg"
 html_show_sourcelink = False
