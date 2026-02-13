@@ -119,6 +119,23 @@ Once the octeon board is UP with above ubuntu rootfs
 
  # hostnamectl hostname <hostname>
 
+.. _marvell_apt_config:
+
+Configuring APT for Marvell repository
+--------------------------------------
+
+The Marvell package repository requires a specific User-Agent header for HTTPS requests.
+Configure APT to use this header for all Marvell repository operations:
+
+.. code-block:: console
+
+ # sudo tee /etc/apt/apt.conf.d/80-marvell-user-agent >/dev/null <<'EOF'
+ Acquire::https::www.marvell.com::User-Agent "marvell http client";
+ EOF
+
+This configuration applies only to requests to www.marvell.com and does not affect
+other package repositories.
+
 Update ubuntu repository to download dao packages
 -------------------------------------------------
 
@@ -130,8 +147,8 @@ PPA for stable version:
 
 .. code-block:: console
 
- # curl -fsSL https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
- # curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release/dao.list
+ # curl -fsSL -A 'marvell http client' https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
+ # curl -SsL -A 'marvell http client' -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/release/dao.list
  # sudo chmod 644 /etc/apt/sources.list.d/dao.list
  # sudo chmod 644 /etc/apt/keyrings/dao.gpg
  # apt-get update
@@ -142,8 +159,8 @@ PPA for development version:
 
 .. code-block:: console
 
- # curl -fsSL https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/devel/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
- # curl -SsL -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/devel/dao.list
+ # curl -fsSL -A 'marvell http client' https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/devel/dao.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/dao.gpg
+ # curl -SsL -A 'marvell http client' -o /etc/apt/sources.list.d/dao.list https://www.marvell.com/public/repo/octeon/dao/cn10k/ubuntu/v2404/devel/dao.list
  # sudo chmod 644 /etc/apt/sources.list.d/dao.list
  # sudo chmod 644 /etc/apt/keyrings/dao.gpg
  # apt-get update

@@ -191,3 +191,36 @@ Make sure the libraries are installed at ``/lib/aarch64-linux-gnu/``, or update 
 **Option 2: Using the -d Flag**
 
 Alternatively, if you do not wish to preload every library, you can specify the needed DPDK libraries individually using the ``-d`` parameter.
+
+Why am I getting 403 Forbidden when accessing Marvell repository?
+-----------------------------------------------------------------
+
+The Marvell package repository requires a specific User-Agent header for HTTPS requests.
+If you receive a 403 Forbidden error during ``apt-get update`` or ``apt-get install``,
+the APT User-Agent configuration may be missing.
+
+**Recommended solution:**
+
+Configure APT with the required User-Agent for Marvell repository as described in
+the installation guide: :ref:`Configuring APT for Marvell repository<marvell_apt_config>`
+
+**Alternative: One-off command override**
+
+If you prefer not to create a persistent configuration, you can specify the User-Agent
+directly in the apt-get command using the ``-o`` option:
+
+.. code-block:: bash
+
+    # apt-get -o Acquire::https::User-Agent='marvell http client' update
+
+    # apt-get -o Acquire::https::User-Agent='marvell http client' install dao-cn10k
+
+This option must be included in every apt-get command that accesses the Marvell repository.
+
+**For curl commands:**
+
+When downloading repository keys or list files using curl, include the ``-A`` flag:
+
+.. code-block:: bash
+
+    curl -fsSL -A 'marvell http client' https://www.marvell.com/public/repo/...
