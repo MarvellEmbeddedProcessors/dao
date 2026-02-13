@@ -18,6 +18,7 @@
 #include "liquid_crypto_asym.h"
 #include "liquid_crypto_debug.h"
 #include "liquid_crypto_op_defines.h"
+#include "liquid_crypto_pqc.h"
 #include "liquid_crypto_priv.h"
 #include "liquid_crypto_sym.h"
 #include "liquid_crypto_trs.h"
@@ -1860,12 +1861,12 @@ int
 dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_op *op,
 			      uint64_t op_cookie)
 {
-	struct __dao_lc_req_pqc *req;
+	uint32_t req_idx = 0, buf_len = 0;
 	struct liquid_crypto_dev *dev;
+	struct __dao_lc_req_pqc *req;
 	struct liquid_crypto_qp *qp;
 	struct rte_mbuf *mbuf;
 	union cpt_inst_w4 w4;
-	uint32_t req_idx = 0;
 	uint8_t *dptr;
 	int rc = 0;
 
@@ -1903,6 +1904,9 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	}
 
 	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+	buf_len = sizeof(struct __dao_lc_req_pqc);
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (unlikely(mbuf == NULL)) {
 		dao_err("Could not allocate mbuf.");
@@ -1910,21 +1914,26 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		goto idx_put;
 	}
 
-	if (sizeof(struct __dao_lc_req_pqc) > rte_pktmbuf_tailroom(mbuf)) {
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
 		dao_err("Input data doesn't fit in single segment!");
 		rc = -ENOMEM;
 		goto mbuf_free;
 	}
 
-	if (op->alg >= DAO_LC_ML_PQC_ALG_END || op->alg == 0) {
-		dao_err("Unsupported PQC algorithm: %d", op->alg);
-		rc = -EINVAL;
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("Operation data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
 		goto mbuf_free;
 	}
 
+	rc = lc_pqc_op_validate(op);
+	if (rc != 0) {
+		dao_err("Invalid PQC operation");
+		goto mbuf_free;
+	}
 #endif
 
-	rte_pktmbuf_append(mbuf, sizeof(struct __dao_lc_req_pqc));
+	rte_pktmbuf_append(mbuf, buf_len);
 
 	/* Append payload to mbuf */
 	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_pqc *);

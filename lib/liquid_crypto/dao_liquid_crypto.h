@@ -1433,6 +1433,9 @@ enum dao_lc_pqc_op_type {
 #define DAO_LC_ML_KEYPAIR_SEED_LEN      (64)
 #define DAO_LC_ML_KEM_SHARED_SECRET_LEN (32)
 
+/* FIPS 204 recommends at most 255. */
+#define DAO_LC_ML_DSA_CTX_LEN_MAX (255)
+
 #define DAO_LC_ML_KEM_512_PUB_KEY_LEN    (800)
 #define DAO_LC_ML_KEM_512_PRIV_KEY_LEN   (1632)
 #define DAO_LC_ML_KEM_512_CIPHERTEXT_LEN (768)

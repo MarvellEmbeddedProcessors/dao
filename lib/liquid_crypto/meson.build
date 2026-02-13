@@ -4,6 +4,7 @@
 sources = files(
 	'liquid_crypto_api.c',
 	'liquid_crypto_asym.c',
+	'liquid_crypto_pqc.c',
 	'liquid_crypto_sym.c',
 )
 
