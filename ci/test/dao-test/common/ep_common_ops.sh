@@ -386,6 +386,7 @@ function ep_common_rdma_test_cleanup()
 	local test_binaries=(
 		"ibv_ud_pingpong"
 		"ibv_rc_pingpong"
+		"ibv_rdma_mq_trf"
 		"udaddy"
 		)
 

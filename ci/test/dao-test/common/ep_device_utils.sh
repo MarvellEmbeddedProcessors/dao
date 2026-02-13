@@ -379,7 +379,9 @@ function ep_device_guest_rdma_cleanup()
 	# Setup RDMA device on guest
 	iface_name=$(ep_common_if_name_get $rdma_dev)
 	ip link set dev $iface_name down
-	rdma link delete rxe0
+	if rdma link show 2>/dev/null | grep -q "rxe0"; then
+		rdma link delete rxe0
+	fi
 }
 
 function ep_device_rdma_app_cleanup() {

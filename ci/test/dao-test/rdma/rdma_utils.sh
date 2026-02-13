@@ -31,6 +31,7 @@ function rdma_setup_configure()
 {
 	local host_ip=${1:-"30.0.0.3"}
 	local remote_ip=${2:-"30.0.0.11"}
+	local skip_mbuf_opts=${3:-false}
 	local ext_iface
 	local remote_iface
 	local pci_devs=""
@@ -75,6 +76,12 @@ function rdma_setup_configure()
 	# Launch RDMA application with all PCI devices
 	args=()
 	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
+	if [[ "$skip_mbuf_opts" != "true" ]]; then
+		read -r -a tmp <<< "$(form_split_args "--num-mbufs" "524288")"
+		args+=("${tmp[@]}")
+		read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "8192")"
+		args+=("${tmp[@]}")
+	fi
 	serialized_args=$(printf '%q ' "${args[@]}")
 	rdma_app_launch $serialized_args
 
@@ -101,7 +108,7 @@ function rdma_app_launch()
 	local num_mbuf=524288
 	local num_dma_desc=8192
 	local max_cores=$num_cores
-	local cpu_mask="0x3f"
+	local cpu_mask="0xf"
 	local port_mask="0x3"
 	local num_queues=1
 	local file_prefix="ep"
