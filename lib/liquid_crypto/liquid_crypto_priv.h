@@ -39,6 +39,10 @@
 			     LIQUID_CRYPTO_BUF_SDP_DATA_LEN_SZ)),                                  \
 			   LIQUID_CRYPTO_RNG_LEN_MAX))
 
+#define LIQUID_CRYPTO_MAX_SEG_SIZE                                                                 \
+	((uint16_t)((LIQUID_CRYPTO_BUF_SZ_MAX) - (RTE_PKTMBUF_HEADROOM) -                          \
+		    (LIQUID_CRYPTO_BUF_SDP_DATA_LEN_SZ)))
+
 /** Liquid crypto device */
 struct liquid_crypto_dev {
 	/** Is created */
