@@ -334,9 +334,9 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
-	if (conf->max_seg_size > LIQUID_CRYPTO_BUF_SZ_MAX) {
-		dao_err("Maximum segment size (%u) exceeds the supported value %llu.",
-			conf->max_seg_size, LIQUID_CRYPTO_BUF_SZ_MAX);
+	if (conf->max_seg_size > LIQUID_CRYPTO_MAX_SEG_SIZE) {
+		dao_err("Maximum segment size (%u) exceeds the supported value %u.",
+			conf->max_seg_size, LIQUID_CRYPTO_MAX_SEG_SIZE);
 		return -EINVAL;
 	}
 
@@ -995,8 +995,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
 
 			if (params->rng.rand_len > rand_len_max) {
-				dao_err("Invalid RNG length. rand_len should be at most %u.",
-					rand_len_max);
+				dao_err("Invalid RNG length(%u). rand_len should be at most %u.",
+					params->rng.rand_len, rand_len_max);
 				return 0;
 			}
 
@@ -1028,9 +1028,9 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 
 	max_seg_size = RTE_MAX(max_seg_size, trs_info.min_buf_len);
 
-	if (max_seg_size >
-	    (LIQUID_CRYPTO_BUF_SZ_MAX - RTE_PKTMBUF_HEADROOM - LIQUID_CRYPTO_BUF_SDP_DATA_LEN_SZ)) {
-		dao_err("Paylod length exceeds maximum supported packet size.");
+	if (max_seg_size > LIQUID_CRYPTO_MAX_SEG_SIZE) {
+		dao_err("Payload length (%d) exceeds maximum supported packet size (%d).",
+			max_seg_size, LIQUID_CRYPTO_MAX_SEG_SIZE);
 		return 0;
 	}
 
