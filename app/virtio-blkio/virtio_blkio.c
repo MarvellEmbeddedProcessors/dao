@@ -592,8 +592,9 @@ parse_args(int argc, char **argv)
 			break;
 		case 'd':
 			dma_flush_thr = parse_uint(optarg);
-			if (dma_flush_thr < 1 || dma_flush_thr > 15) {
-				APP_ERR("Invalid dma flush threshold\n");
+			if (dma_flush_thr < 1 || dma_flush_thr > DAO_DMA_MAX_POINTER) {
+				APP_ERR("Invalid dma flush threshold (max %u)\n",
+					DAO_DMA_MAX_POINTER);
 				print_usage(prgname);
 				return -1;
 			}

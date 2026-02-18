@@ -14,6 +14,40 @@ struct dao_dma_vchan_info *vchan_info_p[RTE_MAX_LCORE];
 static int16_t dma_ctrl_dev2mem_id = -1;
 static int16_t dma_ctrl_mem2dev_id = -1;
 
+static uint16_t
+resolve_flush_thr(int16_t dma_devid, uint16_t flush_thr)
+{
+	struct rte_dma_info dev_info = {0};
+
+	if (rte_dma_info_get(dma_devid, &dev_info)) {
+		dao_err("Failed to get DMA device info for devid %d", dma_devid);
+		return 0;
+	}
+
+	if (!dev_info.max_sges) {
+		dao_err("DMA device reports max_sges 0");
+		return 0;
+	}
+
+	/* Calculate default flush threshold if not specified. */
+	if (!flush_thr) {
+		flush_thr = RTE_MIN((dev_info.max_sges + 1) / 2, (uint16_t)DAO_DMA_MAX_POINTER);
+	} else {
+		if (flush_thr > DAO_DMA_MAX_POINTER) {
+			dao_err("Unsupported flush threshold %u (must be 1..%u)", flush_thr,
+				DAO_DMA_MAX_POINTER);
+			return 0;
+		}
+		if (flush_thr > dev_info.max_sges) {
+			dao_warn("Limiting flush_thr to device max_sges %u from requested %u",
+				 dev_info.max_sges, flush_thr);
+			flush_thr = dev_info.max_sges;
+		}
+	}
+
+	return flush_thr;
+}
+
 int
 dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr)
 {
@@ -25,13 +59,9 @@ dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_
 		return -1;
 	}
 
+	flush_thr = resolve_flush_thr(dma_devid, flush_thr);
 	if (!flush_thr)
-		flush_thr = DAO_DMA_MAX_POINTER_THR_DFLT;
-
-	if (flush_thr > DAO_DMA_MAX_POINTER) {
-		dao_err("Unsupported flush threshold %u\n", flush_thr);
 		return -1;
-	}
 
 	if (!vchan_info) {
 		vchan_info = rte_zmalloc("vchan_info", sizeof(struct dao_dma_vchan_info),
@@ -73,13 +103,9 @@ dao_dma_lcore_mem2dev_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_
 		return -1;
 	}
 
+	flush_thr = resolve_flush_thr(dma_devid, flush_thr);
 	if (!flush_thr)
-		flush_thr = DAO_DMA_MAX_POINTER_THR_DFLT;
-
-	if (flush_thr > DAO_DMA_MAX_POINTER) {
-		dao_err("Unsupported flush threshold %u\n", flush_thr);
 		return -1;
-	}
 
 	if (!vchan_info) {
 		vchan_info = rte_zmalloc("vchan_info", sizeof(struct dao_dma_vchan_info),

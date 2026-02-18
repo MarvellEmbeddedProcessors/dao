@@ -144,6 +144,7 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 	const uint64_t rearm_data =
 		(0x100010000ULL | PTS_RDMA_DATA_OFF | ((uint64_t)(devid + RTE_MAX_ETHPORTS) << 48));
 	uintptr_t desc_base = (uintptr_t)sq->sd_desc_base;
+	uint8_t flush_thr = dev2mem->flush_thr;
 	uint16_t buf_len, mtu;
 	uint32_t max_src_len, max_dst_len, n_sge_idx, n_mbuf_idx;
 	uint32_t mtu_limit, to_copy, len;
@@ -172,13 +173,12 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 	n_mbuf_idx = 0;
 
 	while (n_sge_idx < nb_src_segs && max_src_len > 0) {
-		if (unlikely(!dao_dma_flush(dev2mem, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!dao_dma_flush(dev2mem, flush_thr)))
 			return -1;
 
 		dst_ops = 0;
 		max_dst_len = 0;
-		while (n_mbuf_idx < n_dst_mbufs && max_src_len > 0 &&
-		       dst_ops < DAO_DMA_MAX_POINTER_THR_DFLT) {
+		while (n_mbuf_idx < n_dst_mbufs && max_src_len > 0 && dst_ops < flush_thr) {
 			mbuf_len_left = buf_len - mbuf_off;
 			dlen = RTE_MIN(mbuf_len_left, mtu_limit);
 			len = RTE_MIN(dlen, max_src_len);

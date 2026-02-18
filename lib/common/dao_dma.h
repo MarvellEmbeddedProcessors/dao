@@ -27,9 +27,6 @@
 /** DMA MAX META pointer MAX DMA POINTER  */
 #define DAO_DMA_MAX_META_POINTER 48
 
-/** DMA pointer flush threshold */
-#define DAO_DMA_MAX_POINTER_THR_DFLT 8u
-
 /** DMA Max VCHAN per lcore */
 #define DAO_DMA_MAX_VCHAN_PER_LCORE 64
 

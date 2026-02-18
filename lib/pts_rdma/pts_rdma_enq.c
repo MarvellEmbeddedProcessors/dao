@@ -118,17 +118,18 @@ read_response_process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, struct rte
 	uint32_t n_mbufs_left = nb_mbuf_segs, sge_idx = 0, n_src_mbufs, n_dst_sges;
 	uint64_t max_dst_len, max_src_len, dst_ptr, dst_len, avail, len;
 	uint64_t src_offset = 0, dst_offset = 0, sge_total, i;
+	uint8_t flush_thr = mem2dev->flush_thr;
 	struct rte_mbuf *m = mbuf, *mbuf_next;
 	struct dao_pts_rdma_sge *sges;
 
 	sges = DAO_PTS_RDMA_MBUF_TO_SGES(mbuf);
 	while (n_mbufs_left > 0 && sge_idx < nb_enq_sges) {
-		if (unlikely(!m || !dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
 
 		/* max enqueue length can be copied in this DMA instruction */
 		max_dst_len = 0;
-		for (i = 0; i < DAO_DMA_MAX_POINTER_THR_DFLT && sge_idx + i < nb_enq_sges; i++) {
+		for (i = 0; i < flush_thr && sge_idx + i < nb_enq_sges; i++) {
 			sge_total = (i == 0) ? (sges[sge_idx + i].length - dst_offset) :
 					       sges[sge_idx + i].length;
 			max_dst_len += sge_total;
@@ -136,7 +137,7 @@ read_response_process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, struct rte
 
 		max_src_len = 0;
 		n_src_mbufs = 0;
-		while (n_src_mbufs < DAO_DMA_MAX_POINTER_THR_DFLT && max_src_len < max_dst_len) {
+		while (n_src_mbufs < flush_thr && max_src_len < max_dst_len) {
 			if (n_mbufs_left == 0 || !m)
 				break;
 			avail = m->data_len - src_offset;
@@ -159,7 +160,7 @@ read_response_process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, struct rte
 			}
 		}
 		n_dst_sges = 0;
-		while (max_src_len > 0 && n_dst_sges < DAO_DMA_MAX_POINTER_THR_DFLT) {
+		while (max_src_len > 0 && n_dst_sges < flush_thr) {
 			if (sge_idx >= nb_enq_sges)
 				break;
 			dst_ptr = sges[sge_idx].addr;
@@ -189,19 +190,20 @@ read_response_process_multi_sge(struct dao_dma_vchan_state *mem2dev, struct rte_
 	uint32_t dst_sge_index = 0, n_src_mbufs, n_dst_sges;
 	uint64_t src_offset = 0, dst_offset = 0, tot_len = mbuf->pkt_len;
 	struct rte_mbuf *m = mbuf, *mbuf_next, *mbuf2;
+	uint8_t flush_thr = mem2dev->flush_thr;
 	struct dao_pts_rdma_sge *sges;
 
 	RTE_SET_USED(nb_mbuf_segs);
 	sges = DAO_PTS_RDMA_MBUF_TO_SGES(mbuf);
 	while (likely(dst_sge_index < nb_dst_sges && tot_len > 0)) {
-		if (unlikely(!m || !dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
 
 		max_src_len = 0;
 		n_src_mbufs = 0;
 		mbuf2 = m;
 		off = src_offset;
-		while (n_src_mbufs < DAO_DMA_MAX_POINTER_THR_DFLT && max_src_len < tot_len) {
+		while (n_src_mbufs < flush_thr && max_src_len < tot_len) {
 			if (!mbuf2)
 				break;
 			avail = mbuf2->data_len - off;
@@ -218,7 +220,7 @@ read_response_process_multi_sge(struct dao_dma_vchan_state *mem2dev, struct rte_
 		}
 		max_dst_len = 0;
 		n_dst_sges = 0;
-		while (n_dst_sges < DAO_DMA_MAX_POINTER_THR_DFLT && max_dst_len < max_src_len) {
+		while (n_dst_sges < flush_thr && max_dst_len < max_src_len) {
 			if (dst_sge_index >= nb_dst_sges)
 				break;
 			dst_addr = sges[dst_sge_index].addr;
@@ -241,7 +243,7 @@ read_response_process_multi_sge(struct dao_dma_vchan_state *mem2dev, struct rte_
 			dst_offset = 0;
 		}
 		n_src_mbufs = 0;
-		while (max_dst_len > 0 && n_src_mbufs < DAO_DMA_MAX_POINTER_THR_DFLT) {
+		while (max_dst_len > 0 && n_src_mbufs < flush_thr) {
 			if (!m)
 				break;
 			avail = m->data_len - src_offset;
@@ -352,6 +354,7 @@ process_rdma_read_resp_no_cqe(struct dao_dma_vchan_state *mem2dev, struct rte_mb
 static inline int
 process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 {
+	uint8_t flush_thr = mem2dev->flush_thr;
 	struct dao_pts_rdma_sge *sges;
 	struct rte_mbuf *m = NULL, *m_next;
 	uint32_t nb_segs = mbuf->nb_segs, i;
@@ -375,9 +378,9 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 	m = mbuf;
 
 	while (n_segs_left > 0) {
-		if (unlikely(!dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
-		for (i = 0; i < DAO_DMA_MAX_POINTER_THR_DFLT && n_segs_left; i++) {
+		for (i = 0; i < flush_thr && n_segs_left; i++) {
 			dao_dma_enq_src_x1(mem2dev, (uintptr_t)rte_pktmbuf_mtod(m, uint64_t *),
 					   m->data_len);
 
@@ -443,6 +446,7 @@ static __rte_always_inline int
 process_rdma_read_req(uint16_t dev_id, struct pts_rdma_qp *qp, struct dao_dma_vchan_state *dev2mem,
 		      struct rte_mbuf *mbuf, uint16_t *r_off)
 {
+	uint8_t flush_thr = dev2mem->flush_thr;
 	uint16_t r_last_off, q_sz;
 	struct rte_mbuf *m = NULL;
 	struct dao_pts_rdma_sge *sges;
@@ -478,9 +482,9 @@ process_rdma_read_req(uint16_t dev_id, struct pts_rdma_qp *qp, struct dao_dma_vc
 	sge_off = sges[0].addr;
 	m = mbuf;
 	while (n_segs_left > 0) {
-		if (unlikely(!dao_dma_flush(dev2mem, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!dao_dma_flush(dev2mem, flush_thr)))
 			return -1;
-		for (i = 0; i < DAO_DMA_MAX_POINTER_THR_DFLT && n_segs_left; i++) {
+		for (i = 0; i < flush_thr && n_segs_left; i++) {
 			dao_dma_enq_dst_x1(dev2mem, (uintptr_t)rte_pktmbuf_mtod(m, uint64_t *),
 					   m->data_len);
 			tot_len += m->data_len;
@@ -499,12 +503,12 @@ process_rdma_read_req(uint16_t dev_id, struct pts_rdma_qp *qp, struct dao_dma_vc
 
 static __rte_always_inline uint64_t
 calculate_max_dlen(uintptr_t desc_base, uint16_t ci, uint32_t sge_idx, uint32_t nb_enq_sges,
-		   uint64_t sge_offset)
+		   uint64_t sge_offset, uint8_t flush_thr)
 {
 	uint64_t max_dlen = 0, sge_len, len = 0;
 	uint32_t i = 0;
 
-	for (i = 0; i < DAO_DMA_MAX_POINTER_THR_DFLT && sge_idx + i < nb_enq_sges; i++) {
+	for (i = 0; i < flush_thr && sge_idx + i < nb_enq_sges; i++) {
 		sge_len = *RQ_DESC_PTR_OFF(desc_base, ci, 24 + 16 * (sge_idx + i)) & 0xFFFFFFFF;
 		/* If any sge bytes left from previous DMA */
 		len = (i == 0) ? (sge_len - sge_offset) : sge_len;
@@ -520,16 +524,18 @@ process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uin
 	uint32_t n_mbufs_left = mbuf->nb_segs, sge_idx = 0, n_src_mbufs, n_dst_sges;
 	uint64_t max_dst_len, max_src_len, dst_ptr, dst_len, avail, len;
 	uint64_t src_offset = 0, dst_offset = 0;
+	uint8_t flush_thr = mem2dev->flush_thr;
 	struct rte_mbuf *m = mbuf, *mbuf_next;
 
 	while (n_mbufs_left > 0 && sge_idx < nb_enq_sges) {
-		if (unlikely(!m || !dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
 		/* max enqueue length can be copied in this DMA instruction */
-		max_dst_len = calculate_max_dlen(desc_base, ci, sge_idx, nb_enq_sges, dst_offset);
+		max_dst_len = calculate_max_dlen(desc_base, ci, sge_idx, nb_enq_sges, dst_offset,
+						 flush_thr);
 		max_src_len = 0;
 		n_src_mbufs = 0;
-		while (n_src_mbufs < DAO_DMA_MAX_POINTER_THR_DFLT && max_src_len < max_dst_len) {
+		while (n_src_mbufs < flush_thr && max_src_len < max_dst_len) {
 			if (n_mbufs_left == 0 || !m)
 				break;
 			avail = m->data_len - src_offset;
@@ -552,7 +558,7 @@ process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uin
 			}
 		}
 		n_dst_sges = 0;
-		while (max_src_len > 0 && n_dst_sges < DAO_DMA_MAX_POINTER_THR_DFLT) {
+		while (max_src_len > 0 && n_dst_sges < flush_thr) {
 			if (sge_idx >= nb_enq_sges)
 				break;
 			dst_ptr = *RQ_DESC_PTR_OFF(desc_base, ci, 16 + 16 * sge_idx);
@@ -582,16 +588,17 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 	uint32_t dst_sge_index = 0, n_src_mbufs, n_dst_sges;
 	uint64_t src_offset = 0, dst_offset = 0, tot_len = mbuf->pkt_len;
 	struct rte_mbuf *m = mbuf, *mbuf_next, *mbuf2;
+	uint8_t flush_thr = mem2dev->flush_thr;
 
 	while (likely(dst_sge_index < nb_dst_sges && tot_len > 0)) {
-		if (unlikely(!m || !dao_dma_flush(mem2dev, DAO_DMA_MAX_POINTER_THR_DFLT)))
+		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
 
 		max_src_len = 0;
 		n_src_mbufs = 0;
 		mbuf2 = m;
 		off = src_offset;
-		while (n_src_mbufs < DAO_DMA_MAX_POINTER_THR_DFLT && max_src_len < tot_len) {
+		while (n_src_mbufs < flush_thr && max_src_len < tot_len) {
 			if (!mbuf2)
 				break;
 			avail = mbuf2->data_len - off;
@@ -608,7 +615,7 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 		}
 		max_dst_len = 0;
 		n_dst_sges = 0;
-		while (n_dst_sges < DAO_DMA_MAX_POINTER_THR_DFLT && max_dst_len < max_src_len) {
+		while (n_dst_sges < flush_thr && max_dst_len < max_src_len) {
 			if (dst_sge_index >= nb_dst_sges)
 				break;
 			dst_addr = *RQ_DESC_PTR_OFF(desc_base, ci, 16 + 16 * dst_sge_index);
@@ -632,7 +639,7 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 			dst_offset = 0;
 		}
 		n_src_mbufs = 0;
-		while (max_dst_len > 0 && n_src_mbufs < DAO_DMA_MAX_POINTER_THR_DFLT) {
+		while (max_dst_len > 0 && n_src_mbufs < flush_thr) {
 			if (!m)
 				break;
 			avail = m->data_len - src_offset;
