@@ -36,6 +36,7 @@ function setup_devices() {
 	local cpt_pf=""
 	local cpt_vf=""
 	local sdp_vf
+	local zip_vf
 	local devs
 
 	cpt_pf=$(lspci -d :a0fd | awk '{ print $1 }')
@@ -60,6 +61,10 @@ function setup_devices() {
 	# NPA devices
 	npa_pf=${NPA_DEV:-$(lspci -d :a0fb | tail -1 | awk '{ print $1 }')}
 	devs=$devs" $npa_pf"
+
+	# ZIP device
+	zip_vf=${ZIP_DEV:-$(lspci -d :a083 | tail -1 | awk '{ print $1 }')}
+	devs=$devs" $zip_vf"
 
 	# Bind devices
 	for d in $devs; do
@@ -91,7 +96,7 @@ setup_redirection() {
 }
 
 # Environment variables
-HP=${HP:-8}
+HP=${HP:-16}
 
 load_ep
 mount_hugetlbfs
