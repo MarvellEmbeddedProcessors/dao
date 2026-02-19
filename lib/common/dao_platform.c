@@ -10,11 +10,13 @@
 #include <dao_log.h>
 #include <dao_platform.h>
 
-#define CN10K_SUBSYS_DEVICE_ID 0xb900
-#define ILIAD_SUBSYS_DEVICE_ID 0xc100
-#define ODM_DEVICE_ID_LOW_BYTE 0x8b /* Bits <7:0> = 0x8b */
-#define PCI_SYSFS_PATH         "/sys/bus/pci/devices"
-#define PCI_VENDOR_ID_MARVELL  0x177d
+#define CN10K_SUBSYS_DEVICE_ID_106 0xb900
+#define CN10K_SUBSYS_DEVICE_ID_105 0xba00
+#define CN10K_SUBSYS_DEVICE_ID_103 0xbd00
+#define ILIAD_SUBSYS_DEVICE_ID     0xc100
+#define ODM_DEVICE_ID_LOW_BYTE     0x8b /* Bits <7:0> = 0x8b */
+#define PCI_SYSFS_PATH             "/sys/bus/pci/devices"
+#define PCI_VENDOR_ID_MARVELL      0x177d
 
 enum dao_platform
 dao_platform_detect(void)
@@ -90,7 +92,9 @@ dao_platform_detect(void)
 			dao_dbg("Detected Iliad platform via subsystem_device %04x",
 				subsystem_device);
 			break;
-		} else if (subsystem_device == CN10K_SUBSYS_DEVICE_ID) {
+		} else if (subsystem_device == CN10K_SUBSYS_DEVICE_ID_106 ||
+			   subsystem_device == CN10K_SUBSYS_DEVICE_ID_105 ||
+			   subsystem_device == CN10K_SUBSYS_DEVICE_ID_103) {
 			found_cn10k_subsys = true;
 			dao_dbg("Detected CN10K platform via subsystem_device %04x",
 				subsystem_device);
