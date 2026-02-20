@@ -2,7 +2,8 @@
 
 ## Overview
 
-The Iliad platform support includes kernel modules and setup scripts for running virtio-l2fwd application with vhost-net kernel interface support.
+The Iliad platform support provides the components and software used to establish a network connection between the Iliad host and board over PCIe.
+The speed of the connection is **10Gbps** with default MTU (1500).
 
 ## Components
 
@@ -34,10 +35,7 @@ The `octep_cxl_quirk` module solves this by creating a platform device that expo
 ### How It Works
 
 1. The quirk module identifies the CXL PCI device
-2. It extracts unused resources:
-   - ODM BAR0 space (at offset of CXL PCI device BAR0, for ODM DMA operations)
-   - PEM BAR4 space (CXL PCI device BAR4, for PEM shared memory)
-   - ODM unused MSI-X vectors (vectors 8-15 from CXL PCI device interrupts, for ODM interrupt delivery)
+2. It extracts unused resources (ODM BAR0, PEM BAR4, MSI-X vectors 8–15)
 3. It creates a platform device (`octep_vdpa_plat`) with these resources
 4. The OCTEON EP vDPA platform driver (`octep_vdpa_plat.ko`) probes this platform device
 5. This enables the vDPA driver to use ODM block for DMA and interrupt delivery, and PEM block for shared memory, independently of CXL
@@ -58,86 +56,83 @@ This architecture allows both CXL and ODM/vDPA functionality to coexist on the s
 - PCIe devices with vendor:device IDs:
   - PF: 177d:a08b
   - VF: 177d:a08c
-- Minimum 2GB RAM for hugepages
+- Minimum 5GB RAM for hugepages
 - IOMMU-capable system
 
-## Limitations
+## Build Instructions
 
-### Transfer Rate Limitation
+### Building dao_virtio_l2fwd Application
 
-**Current Limitation**: The Iliad platform currently supports transfer rates up to **500 Mbps** between host and device.
+To build `dao-virtio-l2fwd`, follow [Compiling DAO from sources](../../doc/guides/gsg/build.rst). Use the `cn10k` configuration for compatibility with the Iliad platform.
 
-#### Why This Happens
+### Building board kernel modules
 
-At high transfer rates, the ODM DMA engine experiences stalls where completion notifications are not received for some operations. This causes the DMA queue to appear stuck, blocking further data transfers until the system recovers or times out.
+For getting sources and creating the meson build folder with the cn10k config file and `kernel_dir`, see [Compiling DAO from sources](../../doc/guides/gsg/build.rst).
 
-#### Solution: Rate Limit on Host Interface
-
-To prevent this, configure a fixed bandwidth limit on the host's virtio interface that matches what the device can sustain. This allows TCP to operate smoothly without triggering congestion control.
-
-**Configure host interface rate limit (one-time setup after vDPA device creation):**
+Then build the character device module:
 
 ```bash
-# Set rate limit to 500 Mbps on host virtio interface
-sudo tc qdisc add dev <interface> root tbf rate 500mbit burst 256kb latency 50ms
+ninja -C <build_dir> kmod/iliad/iliad_cdev/iliad_cdev.ko
 ```
 
-Replace `<interface>` with the actual virtio interface name on the host (e.g., `ens513`).
+### Building host kernel modules
 
-**To verify the rate limit:**
+The host modules (`octep_vdpa_plat.ko` and `octep_cxl_quirk.ko`) are the OCTEON EP vDPA platform driver and the CXL quirk module used on the host. They must be built with native compilation on the x86 host where they will be loaded.
+
+**Kernel configuration**: Ensure the following are enabled in the kernel used for building (e.g. in `$kernel_dir/.config` or your running kernel's config):
+
+- `CONFIG_VDPA=y`
+- `CONFIG_VHOST_IOTLB=y`
+- `CONFIG_VHOST=y`
+- `CONFIG_VHOST_VDPA=y`
+- `CONFIG_VIRTIO_VDPA=y`
+
+Create a meson build folder with the host kernel source:
 
 ```bash
-tc qdisc show dev <interface>
+meson build -Dkernel_dir=/lib/modules/$(uname -r)/build
 ```
 
-**To remove the rate limit:**
+Then build the platform and quirk modules:
 
 ```bash
-sudo tc qdisc del dev <interface> root
+ninja -C build kmod/vdpa/octeon_ep/octep_vdpa_plat.ko
+ninja -C build kmod/iliad/octep_cxl_quirk/octep_cxl_quirk.ko
 ```
-
-**Note**: This rate limit should be configured on the **host side** interface that connects to the device. The limit ensures TCP operates within the device's processing capacity, preventing congestion-induced stalls.
-
-## Building Kernel Modules
-
-The modules can be built using meson:
-
-```bash
-# Cross-compile for ARM64 (iliad_cdev)
-ninja kmod/iliad/iliad_cdev/iliad_cdev.ko
-
-# Native build for x86 (octep_cxl_quirk)
-ninja kmod/iliad/octep_cxl_quirk/octep_cxl_quirk.ko
-```
-
-The modules will be built in the build directory:
-- `build/kmod/iliad/iliad_cdev/iliad_cdev.ko` - Character device module for endpoint
-- `build/kmod/iliad/octep_cxl_quirk/octep_cxl_quirk.ko` - Quirk module for host
-
-**Note**: The `octep_cxl_quirk` module must be built natively on the x86 host system where it will be loaded, as it interacts with the CXL PCI device on the host.
 
 ## Quick Start
 
-The `run_virtio_l2fwd_iliad.sh` script automates the complete setup and execution:
+The `run_virtio_l2fwd_iliad.sh` script automates the complete setup and execution. The script expects the ODM PF driver service and binaries to be present in the rootfs.
+If they are not, see [accelerator-odm-userspace-pf-driver](https://github.com/Marvell-Lab/accelerator-odm-userspace-pf-driver).
+
+**Foreground mode** (Ctrl+C to stop):
 
 ```bash
-cd /path/to/your/dpu-offload
+cd /path/to/your/script
 sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
 ```
 
-This will:
-1. Enable SR-IOV in vfio_pci module (if not already enabled)
-2. Start the odm_pf_driver.service (if not already running)
-3. Auto-detect ODM VF devices (device ID `177d:a08c`)
-4. Setup hugepages (5GB by default, automatically calculates pages based on system hugepage size)
+**Daemon mode** (returns to shell immediately; application runs in background):
+
+```bash
+sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh -d
+# Monitor logs:
+tail -f /var/log/virtio-l2fwd.log
+# Stop the daemon (use the PID printed by the script):
+kill -SIGINT <PID>
+```
+
+In both modes, the script will:
+1. Setup hugepages (5GB by default, automatically calculates pages based on system hugepage size)
+2. Enable SR-IOV in vfio_pci module (if not already enabled)
+3. Start the odm_pf_driver.service (if not already running)
+4. Auto-detect ODM VF devices (device ID `177d:a08c`)
 5. Bind VF devices to vfio-pci driver
 6. Load the iliad_cdev kernel module (tries modprobe first, then insmod)
 7. Load vhost-net kernel module
 8. Extract VF UUID from service logs
 9. Launch the virtio-l2fwd application with default settings
-10. Configure the kernel network interface (MTU, TX queue length)
-
-**Note**: The script is idempotent - it checks the state of each component and only performs actions if needed. You can run it multiple times safely.
+10. Configure the kernel network interface (MTU, tx queue length via `VIRTIO_NET_TX_QUEUE_LEN`)
 
 ## Script Parameters
 
@@ -181,7 +176,7 @@ The script supports configuration via environment variables. All configuration v
 
 | Environment Variable | Description | Default Value |
 |---------------------|-------------|---------------|
-| `CORES` | CPU cores to use (e.g., "2-6") | `2-6` |
+| `CORES` | CPU cores to use (e.g., "2-5") | `2-5` |
 | `DMA_THRESH` | DMA flush threshold | `2` |
 | `SW_FREE` | Enable software mbuf freeing (set to `1` to enable) | `1` |
 | `VIRTIO_MASK` | Virtio mask | `0x1` |
@@ -190,27 +185,25 @@ The script supports configuration via environment variables. All configuration v
 | `GDB_DEBUG` | Run with gdb --args (set to `1` to enable) | `0` |
 | `DAEMON_MODE` | Run in background (set to `1` to enable, or use `--daemon`) | `0` |
 | `DAEMON_LOG` | Log file path for daemon mode output | `/var/log/virtio-l2fwd.log` |
-| `VHOST_IFACE` | Kernel interface name | `virtio_user0` |
+| `VHOST_IFACE` | Kernel interface name (virtio_net/vhost_net) | `virtio_user0` |
 | `VHOST_QUEUES` | Number of queues | `64` |
 | `VHOST_QUEUE_SIZE` | Vring size | `1024` |
-| `TXQUEUELEN` | TX queue length for kernel interface | `10000` |
-| `NUM_MBUFS` | Number of mbufs (optional, uses app default if not set) | *(empty)* |
-| `MAX_PKT_LEN` | Maximum packet length | `9600` |
-| `POOL_BUF_LEN` | Mbuf pool buffer length | `10240` |
-| `MTU` | MTU for kernel interface | `9000` |
+| `VIRTIO_NET_TX_QUEUE_LEN` | Tx queue length of the virtio_net interface (vhost_net backend) | `10000` |
+| `KMOD_PATH` | Path to `iliad_cdev.ko` (overrides default `$SCRIPT_DIR/iliad_cdev.ko`; same as `--kmod-path`) | `$SCRIPT_DIR/iliad_cdev.ko` |
+| `NUM_MBUFS` | Number of mbufs; passed only when set | *(unset)* |
+| `MAX_PKT_LEN` | Maximum packet length; passed only when set | *(unset)* |
+| `POOL_BUF_LEN` | Mbuf pool buffer length; passed only when set | *(unset)* |
+| `MTU` | MTU for kernel interface; applied only when set | *(unset)* |
 
-### Usage Examples
+### Configuration Examples
 
 ```bash
 # Use default configuration (creates kernel interface 'virtio_user0')
 sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
 
-# Override specific values
-CORES="4-8" DMA_THRESH=4 sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
-
-# Override multiple values with custom interface name and more hugepage memory
-CORES="2-4" VHOST_IFACE="vhost0" HUGEPAGE_MEM_GB=8 \
-    sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
+# Override values with custom interface name, hugepage memory, and virtio_net tx queue length
+sudo VHOST_IFACE="vhost0" HUGEPAGE_MEM_GB=8 VIRTIO_NET_TX_QUEUE_LEN=16384 \
+    ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
 
 # Run in daemon mode (background, logs to /var/log/virtio-l2fwd.log)
 sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh --daemon
@@ -220,30 +213,7 @@ DAEMON_LOG=/tmp/l2fwd.log sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh --
 
 # Monitor daemon logs
 tail -f /var/log/virtio-l2fwd.log
-
-# Override mbuf count if needed
-NUM_MBUFS=262144 sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
 ```
-
-**Note**: Environment variables can be exported in your shell session or set inline before the command. The script will use the provided values or fall back to defaults if not set.
-
-## Auto-Detection
-
-The script automatically detects:
-
-### Device Detection
-
-- **ODM VF Devices**: Searches for device ID `177d:a08c` using `lspci -d 177d:a08c`
-
-All detected ODM VF devices are automatically used for binding and application launch.
-
-### Executable Detection
-
-The script automatically finds executables using `which`, with fallback to current directory:
-
-- **oxk-devbind-basic.sh**: Searches PATH, then `./oxk-devbind-basic.sh`
-- **dao-virtio-l2fwd**: Searches PATH, then `./dao-virtio-l2fwd` (or use `--app-path`)
-- **iliad_cdev.ko**: Defaults to script directory (`$SCRIPT_DIR/iliad_cdev.ko`), tries `modprobe iliad_cdev` first (or use `--kmod-path`)
 
 ## What the Script Does
 
@@ -254,94 +224,64 @@ The script automatically finds executables using `which`, with fallback to curre
 - Calculates required number of pages based on `HUGEPAGE_MEM_GB` (default: 5GB)
 - Allocates hugepages (only if current value is less than required)
 
-### 2. Setup ODM (SR-IOV, Service, VF Binding)
+### 2. Setup ODM (SR-IOV and Service)
 - **Enable SR-IOV**: Checks if enabled, enables only if needed
 - **Start ODM Service**: Checks if running, starts only if needed
-- **Bind VF Devices**: Binds all detected VF devices to vfio-pci driver
 
-### 3. Load Kernel Module
+### 3. Detect and Bind ODM VFs
+- Detects all ODM VF devices with PCI ID `177d:a08c` using `lspci`
+- Binds all detected VF devices to vfio-pci driver via `oxk-devbind-basic.sh`
+
+### 4. Load Kernel Module
 The script tries to load the kernel module in this order:
 1. Check if already loaded (skip if yes)
 2. `modprobe iliad_cdev` (if module is installed)
-3. `insmod <KMOD_PATH>` (from specified path or `./iliad_cdev.ko`)
+3. `insmod <KMOD_PATH>` (from specified path or `$SCRIPT_DIR/iliad_cdev.ko`)
 
-### 4. Get UUID
+### 5. Load vhost-net Module
+Loads the `vhost-net` kernel module if `/dev/vhost-net` does not exist yet.
+
+### 6. Get UUID
 Extracts VF UUID from odm_pf_driver.service logs.
 
-### 5. Launch Application
+### 7. Launch Application
 Runs dao-virtio-l2fwd with all detected devices and configuration.
 
-## Examples
-
-### Example 1: Basic Run with Auto-Detection
-
-Run the script with default settings. All executables and kernel modules are auto-detected:
-
-```bash
-cd /path/to/your/dpu-offload
-sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh
-```
-
-### Example 2: Custom Application Path
-
-Specify a custom path to the `dao-virtio-l2fwd` executable:
-
-```bash
-sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh \
-    --app-path /path/to/dao-virtio-l2fwd
-```
-
-### Example 3: Custom Kernel Module Path
-
-Specify a custom path to the `iliad_cdev.ko` kernel module:
-
-```bash
-sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh \
-    --kmod-path build/kmod/iliad/iliad_cdev/iliad_cdev.ko
-```
-
-### Example 4: Both Custom Paths
-
-Specify both application and kernel module paths:
-
-```bash
-sudo ./kmod/iliad/scripts/run_virtio_l2fwd_iliad.sh \
-    --app-path /path/to/your/dpu-offload/build/app/virtio-l2fwd/dao-virtio-l2fwd \
-    --kmod-path /path/to/your/dpu-offload/build/kmod/iliad/iliad_cdev/iliad_cdev.ko
-```
+### 8. Tune Interface
+Waits for the kernel interface (`VHOST_IFACE`) to appear, then brings it up and applies `VIRTIO_NET_TX_QUEUE_LEN` and `MTU` when set.
 
 ## Manual Setup (if script fails)
 
 If you need to run steps manually:
 
-1. **Enable SR-IOV**:
-   ```bash
-   echo 1 | sudo tee /sys/module/vfio_pci/parameters/enable_sriov
-   ```
-
-2. **Start service and get UUID**:
-   ```bash
-   sudo systemctl enable odm_pf_driver.service
-   sudo systemctl start odm_pf_driver.service
-   sudo journalctl -u odm_pf_driver.service | grep "Generated UUID"
-   ```
-
-3. **Detect devices**:
-   ```bash
-   # PF device
-   lspci -d 177d:a08b
-
-   # VF devices
-   lspci -d 177d:a08c
-   ```
-
-4. **Setup hugepages** (calculate pages based on your system's hugepage size):
+1. **Setup hugepages** (calculate pages based on your system's hugepage size):
    ```bash
    sudo mkdir -p /dev/hugepages/
    sudo mount -t hugetlbfs nodev /dev/hugepages/
    # Check hugepage size: grep Hugepagesize /proc/meminfo
    # For 512MB pages, 10 pages = 5GB; for 2MB pages, 2560 pages = 5GB
    echo <num_pages> | sudo tee /proc/sys/vm/nr_hugepages
+   ```
+
+2. **Enable SR-IOV**:
+   ```bash
+   echo 1 | sudo tee /sys/module/vfio_pci/parameters/enable_sriov
+   ```
+
+3. **Start service and get UUID**:
+   ```bash
+   sudo systemctl enable odm_pf_driver.service
+   sudo systemctl start odm_pf_driver.service
+   sudo journalctl -u odm_pf_driver.service | grep "Generated UUID"
+   ```
+
+4. **Detect devices**:
+   ```bash
+   # PF device
+   lspci -d 177d:a08b
+
+   # VF devices
+   lspci -d 177d:a08c
    ```
 
 5. **Bind VF devices**:
@@ -363,20 +303,18 @@ If you need to run steps manually:
 
 8. **Run application** (replace `<UUID>` and `<vf_devices>` with actual values):
    ```bash
-   sudo ./dao-virtio-l2fwd -l 2-6 \
+   sudo ./dao-virtio-l2fwd -l 2-5 \
        -a <vf_device1> -a <vf_device2> ... \
        --vfio-vf-token=<UUID> \
        --vdev=net_virtio_user0,path=/dev/vhost-net,iface=virtio_user0,queues=64,queue_size=1024 \
-       -- -d 2 -v 0x1 -y 0 -p 0x1 -P \
-       --max-pkt-len=9600 --pool-buf-len=10240 -f
+       -- -d 2 -v 0x1 -y 0 -p 0x1 -P -f
    ```
 
-   This will create a kernel network interface named `virtio_user0` that can be configured
-   using standard networking tools like `ip` or `ifconfig`.
+   This creates the kernel network interface (default: `virtio_user0`).
 
 ## Kernel Network Interface (vhost-net)
 
-The virtio-l2fwd application uses the `net_virtio_user` DPDK driver with the vhost-net kernel module to create a kernel network interface. When the application starts, it automatically creates a network interface (default: `virtio_user0`) that can be used for kernel networking.
+The virtio-l2fwd application uses the `net_virtio_user` DPDK driver with the vhost-net kernel module to create a kernel network interface. When the application starts, it automatically creates a network interface (default: `virtio_user0`).
 
 ### How It Works
 
@@ -386,12 +324,9 @@ The virtio-l2fwd application uses the `net_virtio_user` DPDK driver with the vho
 
 ### Configuring the Kernel Interface
 
-After the application starts, configure the interface:
+The script automatically brings up the interface and applies `VIRTIO_NET_TX_QUEUE_LEN` (tx queue length) and `MTU` when set. After the application starts, assign an address and use the interface:
 
 ```bash
-# Bring up the interface
-ip link set virtio_user0 up
-
 # Assign an IP address
 ip addr add 192.168.1.100/24 dev virtio_user0
 
@@ -412,35 +347,24 @@ Load the quirk module to create a vDPA platform device from the CXL PCI device:
 # Load the quirk module (built in build/kmod/iliad/octep_cxl_quirk/)
 insmod build/kmod/iliad/octep_cxl_quirk/octep_cxl_quirk.ko
 
-# OR if installed system-wide
-modprobe octep_cxl_quirk
-```
-**Verify the module loaded successfully:**
-```bash
-# Check if module is loaded
-lsmod | grep octep_cxl_quirk
-
 # Check if platform device was created
 ls -l /sys/bus/platform/devices/octep_vdpa_plat
-
-# Check kernel messages for quirk module activity
-dmesg | grep -i "octep.*quirk\|octep.*vdpa.*platform"
 ```
-
-Expected output should show the platform device registration message.
 
 ### Load vDPA Platform Driver
 
-Load the vDPA platform driver:
+Load the vDPA platform driver (use the path where you built `octep_vdpa_plat.ko`; see [Building host kernel modules](#building-host-kernel-modules)):
 
 ```bash
 modprobe virtio_vdpa
-insmod octep_vdpa_plat.ko
+insmod build/kmod/vdpa/octeon_ep/octep_vdpa_plat.ko
+# OR if installed system-wide:
+# modprobe octep_vdpa_plat
 ```
 
 ### Stop NetworkManager
 
-Stop the NetworkManager service:
+NetworkManager may remove or overwrite addresses you set manually on the vDPA/virtio interfaces. Stop it so your configured addresses stay in place.
 
 ```bash
 sudo service NetworkManager stop
@@ -454,30 +378,71 @@ Create a vDPA device named `vdpa0` using the platform management device:
 vdpa dev add name vdpa0 mgmtdev platform/octep_vdpa_plat
 ```
 
-This step creates a kernel interface that enables communication with the board.
+### Verify vDPA Device and Kernel Interface
 
-### Delete vDPA Device
-
-To remove the vDPA device when no longer needed:
+The virtio_vdpa driver probes the vDPA device, registers a virtio network device with the kernel and virtio_net binds to it to create a kernel interface.
+Check that the vDPA device and the kernel network interface were created:
 
 ```bash
-vdpa dev del vdpa0
+# List vDPA devices
+vdpa dev show
+
+# virtio_vdpa creates a kernel interface (e.g. virtio_user0)
+ip link show
 ```
 
-This removes the vDPA device and frees associated resources.
+Assign an IP address on the host in the same network as the board, then verify connectivity:
 
-## Notes
+```bash
+# Assign IP in the same subnet as the board (use the interface name from ip link show)
+sudo ip addr add 192.168.1.101/24 dev <host_interface>
 
-- The script must be run as root (use `sudo`)
-- The script uses `set -e` to exit on any error
-- All configuration can be overridden via environment variables
-- Devices and executables are auto-detected
-- The UUID is automatically extracted from systemd journal logs
-- Kernel module loading tries `modprobe` first, then `insmod`
-- The script is idempotent - safe to run multiple times
-- Press Ctrl+C to gracefully stop the application (waits up to 5 seconds before force kill)
-- Use `--daemon` mode to run in background; logs go to `/var/log/virtio-l2fwd.log` by default
-- Stop daemon with `kill -SIGINT <PID>`
+# Bring the interface up
+sudo ip link set <host_interface> up
+
+# Ping the board (use the IP you assigned on the board, e.g. on virtio_user0)
+ping 192.168.1.100
+```
+
+Replace `<host_interface>` with the actual interface name from `ip link show`.
+
+## Cleanup / Unload
+
+Cleanup is the reverse of the load sequence: perform steps on the **host** first, then on the **board**.
+
+### On the host
+
+1. **Delete the vDPA device** (removes the virtio_net kernel interface):
+
+   ```bash
+   vdpa dev del vdpa0
+   ```
+
+2. **Unload the vDPA platform driver**:
+
+   ```bash
+   rmmod octep_vdpa_plat
+   # If installed: modprobe -r octep_vdpa_plat
+   ```
+
+3. **Unload the quirk module**:
+
+   ```bash
+   rmmod octep_cxl_quirk
+   # If installed: modprobe -r octep_cxl_quirk
+   ```
+
+4. **(Optional)** Restart NetworkManager if you stopped it:
+
+   ```bash
+   sudo service NetworkManager start
+   ```
+
+### On the board
+
+1. **Stop the virtio-l2fwd application**:
+   - If running in the foreground: press **Ctrl+C**.
+   - If running as a daemon: find the PID and send SIGINT, e.g. `kill -SIGINT <PID>` or `kill -2 <PID>`. If the process does not exit after a while, send SIGKILL: `kill -SIGKILL <PID>` or `kill -9 <PID>`.
 
 ## Directory Structure
 
@@ -493,6 +458,6 @@ kmod/iliad/
 │   ├── meson.build
 │   ├── octep_cxl_quirk.c
 │   └── Makefile
-└── scripts/                     # Setup scripts
+└── scripts/                     # Setup script
     └── run_virtio_l2fwd_iliad.sh
 ```

@@ -7,25 +7,25 @@
 set -e
 
 # Configuration (override via environment variables)
-CORES=${CORES:-"2-6"}
+CORES=${CORES:-"2-5"}
 DMA_THRESH=${DMA_THRESH:-2}
 SW_FREE=${SW_FREE:-1}
 NUM_MBUFS=${NUM_MBUFS:-}
-MAX_PKT_LEN=${MAX_PKT_LEN:-9600}
-POOL_BUF_LEN=${POOL_BUF_LEN:-10240}
+MAX_PKT_LEN=${MAX_PKT_LEN:-}
+POOL_BUF_LEN=${POOL_BUF_LEN:-}
 VIRTIO_MASK=${VIRTIO_MASK:-"0x1"}
 HUGEPAGE_MEM_GB=${HUGEPAGE_MEM_GB:-5}
 VERBOSE_STATS=${VERBOSE_STATS:-0}
 GDB_DEBUG=${GDB_DEBUG:-0}
 DAEMON_MODE=${DAEMON_MODE:-0}
 DAEMON_LOG=${DAEMON_LOG:-"/var/log/virtio-l2fwd.log"}
-TXQUEUELEN=${TXQUEUELEN:-10000}
-MTU=${MTU:-9000}
+MTU=${MTU:-}
 
 # Vhost options
 VHOST_IFACE=${VHOST_IFACE:-"virtio_user0"}
 VHOST_QUEUES=${VHOST_QUEUES:-64}
 VHOST_QUEUE_SIZE=${VHOST_QUEUE_SIZE:-1024}
+VIRTIO_NET_TX_QUEUE_LEN=${VIRTIO_NET_TX_QUEUE_LEN:-10000}
 
 # ODM VF PCI device ID
 ODM_VF_DEVICE_ID="177d:a08c"
@@ -66,11 +66,10 @@ Environment variables (with defaults):
 Vhost configuration:
   VHOST_IFACE=$VHOST_IFACE  VHOST_QUEUES=$VHOST_QUEUES
   VHOST_QUEUE_SIZE=$VHOST_QUEUE_SIZE (vring size)
-  TXQUEUELEN=$TXQUEUELEN  NUM_MBUFS=  (optional, no default)
+  VIRTIO_NET_TX_QUEUE_LEN=$VIRTIO_NET_TX_QUEUE_LEN (virtio_net tx queue)  NUM_MBUFS=  (optional, no default)
 
-Optional (for jumbo frames):
-  MAX_PKT_LEN=$MAX_PKT_LEN  POOL_BUF_LEN=$POOL_BUF_LEN  MTU=$MTU
-  Example: MAX_PKT_LEN=9600 POOL_BUF_LEN=10240 MTU=9000 $0
+Optional (unset by default, passed only when specified):
+  NUM_MBUFS=<n>  MAX_PKT_LEN=<n>  POOL_BUF_LEN=<n>  MTU=<n>
 EOF
 }
 
@@ -182,7 +181,8 @@ build_app_command() {
     APP_CMD+=(--vdev="$vdev")
     APP_CMD+=(--)
     APP_CMD+=(-d "$DMA_THRESH" -v "$VIRTIO_MASK" -y 0 -p 0x1 -P)
-    APP_CMD+=(--max-pkt-len="$MAX_PKT_LEN" --pool-buf-len="$POOL_BUF_LEN")
+    [[ -n "$MAX_PKT_LEN" ]] && APP_CMD+=(--max-pkt-len="$MAX_PKT_LEN") || true
+    [[ -n "$POOL_BUF_LEN" ]] && APP_CMD+=(--pool-buf-len="$POOL_BUF_LEN") || true
     [[ -n "$NUM_MBUFS" ]] && APP_CMD+=(--max-num-mbufs="$NUM_MBUFS") || true
     [[ "$SW_FREE" == "1" ]] && APP_CMD+=(-f) || true
     [[ "$VERBOSE_STATS" == "1" ]] && APP_CMD+=(-s) || true
@@ -203,7 +203,7 @@ tune_interface() {
 
     sleep 1
     ip link set "$iface" up 2>/dev/null || true
-    [[ -n "$TXQUEUELEN" ]] && ip link set "$iface" txqueuelen "$TXQUEUELEN" 2>/dev/null || true
+    [[ -n "$VIRTIO_NET_TX_QUEUE_LEN" ]] && ip link set "$iface" txqueuelen "$VIRTIO_NET_TX_QUEUE_LEN" 2>/dev/null || true
     [[ -n "$MTU" ]] && ip link set "$iface" mtu "$MTU" 2>/dev/null || true
 
     local mtu=$(cat /sys/class/net/$iface/mtu 2>/dev/null || echo '?')
@@ -256,7 +256,7 @@ main() {
 
     local gdb_prefix=""; [[ "$GDB_DEBUG" == "1" ]] && gdb_prefix="gdb --args " || true
     echo "Command: ${gdb_prefix}${APP_CMD[*]}"
-    echo "Interface '$VHOST_IFACE' will be created (MTU=$MTU, queue_size=$VHOST_QUEUE_SIZE)."
+    echo "Interface '$VHOST_IFACE' will be created (MTU=${MTU:-default}, queue_size=$VHOST_QUEUE_SIZE)."
     echo "Configure with: ip addr add <IP>/<PREFIX> dev $VHOST_IFACE"
 
     if [[ "$GDB_DEBUG" == "1" ]]; then
@@ -268,7 +268,7 @@ main() {
         tune_interface "$VHOST_IFACE"
         kill -0 "$APP_PID" 2>/dev/null || die "Application crashed (check $DAEMON_LOG)"
         disown "$APP_PID"
-        log "Daemon running (PID: $APP_PID). Stop with: kill -SIGINT $APP_PID"
+        log "Daemon running (PID: $APP_PID). Stop with: kill -SIGINT $APP_PID (or kill -9 $APP_PID if it doesn't exit)"
     else
         "${APP_CMD[@]}" &
         APP_PID=$!
