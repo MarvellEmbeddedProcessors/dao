@@ -2,8 +2,6 @@
 # SPDX-License-Identifier: Marvell-MIT
 # Copyright (c) 2025 Marvell.
 
-# Export CROSS_COMPILE as "aarch64-marvell-linux-gnu" while building for cn9k.
-
 set -euo pipefail
 shopt -s extglob
 
@@ -57,6 +55,11 @@ HOST_DPDK_BRANCH="v25.11"
 ALL_DEPS="dpdk libnl libpcap grpc libconfig"
 DEPS_TO_BUILD=${3:-$ALL_DEPS}
 PKGCONFIG=${PKGCONFIG:-aarch64-linux-gnu-pkg-config}
+
+# Set CROSS_COMPILE as "aarch64-marvell-linux-gnu" while building for cn9k.
+if [ ${PLAT} == "cn9k" ] ; then
+  CROSS_COMPILE=aarch64-marvell-linux-gnu
+fi
 
 # libnl variables
 LIBNL_BUILD_DIR=$BUILD_DEPS_ROOT/libnl
