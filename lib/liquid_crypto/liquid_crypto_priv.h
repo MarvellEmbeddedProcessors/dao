@@ -57,6 +57,8 @@ struct liquid_crypto_dev {
 	uint8_t nb_ports;
 	/** Port info of each eth port */
 	struct dao_eth_trs_port_info port_info;
+	/* Active sessions count */
+	uint32_t active_sess_count;
 } __rte_cache_aligned;
 
 /** Liquid crypto queue pair */

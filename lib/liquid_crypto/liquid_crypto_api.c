@@ -211,6 +211,7 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 
 	dev->nb_ports = port_info->nb_ports;
 	dev->is_created = true;
+	dev->active_sess_count = 0;
 
 	return 0;
 
@@ -234,6 +235,12 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 	}
 
 	dev = &liquid_crypto_devs[dev_id];
+
+	if (dev->active_sess_count > 0) {
+		dao_err("Device %u has %u active sessions. Cannot destroy device.", dev_id,
+			dev->active_sess_count);
+		return -EBUSY;
+	}
 
 	if (dev->is_created) {
 		for (i = 0; i < dev->nb_ports; i++) {
@@ -3379,6 +3386,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 	struct liquid_crypto_qp *qp;
 	struct __dao_lc_hdr *lc_hdr;
 	uint16_t nb_rx, i;
+	int rc;
 
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
@@ -3433,6 +3441,7 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 				events[i].sess_event.sess_id = (uint64_t)req->sess_meta;
 				liquid_crypto_sym_sess_meta_insert(req->sess_meta,
 								   sess_create->sess_id);
+				dev->active_sess_count++;
 			}
 			break;
 		case DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY:
@@ -3440,8 +3449,10 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 				rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_resp_sess_destroy *);
 			events[i].event_type = DAO_LC_CMD_EVENT_SESS_DESTROY;
 			events[i].sess_event.sess_cookie = req->op_cookie;
-			liquid_crypto_sym_sess_meta_remove(sess_destroy->sess_id,
-							   &events[i].sess_event.sess_id);
+			rc = liquid_crypto_sym_sess_meta_remove(sess_destroy->sess_id,
+								&events[i].sess_event.sess_id);
+			if ((rc == 0) && (dev->active_sess_count > 0))
+				dev->active_sess_count--;
 			break;
 		default:
 			dao_err("Invalid op_type.");
