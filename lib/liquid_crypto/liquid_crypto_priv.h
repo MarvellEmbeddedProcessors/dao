@@ -61,7 +61,7 @@ struct liquid_crypto_dev {
 	uint8_t nb_ports;
 	/** Port info of each eth port */
 	struct dao_eth_trs_port_info port_info;
-	/* Active sessions count */
+	/** Active sessions count */
 	uint32_t active_sess_count;
 } __rte_cache_aligned;
 
@@ -71,6 +71,8 @@ struct liquid_crypto_qp {
 	uint16_t port_id;
 	/** Ethernet queue ID */
 	uint16_t queue_id;
+	/** Queue pair configuration count */
+	uint32_t qp_config_count;
 	/** RX mempool */
 	struct rte_mempool *rx_mp;
 	/** TX mempool */

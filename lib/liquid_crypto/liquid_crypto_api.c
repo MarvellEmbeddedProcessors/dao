@@ -32,7 +32,7 @@ static struct dao_lc_info lc_info;
 static struct liquid_crypto_dev liquid_crypto_devs[DAO_CRYPTO_MAX_NB_DEV];
 
 /** Forward declarations */
-static int liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id);
+static int liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id, bool is_qp_reconfigure);
 
 static struct dao_lc_grpc_ctx *lc_ctx;
 
@@ -261,7 +261,7 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 
 	if (dev->is_created) {
 		for (i = 0; i < dev->nb_qp; i++) {
-			rc = liquid_crypto_qp_free(dev_id, i);
+			rc = liquid_crypto_qp_free(dev_id, i, false);
 			if (rc != 0)
 				dao_err("Could not destroy queue pair (%d. %d)", dev_id, i);
 		}
@@ -280,12 +280,15 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 {
 	struct dao_eth_trs_queue_config trs_queue_conf;
 	uint16_t nb_desc, max_seg_size, desc_watermark;
+	struct liquid_crypto_qp *qp_prev = NULL;
 	struct dao_lc_eth_qconf card_qp_conf;
 	struct dao_eth_trs_info trs_info;
 	uint16_t min_seg_sz, max_seg_sz;
 	char name[RTE_MEMZONE_NAMESIZE];
+	bool is_qp_reconfigure = false;
 	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
+	uint32_t qp_config_count = 0;
 	struct liquid_crypto_qp *qp;
 	struct rte_mempool *mp;
 	uint32_t bm_mem_size;
@@ -300,6 +303,15 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	if (dev_id >= lc_info.nb_dev) {
 		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
 		return -EINVAL;
+	}
+
+	dev = &liquid_crypto_devs[dev_id];
+
+	/* Free existing QP if already configured */
+	if (dev->qp[qp_id] != NULL) {
+		liquid_crypto_qp_free(dev_id, qp_id, true);
+		is_qp_reconfigure = true;
+		qp_prev = dev->qp[qp_id];
 	}
 
 	memset(&trs_queue_conf, 0, sizeof(trs_queue_conf));
@@ -352,7 +364,10 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
-	snprintf(name, sizeof(name), "lc_qp_%hhu_%hu", dev_id, qp_id);
+	if (is_qp_reconfigure)
+		qp_config_count = qp_prev->qp_config_count;
+
+	snprintf(name, sizeof(name), "lc_qp_%hhu_%hu_%hu", dev_id, qp_id, (qp_config_count % 2));
 
 	qp = rte_zmalloc(name, sizeof(*qp), 0);
 	if (qp == NULL) {
@@ -365,7 +380,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	max_seg_size = conf->max_seg_size;
 
-	snprintf(name, sizeof(name), "lc_rx_mp_%hhu_%hu", dev_id, qp_id);
+	snprintf(name, sizeof(name), "lc_rx_mp_%hhu_%hu_%hu", dev_id, qp_id, (qp_config_count % 2));
 
 	/*
 	 * Create Rx & Tx pools. To allow for some packets inflight and since mempool_alloc is
@@ -384,7 +399,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 
 	qp->rx_mp = mp;
 
-	snprintf(name, sizeof(name), "lc_tx_mp_%hhu_%hu", dev_id, qp_id);
+	snprintf(name, sizeof(name), "lc_tx_mp_%hhu_%hu_%hu", dev_id, qp_id, (qp_config_count % 2));
 
 	mp = rte_pktmbuf_pool_create(name, pool_sz, RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
 				     max_seg_size + RTE_PKTMBUF_HEADROOM, 0);
@@ -483,7 +498,15 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto cmd_bm_mem_free;
 	}
 
+	if (is_qp_reconfigure && qp_prev != NULL) {
+		rte_mempool_free(qp_prev->rx_mp);
+		rte_mempool_free(qp_prev->tx_mp);
+		rte_free(qp_prev);
+	}
+
 	dev->qp[qp_id] = qp;
+	qp_config_count++;
+	qp->qp_config_count = qp_config_count;
 
 	return 0;
 
@@ -570,7 +593,7 @@ dao_liquid_crypto_qp_inflight_req_count(uint8_t dev_id, uint16_t qp_id)
 }
 
 static int
-liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
+liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id, bool is_qp_reconfigure)
 {
 	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
@@ -597,11 +620,19 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id)
 	rte_bitmap_free(qp->req_bm);
 	rte_free(qp->req_bm_mem);
 	rte_free(qp->req_queue);
-	rte_mempool_free(qp->rx_mp);
-	rte_mempool_free(qp->tx_mp);
-	rte_free(qp);
 
-	dev->qp[qp_id] = NULL;
+	if (!is_qp_reconfigure) {
+		/* In case of reconfigure, do not free the pools as the ethdev queues are still
+		 * using the pools internally. Since the TRS layer does not allow destroying queues
+		 * individually, allow the caller to clear rest without freeing the pools and
+		 * the queue. Caller can free the pools once the TRS queue is reconfigured with
+		 * updated pools.
+		 */
+		rte_mempool_free(qp->rx_mp);
+		rte_mempool_free(qp->tx_mp);
+		rte_free(qp);
+		dev->qp[qp_id] = NULL;
+	}
 
 	return rc;
 }
@@ -995,7 +1026,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;
 
 			if (params->rng.rand_len > rand_len_max) {
-				dao_err("Invalid RNG length(%u). rand_len should be at most %u.",
+				dao_err("Invalid RNG length (%u). rand_len should be at most %u.",
 					params->rng.rand_len, rand_len_max);
 				return 0;
 			}
