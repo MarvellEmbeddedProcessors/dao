@@ -2902,6 +2902,8 @@ setup_pem_device(void)
 		/* Setup pem */
 		APP_INFO("Initializing PEM%u\n", i);
 		memset(&pem_dev_conf, 0, sizeof(pem_dev_conf));
+		pem_dev_conf.virtio_dev_count = (uint16_t)(__builtin_popcountl(virtio_mask_ena[0]) +
+							   __builtin_popcountl(virtio_mask_ena[1]));
 		rc = dao_pem_dev_init(i, &pem_dev_conf);
 		if (rc)
 			rte_exit(EXIT_FAILURE, "Error with pem init, rc=%d\n", rc);
@@ -2947,8 +2949,14 @@ setup_virtio_devices(void)
 				netdev_conf.reta_size = RTE_MAX(VIRTIO_NET_RSS_RETA_SIZE,
 								eth_dev_info[portid].reta_size);
 			rte_eth_dev_get_name_by_port(portid, ethdev_pmd_name);
+
+			/* Tap PMD supports only 1 queue. Virtio user PMD uses an eventfd per queue,
+			 * so limit the max queues to avoid running out of eventfds */
 			if (!strcmp(ethdev_pmd_name, "net_tap0"))
 				netdev_conf.max_virt_qps_limit = 1;
+			else if (strstr(ethdev_pmd_name, "net_virtio_user"))
+				netdev_conf.max_virt_qps_limit = 4;
+
 			netdev_conf.hash_key_size = eth_dev_info[portid].hash_key_size;
 			overhd = eth_dev_get_overhead_len(eth_dev_info[portid].max_rx_pktlen,
 							  eth_dev_info[portid].max_mtu);

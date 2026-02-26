@@ -304,18 +304,29 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 	else
 		dao_dev_memset(bar4, 0, sz);
 
-	/* Divide host pages among all VF's equally */
-	pem->max_vfs = dao_pem_max_vfs_get(pem_devid);
+	pem->host_page_sz = conf->host_page_sz;
+	if (!pem->host_page_sz)
+		pem->host_page_sz = DAO_PEM_DEFAULT_HOST_PAGE_SZ;
+
+	if (pem->platform == DAO_PLATFORM_ILIAD) {
+		uint16_t dev_count = conf->virtio_dev_count;
+
+		if (!dev_count || dev_count > ILIAD_MAX_DEVS) {
+			dao_err("Invalid virtio_dev_count %u", dev_count);
+			goto err;
+		}
+		pem->max_vfs = dev_count;
+		pem->host_pages_per_dev =
+			(sz / pem->host_page_sz) / ILIAD_RESOURCE_DIVISOR(pem->max_vfs);
+	} else {
+		pem->max_vfs = dao_pem_max_vfs_get(pem_devid);
+		pem->host_pages_per_dev = (sz / pem->host_page_sz) / pem->max_vfs;
+	}
 	if (!pem->max_vfs)
 		goto err;
 
 	dao_info("Setting up %u VFs for PEM%u", pem->max_vfs, pem->pem_id);
 
-	pem->host_page_sz = conf->host_page_sz;
-	if (!pem->host_page_sz)
-		pem->host_page_sz = DAO_PEM_DEFAULT_HOST_PAGE_SZ;
-
-	pem->host_pages_per_dev = ((sz / pem->host_page_sz) / pem->max_vfs);
 	if (!pem->host_pages_per_dev) {
 		dao_err("BAR4 space insufficient for %u devices", pem->max_vfs);
 		goto err;
@@ -599,7 +610,7 @@ dao_pem_host_interrupt_setup(uint16_t pem_devid, int vfid, uint64_t **intr_addr,
 	case DAO_PLATFORM_CN10K:
 		return cn10k_sdp_host_interrupt_setup(pem, vfid, intr_addr, ack_addr);
 	case DAO_PLATFORM_ILIAD:
-		return iliad_dev_host_interrupt_setup(&pem->ili, intr_addr, ack_addr);
+		return iliad_dev_host_interrupt_setup(pem, vfid, intr_addr, ack_addr);
 	default:
 		return 0;
 	}
@@ -618,9 +629,10 @@ dao_pem_max_vfs_get(uint16_t pem_devid)
 	if (platform == DAO_PLATFORM_INVALID)
 		return 0;
 
-	/* For Iliad platform, we don't support host VFs */
+	/* For Iliad, return the already-computed max_vfs from the pem struct */
 	if (platform == DAO_PLATFORM_ILIAD)
-		return 1;
+		return pem_devices[pem_devid].max_vfs ? pem_devices[pem_devid].max_vfs :
+							ILIAD_MAX_DEVS;
 
 	max_vfs = dt_max_vfs_get();
 	if (max_vfs != 1)

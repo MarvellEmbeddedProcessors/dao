@@ -12,7 +12,6 @@
 
 #include "octep_vdpa.h"
 
-#define OCTEP_REGS_BAR 0
 #define OCTEP_CAPS_BAR 1
 
 static void octep_plat_free_irqs(struct octep_hw *oct_hw)
@@ -20,10 +19,8 @@ static void octep_plat_free_irqs(struct octep_hw *oct_hw)
 	struct device *dev = oct_hw->dev;
 	int i;
 
-	if (oct_hw->requested_irqs <= 0) {
-		dev_info(dev, "No IRQs to free\n");
+	if (oct_hw->requested_irqs <= 0)
 		return;
-	}
 
 	for (i = 0; i < oct_hw->requested_irqs; i++) {
 		if (oct_hw->irqs && oct_hw->irqs[i] >= 0)
@@ -118,17 +115,10 @@ static int octep_plat_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	oct_hw->base[OCTEP_REGS_BAR] =
-		devm_platform_get_and_ioremap_resource(pdev, OCTEP_REGS_BAR, NULL);
-	if (IS_ERR(oct_hw->base[OCTEP_REGS_BAR])) {
-		dev_err(dev, "Failed to get and map memory resource%d\n", OCTEP_REGS_BAR);
-		return PTR_ERR(oct_hw->base[OCTEP_REGS_BAR]);
-	}
-
-	oct_hw->base[OCTEP_CAPS_BAR] =
-		devm_platform_get_and_ioremap_resource(pdev, OCTEP_CAPS_BAR, NULL);
+	/* Device with single resource at index 0 */
+	oct_hw->base[OCTEP_CAPS_BAR] = devm_platform_get_and_ioremap_resource(pdev, 0, NULL);
 	if (IS_ERR(oct_hw->base[OCTEP_CAPS_BAR])) {
-		dev_err(dev, "Failed to get and map memory resource%d\n", OCTEP_CAPS_BAR);
+		dev_err(dev, "Failed to get and map memory resource\n");
 		return PTR_ERR(oct_hw->base[OCTEP_CAPS_BAR]);
 	}
 

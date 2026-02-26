@@ -380,7 +380,7 @@ static u32 octep_get_resource_len(struct octep_hw *oct_hw, u8 bar)
 		return pci_resource_len(pdev, bar);
 	} else if (oct_hw->dev_type == OCTEP_DEV_TYPE_PLATFORM) {
 		struct platform_device *pdev = to_platform_device(oct_hw->dev);
-		struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, bar);
+		struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
 		if (!res)
 			return 0;
@@ -467,7 +467,7 @@ static resource_size_t octep_get_resource_start(struct octep_hw *oct_hw, u8 bar)
 		return pci_resource_start(pdev, bar);
 	} else if (oct_hw->dev_type == OCTEP_DEV_TYPE_PLATFORM) {
 		struct platform_device *pdev = to_platform_device(oct_hw->dev);
-		struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, bar);
+		struct resource *res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
 		if (!res)
 			return 0;

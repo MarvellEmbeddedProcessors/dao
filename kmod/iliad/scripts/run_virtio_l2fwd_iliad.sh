@@ -8,12 +8,9 @@ set -e
 
 # Configuration (override via environment variables)
 CORES=${CORES:-"2-5"}
-DMA_THRESH=${DMA_THRESH:-2}
 SW_FREE=${SW_FREE:-1}
 NUM_MBUFS=${NUM_MBUFS:-}
-MAX_PKT_LEN=${MAX_PKT_LEN:-}
-POOL_BUF_LEN=${POOL_BUF_LEN:-}
-VIRTIO_MASK=${VIRTIO_MASK:-"0x1"}
+NUM_VIRTIO_DEVICES=${NUM_VIRTIO_DEVICES:-3}
 HUGEPAGE_MEM_GB=${HUGEPAGE_MEM_GB:-5}
 VERBOSE_STATS=${VERBOSE_STATS:-0}
 GDB_DEBUG=${GDB_DEBUG:-0}
@@ -21,9 +18,14 @@ DAEMON_MODE=${DAEMON_MODE:-0}
 DAEMON_LOG=${DAEMON_LOG:-"/var/log/virtio-l2fwd.log"}
 MTU=${MTU:-}
 
-# Vhost options
-VHOST_IFACE=${VHOST_IFACE:-"virtio_user0"}
-VHOST_QUEUES=${VHOST_QUEUES:-64}
+# MTU constants
+MAX_MTU_ILIAD=6000
+L2_OVERHEAD=30
+RTE_PKTMBUF_HEADROOM=128
+
+# Vhost options (VHOST_IFACE is the base name; suffixed with device index for multi-device)
+VHOST_IFACE=${VHOST_IFACE:-"virtio_user"}
+VHOST_QUEUES=${VHOST_QUEUES:-4}
 VHOST_QUEUE_SIZE=${VHOST_QUEUE_SIZE:-1024}
 VIRTIO_NET_TX_QUEUE_LEN=${VIRTIO_NET_TX_QUEUE_LEN:-10000}
 
@@ -51,25 +53,33 @@ Usage: $0 [options]
 Run virtio-l2fwd for Iliad with vhost-net kernel interface.
 
 Options:
-  --kmod-path PATH    Path to iliad_cdev.ko (default: \$SCRIPT_DIR/iliad_cdev.ko)
-  --app-path PATH     Path to dao-virtio-l2fwd (auto-detected in PATH or cwd)
-  --daemon, -d        Run in background (log to DAEMON_LOG)
-  --help              Show this help
+  --kmod-path PATH      Path to iliad_cdev.ko (default: \$SCRIPT_DIR/iliad_cdev.ko)
+  --app-path PATH       Path to dao-virtio-l2fwd (auto-detected in PATH or cwd)
+  --num-devices N       Number of virtio devices (1-4, default: 3)
+  --daemon, -d          Run in background (log to DAEMON_LOG)
+  --help                Show this help
+
+IMPORTANT: The board application must be started BEFORE loading the host quirk
+module (octep_cxl_quirk.ko). The quirk reads the device count from BAR4 and
+will fail to load if the application has not yet written the signature.
 
 Environment variables (with defaults):
-  CORES=$CORES  DMA_THRESH=$DMA_THRESH  SW_FREE=$SW_FREE
-  VIRTIO_MASK=$VIRTIO_MASK  HUGEPAGE_MEM_GB=$HUGEPAGE_MEM_GB
+  CORES=$CORES  SW_FREE=$SW_FREE
+  NUM_VIRTIO_DEVICES=$NUM_VIRTIO_DEVICES  HUGEPAGE_MEM_GB=$HUGEPAGE_MEM_GB
   VERBOSE_STATS=$VERBOSE_STATS  GDB_DEBUG=$GDB_DEBUG  DAEMON_MODE=$DAEMON_MODE
   DAEMON_LOG=$DAEMON_LOG
   KMOD_PATH=\$SCRIPT_DIR/iliad_cdev.ko
 
 Vhost configuration:
-  VHOST_IFACE=$VHOST_IFACE  VHOST_QUEUES=$VHOST_QUEUES
+  VHOST_IFACE=${VHOST_IFACE} (base name; devices get suffix 0..N-1)
+  VHOST_QUEUES=$VHOST_QUEUES
   VHOST_QUEUE_SIZE=$VHOST_QUEUE_SIZE (vring size)
-  VIRTIO_NET_TX_QUEUE_LEN=$VIRTIO_NET_TX_QUEUE_LEN (virtio_net tx queue)  NUM_MBUFS=  (optional, no default)
+  VIRTIO_NET_TX_QUEUE_LEN=$VIRTIO_NET_TX_QUEUE_LEN (virtio_net tx queue)
 
 Optional (unset by default, passed only when specified):
-  NUM_MBUFS=<n>  MAX_PKT_LEN=<n>  POOL_BUF_LEN=<n>  MTU=<n>
+  NUM_MBUFS=<n>  MTU=<n>
+
+When MTU is set, packet and buffer lengths are derived from it. MTU is capped at ${MAX_MTU_ILIAD}.
 EOF
 }
 
@@ -80,9 +90,32 @@ parse_args() {
             -d|--daemon) DAEMON_MODE=1; shift ;;
             --kmod-path) KMOD_PATH="$2"; shift 2 ;;
             --app-path) APP_PATH="$2"; shift 2 ;;
+            --num-devices) NUM_VIRTIO_DEVICES="$2"; shift 2 ;;
             *) die "Unknown option: $1" ;;
         esac
     done
+
+    # Validate and derive VIRTIO_MASK from NUM_VIRTIO_DEVICES
+    if [[ "$NUM_VIRTIO_DEVICES" -lt 1 || "$NUM_VIRTIO_DEVICES" -gt 4 ]] 2>/dev/null; then
+        die "NUM_VIRTIO_DEVICES must be 1-4 (got: $NUM_VIRTIO_DEVICES)"
+    fi
+    VIRTIO_MASK=$(printf "0x%x" $(( (1 << NUM_VIRTIO_DEVICES) - 1 )))
+    log "NUM_VIRTIO_DEVICES=$NUM_VIRTIO_DEVICES VIRTIO_MASK=$VIRTIO_MASK"
+}
+
+apply_mtu_config() {
+    [[ -z "$MTU" ]] && return 0
+
+    if ! [[ "$MTU" =~ ^[0-9]+$ ]] || [[ "$MTU" -lt 1 ]]; then
+        die "MTU must be a positive integer (got: $MTU)"
+    fi
+    if [[ "$MTU" -gt "$MAX_MTU_ILIAD" ]]; then
+        log "MTU reduced to $MAX_MTU_ILIAD (requested $MTU)"
+        MTU=$MAX_MTU_ILIAD
+    fi
+    MAX_PKT_LEN=$((MTU + L2_OVERHEAD))
+    POOL_BUF_LEN=$((RTE_PKTMBUF_HEADROOM + MAX_PKT_LEN))
+    log "MTU=$MTU -> MAX_PKT_LEN=$MAX_PKT_LEN POOL_BUF_LEN=$POOL_BUF_LEN"
 }
 
 detect_odm_vfs() {
@@ -176,16 +209,23 @@ build_app_command() {
     for vf in "${odm_vfs[@]}"; do APP_CMD+=(-a "$vf"); done
 
     APP_CMD+=(--vfio-vf-token="$uuid")
-    local vdev="net_virtio_user0,path=/dev/vhost-net"
-    vdev+=",iface=$VHOST_IFACE,queues=$VHOST_QUEUES,queue_size=$VHOST_QUEUE_SIZE"
-    APP_CMD+=(--vdev="$vdev")
+
+    # Add one --vdev per virtio device
+    local i
+    for (( i = 0; i < NUM_VIRTIO_DEVICES; i++ )); do
+        local vdev="net_virtio_user${i},path=/dev/vhost-net"
+        vdev+=",iface=${VHOST_IFACE}${i},queues=$VHOST_QUEUES,queue_size=$VHOST_QUEUE_SIZE"
+        APP_CMD+=(--vdev="$vdev")
+    done
+
     APP_CMD+=(--)
-    APP_CMD+=(-d "$DMA_THRESH" -v "$VIRTIO_MASK" -y 0 -p 0x1 -P)
-    [[ -n "$MAX_PKT_LEN" ]] && APP_CMD+=(--max-pkt-len="$MAX_PKT_LEN") || true
-    [[ -n "$POOL_BUF_LEN" ]] && APP_CMD+=(--pool-buf-len="$POOL_BUF_LEN") || true
-    [[ -n "$NUM_MBUFS" ]] && APP_CMD+=(--max-num-mbufs="$NUM_MBUFS") || true
-    [[ "$SW_FREE" == "1" ]] && APP_CMD+=(-f) || true
-    [[ "$VERBOSE_STATS" == "1" ]] && APP_CMD+=(-s) || true
+    APP_CMD+=(-d 4 -v "$VIRTIO_MASK" -y 0 -p "$VIRTIO_MASK" -P)
+    [[ -n "$MAX_PKT_LEN" ]] && APP_CMD+=(--max-pkt-len="$MAX_PKT_LEN")
+    [[ -n "$POOL_BUF_LEN" ]] && APP_CMD+=(--pool-buf-len="$POOL_BUF_LEN")
+    [[ -n "$NUM_MBUFS" ]] && APP_CMD+=(--max-num-mbufs="$NUM_MBUFS")
+    [[ "$SW_FREE" == "1" ]] && APP_CMD+=(-f)
+    [[ "$VERBOSE_STATS" == "1" ]] && APP_CMD+=(-s)
+    true
 }
 
 tune_interface() {
@@ -203,7 +243,8 @@ tune_interface() {
 
     sleep 1
     ip link set "$iface" up 2>/dev/null || true
-    [[ -n "$VIRTIO_NET_TX_QUEUE_LEN" ]] && ip link set "$iface" txqueuelen "$VIRTIO_NET_TX_QUEUE_LEN" 2>/dev/null || true
+    [[ -n "$VIRTIO_NET_TX_QUEUE_LEN" ]] && \
+        ip link set "$iface" txqueuelen "$VIRTIO_NET_TX_QUEUE_LEN" 2>/dev/null || true
     [[ -n "$MTU" ]] && ip link set "$iface" mtu "$MTU" 2>/dev/null || true
 
     local mtu=$(cat /sys/class/net/$iface/mtu 2>/dev/null || echo '?')
@@ -231,6 +272,7 @@ cleanup() {
 main() {
     [[ $EUID -eq 0 ]] || die "Must run as root (use sudo)"
     parse_args "$@"
+    apply_mtu_config
     command -v lspci &>/dev/null || die "lspci not found (install pciutils)"
 
     # Find required executables
@@ -242,7 +284,7 @@ main() {
         [[ -x "$APP_PATH" ]] || die "Application not executable: $APP_PATH"
     fi
 
-    log "Iliad virtio-l2fwd setup (iface: $VHOST_IFACE)"
+    log "Iliad virtio-l2fwd setup ($NUM_VIRTIO_DEVICES devices, mask=$VIRTIO_MASK, iface base: $VHOST_IFACE)"
 
     setup_hugepages
     setup_odm
@@ -256,8 +298,10 @@ main() {
 
     local gdb_prefix=""; [[ "$GDB_DEBUG" == "1" ]] && gdb_prefix="gdb --args " || true
     echo "Command: ${gdb_prefix}${APP_CMD[*]}"
-    echo "Interface '$VHOST_IFACE' will be created (MTU=${MTU:-default}, queue_size=$VHOST_QUEUE_SIZE)."
-    echo "Configure with: ip addr add <IP>/<PREFIX> dev $VHOST_IFACE"
+    local i; for (( i = 0; i < NUM_VIRTIO_DEVICES; i++ )); do
+        echo "Interface '${VHOST_IFACE}${i}' will be created (MTU=${MTU:-default}, queue_size=$VHOST_QUEUE_SIZE)."
+        echo "Configure with: ip addr add <IP>/<PREFIX> dev ${VHOST_IFACE}${i}"
+    done
 
     if [[ "$GDB_DEBUG" == "1" ]]; then
         gdb --args "${APP_CMD[@]}"
@@ -265,14 +309,18 @@ main() {
         log "Logging to: $DAEMON_LOG"
         "${APP_CMD[@]}" >> "$DAEMON_LOG" 2>&1 &
         APP_PID=$!
-        tune_interface "$VHOST_IFACE"
+        for (( i = 0; i < NUM_VIRTIO_DEVICES; i++ )); do
+            tune_interface "${VHOST_IFACE}${i}"
+        done
         kill -0 "$APP_PID" 2>/dev/null || die "Application crashed (check $DAEMON_LOG)"
         disown "$APP_PID"
         log "Daemon running (PID: $APP_PID). Stop with: kill -SIGINT $APP_PID (or kill -9 $APP_PID if it doesn't exit)"
     else
         "${APP_CMD[@]}" &
         APP_PID=$!
-        tune_interface "$VHOST_IFACE" &
+        for (( i = 0; i < NUM_VIRTIO_DEVICES; i++ )); do
+            tune_interface "${VHOST_IFACE}${i}" &
+        done
         trap cleanup SIGINT SIGTERM
         log "Running (PID: $APP_PID). Ctrl+C to stop"
         wait "$APP_PID"

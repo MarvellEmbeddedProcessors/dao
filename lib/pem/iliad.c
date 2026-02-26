@@ -11,9 +11,8 @@
 #include "iliad.h"
 #include "pem.h"
 
-#define ODM_MSIX_MAX_VECS     8      /** Limited by VIRTIO_MAX_CB_INTRS */
-#define ODM_MSIX_VEC_MAX      0xF    /**< Max vector number (limited by cxl_pci) */
-#define ODM_MSIX_VEC_ENA_MASK 0xFF00 /**< Mask of enabled vectors */
+#define ODM_MSIX_VEC_ENA_MASK 0xFF00U /**< Vectors 8-15 (enabled mask) */
+#define ODM_MSIX_VEC_COUNT    __builtin_popcount(ODM_MSIX_VEC_ENA_MASK)
 
 #define ODM_EPF0_GENX_INT(x)         (0x0 | (x) << 5)
 #define ODM_EPF0_GENX_INT_W1S(x)     (0x8 | (x) << 5)
@@ -83,14 +82,16 @@ iliad_dev_bar4_size_get(void)
 }
 
 uint8_t
-iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_addr,
-			       uint64_t **ack_addr)
+iliad_dev_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr, uint64_t **ack_addr)
 {
+	struct iliad_device *ili_dev = &pem->ili;
+	int vecs_per_dev, vec_start, vec_end;
+	int dev_count = pem->max_vfs;
 	uint8_t intr_cnt = 0;
 	void *odm_base;
 	int i;
 
-	if (!ili_dev || !intr_addr || !ack_addr) {
+	if (!intr_addr || !ack_addr || vfid < 1 || dev_count < 1) {
 		dao_err("Invalid parameters for interrupt setup");
 		return 0;
 	}
@@ -101,11 +102,12 @@ iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_add
 		return 0;
 	}
 
-	for (i = 0; i <= ODM_MSIX_VEC_MAX; i++) {
-		/* Skip if the interrupt is not to be enabled */
-		if (!((1U << i) & ODM_MSIX_VEC_ENA_MASK))
-			continue;
+	/* Split ODM_MSIX_VEC_COUNT vectors equally among dev_count slots. */
+	vecs_per_dev = ODM_MSIX_VEC_COUNT / ILIAD_RESOURCE_DIVISOR(dev_count);
+	vec_start = __builtin_ctz(ODM_MSIX_VEC_ENA_MASK) + (vfid - 1) * vecs_per_dev;
+	vec_end = vec_start + vecs_per_dev - 1;
 
+	for (i = vec_start; i <= vec_end; i++) {
 		ili_odm_reg_write(odm_base, ODM_EPF0_GENX_INT_ENA_W1S(i), 0x1);
 		__atomic_store_n(intr_addr, ili_odm_reg_addr(odm_base, ODM_EPF0_GENX_INT_W1S(i)),
 				 __ATOMIC_RELAXED);
@@ -114,10 +116,6 @@ iliad_dev_host_interrupt_setup(struct iliad_device *ili_dev, uint64_t **intr_add
 		intr_addr++;
 		ack_addr++;
 		intr_cnt++;
-
-		/* Limit the number of interrupts to the maximum number of vectors */
-		if (intr_cnt >= ODM_MSIX_MAX_VECS)
-			break;
 	}
 
 	if (!intr_cnt) {

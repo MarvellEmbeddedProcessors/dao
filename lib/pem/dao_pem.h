@@ -33,6 +33,8 @@ struct dao_pem_dev_conf {
 	size_t host_page_sz;
 	/** Indicate SDP ring is in use */
 	bool sdp_inuse;
+	/** Number of virtio devices in use. */
+	uint16_t virtio_dev_count;
 };
 
 /* End of structure dao_pem_dev_conf. */
