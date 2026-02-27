@@ -25,7 +25,7 @@
 #define CA_GMAC_DIGEST_LEN 16
 
 #define CA_ETHDEV_RX_BURST 32
-#define CA_CPT_OOO_WINDOW  64
+#define CA_CPT_OOO_WINDOW  CA_ETHDEV_RX_BURST
 
 static inline void
 ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
