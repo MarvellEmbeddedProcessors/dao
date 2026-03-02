@@ -229,8 +229,6 @@ Known Issues
 
 - The ``dev_octeon_virtio_plugin.so`` plugin is not included in the VPP Debian package (``vpp-25.02.0-cn10k-devel``). The plugin is absent, preventing VirtIO-based use cases from being configured.
 
-- NGINX fails to respond during curl/ab load tests when using CPT for crypto offload and VPP for user-space TCP processing.
-
 ------------
 
 .. rubric:: Additional Information
