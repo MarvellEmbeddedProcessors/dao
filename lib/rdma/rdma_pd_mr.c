@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright (c) 2025 Marvell.
+ */
+
 #include <stdlib.h>
 
 #include "rdma_kernel_abi.h"
