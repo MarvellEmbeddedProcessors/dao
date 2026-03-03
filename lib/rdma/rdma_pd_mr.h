@@ -1,3 +1,7 @@
+/* SPDX-License-Identifier: Marvell-MIT
+ * Copyright (c) 2025 Marvell.
+ */
+
 #ifndef RDMA_PD_MR_H
 #define RDMA_PD_MR_H
 
