@@ -1,3 +1,8 @@
+/* SPDX-License-Identifier: GPL-2.0
+ * Iliad Platform Device Driver with Character Device Interface
+ * Copyright (c) 2026 Marvell.
+ */
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/pci.h>
