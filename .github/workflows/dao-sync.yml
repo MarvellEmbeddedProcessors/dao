@@ -1,0 +1,45 @@
+name: DAO-Sync
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - dao-devel
+      - dao-24.05
+      - dao-24.09
+      - dao-25.05
+      - dao-25.10
+      - dao-lc-26.01
+      - dao-26.02
+
+jobs:
+  sync:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Push merged branch to target repo
+        env:
+          TOKEN: ${{ secrets.TOKEN_GITHUB_SYNC }}
+          BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          echo "Branch to sync: $BRANCH"
+
+          # Checkout and update from source using GITHUB_TOKEN (via persist-credentials: true)
+          git checkout "$BRANCH"
+          git pull origin "$BRANCH"
+
+          # Remove the Authorization header added by actions/checkout to prevent conflicts with the PAT
+          git config --local --unset-all http.https://github.com/.extraheader || true
+
+          # Configure origin to point to target repo with authentication token
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/MarvellEmbeddedProcessors/dao.git"
+
+          git push origin HEAD:"$BRANCH"
