@@ -261,7 +261,7 @@ enum dao_uc_comp_code {
 	 */
 	DAO_UC_ERR_GC_KEY_DATA_LEN_INVALID = 0x41,
 	/**
-	 * Indicates an error during PKCS21 OAEP decoding.
+	 * Indicates an error during RSA OAEP decoding.
 	 * This error may occur due to one or more of the following reasons:
 	 *  - The hash of the label (Hash(Label)) does not match the expected value
 	 *    (1Hash’ != Hash(Label)).
@@ -270,7 +270,7 @@ enum dao_uc_comp_code {
 	 *  - The 0x01 byte delimiter, which separates padding from the message, is not
 	 *    found in the expected position.
 	 */
-	DAO_UC_ERR_PKCS_DECODING_ERROR = 0x51,
+	DAO_UC_RSA_OAEP_DECODING_ERROR = 0x9c,
 };
 
 /**
