@@ -1,5 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: Marvell-MIT
+# Copyright (c) 2026 Marvell.
 # Partition and logging redirection helpers (extracted from lc_env_setup.sh)
 
 # --- Constants ---
