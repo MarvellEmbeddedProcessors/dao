@@ -66,7 +66,7 @@ BSD_LICENSE_FILES=(
 
 FAILED=""
 IGNORED=""
-FILES=$(git ls-files kmod/rdma/)
+FILES=$(git ls-files)
 
 for F in $FILES; do
 	IGNORE=""
