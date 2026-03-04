@@ -1932,6 +1932,20 @@ idx_put:
 	RTE_SET_USED(rc);
 }
 
+static inline int
+lc_pqc_key_validate(const uint8_t *key, uint16_t len, const char *name)
+{
+	uint16_t i;
+
+	for (i = 0; i < len; i++) {
+		if (key[i] != 0)
+			return 0;
+	}
+
+	dao_err("Invalid %s: all-zero key is not allowed.", name);
+	return -EINVAL;
+}
+
 int
 dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_op *op,
 			      uint64_t op_cookie)
@@ -2030,6 +2044,10 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		qp->req_queue[req_idx].keygen.priv_key = op->keygen.priv_key;
 		break;
 	case DAO_LC_ML_KEM_OP_ENCAP:
+		rc = lc_pqc_key_validate(op->encap.enc_key, pqc_ml_pub_key_len[op->alg],
+					 "encapsulation key");
+		if (rc != 0)
+			goto mbuf_free;
 		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_KEM;
 		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_KEM_ENCAP;
 		w4.s.param1 = 0; /* No parameters */
@@ -2043,6 +2061,10 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		qp->req_queue[req_idx].encap.ciphertext = op->encap.ciphertext;
 		break;
 	case DAO_LC_ML_KEM_OP_DECAP:
+		rc = lc_pqc_key_validate(op->decap.dec_key, pqc_ml_priv_key_len[op->alg],
+					 "decapsulation key");
+		if (rc != 0)
+			goto mbuf_free;
 		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_KEM;
 		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_KEM_DECAP;
 		w4.s.param1 = 0; /* No parameters */
@@ -2067,6 +2089,10 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		qp->req_queue[req_idx].keygen.priv_key = op->keygen.priv_key;
 		break;
 	case DAO_LC_ML_DSA_OP_SIGN:
+		rc = lc_pqc_key_validate(op->sign.priv_key, pqc_ml_priv_key_len[op->alg],
+					 "signing key");
+		if (rc != 0)
+			goto mbuf_free;
 		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_DSA;
 		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_DSA_SIGN;
 		w4.s.param1 = op->sign.msg_len;
@@ -2084,6 +2110,10 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		qp->req_queue[req_idx].signature = op->sign.signature;
 		break;
 	case DAO_LC_ML_DSA_OP_VERIFY:
+		rc = lc_pqc_key_validate(op->verify.pub_key, pqc_ml_pub_key_len[op->alg],
+					 "verify key");
+		if (rc != 0)
+			goto mbuf_free;
 		w4.s.opcode_major = ROC_AE_MAJOR_OP_ML_DSA;
 		w4.s.opcode_minor = ROC_AE_MINOR_OP_ML_DSA_VERIFY;
 		w4.s.param1 = op->sign.msg_len;
@@ -2128,14 +2158,14 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	}
 #endif
 	return 0;
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
+
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
 idx_put:
+#endif
 	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
-#endif
-	RTE_SET_USED(rc);
 }
 
 static inline void
@@ -2150,6 +2180,11 @@ dao_lc_post_process_pqc(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 	if (res->res.pqc.compcode == DAO_PQC_COMP_LIB_ERROR_LIBOQS) {
 		dao_err("LibOQS library Not Found");
 		rte_errno = ENOENT;
+		return;
+	}
+
+	if (res->res.pqc.compcode != DAO_PQC_COMP_GOOD) {
+		rte_errno = EINVAL;
 		return;
 	}
 
