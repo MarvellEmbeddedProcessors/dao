@@ -23,8 +23,6 @@
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 
-#define CA_ETHDEV_RX_BURST 32
-
 static inline void
 process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *pq,
 	     struct rte_pmd_cnxk_crypto_qptr *cpt_qptr)
