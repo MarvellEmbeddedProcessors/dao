@@ -20,11 +20,8 @@
 #include "cpt_debug.h"
 #include "crypto_agent.h"
 
-#define CA_ETHDEV_TX_BURST 64
 #define CA_GMAC_IV_LEN     16
 #define CA_GMAC_DIGEST_LEN 16
-
-#define CA_ETHDEV_RX_BURST 32
 #define CA_CPT_OOO_WINDOW  CA_ETHDEV_RX_BURST
 
 static inline void
