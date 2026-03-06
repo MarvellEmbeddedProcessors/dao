@@ -83,6 +83,33 @@ op_dequeue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res)
 	return 0;
 }
 
+uint16_t
+op_dequeue_multi(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res, uint16_t nb_res)
+{
+	uint16_t ret, remaining;
+	uint16_t dequeued = 0;
+	uint64_t timeout;
+
+	if (!res || nb_res == 0)
+		return 0;
+
+	timeout = rte_get_timer_cycles() + rte_get_timer_hz() * TEST_LC_TIMEOUT;
+
+	do {
+		remaining = nb_res - dequeued;
+		ret = dao_liquid_crypto_dequeue_burst(dev_id, qp_id, res + dequeued, remaining);
+
+		if (ret > 0)
+			dequeued += ret;
+
+		if (rte_get_timer_cycles() > timeout)
+			break;
+
+	} while (dequeued < nb_res);
+
+	return dequeued;
+}
+
 static int
 ut_passthrough(uint8_t dev_id, uint16_t qp_id)
 {

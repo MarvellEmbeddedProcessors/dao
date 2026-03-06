@@ -8,6 +8,8 @@ sources = files(
 	'lc_test_sym.c',
 	'lc_test_rng.c',
 	'lc_test_pqc.c',
+	'lc_test_comp.c',
+	'lc_test_cpt_compdev_mix.c',
 	'test.c'
 )
 

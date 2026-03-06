@@ -24,5 +24,6 @@ extern struct unit_test_suite lc_testsuite_generic;
 extern struct global_params glb_params;
 
 int op_dequeue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res);
+uint16_t op_dequeue_multi(uint8_t dev_id, uint16_t qp_id, struct dao_lc_res *res, uint16_t nb_res);
 
 #endif /* __LC_TEST_GENERIC__ */

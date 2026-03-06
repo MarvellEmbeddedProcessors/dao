@@ -13,20 +13,22 @@
 
 #include "lc_autotest.h"
 #include "lc_test_asym.h"
+#include "lc_test_comp.h"
+#include "lc_test_cpt_compdev_mix.h"
 #include "lc_test_generic.h"
 #include "lc_test_pqc.h"
 #include "lc_test_rng.h"
 #include "lc_test_sym.h"
 #include "test.h"
 
-struct unit_test_suite *test_suites[] = {
-	&lc_testsuite_generic,
-	&lc_testsuite_asym,
-	&lc_testsuite_sym,
-	&lc_testsuite_rng,
-	&lc_testsuite_pqc,
-	NULL
-};
+struct unit_test_suite *test_suites[] = {&lc_testsuite_generic,
+					 &lc_testsuite_asym,
+					 &lc_testsuite_sym,
+					 &lc_testsuite_rng,
+					 &lc_testsuite_pqc,
+					 &lc_testsuite_comp,
+					 &lc_testsuite_cpt_compdev_mix,
+					 NULL};
 
 volatile int force_quit;
 static volatile int nb_lcdevs_global;
@@ -221,6 +223,9 @@ main(int argc, char **argv)
 			TEST_LC_INFO("Could not get device capabilities for device %u", dev_id);
 		else if (caps.pqc_en)
 			feature_params.pqc.is_pqc_enabled = true;
+
+		if (caps.compdev_en)
+			feature_params.compdev.is_compdev_enabled = true;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {
