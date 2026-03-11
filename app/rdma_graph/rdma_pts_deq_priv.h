@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright(C) 2025 Marvell.
+ * Copyright (c) 2025 Marvell.
  */
 #ifndef __INCLUDE_RDMA_PTS_DEQ_PRIV_H__
 #define __INCLUDE_RDMA_PTS_DEQ_PRIV_H__
