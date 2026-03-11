@@ -41,6 +41,7 @@ usage(char *progname)
 	       " --cipher-key-sz N : set symmetric cipher key size in bytes\n"
 	       " --cipher-op encrypt / decrypt : set symmetric cipher operation type\n"
 	       " --auth-alg sha1 : set symmetric authentication algorithm\n"
+	       " --auth-key-sz N : set hmac authentication key size in bytes\n"
 	       " --auth-op generate : set symmetric authentication operation type\n"
 	       " --buffer-size N : set buffer size for operations (1-%u bytes, AES requires"
 	       " multiple of %u bytes)\n"
@@ -361,7 +362,7 @@ parse_sym_auth_algo(struct lcperf_options *opts, const char *arg)
 	int id = get_str_key_id_mapping(auth_algo_namemap, RTE_DIM(auth_algo_namemap), arg);
 
 	if (id < 0) {
-		RTE_LOG(ERR, USER1, "Invalid %s SYM auth algorithm configured\n", arg);
+		RTE_LOG(ERR, USER1, "Invalid %s SYM auth/hmac algorithm configured\n", arg);
 		return -1;
 	}
 
@@ -537,6 +538,19 @@ parse_throughput_limit(struct lcperf_options *opts, const char *arg)
 	return 0;
 }
 
+static int
+parse_auth_key_sz(struct lcperf_options *opts, const char *arg)
+{
+	int ret = parse_uint32_t(&opts->auth_key_sz, arg);
+
+	if (ret) {
+		RTE_LOG(ERR, USER1, "Failed to parse auth key size\n");
+		return -1;
+	}
+
+	return 0;
+}
+
 void
 lcperf_options_default(struct lcperf_options *opts)
 {
@@ -561,6 +575,7 @@ lcperf_options_default(struct lcperf_options *opts)
 
 	opts->auth_op = LCPERF_CRYPTO_SYM_AUTH_OP_GENERATE;
 	opts->auth_algo = DAO_LC_HASH_TYPE_SHA1;
+	opts->auth_key_sz = 0;
 
 	opts->enable_ooo = false;
 
@@ -601,6 +616,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_ECC_CURVE, required_argument, 0, 0},
 				 {LCPERF_ENQ_TIMEOUT, required_argument, 0, 0},
 				 {LCPERF_DRAIN_TIMEOUT, required_argument, 0, 0},
+				 {LCPERF_AUTH_KEY_SZ, required_argument, 0, 0},
 				 {LCPERF_THROUGHPUT_LIMIT, required_argument, 0, 0},
 				 {LCPERF_COMP_LEVEL, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
@@ -628,6 +644,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_ECC_CURVE, parse_ecc_curve},
 		{LCPERF_ENQ_TIMEOUT, parse_enq_timeout},
 		{LCPERF_DRAIN_TIMEOUT, parse_drain_timeout},
+		{LCPERF_AUTH_KEY_SZ, parse_auth_key_sz},
 		{LCPERF_THROUGHPUT_LIMIT, parse_throughput_limit},
 		{LCPERF_COMP_LEVEL, parse_comp_level},
 	};
@@ -728,8 +745,13 @@ lcperf_options_dump(struct lcperf_options *opts)
 			       lcperf_crypto_sym_cipher_algo_strs[opts->cipher_algo]);
 			printf("# Symmetric cipher key size: %u bytes\n", opts->cipher_key_sz);
 		} else if (opts->sym_op == LCPERF_CRYPTO_SYM_OP_AUTH_ONLY) {
-			printf("# Symmetric auth algorithm: %s\n",
-			       lcperf_crypto_sym_auth_algo_strs[opts->auth_algo]);
+			if (opts->auth_key_sz != 0) {
+				printf("# Symmetric auth algorithm: %s-hmac\n",
+				       lcperf_crypto_sym_auth_algo_strs[opts->auth_algo]);
+			} else {
+				printf("# Symmetric auth algorithm: %s\n",
+				       lcperf_crypto_sym_auth_algo_strs[opts->auth_algo]);
+			}
 			printf("# Symmetric auth operation type: %s\n",
 			       lcperf_crypto_sym_auth_op_type_strs[opts->auth_op]);
 		}

@@ -31,6 +31,7 @@
 #define LCPERF_ECC_CURVE         ("ecc-curve")
 #define LCPERF_ENQ_TIMEOUT       ("enq-timeout")
 #define LCPERF_DRAIN_TIMEOUT     ("drain-timeout")
+#define LCPERF_AUTH_KEY_SZ       ("auth-key-sz")
 #define LCPERF_THROUGHPUT_LIMIT  ("throughput-limit")
 #define LCPERF_COMP_LEVEL        ("comp-level")
 
@@ -116,6 +117,7 @@ struct lcperf_options {
 
 	enum lcperf_crypto_sym_auth_op_type auth_op;
 	enum dao_lc_hash_type auth_algo;
+	uint32_t auth_key_sz;
 
 	/** Enable out-of-order delivery for performance testing */
 	bool enable_ooo;
