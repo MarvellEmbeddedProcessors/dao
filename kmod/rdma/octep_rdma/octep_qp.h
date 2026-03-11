@@ -69,7 +69,6 @@ enum octep_rdma_qp_state {
 #define OCTEP_RDMA_QP_MOD_SQD_ASYNC_NOTIFY   BIT(2)
 #define OCTEP_RDMA_QP_MOD_ACCESS_FLAGS       BIT(3)
 #define OCTEP_RDMA_QP_MOD_PKEY_INDEX         BIT(4)
-#define OCTEP_RDMA_QP_MOD_PORT               BIT(5)
 #define OCTEP_RDMA_QP_MOD_QKEY               BIT(6)
 #define OCTEP_RDMA_QP_MOD_AV                 BIT(7)
 #define OCTEP_RDMA_QP_MOD_PATH_MTU           BIT(8)
@@ -78,12 +77,9 @@ enum octep_rdma_qp_state {
 #define OCTEP_RDMA_QP_MOD_RNR_RETRY          BIT(11)
 #define OCTEP_RDMA_QP_MOD_RQ_PSN             BIT(12)
 #define OCTEP_RDMA_QP_MOD_MAX_QP_RD_ATOMIC   BIT(13)
-#define OCTEP_RDMA_QP_MOD_ALT_PATH           BIT(14)
 #define OCTEP_RDMA_QP_MOD_MIN_RNR_TIMER      BIT(15)
 #define OCTEP_RDMA_QP_MOD_SQ_PSN             BIT(16)
 #define OCTEP_RDMA_QP_MOD_MAX_DEST_RD_ATOMIC BIT(17)
-#define OCTEP_RDMA_QP_MOD_PATH_MIG_STATE     BIT(18)
-#define OCTEP_RDMA_QP_MOD_CAP                BIT(19)
 #define OCTEP_RDMA_QP_MOD_DEST_QPN           BIT(20)
 #define OCTEP_RDMA_QP_MOD_SRC_PORT           BIT(21)
 
@@ -111,10 +107,6 @@ struct octep_rdma_qp_mod_attrs {
 	struct octep_rdma_av mod_av;
 };
 
-enum octep_rdma_qp_mod_flags {
-	OCTEP_RDMA_QP_IN_FLUSHING = (1 << 0),
-};
-
 struct octep_rdma_qp_attrs {
 	enum octep_rdma_qp_state state;
 	u32 sq_size;
@@ -123,9 +115,7 @@ struct octep_rdma_qp_attrs {
 	u32 irq_size;
 	u32 max_send_sge;
 	u32 max_recv_sge;
-	u32 cookie;
 	u8 qp_type;
-	u8 pd_len;
 	u8 sq_sig_type;
 	u32 dest_qpn;
 	u32 qkey;
@@ -180,32 +170,6 @@ to_octep_rdma_qp(struct ib_qp *ibqp)
 	return qp;
 }
 
-static inline void *
-get_queue_entry(void *qbuf, u32 idx, u32 depth, u32 shift)
-{
-	/* Validate parameters */
-	if (!qbuf) {
-		pr_err("%s: qbuf is NULL\n", __func__);
-		return NULL;
-	}
-
-	if (!depth || (depth & (depth - 1))) {
-		pr_err("%s: depth %u is not power of 2\n", __func__, depth);
-		return NULL;
-	}
-
-	/* Sanity check shift to prevent integer overflow */
-	if (shift > 31) {
-		pr_err("%s: shift %u too large\n", __func__, shift);
-		return NULL;
-	}
-
-	/* Mask index to queue depth (efficient modulo for power of 2) */
-	idx &= (depth - 1);
-
-	return qbuf + (idx << shift);
-}
-
 int octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *qp_attr,
 				       int qp_attr_mask,
 				       struct octep_rdma_qp_mod_attrs *qp_mod_attr);
@@ -223,8 +187,6 @@ int init_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 		   struct ib_qp_init_attr *attrs);
 void free_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp);
 int init_user_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp, struct ib_udata *udata);
-int user_define_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
-		   struct ib_udata *udata);
 int octep_rdma_qp_validate_attr(struct octep_rdma_dev *dev, struct ib_qp_init_attr *attrs);
 int octep_rdma_qp_validate_cap(struct octep_rdma_dev *rdma_dev, struct ib_qp_init_attr *attrs);
 void octep_rdma_qp_get(struct octep_rdma_qp *qp);

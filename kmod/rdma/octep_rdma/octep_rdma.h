@@ -17,7 +17,7 @@
 #include <rdma/ib_user_verbs.h>
 #include <rdma/ib_verbs.h>
 
-#include "octep_sdp.h"
+#include "octep_ep.h"
 
 #define OCTEP_RDMA_DRV_NAME  "octep_rdma"
 #define OCTEP_DRV_STRING     "Marvell Octeon EndPoint RDMA Adaptor Driver"
@@ -32,11 +32,7 @@
 #define OCTEP_RDMA_MAX_RECV_WR  8192
 #define OCTEP_RDMA_MIN_SEND_WR  64
 #define OCTEP_RDMA_MIN_RECV_WR  64
-#define OCTEP_RDMA_MAX_ORD      128
-#define OCTEP_RDMA_MAX_IRD      128
 #define OCTEP_RDMA_MAX_CONTEXT  (128 * 1024)
-#define OCTEP_RDMA_MAX_SEND_SGE 6
-#define OCTEP_RDMA_MAX_RECV_SGE 1
 
 #define OCTEP_RDMA_SET_FIELD(ptr, mask, value)                                                     \
 	({                                                                                         \
@@ -48,11 +44,6 @@ struct octep_rdma_port {
 	uint16_t port_num;
 	enum ib_port_state state;
 	struct ib_port_attr attr;
-	__be64 port_guid;
-	__be64 subnet_prefix;
-	spinlock_t port_lock; /* guard port */
-	unsigned int mtu_cap;
-	/* special QPs */
 	u32 qp_gsi_index;
 };
 
@@ -81,8 +72,7 @@ struct octep_pf {
 	int enabled_vfs;
 	u32 vf_stride;
 	u16 vf_devid;
-	struct octep_sdp_dev *octep_dev;
-	atomic_t active_vf_count;
+	struct octep_ep_dev *octep_dev;
 };
 
 struct octep_rdma_dev {
@@ -92,7 +82,7 @@ struct octep_rdma_dev {
 	struct notifier_block netdev_nb;
 	struct net_device *netdev;
 	struct octep_rdma_port port;
-	struct octep_sdp_dev *octep_dev;
+	struct octep_ep_dev *octep_dev;
 	/** OS dependent PCI device pointer */
 	struct pci_dev *pdev;
 	/** device status */
@@ -104,7 +94,6 @@ struct octep_rdma_dev {
 	struct work_struct setup_task;
 	atomic_t num_ctx;
 	struct octep_rdma_resource_cb res_cb[OCTEP_RDMA_RES_CNT];
-	struct xarray mem_xa;
 	struct octep_caps_region *caps_rgn;
 };
 

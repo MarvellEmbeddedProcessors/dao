@@ -10,8 +10,9 @@
 
 #include "octep_qp.h"
 #include "octep_rdma.h"
+#include "octep_rdma_netdev.h"
 #include "octep_verbs.h"
-#include "octep_sdp_regs.h"
+#include "octep_ep_regs.h"
 #include "octep_pfvf_mbox.h"
 
 #define MAC_OFFSET 9
@@ -79,7 +80,7 @@ octep_rdma_atomic_cap_to_ib(enum octep_rdma_atomic_cap cap)
 }
 
 /* initialize octep_rdma device parameters */
-static void
+static int
 octep_rdma_device_attrs_init(struct octep_rdma_dev *octep_rdma)
 {
 	struct octep_caps_region *oct_caps;
@@ -87,18 +88,18 @@ octep_rdma_device_attrs_init(struct octep_rdma_dev *octep_rdma)
 
 	if (!octep_rdma) {
 		pr_err("%s: NULL octep_rdma parameter\n", __func__);
-		return;
+		return -EINVAL;
 	}
 
 	oct_caps = octep_rdma->caps_rgn;
 	if (!oct_caps) {
 		dev_err(&octep_rdma->pdev->dev, "caps_rgn is NULL\n");
-		return;
+		return -EINVAL;
 	}
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 	if (!msg)
-		return;
+		return -ENOMEM;
 
 	msg->port_num = octep_rdma->port.port_num;
 
@@ -106,7 +107,7 @@ octep_rdma_device_attrs_init(struct octep_rdma_dev *octep_rdma)
 	if (octep_rdma_mbox_user_get_device_cap(oct_caps, msg)) {
 		dev_err(&octep_rdma->pdev->dev, "Failed to get device capabilities\n");
 		kfree(msg);
-		return;
+		return -EIO;
 	}
 
 	octep_rdma->attr.vendor_id = msg->dev_cap.vendor_id;
@@ -156,10 +157,11 @@ octep_rdma_device_attrs_init(struct octep_rdma_dev *octep_rdma)
 	octep_rdma->res_cb[OCTEP_RDMA_RES_TYPE_AH].max_cap = msg->dev_cap.max_ah;
 
 	kfree(msg);
+	return 0;
 }
 
 /* initialize port attributes */
-static void
+static int
 octep_rdma_port_attr_init(struct octep_rdma_dev *octep_rdma)
 {
 	struct octep_caps_region *oct_caps = octep_rdma->caps_rgn;
@@ -168,13 +170,13 @@ octep_rdma_port_attr_init(struct octep_rdma_dev *octep_rdma)
 
 	msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 	if (!msg)
-		return;
+		return -ENOMEM;
 
 	/* Get port attributes */
 	if (octep_rdma_mbox_user_get_port_attr(oct_caps, msg)) {
 		dev_err(&octep_rdma->pdev->dev, "Failed to get port attributes\n");
 		kfree(msg);
-		return;
+		return -EIO;
 	}
 
 	port = &octep_rdma->port;
@@ -200,14 +202,13 @@ octep_rdma_port_attr_init(struct octep_rdma_dev *octep_rdma)
 		port->attr.phys_state = IB_PORT_PHYS_STATE_LINK_UP;
 	}
 
-	kfree(msg);
 	port->attr.subnet_timeout = msg->port_attr.subnet_timeout;
 	port->attr.init_type_reply = msg->port_attr.init_type_reply;
 	port->attr.active_width = msg->port_attr.active_width;
 	port->attr.active_speed = msg->port_attr.active_speed;
 	port->attr.phys_state = msg->port_attr.phys_state;
-	port->mtu_cap = ib_mtu_enum_to_int(octep_rdma_mtu_to_ib(msg->port_attr.active_mtu));
-	port->subnet_prefix = cpu_to_be64(msg->port_attr.subnet_prefix);
+	kfree(msg);
+	return 0;
 }
 
 static int
@@ -244,12 +245,23 @@ octep_rdma_res_cb_free(struct octep_rdma_dev *dev)
 static int
 octep_rdma_attrs_init(struct octep_rdma_dev *rdma_dev)
 {
-	int ret = 0;
+	int ret;
 
-	octep_rdma_device_attrs_init(rdma_dev);
-	octep_rdma_port_attr_init(rdma_dev);
+	ret = octep_rdma_device_attrs_init(rdma_dev);
+	if (ret) {
+		dev_err(&rdma_dev->pdev->dev,
+			"Device attributes init failed: %d\n", ret);
+		return ret;
+	}
 
-	return ret;
+	ret = octep_rdma_port_attr_init(rdma_dev);
+	if (ret) {
+		dev_err(&rdma_dev->pdev->dev,
+			"Port attributes init failed: %d\n", ret);
+		return ret;
+	}
+
+	return 0;
 }
 
 static void
@@ -268,9 +280,6 @@ octep_rdma_ib_device_remove(struct octep_rdma_dev *rdma_dev)
 	 * mailbox communication to work.
 	 */
 	ib_unregister_device(&rdma_dev->ibdev);
-
-	/* Clean up memory translation arrays */
-	xa_destroy(&rdma_dev->mem_xa);
 
 	/* Free resource control blocks */
 	octep_rdma_res_cb_free(rdma_dev);
@@ -471,7 +480,6 @@ octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev)
 	ibdev->local_dma_lkey = 0;
 
 	ib_set_device_ops(ibdev, &octep_rdma_device_ops);
-	xa_init_flags(&rdma_dev->mem_xa, XA_FLAGS_ALLOC1);
 
 	rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_PD].start_idx = 1;
 	rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ].start_idx = 1;
@@ -480,6 +488,18 @@ octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev)
 	ret = octep_rdma_res_cb_init(rdma_dev);
 	if (ret)
 		return ret;
+
+	/*
+	 * Reserve QP N-1 and CQ N-1 for the management netdev.
+	 * Pre-setting the bitmap bits ensures the RDMA CM allocator
+	 * never hands them out, even on wrap-around.
+	 */
+	if (rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP].max_cap > 2)
+		set_bit(rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP].max_cap - 1,
+			rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP].bitmap);
+	if (rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ].max_cap > 1)
+		set_bit(rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ].max_cap - 1,
+			rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_CQ].bitmap);
 
 	atomic_set(&rdma_dev->num_ctx, 0);
 	ret = octep_rdma_device_register(rdma_dev);
@@ -514,20 +534,21 @@ octep_rdma_dev_release(struct octep_rdma_dev *rdma_dev)
 	/*
 	 * Critical: Unregister IB device FIRST while communication is still working.
 	 * This will trigger cleanup of all RDMA resources (QPs, CQs, PDs, etc.)
-	 * through the normal IB stack cleanup path.
+	 * through the normal IB stack cleanup path, and releases any netdev refs
+	 * held by the IB stack before we attempt unregister_netdev.
 	 */
-	if (status == OCTEP_RDMA_DEV_STATUS_IBDEV_READY) {
+	if (status >= OCTEP_RDMA_DEV_STATUS_IBDEV_READY) {
 		dev_info(&rdma_dev->pdev->dev, "Unregistering IB device...\n");
 		octep_rdma_ib_device_remove(rdma_dev);
 	}
 
 	/*
 	 * After IB resources are cleaned up, we can safely stop the
-	 * underlying device and network interface
+	 * underlying device and network interface.
 	 */
 	if (status >= OCTEP_RDMA_DEV_STATUS_NETDEV_REG) {
 		dev_info(&rdma_dev->pdev->dev, "Stopping underlying device...\n");
-		unregister_netdev(rdma_dev->octep_dev->netdev);
+		octep_rdma_mgmt_qp_netdev_cleanup(rdma_dev);
 		octep_device_cleanup(rdma_dev->octep_dev);
 	}
 
@@ -576,11 +597,16 @@ octep_rdma_remove_vf(struct pci_dev *pdev)
 {
 	struct octep_rdma_dev *rdma_dev = pci_get_drvdata(pdev);
 	struct octep_caps_region *caps_rgn = rdma_dev->caps_rgn;
+	struct net_device *netdev = rdma_dev->netdev;
 
-	if (rdma_dev->octep_dev)
+	if (rdma_dev->octep_dev) {
 		cancel_delayed_work_sync(&rdma_dev->octep_dev->vf_hb_task);
-	octep_vf_delete_mbox(rdma_dev->octep_dev);
+		octep_vf_delete_mbox(rdma_dev->octep_dev);
+	}
 	octep_rdma_dev_release(rdma_dev);
+
+	if (netdev)
+		free_netdev(netdev);
 
 	if (caps_rgn->base[OCTEP_HW_MBOX_BAR])
 		octep_iounmap_region(pdev, caps_rgn->base, OCTEP_HW_MBOX_BAR);
@@ -590,7 +616,7 @@ octep_rdma_remove_vf(struct pci_dev *pdev)
 
 	pci_disable_device(pdev);
 	octep_rdma_vf_bar_shrink(pdev);
-	devm_kfree(&pdev->dev, rdma_dev->caps_rgn);
+	devm_kfree(&pdev->dev, caps_rgn);
 }
 
 static bool
@@ -613,7 +639,7 @@ octep_rdma_setup_task(struct work_struct *work)
 	struct octep_caps_region *caps_rgn;
 	struct pci_dev *pdev;
 	struct device *dev;
-	struct octep_sdp_dev *octep_dev;
+	struct octep_ep_dev *octep_dev;
 	struct net_device *netdev = NULL;
 	unsigned long timeout;
 	u64 val;
@@ -688,7 +714,7 @@ octep_rdma_setup_task(struct work_struct *work)
 		goto unmap_region;
 	}
 
-	netdev = alloc_etherdev_mq(sizeof(struct octep_sdp_dev), OCTEP_MAX_QUEUES);
+	netdev = alloc_etherdev(sizeof(struct octep_ep_dev));
 	if (!netdev) {
 		dev_err(&pdev->dev, "Failed to allocate netdev\n");
 		ret = -ENOMEM;
@@ -716,27 +742,36 @@ octep_rdma_setup_task(struct work_struct *work)
 	rdma_dev->netdev = netdev;
 	octep_dev->pdev = pdev;
 
-	/* Probing underneath hardware device */
+	/* Probing PCIe endpoint hardware device for RDMA verb path */
 	ret = octep_rdma_probe_dev(octep_dev);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to probe octep device, ret=%d\n", ret);
 		goto free_netdev;
 	}
-	atomic_set(&rdma_dev->status, OCTEP_RDMA_DEV_STATUS_NETDEV_REG);
 
-	/* Registering ibdev */
+	/* Registering ibdev (must come before mgmt QP init for bitmap reservation) */
 	ret = octep_rdma_ib_device_add(rdma_dev);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register ibdev, ret=%d\n", ret);
-		goto err_probe_cleanup;
+		goto err_device_cleanup;
 	}
+
+	/* Non-RDMA packet path: management QP-based netdev */
+	ret = octep_rdma_mgmt_qp_netdev_init(rdma_dev, octep_dev, caps_rgn);
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to init mgmt QP netdev, ret=%d\n", ret);
+		goto err_ibdev_cleanup;
+	}
+
+	atomic_set(&rdma_dev->status, OCTEP_RDMA_DEV_STATUS_NETDEV_REG);
 
 	dev_info(&pdev->dev, "RDMA setup task completed successfully\n");
 	return;
 
-err_probe_cleanup:
-	octep_rdma_dev_release(rdma_dev);
-	goto unmap_region;
+err_ibdev_cleanup:
+	octep_rdma_ib_device_remove(rdma_dev);
+err_device_cleanup:
+	octep_device_cleanup(octep_dev);
 free_netdev:
 	if (netdev) {
 		rdma_dev->netdev = NULL;
@@ -883,7 +918,7 @@ octep_rdma_remove_pf(struct pci_dev *pdev)
 		octep_delete_pfvf_mbox(octpf->octep_dev);
 
 		/* Clean up interrupts */
-		octep_clean_irqs(octpf->octep_dev);
+		octep_cleanup_msix(octpf->octep_dev);
 
 		/* Free configuration */
 		kfree(octpf->octep_dev->conf);
@@ -965,6 +1000,7 @@ octep_sriov_enable(struct pci_dev *pdev, int num_vfs)
 
 		octep_rdma_assign_barspace(vf_pdev, pdev, index);
 		if (++index == num_vfs) {
+			pci_dev_put(vf_pdev);
 			done = true;
 			break;
 		}
@@ -1059,14 +1095,14 @@ octep_rdma_pf_setup(struct octep_pf *octpf)
 	octpf->vf_devid = octep_get_vf_devid(pdev);
 
 	octep_rdma_pf_bar_shrink(octpf);
-	struct net_device *netdev = alloc_etherdev_mq(sizeof(struct octep_sdp_dev), 1);
+	struct net_device *netdev = alloc_etherdev_mq(sizeof(struct octep_ep_dev), 1);
 
 	if (!netdev) {
 		dev_err(&pdev->dev, "PF: failed to allocate temp netdev for OEI");
 		return 0;
 	}
 	SET_NETDEV_DEV(netdev, &pdev->dev);
-	struct octep_sdp_dev *octep_dev = netdev_priv(netdev);
+	struct octep_ep_dev *octep_dev = netdev_priv(netdev);
 
 	octep_dev->netdev = netdev;
 	octep_dev->pdev = pdev;
@@ -1089,6 +1125,8 @@ octep_rdma_pf_setup(struct octep_pf *octpf)
 	err = octep_setup_pfvf_mbox(octep_dev);
 	if (err) {
 		dev_err(&pdev->dev, " pfvf mailbox setup failed");
+		kfree(octep_dev->conf);
+		free_netdev(netdev);
 		return err;
 	}
 	/* Initialize polling and heartbeat tasks */
@@ -1107,13 +1145,9 @@ octep_rdma_pf_setup(struct octep_pf *octpf)
 	/* Set a proper device name for PF interrupt registration */
 	snprintf(octep_dev->netdev->name, IFNAMSIZ, "octep_pf%d", pdev->bus->number);
 
-	octep_setup_irqs(octep_dev);
-
-	/* Enable hardware interrupts */
-	if (octep_dev->hw_ops.enable_interrupts) {
-		octep_dev->hw_ops.enable_interrupts(octep_dev);
-		dev_info(&pdev->dev, "PF: Hardware interrupts enabled");
-	}
+	err = octep_setup_msix(octep_dev);
+	if (err)
+		dev_warn(&pdev->dev, "PF: MSI-X setup failed, using polling mode\n");
 
 	return 0;
 }
@@ -1139,9 +1173,6 @@ octep_rdma_probe_pf(struct pci_dev *pdev)
 	octpf = devm_kzalloc(dev, sizeof(*octpf), GFP_KERNEL);
 	if (!octpf)
 		return -ENOMEM;
-
-	/* Initialize VF active count */
-	atomic_set(&octpf->active_vf_count, 0);
 
 	ret = octep_iomap_region(pdev, octpf->base, OCTEP_HW_REGS_BAR);
 	if (ret) {

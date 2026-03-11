@@ -125,7 +125,7 @@ octep_rdma_init_kernel_cq(struct octep_rdma_cq *cq)
 
 	kcq->db = (u8 __iomem *)(db_base + (((cq->cqn * 3) + 2) * kcq->notify_off_multiplier));
 	kcq->pi_dbl = (atomic_t __iomem *)kcq->db;
-	kcq->ci_dbl = kcq->pi_dbl + 2;
+	kcq->ci_dbl = kcq->pi_dbl + 1;
 
 	spin_lock_init(&kcq->lock);
 
@@ -180,7 +180,7 @@ octep_rdma_prepare_cq_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_cq 
 	cq_state_req = kzalloc(sizeof(*cq_state_req), GFP_KERNEL);
 	if (!cq_state_req) {
 		ret = -ENOMEM;
-		goto err;
+		goto err_destroy_fw_cq;
 	}
 
 	cq_state_req->port_num = rdma_dev->port.port_num;
@@ -192,6 +192,18 @@ octep_rdma_prepare_cq_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_cq 
 		ibdev_err(cq->ibcq.device, "octep_rdma_mbox_cq_state failed\n");
 
 	kfree(cq_state_req);
+	kfree(cq_req);
+	return ret;
+
+err_destroy_fw_cq:
+	{
+		struct octep_rdma_cq_destroy_req cq_destroy = {
+			.port_num = rdma_dev->port.port_num,
+			.cq_id = cq->cqn,
+		};
+
+		octep_rdma_mbox_cq_destroy(rdma_dev->caps_rgn, &cq_destroy);
+	}
 err:
 	kfree(cq_req);
 	return ret;
@@ -417,19 +429,17 @@ octep_rdma_kern_cq_poll_remove(struct octep_rdma_cq *cq)
 		usleep_range(20, 40); /* Shorter sleep for better performance */
 	}
 
-	/* Fallback path: Mark entries as invalid during shutdown */
-	pr_warn("CQ poll remove: high contention detected, invalidating CQ entries\n");
+	/* Fallback path: Remove entries during shutdown with final attempt */
+	pr_warn("CQ poll remove: high contention detected, retrying removal\n");
 
-	/* Final attempt with invalidation strategy */
 	fast_retries = 3;
 	while (fast_retries-- > 0) {
 		if (mutex_trylock(&cq_list_lock)) {
-			/* Invalidate matching CQ entries for safety */
-			list_for_each_entry(entry, &cq_list, list) {
+			list_for_each_entry_safe(entry, tmp, &cq_list, list) {
 				if (entry->cq == cq) {
-					entry->cq = NULL; /* Invalidate to prevent access */
+					list_del(&entry->list);
+					kfree(entry);
 					found = 1;
-					/* Continue checking all entries - don't break */
 				}
 			}
 			mutex_unlock(&cq_list_lock);
@@ -438,8 +448,7 @@ octep_rdma_kern_cq_poll_remove(struct octep_rdma_cq *cq)
 		cpu_relax();
 	}
 
-	/* Always return success to prevent blocking shutdown */
-	return 0;
+	return found ? 0 : -ENOENT;
 }
 
 int

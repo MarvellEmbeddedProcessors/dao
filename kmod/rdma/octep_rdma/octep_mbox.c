@@ -76,6 +76,7 @@ octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer, u32
 	val = octep_read_sig(mbox);
 	if ((val & 0xFFFF) != MBOX_RSP_SIG) {
 		dev_warn(&pdev->dev, "Invalid Signature from mbox : %d response\n", id);
+		ret = -EIO;
 		goto out;
 	}
 
@@ -316,7 +317,7 @@ int
 octep_rdma_mbox_ah_modify(struct octep_caps_region *oct_caps, struct octep_rdma_ah_create_req *req)
 {
 	return octep_process_mbox(oct_caps, OCTEP_RDMA_MBOX_MSG_USER_AH_MODIFY, req,
-				  sizeof(struct octep_rdma_ah_destroy_req), OCTEP_MBOX_OP_WRITE);
+				  sizeof(struct octep_rdma_ah_create_req), OCTEP_MBOX_OP_WRITE);
 }
 
 int

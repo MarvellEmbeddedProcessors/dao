@@ -52,7 +52,7 @@ octep_iommu_unmapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *me
 		return;
 	}
 
-	for (i = 0; i < mem->page_cnt; i++) {
+	for (i = 0; i < mem->iommu_mapped_cnt; i++) {
 		if (mem->iova[i]) {
 			phys_addr_t existing_phys = iommu_iova_to_phys(domain, mem->iova[i]);
 
@@ -171,7 +171,7 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 	}
 
 	mem->size = size;
-	mem->page_cnt = mapped_cnt;
+	mem->iommu_mapped_cnt = mapped_cnt;
 
 	return 0;
 }

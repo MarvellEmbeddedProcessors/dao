@@ -146,9 +146,9 @@ octep_rdma_init_av(struct rdma_ah_attr *attr, struct octep_rdma_av *av)
 	octep_rdma_av_from_attr(rdma_ah_get_port_num(attr), av, attr);
 	octep_rdma_av_fill_ip_info(av, attr);
 	memcpy(av->dmac, attr->roce.dmac, ETH_ALEN);
-	pr_info("[%s:%d] sgid_addr %x dgid_addr %x dmac %pI6\n", __func__, __LINE__,
-		av->sgid_addr._sockaddr_in.sin_addr.s_addr,
-		av->dgid_addr._sockaddr_in.sin_addr.s_addr, av->dmac);
+	pr_info("[%s:%d] sgid_addr %pI4 dgid_addr %pI4 dmac %pM\n", __func__, __LINE__,
+		&av->sgid_addr._sockaddr_in.sin_addr.s_addr,
+		&av->dgid_addr._sockaddr_in.sin_addr.s_addr, av->dmac);
 }
 
 int
@@ -162,13 +162,21 @@ octep_rdma_prepare_ah_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah 
 	if (!req)
 		return -ENOMEM;
 
+	if (av->network_type == OCTEP_RDMA_NETWORK_TYPE_IPV6) {
+		ibdev_err(&rdma_dev->ibdev,
+			  "IPv6 AH not supported: firmware ABI lacks IPv6 address fields\n");
+		kfree(req);
+		return -EOPNOTSUPP;
+	}
+
 	req->index = ah->ah_num;
 	req->port_num = rdma_dev->port.port_num;
 	req->network_type = av->network_type;
+	memcpy(req->dmac, av->dmac, ETH_ALEN);
+	if (rdma_dev->netdev)
+		memcpy(req->smac, rdma_dev->netdev->dev_addr, ETH_ALEN);
 	req->s_addr = av->sgid_addr._sockaddr_in.sin_addr.s_addr;
 	req->d_addr = av->dgid_addr._sockaddr_in.sin_addr.s_addr;
-	memcpy(req->dmac, av->dmac, ETH_ALEN);
-	memcpy(req->smac, rdma_dev->netdev->dev_addr, ETH_ALEN);
 
 	if (cmd == AH_CREATE) {
 		ret = octep_rdma_mbox_ah_create(rdma_dev->caps_rgn, req);

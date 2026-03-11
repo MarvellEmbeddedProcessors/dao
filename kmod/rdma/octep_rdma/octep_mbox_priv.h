@@ -34,10 +34,6 @@
 #define MBOX_AVAIL(val)      (((val) & MBOX_RSP_MASK))
 #define MBOX_RSP(val)        ((val) & (MBOX_RC_MASK | MBOX_RSP_MASK))
 
-#define DEV_RST_ACK_BIT     7
-#define FEATURE_SEL_ACK_BIT 15
-#define QUEUE_SEL_ACK_BIT   15
-
 struct octep_mbox_hdr {
 	u8 ver;
 	u8 rsvd1;
@@ -62,12 +58,11 @@ struct octep_mbox {
 };
 
 enum octep_rdma_dev_status {
-	OCTEP_RDMA_DEV_STATUS_INVALID,
 	OCTEP_RDMA_DEV_STATUS_ALLOC,
 	OCTEP_RDMA_DEV_STATUS_WAIT_FOR_BAR_INIT,
 	OCTEP_RDMA_DEV_STATUS_INIT,
-	OCTEP_RDMA_DEV_STATUS_NETDEV_REG,
 	OCTEP_RDMA_DEV_STATUS_IBDEV_READY,
+	OCTEP_RDMA_DEV_STATUS_NETDEV_REG,
 	OCTEP_RDMA_DEV_STATUS_UNINIT
 };
 
@@ -75,11 +70,6 @@ enum octep_rdma_dev_pci_cfg_type {
 	OCTEP_RDMA_DEV_PCI_CAP_NOTIFY_CFG = 1,
 	OCTEP_RDMA_DEV_PCI_CAP_DEV_CFG = 2,
 	OCTEP_RDMA_DEV_PCI_CAP_MBOX_CFG = 3,
-};
-
-enum octep_pci_vndr_cfg_type {
-	OCTEP_PCI_VNDR_CFG_TYPE_VIRTIO_ID,
-	OCTEP_PCI_VNDR_CFG_TYPE_MAX,
 };
 
 /* This is the PCI capability header: */
@@ -104,10 +94,8 @@ struct octep_rdma_dev_pci_vndr_cap {
 struct octep_caps_region {
 	struct pci_dev *pdev;
 	u8 __iomem *base[PCI_STD_NUM_BARS];
-	struct virtio_pci_common_cfg __iomem *common_cfg;
 	u8 __iomem *dev_cfg;
 	u8 __iomem *mbox_base;
-	u8 __iomem *isr;
 	void __iomem *notify_base;
 	phys_addr_t notify_base_pa;
 	struct mutex mbox_lock; /* lock for synchronization */

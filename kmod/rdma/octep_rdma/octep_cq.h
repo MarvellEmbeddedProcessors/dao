@@ -7,11 +7,6 @@
 
 #include "octep_mr.h"
 
-struct octep_rdma_cmdq_destroy_cq_req {
-	u64 hdr;
-	u32 cqn;
-};
-
 struct octep_rdma_kcq_info {
 	/* Hot data - frequently accessed fields (first cache line) */
 	void *qbuf;       /* Buffer pointer - hot */
@@ -28,7 +23,6 @@ struct octep_rdma_kcq_info {
 	/* Cold data - rarely accessed after initialization */
 	dma_addr_t qbuf_dma_addr; /* DMA address - cold */
 	u64 db_region;            /* Doorbell region - cold */
-	u64 db_region_sz;         /* Doorbell region size - cold */
 	u64 *iova;                /* IOVA pointer - cold */
 } ____cacheline_aligned;
 

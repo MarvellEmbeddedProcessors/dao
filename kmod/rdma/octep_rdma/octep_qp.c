@@ -2,14 +2,9 @@
  * Copyright (c) 2024 Marvell.
  */
 #include <linux/dma-mapping.h>
-#include <linux/iommu.h>
 #include <rdma/uverbs_ioctl.h>
 
 #include "octep_verbs.h"
-
-#define OCTEP_RDMA_MODIFY_QP_SUPP_MASK                                                             \
-	(IB_QP_STATE | IB_QP_CUR_STATE | IB_QP_EN_SQD_ASYNC_NOTIFY | IB_QP_PKEY_INDEX |            \
-	 IB_QP_PORT | IB_QP_QKEY | IB_QP_SQ_PSN | IB_QP_RNR_RETRY)
 
 static void
 octep_rdma_qp_safe_free(struct kref *ref)
@@ -314,11 +309,11 @@ init_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 
 	sq->db = db_base + ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier);
 	sq->pi_dbl = (atomic_t __iomem *)(sq->db);
-	sq->ci_dbl = sq->pi_dbl + 2;
+	sq->ci_dbl = sq->pi_dbl + 1;
 
 	rq->db = db_base + (((qp->ibqp.qp_num * 3) + 1) * kqp->notify_off_multiplier);
 	rq->pi_dbl = (atomic_t __iomem *)(rq->db);
-	rq->ci_dbl = rq->pi_dbl + 2;
+	rq->ci_dbl = rq->pi_dbl + 1;
 
 	return 0;
 
@@ -337,6 +332,11 @@ free_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp)
 	struct octep_rdma_queue *sq = &kqp->sq;
 	struct octep_rdma_queue *rq = &kqp->rq;
 
+	/* Unmap doorbell region before clearing pointers */
+	if (sq->db)
+		iounmap((void __iomem *)((uintptr_t)sq->db -
+					 ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier)));
+
 	/* Free SQ buffer */
 	if (sq->qbuf)
 		dma_free_coherent(&rdma_dev->pdev->dev, sq->size, sq->qbuf, sq->qbuf_dma_addr);
@@ -354,11 +354,6 @@ free_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp)
 	rq->db = NULL;
 	rq->pi_dbl = NULL;
 	rq->ci_dbl = NULL;
-
-	/* Unmap doorbell region if mapped */
-	if (sq->db)
-		iounmap((void __iomem *)((uintptr_t)sq->db -
-					 ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier)));
 }
 
 int

@@ -8,9 +8,9 @@
 #include <linux/mutex.h>
 #include <linux/jiffies.h>
 
-#include "octep_sdp.h"
+#include "octep_ep.h"
 #include "octep_pfvf_mbox.h"
-#include "octep_sdp_regs.h"
+#include "octep_ep_regs.h"
 
 /*
  * When a new command is implemented, the below table should be updated
@@ -21,7 +21,7 @@ static u32 pfvf_cmd_versions[OCTEP_RDMA_PFVF_MBOX_CMD_MAX] = {
 	[0 ... OCTEP_RDMA_PFVF_MBOX_NOTIF_HEARTBEAT] = OCTEP_RDMA_PFVF_MBOX_VERSION_V0,
 };
 
-static void octep_pfvf_validate_version(struct octep_sdp_dev *octep_dev, u32 vf_id,
+static void octep_pfvf_validate_version(struct octep_ep_dev *octep_dev, u32 vf_id,
 					union octep_rdma_pfvf_mbox_word cmd,
 					union octep_rdma_pfvf_mbox_word *rsp)
 {
@@ -42,11 +42,11 @@ static void octep_pfvf_validate_version(struct octep_sdp_dev *octep_dev, u32 vf_
 }
 
 /* Send a notification to a specific VF */
-int octep_rdma_send_notification(struct octep_sdp_dev *octep_dev, u32 vf_id,
+int octep_rdma_send_notification(struct octep_ep_dev *octep_dev, u32 vf_id,
 				 union octep_rdma_pfvf_mbox_word cmd)
 {
 	u32 max_rings_per_vf, vf_mbox_queue;
-	struct octep_sdp_mbox *mbox;
+	struct octep_ep_mbox *mbox;
 
 	if (!octep_dev || !octep_dev->conf) {
 		if (octep_dev)
@@ -78,7 +78,7 @@ int octep_rdma_send_notification(struct octep_sdp_dev *octep_dev, u32 vf_id,
 }
 
 /* Send heartbeat miss notification to all VFs */
-void octep_rdma_send_heartbeat_miss_to_all_vfs(struct octep_sdp_dev *octep_dev, u32 miss_count)
+void octep_rdma_send_heartbeat_miss_to_all_vfs(struct octep_ep_dev *octep_dev, u32 miss_count)
 {
 	union octep_rdma_pfvf_mbox_word heartbeat_cmd;
 	u32 active_vfs, vf;
@@ -123,7 +123,7 @@ void octep_rdma_send_heartbeat_miss_to_all_vfs(struct octep_sdp_dev *octep_dev, 
 }
 
 /* Send link status (UP or DOWN) to given VF */
-void octep_rdma_send_link_status(struct octep_sdp_dev *octep_dev, uint32_t vf, uint8_t link_status)
+void octep_rdma_send_link_status(struct octep_ep_dev *octep_dev, uint32_t vf, uint8_t link_status)
 {
 	union octep_rdma_pfvf_mbox_word link_status_cmd;
 	const char *status_str = (link_status == OCTEP_RDMA_PFVF_LINK_STATUS_UP) ? "UP" : "DOWN";
@@ -156,7 +156,7 @@ void octep_rdma_send_link_status(struct octep_sdp_dev *octep_dev, uint32_t vf, u
 }
 
 /* Setup PF-VF mailbox infrastructure */
-int octep_setup_pfvf_mbox(struct octep_sdp_dev *octep_dev)
+int octep_setup_pfvf_mbox(struct octep_ep_dev *octep_dev)
 {
 	int i = 0, num_vfs = 0, rings_per_vf = 0;
 	int ring = 0;
@@ -193,11 +193,11 @@ free_mbox:
 		vfree(octep_dev->mbox[ring]);
 		octep_dev->mbox[ring] = NULL;
 	}
-	return 1;
+	return -ENOMEM;
 }
 
 /* Delete PF-VF mailbox infrastructure */
-void octep_delete_pfvf_mbox(struct octep_sdp_dev *octep_dev)
+void octep_delete_pfvf_mbox(struct octep_ep_dev *octep_dev)
 {
 	int rings_per_vf = octep_dev->conf->sriov_cfg.max_rings_per_vf;
 	int num_vfs = octep_dev->conf->sriov_cfg.active_vfs;
@@ -223,12 +223,12 @@ void octep_pfvf_mbox_work(struct work_struct *work)
 	struct octep_pfvf_mbox_wk *wk = container_of(work, struct octep_pfvf_mbox_wk, work);
 	union octep_rdma_pfvf_mbox_word cmd = { 0 };
 	union octep_rdma_pfvf_mbox_word rsp = { 0 };
-	struct octep_sdp_mbox *mbox = NULL;
-	struct octep_sdp_dev *octep_dev = NULL;
+	struct octep_ep_mbox *mbox = NULL;
+	struct octep_ep_dev *octep_dev = NULL;
 	int vf_id;
 
-	mbox = (struct octep_sdp_mbox *)wk->ctxptr;
-	octep_dev = (struct octep_sdp_dev *)mbox->octep_dev;
+	mbox = (struct octep_ep_mbox *)wk->ctxptr;
+	octep_dev = (struct octep_ep_dev *)mbox->octep_dev;
 	vf_id = mbox->vf_id;
 
 	mutex_lock(&mbox->lock);
@@ -253,7 +253,7 @@ void octep_pfvf_mbox_work(struct work_struct *work)
 	mutex_unlock(&mbox->lock);
 }
 
-int octep_vf_setup_mbox(struct octep_sdp_dev *octep_dev)
+int octep_vf_setup_mbox(struct octep_ep_dev *octep_dev)
 {
 	int ring = 0;
 
@@ -271,7 +271,7 @@ int octep_vf_setup_mbox(struct octep_sdp_dev *octep_dev)
 	return 0;
 }
 
-void octep_vf_delete_mbox(struct octep_sdp_dev *octep_dev)
+void octep_vf_delete_mbox(struct octep_ep_dev *octep_dev)
 {
 	if (octep_dev->vf_mbox) {
 		if (work_pending(&octep_dev->vf_mbox->wk.work))
@@ -284,7 +284,7 @@ void octep_vf_delete_mbox(struct octep_sdp_dev *octep_dev)
 	}
 }
 
-int octep_vf_mbox_version_check(struct octep_sdp_dev *octep_dev)
+int octep_vf_mbox_version_check(struct octep_ep_dev *octep_dev)
 {
 	union octep_rdma_pfvf_mbox_word cmd;
 	union octep_rdma_pfvf_mbox_word rsp;
@@ -310,12 +310,12 @@ int octep_vf_mbox_version_check(struct octep_sdp_dev *octep_dev)
 void octep_vf_mbox_work(struct work_struct *work)
 {
 	struct octep_vf_mbox_wk *wk = container_of(work, struct octep_vf_mbox_wk, work);
-	struct octep_sdp_dev *octep_dev = NULL;
-	struct octep_sdp_vf_mbox *mbox = NULL;
+	struct octep_ep_dev *octep_dev = NULL;
+	struct octep_ep_vf_mbox *mbox = NULL;
 	union octep_rdma_pfvf_mbox_word *notif;
 	u64 pf_vf_data;
 
-	octep_dev = (struct octep_sdp_dev *)wk->ctxptr;
+	octep_dev = (struct octep_ep_dev *)wk->ctxptr;
 	mbox = octep_dev->vf_mbox;
 	pf_vf_data = readq(mbox->mbox_read_reg);
 	if (unlikely(pf_vf_data == 0xFFFFFFFFFFFFFFFFU))
@@ -357,11 +357,11 @@ void octep_vf_mbox_work(struct work_struct *work)
 	}
 }
 
-static int __octep_vf_mbox_send_cmd(struct octep_sdp_dev *octep_dev,
+static int __octep_vf_mbox_send_cmd(struct octep_ep_dev *octep_dev,
 				    union octep_rdma_pfvf_mbox_word cmd,
 				    union octep_rdma_pfvf_mbox_word *rsp)
 {
-	struct octep_sdp_vf_mbox *mbox = octep_dev->vf_mbox;
+	struct octep_ep_vf_mbox *mbox = octep_dev->vf_mbox;
 	u64 reg_val = 0ull;
 	int count = 0;
 
@@ -398,15 +398,21 @@ static int __octep_vf_mbox_send_cmd(struct octep_sdp_dev *octep_dev,
 	return 0;
 }
 
-int octep_vf_mbox_send_cmd(struct octep_sdp_dev *octep_dev, union octep_rdma_pfvf_mbox_word cmd,
+int octep_vf_mbox_send_cmd(struct octep_ep_dev *octep_dev, union octep_rdma_pfvf_mbox_word cmd,
 			   union octep_rdma_pfvf_mbox_word *rsp)
 {
-	struct octep_sdp_vf_mbox *mbox = octep_dev->vf_mbox;
+	struct octep_ep_vf_mbox *mbox = octep_dev->vf_mbox;
 	int ret;
 
 	if (!mbox)
 		return OCTEP_RDMA_PFVF_MBOX_CMD_STATUS_NOT_SETUP;
 	mutex_lock(&mbox->lock);
+	if (cmd.s.opcode >= OCTEP_RDMA_PFVF_MBOX_CMD_MAX) {
+		dev_err(&octep_dev->pdev->dev, "CMD:%d out of range (max %d)\n",
+			cmd.s.opcode, OCTEP_RDMA_PFVF_MBOX_CMD_MAX);
+		mutex_unlock(&mbox->lock);
+		return -EINVAL;
+	}
 	if (pfvf_cmd_versions[cmd.s.opcode] > octep_dev->mbox_neg_ver) {
 		dev_info(&octep_dev->pdev->dev, "CMD:%d not supported in Version:%d\n",
 			 cmd.s.opcode, octep_dev->mbox_neg_ver);

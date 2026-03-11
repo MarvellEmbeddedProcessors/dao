@@ -4,7 +4,6 @@
 
 #include <rdma/uverbs_ioctl.h>
 
-#include "octep_sdp.h"
 #include "octep_verbs.h"
 
 /* Helper function to check if device is ready for mailbox communication */
@@ -14,7 +13,7 @@ octep_rdma_device_ready(struct octep_rdma_dev *rdma_dev)
 	int status = atomic_read(&rdma_dev->status);
 
 	return ((status >= OCTEP_RDMA_DEV_STATUS_INIT &&
-		 status <= OCTEP_RDMA_DEV_STATUS_IBDEV_READY) ||
+		 status <= OCTEP_RDMA_DEV_STATUS_NETDEV_REG) ||
 		status == OCTEP_RDMA_DEV_STATUS_UNINIT);
 }
 
@@ -107,14 +106,13 @@ octep_rdma_mmap(struct ib_ucontext *ibucontext, struct vm_area_struct *vma)
 	pfn = entry->address >> PAGE_SHIFT;
 	switch (entry->mmap_flag) {
 	case OCTEP_RDMA_MMAP_IO_NC:
-		/* map doorbell. */
 		err = rdma_user_mmap_io(&uctx->ibucontext, vma, pfn, rdma_entry->npages * PAGE_SIZE,
 					pgprot_noncached(vma->vm_page_prot), rdma_entry);
 		if (err) {
 			ibdev_err(ibucontext->device, "rdma_user_mmap_io failed\n");
 			goto put_entry;
 		}
-
+		err = 0;
 		break;
 	default:
 		err = -EINVAL;
@@ -189,8 +187,10 @@ octep_rdma_alloc_ucontext(struct ib_ucontext *ibucontext, struct ib_udata *udata
 	struct octep_rdma_uresp_alloc_ctx uresp = {};
 
 	ibdev_info(ibucontext->device, "%s: Allocating RDMA ucontext\n", __func__);
-	if (atomic_inc_return(&rdma_dev->num_ctx) > OCTEP_RDMA_MAX_CONTEXT)
+	if (atomic_inc_return(&rdma_dev->num_ctx) > OCTEP_RDMA_MAX_CONTEXT) {
+		atomic_dec(&rdma_dev->num_ctx);
 		return -ENOMEM;
+	}
 
 	uresp.dev_id = rdma_dev->pdev->device;
 	ctx->rdma_dev = rdma_dev;
@@ -307,6 +307,7 @@ octep_rdma_dealloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	 * such stale entries, so the inconsistency is self-healing.
 	 */
 	ibdev_info(ibpd->device, "Deallocating PD %d\n", pd->pdn);
+	bitmap_free(pd->mr_res_cb.bitmap);
 	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_PD], pd->pdn);
 
 	return 0;
@@ -343,7 +344,7 @@ octep_rdma_query_device(struct ib_device *ibdev, struct ib_device_attr *attr,
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibdev);
 	int err;
 
-	if (udata->inlen || udata->outlen) {
+	if (udata && (udata->inlen || udata->outlen)) {
 		dev_err(&rdma_dev->pdev->dev, "Invalid udata\n");
 		err = -EINVAL;
 		goto err_out;
@@ -461,8 +462,10 @@ octep_rdma_get_dma_mr(struct ib_pd *ibpd, int access)
 		return ERR_PTR(-ENOMEM);
 
 	mrn = octep_rdma_alloc_idx(&pd->mr_res_cb);
-	if (mrn < 0)
+	if (mrn < 0) {
+		kfree(mr);
 		return ERR_PTR(mrn);
+	}
 
 	mr->mrn = (u32)mrn;
 	mr->ibmr.pd = ibpd;
@@ -644,8 +647,11 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 	}
 
 	if (is_user == false) {
-		if (octep_rdma_kern_cq_poll_insert(cq) < 0)
+		ret = octep_rdma_kern_cq_poll_insert(cq);
+		if (ret < 0) {
 			ibdev_err(ibcq->device, "Failed to insert CQ for poll\n");
+			goto err_free_res;
+		}
 	}
 
 	return 0;
@@ -705,11 +711,8 @@ octep_rdma_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata)
 {
 	struct octep_rdma_cq *cq = to_octep_rdma_cq(ibcq);
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibcq->device);
-	struct octep_rdma_cmdq_destroy_cq_req req = {};
 	bool device_active;
 	int ret = 0;
-
-	req.cqn = cq->cqn;
 
 	/* Check if device is still active for communication */
 	device_active = octep_rdma_device_ready(rdma_dev);
@@ -849,7 +852,8 @@ err_out_cmd:
 	}
 
 err_out_xa:
-	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP], qp->ibqp.qp_num);
+	if (attrs->qp_type != IB_QPT_GSI)
+		octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP], qp->ibqp.qp_num);
 err_out:
 	ibdev_err(ibqp->device, "[%s] returned err = %d\n", __func__, ret);
 	return ret;
@@ -1010,8 +1014,6 @@ octep_rdma_post_one_send(struct octep_rdma_qp *qp, struct octep_rdma_queue *sq,
 {
 	union octep_rdma_sqe *sqe;
 	struct ib_sge *sg_list;
-	struct ib_ah *ibah;
-	const struct ib_ud_wr *ud_wr_ptr;
 	u16 qmask, prod_index, cons_index;
 	int num_sge;
 	void *qbuf;
@@ -1026,9 +1028,6 @@ octep_rdma_post_one_send(struct octep_rdma_qp *qp, struct octep_rdma_queue *sq,
 	if (unlikely(octep_rdma_is_queue_full(prod_index, cons_index, qmask)))
 		return -ENOMEM;
 
-	/* Cache UD work request pointer and SGE info */
-	ud_wr_ptr = ud_wr(wr_list);
-	ibah = ud_wr_ptr->ah;
 	sg_list = wr_list->sg_list;
 	num_sge = wr_list->num_sge;
 
@@ -1044,10 +1043,14 @@ octep_rdma_post_one_send(struct octep_rdma_qp *qp, struct octep_rdma_queue *sq,
 	sqe->send_flags = wr_list->send_flags;
 	sqe->imm_data = wr_list->ex.imm_data;
 
-	/* UD-specific fields - grouped for cache efficiency */
-	sqe->ud.ah = to_octep_rdma_ah(ibah)->ah_num;
-	sqe->ud.remote_qpn = ud_wr_ptr->remote_qpn;
-	sqe->ud.qkey = ud_wr_ptr->remote_qkey;
+	if (qp->ibqp.qp_type == IB_QPT_UD || qp->ibqp.qp_type == IB_QPT_GSI) {
+		const struct ib_ud_wr *ud_wr_ptr = ud_wr(wr_list);
+		struct ib_ah *ibah = ud_wr_ptr->ah;
+
+		sqe->ud.ah = to_octep_rdma_ah(ibah)->ah_num;
+		sqe->ud.remote_qpn = ud_wr_ptr->remote_qpn;
+		sqe->ud.qkey = ud_wr_ptr->remote_qkey;
+	}
 
 	/* Optimized SGE copying with reduced branching */
 	if (likely(num_sge > 0)) {

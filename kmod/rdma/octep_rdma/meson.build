@@ -7,9 +7,9 @@ octep_rdma_mkfile = custom_target('octep_makefile',
 
 octep_rdma_sources = files(
 		'octep_rdma.c',
-		'octep_sdp.c',
-		'octep_sdp_custom.c',
-		'octep_sdp_regs.c',
+		'octep_rdma_netdev.c',
+		'octep_ep.c',
+		'octep_ep_regs.c',
 		'octep_pfvf_mbox.c',
 		'octep_verbs.c',
 		'octep_mbox.c',

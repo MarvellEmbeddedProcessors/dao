@@ -75,6 +75,9 @@ struct octep_rdma_cq_destroy_req {
  * Note: Field order matters for cross-architecture alignment (x86 <-> ARM).
  * u8 fields placed before u64 to ensure natural 8-byte alignment.
  */
+/* Management QP type — firmware uses this to route raw Ethernet traffic */
+#define OCTEP_RDMA_QP_TYPE_MGMT  0xFF
+
 struct octep_rdma_qp_create_req {
 	u16 port_num;
 	u16 qp_id;
@@ -195,4 +198,5 @@ struct octep_rdma_mr_deregister_req {
 	u32 pd_id;
 	u32 port_num;
 };
+
 #endif /* __OCTEP_MBOX_H__ */

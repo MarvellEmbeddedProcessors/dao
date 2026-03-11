@@ -15,44 +15,12 @@
 #include "octep_qp.h"
 #include "octep_rdma.h"
 
-/* WQE related. */
-#define EQE_SIZE          16
-#define EQE_SHIFT         4
-#define RQE_SIZE          32
-#define RQE_SHIFT         5
-#define CQE_SIZE          32
 #define CQE_SHIFT         5
-#define SQEBB_SIZE        32
-#define SQEBB_SHIFT       5
-#define SQEBB_MASK        (~(SQEBB_SIZE - 1))
-#define SQEBB_ALIGN(size) (((size) + SQEBB_SIZE - 1) & SQEBB_MASK)
-#define SQEBB_COUNT(size) (SQEBB_ALIGN(size) >> SQEBB_SHIFT)
 
-#define OCTEP_RDMA_MAX_SQE_SIZE      128
-#define OCTEP_RDMA_MAX_WQEBB_PER_SQE 64
-
-/* hardware page size definition */
-#define OCTEP_RDMA_HW_PAGE_SHIFT 12
 #define OCTEP_RDMA_HW_PAGE_SIZE  4096
-
-/* FIXME: eRDMA PCIe DBs definition. */
-#define OCTEP_RDMA_BAR_DB_SPACE_BASE 4096
-
-#define OCTEP_RDMA_BAR_SQDB_SPACE_OFFSET OCTEP_RDMA_BAR_DB_SPACE_BASE
-#define OCTEP_RDMA_BAR_SQDB_SPACE_SIZE   (384 * 1024)
-
-#define OCTEP_RDMA_BAR_RQDB_SPACE_OFFSET                                                           \
-	(OCTEP_RDMA_BAR_SQDB_SPACE_OFFSET + OCTEP_RDMA_BAR_SQDB_SPACE_SIZE)
-#define OCTEP_RDMA_BAR_RQDB_SPACE_SIZE (96 * 1024)
-
-#define OCTEP_RDMA_BAR_CQDB_SPACE_OFFSET                                                           \
-	(OCTEP_RDMA_BAR_RQDB_SPACE_OFFSET + OCTEP_RDMA_BAR_RQDB_SPACE_SIZE)
 
 #define OCTEP_RDMA_SGE_PER_WQE 4
 #define OCTEP_RDMA_MAX_IOVLEN  1024
-
-#define OCTEP_RDMA_MSG_MAX      20
-#define OCTEP_RDMA_MSG_SIZE_MAX (OCTEP_RDMA_MAX_IOVLEN * PAGE_SIZE)
 
 static inline u8
 to_octep_rdma_access_flags(int access)
@@ -62,99 +30,6 @@ to_octep_rdma_access_flags(int access)
 	       (access & IB_ACCESS_REMOTE_WRITE ? OCTEP_RDMA_MR_ACC_RW : 0) |
 	       (access & IB_ACCESS_REMOTE_ATOMIC ? OCTEP_RDMA_MR_ACC_RA : 0);
 }
-
-enum octep_rdma_wq_flag {
-	OCTEP_RDMA_WQ_EMPTY,
-	OCTEP_RDMA_WQ_POST,
-};
-
-enum octep_rdma_wq_status {
-	OCTEP_RDMA_WQ_UNINITIALIZED,
-	OCTEP_RDMA_WQ_INITIALIZED,
-	OCTEP_RDMA_WQ_RUNNING,
-	OCTEP_RDMA_WQ_EXITED,
-};
-
-enum octep_rdma_wq_type {
-	OCTEP_RDMA_SQ,
-	OCTEP_RDMA_RQ,
-};
-
-/* SQE */
-#define OCTEP_RDMA_SQE_HDR_SGL_LEN_MASK     GENMASK_ULL(63, 56)
-#define OCTEP_RDMA_SQE_HDR_WQEBB_CNT_MASK   GENMASK_ULL(54, 52)
-#define OCTEP_RDMA_SQE_HDR_QPN_MASK         GENMASK_ULL(51, 32)
-#define OCTEP_RDMA_SQE_HDR_OPCODE_MASK      GENMASK_ULL(31, 27)
-#define OCTEP_RDMA_SQE_HDR_DWQE_MASK        BIT_ULL(26)
-#define OCTEP_RDMA_SQE_HDR_INLINE_MASK      BIT_ULL(25)
-#define OCTEP_RDMA_SQE_HDR_FENCE_MASK       BIT_ULL(24)
-#define OCTEP_RDMA_SQE_HDR_SE_MASK          BIT_ULL(23)
-#define OCTEP_RDMA_SQE_HDR_CE_MASK          BIT_ULL(22)
-#define OCTEP_RDMA_SQE_HDR_WQEBB_INDEX_MASK GENMASK_ULL(15, 0)
-
-struct octep_rdma_write_sqe {
-	__le64 hdr;
-	__be32 imm_data;
-	__le32 length;
-
-	__le32 sink_stag;
-	__le32 sink_to_l;
-	__le32 sink_to_h;
-
-	__le32 rsvd;
-
-	struct octep_rdma_sge sgl[];
-};
-
-struct octep_rdma_send_sqe {
-	__le64 hdr;
-	union {
-		__be32 imm_data;
-		__le32 invalid_stag;
-	};
-
-	__le32 length;
-	struct octep_rdma_sge sgl[];
-};
-
-struct octep_rdma_readreq_sqe {
-	__le64 hdr;
-	__le32 invalid_stag;
-	__le32 length;
-	__le32 sink_stag;
-	__le32 sink_to_l;
-	__le32 sink_to_h;
-	__le32 rsvd;
-};
-
-struct octep_rdma_atomic_sqe {
-	__le64 hdr;
-	__le64 rsvd;
-	__le64 fetchadd_swap_data;
-	__le64 cmp_data;
-
-	struct octep_rdma_sge remote;
-	struct octep_rdma_sge sgl;
-};
-
-struct octep_rdma_sge_map {
-	struct iovec *mr_pages;
-	u64 base_offset;
-	u64 page_offset;
-	u64 page_count;
-	u64 sge_len;
-	u8 is_dma;
-};
-
-struct octep_rdma_wqe {
-	struct ib_qp *ibqp;
-	struct iovec *page_map_dynamic;
-	struct iovec page_map_static[OCTEP_RDMA_SGE_PER_WQE];
-	u32 wr_id;
-	u32 l_qpn;
-	u32 byte_len;
-	u8 opcode;
-};
 
 struct octep_rdma_pd {
 	struct ib_pd ibpd;

@@ -11,36 +11,16 @@
  */
 #define OCTEP_RDMA_MAX_INLINE_MTT_ENTRIES 4
 #define MTT_SIZE(mtt_cnt)                 ((mtt_cnt) << 3) /* per mtt takes 8 Bytes. */
-#define OCTEP_RDMA_MR_MAX_MTT_CNT         524288
-#define OCTEP_RDMA_MTT_ENTRY_SIZE         8
-
-#define OCTEP_RDMA_MR_TYPE_NORMAL 0
-#define OCTEP_RDMA_MR_TYPE_FRMR   1
-#define OCTEP_RDMA_MR_TYPE_DMA    2
 
 #define OCTEP_RDMA_MR_INLINE_MTT   0
 #define OCTEP_RDMA_MR_INDIRECT_MTT 1
 
 #define OCTEP_RDMA_MR_ACC_RA BIT(0)
-#define OCTEP_RDMA_MR_ACC_LR BIT(1)
 #define OCTEP_RDMA_MR_ACC_LW BIT(2)
 #define OCTEP_RDMA_MR_ACC_RR BIT(3)
 #define OCTEP_RDMA_MR_ACC_RW BIT(4)
 
-/* REG MR attrs */
-#define OCTEP_RDMA_SQE_MR_ACCESS_MASK   GENMASK(5, 1)
-#define OCTEP_RDMA_SQE_MR_MTT_TYPE_MASK GENMASK(7, 6)
-#define OCTEP_RDMA_SQE_MR_MTT_CNT_MASK  GENMASK(31, 12)
-
 struct octep_rdma_ucontext;
-struct octep_rdma_reg_mr_sqe {
-	__le64 hdr;
-	__le64 addr;
-	__le32 length;
-	__le32 stag;
-	__le32 attrs;
-	__le32 rsvd;
-};
 
 struct octep_rdma_mem {
 	struct ib_umem *umem;
@@ -56,13 +36,13 @@ struct octep_rdma_mem {
 
 	u64 *iova;
 	u64 size;
+	u32 iommu_mapped_cnt;
 
 	u64 mtt_entry[OCTEP_RDMA_MAX_INLINE_MTT_ENTRIES];
 };
 
 enum octep_rdma_mr_state {
 	OCTEP_RDMA_MR_STATE_INVALID,
-	OCTEP_RDMA_MR_STATE_FREE,
 	OCTEP_RDMA_MR_STATE_VALID,
 };
 
