@@ -67,6 +67,14 @@ To launch DAO Card Manager as a client, use the following command:
 
 Once the client is launched, various commands can be executed to manage DAO cards.
 
+.. note:: Error and info messages at the CLI
+
+   When the server reports errors or info (e.g. during update operations), **only the first**
+   ``DAO_CARD_ERR`` or ``DAO_CARD_INFO`` message is sent to the client and shown at the CLI.
+   Every message is also written to syslog. This is intentional: the CLI shows a single
+   message; for full details, consult system logs (e.g. ``journalctl -t dao-card-mgr`` or
+   ``dmesg`` as appropriate).
+
 .. note:: Root Privileges (Enforced)
 
    ``dao_card_mgr`` performs a hard check at startup and will exit immediately if the effective
