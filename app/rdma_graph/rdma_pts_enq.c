@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: BSD-3-Clause
- * Copyright(C) 2025 Marvell.
+ * Copyright (c) 2025 Marvell.
  */
 
 #include <rte_cycles.h>
