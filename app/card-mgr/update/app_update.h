@@ -9,6 +9,6 @@
 
 /* Application update functions */
 int dao_card_mgr_app_update(cli_args *cmd);
-int dao_card_mgr_app_fallback(void);
+int dao_card_mgr_app_fallback(cli_args *cmd);
 
 #endif /* APP_UPDATE_H */

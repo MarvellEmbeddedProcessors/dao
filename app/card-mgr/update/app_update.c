@@ -25,13 +25,66 @@
 #include "update_manager.h"
 
 int
-dao_card_mgr_app_fallback(void)
+dao_card_mgr_app_fallback(cli_args *cmd)
 {
+	const char *boot_path;
+	const char *boot_arg;
 	int rc = 0;
 
-	rc = dao_card_app_fallback(card_ctx);
+	if (!cmd || !cmd->argv) {
+		DAO_CARD_ERR("Invalid command structure");
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	if (cmd->argc < 2) {
+		DAO_CARD_ERR(
+			"card_app_fallback command requires arguments: <path-to-mrvl-oct-boot>");
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	if (!cmd->argv[1]) {
+		DAO_CARD_ERR("Missing required arguments");
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	boot_path = cmd->argv[1];
+	boot_arg = "spi";
+
+	rc = validate_octeon_ep_ko_path();
+	if (rc != 0)
+		goto exit;
+
+	rc = validate_boot_path(boot_path);
+	if (rc != 0)
+		goto exit;
+
+	rc = dao_card_operation_start("app_fallback");
 	if (rc < 0)
+		goto exit;
+
+	DAO_CARD_INFO("Booting card from failsafe...");
+
+	rc = reload_and_bringup_octeon_ep(boot_path, boot_arg, DAO_CARD_MGR_BOOT_IP);
+	if (rc != 0) {
+		DAO_CARD_ERR("Failed to boot card from failsafe");
+		goto cleanup;
+	}
+
+	DAO_CARD_INFO("Card booted from failsafe");
+
+	rc = dao_card_app_fallback(card_ctx);
+	if (rc != 0)
 		DAO_CARD_ERR("gRPC error in card_app_fallback: %d", rc);
+	else
+		DAO_CARD_INFO("Card app fallback completed successfully");
+
+cleanup:
+	dao_card_operation_end(rc == 0);
+
+exit:
 	return rc;
 }
 

@@ -172,9 +172,15 @@ dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
 	/* second file (boot-bin) for some updates */
 	if (strcmp(spec->name, DAO_CARD_MGR_APP_UPDATE) == 0 ||
 	    strcmp(spec->name, DAO_CARD_MGR_FW_UPDATE) == 0 ||
-	    strcmp(spec->name, DAO_CARD_MGR_FAILSAFE_UPDATE) == 0) {
-		const char *boot_arg = argv_local[2];
+	    strcmp(spec->name, DAO_CARD_MGR_FAILSAFE_UPDATE) == 0 ||
+	    strcmp(spec->name, DAO_CARD_MGR_APP_FALLBACK) == 0) {
+		const char *boot_arg;
 		struct stat st;
+
+		if (strcmp(spec->name, DAO_CARD_MGR_APP_FALLBACK) == 0)
+			boot_arg = argv_local[1];
+		else
+			boot_arg = argv_local[2];
 
 		if (boot_arg[0] != '/') {
 			fprintf(stderr, "Error: boot-bin path must be absolute: %s\n", boot_arg);
