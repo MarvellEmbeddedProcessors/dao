@@ -496,12 +496,20 @@ dao_card_mgr_boot(cli_args *cmd)
 		return -EINVAL;
 	}
 
-	rc = reload_and_bringup_octeon_ep(boot_path, boot_arg, DAO_CARD_MGR_BOOT_IP);
-	if (rc != 0) {
-		DAO_CARD_ERR("Boot exec / readiness failed in card_boot: %d", rc);
+	rc = dao_card_operation_start("card_boot_source");
+	if (rc < 0)
 		return rc;
-	}
-	return 0;
+
+	DAO_CARD_INFO("Booting card from %s...", boot_arg);
+	rc = reload_and_bringup_octeon_ep(boot_path, boot_arg, DAO_CARD_MGR_BOOT_IP);
+	if (rc != 0)
+		DAO_CARD_ERR("Boot exec / readiness failed in card_boot: %d", rc);
+	else
+		DAO_CARD_INFO("Card booted successfully");
+
+	dao_card_operation_end(rc == 0);
+
+	return rc;
 }
 
 int
