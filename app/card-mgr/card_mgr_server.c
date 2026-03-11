@@ -269,7 +269,7 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_UPDATE) == 0) {
 		rc = dao_card_mgr_app_update(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_APP_FALLBACK) == 0) {
-		rc = dao_card_mgr_app_fallback();
+		rc = dao_card_mgr_app_fallback(cmd);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_STATS) == 0) {
 		rc = dao_card_stats_get(card_ctx, &card_stats);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_DMESG) == 0) {
