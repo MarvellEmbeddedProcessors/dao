@@ -113,7 +113,7 @@ pts_rdma_qp_dma_finish(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 	rq = &qp->rq;
 	/* All the QPs (in turn CQ/RQ/SQ) of a RDMA device  belong to the same DMA vchan */
 	dma_vchan = rq->dma_vchan;
-	dao_dma_compl_wait(dma_vchan);
+	dao_dma_compl_wait_v2(dma_vchan);
 }
 
 void
@@ -197,6 +197,8 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	sq->pi_addr = (uint16_t *)(dev->notify_base +
 				   ((qp_id * dev->notify_qs_mltpr) * dev->notify_off_mltpr));
 	sq->ci_addr = sq->pi_addr + 2;
+	*(sq->pi_addr) = 0;
+	*(sq->ci_addr) = 0;
 	sq->dma_vchan = dev->dma_vchan;
 	sq->mp = dev->pool;
 	buf_len = dev->pool->elt_size;
@@ -225,6 +227,8 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	sq->cq_data.cq = send_cq;
 	sq->cq_data.q_sz = send_cq->q_sz;
 	sq->cq_data.dma_vchan = send_cq->dma_vchan;
+	sq->cq_data.pi_data = 0;
+	sq->cq_data.ci = 0;
 	sq->cq_data.ring_base =
 		(uint64_t *)rte_zmalloc("pts_rdma_sq_cq_sd_desc",
 					send_cq->q_sz * PTS_RDMA_DEV_CQE_SIZE, RTE_CACHE_LINE_SIZE);
@@ -256,6 +260,8 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	rq->pi_addr = (uint16_t *)(dev->notify_base +
 				   (((qp_id * dev->notify_qs_mltpr) + 1) * dev->notify_off_mltpr));
 	rq->ci_addr = rq->pi_addr + 2;
+	*(rq->pi_addr) = 0;
+	*(rq->ci_addr) = 0;
 	rq->dma_vchan = dev->dma_vchan;
 
 	recv_cq = dev->cqs[req->recv_cq_id];
@@ -275,6 +281,8 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	rq->cq_data.cq = recv_cq;
 	rq->cq_data.q_sz = recv_cq->q_sz;
 	rq->cq_data.dma_vchan = recv_cq->dma_vchan;
+	rq->cq_data.pi_data = 0;
+	rq->cq_data.ci = 0;
 	rq->cq_data.ring_base =
 		(uint64_t *)rte_zmalloc("pts_rdma_rq_cq_sd_desc",
 					recv_cq->q_sz * PTS_RDMA_DEV_CQE_SIZE, RTE_CACHE_LINE_SIZE);
@@ -391,6 +399,12 @@ mbox_msg_set_qp_state_handle(struct pts_rdma_dev *dev, volatile void *data)
 		/* Notify the app about QP state change */
 		if (pts_rdma_dev_cbs.qp_status_cb)
 			rc = pts_rdma_dev_cbs.qp_status_cb(dev->dev_id, req->qp_id, req->enable);
+		pts_rdma_qp_dma_finish(dev, qp);
+		pts_rdma_qp_buf_free(dev, qp);
+		*(qp->sq.pi_addr) = 0;
+		*(qp->sq.ci_addr) = 0;
+		*(qp->rq.pi_addr) = 0;
+		*(qp->rq.ci_addr) = 0;
 		pts_rdma_qp_mem_free(dev, qp);
 		dao_dev->qps[qp_id] = NULL;
 		rte_io_wmb();
