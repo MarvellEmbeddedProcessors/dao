@@ -318,3 +318,29 @@ dao_dma_compl_wait(uint16_t vchan)
 	}
 	rte_io_wmb();
 }
+
+void
+dao_dma_compl_wait_v2(uint16_t vchan)
+{
+	struct dao_dma_vchan_state *dev2mem, *mem2dev;
+	struct dao_dma_vchan_info *vchan_info;
+	uint32_t lcore_id;
+
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
+			continue;
+
+		vchan_info = vchan_info_p[lcore_id];
+		if (!vchan_info)
+			continue;
+		/* All queues use same vchan */
+		dev2mem = &vchan_info->dev2mem[vchan];
+		mem2dev = &vchan_info->mem2dev[vchan];
+		while (dev2mem->head != dev2mem->tail)
+			dao_dma_check_meta_compl_v2(dev2mem, 1);
+
+		while (mem2dev->head != mem2dev->tail)
+			dao_dma_check_meta_compl_v2(mem2dev, 1);
+	}
+	rte_io_wmb();
+}

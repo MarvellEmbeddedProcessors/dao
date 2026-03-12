@@ -233,6 +233,14 @@ int16_t dao_dma_ctrl_mem2dev(void);
 void dao_dma_compl_wait(uint16_t vchan);
 
 /**
+ *  Check and wait for all DMA requests to complete v2
+ *
+ * @param vchan
+ *    Vchan ID
+ */
+void dao_dma_compl_wait_v2(uint16_t vchan);
+
+/**
  * Tests DMA stats support
  *
  * @return
