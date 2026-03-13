@@ -50,6 +50,14 @@ dao_card_mgr_app_update(cli_args *cmd)
 	if (rc != 0)
 		return rc;
 
+	rc = validate_file(cmd, &update_req, &boot_bin_path);
+	if (rc != 0)
+		goto exit;
+
+	rc = validate_boot_path(boot_bin_path);
+	if (rc != 0)
+		goto exit;
+
 	/* Start operation tracking */
 	rc = dao_card_operation_start("app_update");
 	if (rc < 0)
@@ -57,10 +65,6 @@ dao_card_mgr_app_update(cli_args *cmd)
 
 	DAO_CARD_INFO("Starting application update (estimated 1-3 minutes)");
 	DAO_CARD_INFO("Do not interrupt or power off the system during update");
-
-	rc = validate_file(cmd, &update_req, &boot_bin_path);
-	if (rc != 0)
-		goto cleanup;
 
 	/* Get current image version from card via gRPC */
 	rc = image_version_get(image_version, sizeof(image_version));
@@ -145,6 +149,7 @@ cleanup:
 	/* Only remove marker on success; keep it on failure for cooldown */
 	dao_card_operation_end(rc == 0);
 
+exit:
 	if (update_req.filename)
 		free(update_req.filename);
 	if (update_req.filepath)
