@@ -321,16 +321,6 @@ dao_card_mgr_boot_exec(const char *boot_path, const char *boot_arg)
 	int rc = 0;
 	pid_t pid;
 
-	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
-		DAO_CARD_ERR("Invalid characters \";|&$<>(){}[]!#\" in boot binary path");
-		return -EINVAL;
-	}
-
-	if (access(boot_path, X_OK) != 0) {
-		DAO_CARD_ERR("Boot binary not found or not executable: %s", boot_path);
-		return -ENOENT;
-	}
-
 	pid = fork();
 
 	if (pid == 0) {
@@ -469,11 +459,6 @@ dao_card_mgr_boot(cli_args *cmd)
 	const char *arg;
 	int rc = 0;
 
-	/* Early validation: Check OCTEON_EP_KO_PATH before any time-consuming operations */
-	rc = validate_octeon_ep_ko_path();
-	if (rc != 0)
-		return rc;
-
 	if (!cmd || !cmd->argv) {
 		DAO_CARD_ERR("Invalid command structure");
 		return -EINVAL;
@@ -492,6 +477,15 @@ dao_card_mgr_boot(cli_args *cmd)
 
 	boot_path = cmd->argv[2];
 	arg = cmd->argv[1];
+
+	/* Early validation: Check OCTEON_EP_KO_PATH before any time-consuming operations */
+	rc = validate_octeon_ep_ko_path();
+	if (rc != 0)
+		return rc;
+
+	rc = validate_boot_path(boot_path);
+	if (rc != 0)
+		return rc;
 
 	if (strcmp(arg, "main") == 0) {
 		boot_arg = "mmc";

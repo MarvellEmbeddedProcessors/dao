@@ -20,7 +20,7 @@
 int
 dao_card_mgr_failsafe_update(cli_args *cmd)
 {
-	struct dao_card_update_req update_req;
+	struct dao_card_update_req update_req = {0};
 	char *boot_bin_path = NULL;
 	int boot_rc;
 	int rc;
@@ -30,6 +30,14 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 	if (rc != 0)
 		return rc;
 
+	rc = validate_file(cmd, &update_req, &boot_bin_path);
+	if (rc != 0)
+		goto exit;
+
+	rc = validate_boot_path(boot_bin_path);
+	if (rc != 0)
+		goto exit;
+
 	/* Start operation tracking */
 	rc = dao_card_operation_start("failsafe_update");
 	if (rc < 0)
@@ -38,10 +46,6 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 	DAO_CARD_INFO("Starting failsafe image update (estimated 10-12 minutes)");
 	DAO_CARD_INFO("WARNING: This operation takes significant time");
 	DAO_CARD_INFO("Do not interrupt or power off the system during update");
-
-	rc = validate_file(cmd, &update_req, &boot_bin_path);
-	if (rc != 0)
-		goto cleanup;
 
 	DAO_CARD_INFO("Writing failsafe image to card flash (this will take several minutes)...");
 	rc = dao_card_file_update(card_ctx, &update_req, DAO_CARD_FAILSAFE_UPDATE);
@@ -76,6 +80,8 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 cleanup:
 	/* Only remove marker on success; keep it on failure for cooldown */
 	dao_card_operation_end(rc == 0);
+
+exit:
 	free(update_req.filename);
 	free(update_req.filepath);
 	if (boot_bin_path)

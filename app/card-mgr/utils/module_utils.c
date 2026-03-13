@@ -35,6 +35,7 @@ int
 validate_octeon_ep_ko_path(void)
 {
 	const char *ko_path = getenv("OCTEON_EP_KO_PATH");
+	int err;
 
 	if (!ko_path || *ko_path == '\0') {
 		DAO_CARD_ERR("OCTEON_EP_KO_PATH environment variable is not set. "
@@ -49,6 +50,39 @@ validate_octeon_ep_ko_path(void)
 			     "underscores, dots, slashes, and hyphens.",
 			     ko_path);
 		return -EINVAL;
+	}
+
+	if (access(ko_path, R_OK) != 0) {
+		err = errno;
+		DAO_CARD_ERR("Module file not found or not readable: %s", ko_path);
+		return -err;
+	}
+
+	return 0;
+}
+
+/* Validate boot path early before starting update operations.
+ * This allows fail-fast behavior before time-consuming boot executions.
+ */
+int
+validate_boot_path(const char *boot_path)
+{
+	int err;
+
+	if (!boot_path || !*boot_path) {
+		DAO_CARD_ERR("Boot binary path is not set or empty");
+		return -EINVAL;
+	}
+
+	if (strpbrk(boot_path, ";|&$<>(){}[]!#") != NULL) {
+		DAO_CARD_ERR("Invalid characters \";|&$<>(){}[]!#\" in boot binary path");
+		return -EINVAL;
+	}
+
+	if (access(boot_path, X_OK) != 0) {
+		err = errno;
+		DAO_CARD_ERR("Boot binary not found or not executable: %s", boot_path);
+		return -err;
 	}
 
 	return 0;
@@ -203,22 +237,6 @@ reload_octeon_ep_module(const char *boot_arg, octeon_ep_module_op operation)
 
 	/* Handle load operation (for LOAD_ONLY and RELOAD) */
 	if (operation == OCTEON_EP_MODULE_LOAD_ONLY || operation == OCTEON_EP_MODULE_RELOAD) {
-		/* OCTEON_EP_KO_PATH is mandatory - fail if not set */
-		if (!ko_path || *ko_path == '\0') {
-			DAO_CARD_ERR("OCTEON_EP_KO_PATH environment variable is not set. "
-				     "This is mandatory for update operations. "
-				     "Please set it to the path of octeon_ep.ko module.");
-			return -EINVAL;
-		}
-
-		if (sanitize_module_path(ko_path) != 0) {
-			DAO_CARD_ERR("Invalid characters in OCTEON_EP_KO_PATH: %s. "
-				     "Path must contain only alphanumeric characters, "
-				     "underscores, dots, slashes, and hyphens.",
-				     ko_path);
-			return -EINVAL;
-		}
-
 		snprintf(cmd, sizeof(cmd), "insmod %s", ko_path);
 		rc = run_cmd(cmd);
 		if (rc != 0) {
