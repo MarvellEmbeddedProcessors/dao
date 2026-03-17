@@ -213,6 +213,11 @@ dao_liquid_crypto_dev_create(struct dao_lc_dev_conf *conf)
 	dev->is_created = true;
 	dev->active_sess_count = 0;
 
+	for (i = 0; i < nb_qp; i++) {
+		dev->prev_mp[i].rx_mp = NULL;
+		dev->prev_mp[i].tx_mp = NULL;
+	}
+
 	return 0;
 
 lc_eth_dev_destroy:
@@ -324,29 +329,16 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		return -EINVAL;
 	}
 
-	/* Free existing QP if already configured */
-	if (dev->qp[qp_id] != NULL) {
-		is_qp_reconfigure = true;
-		rx_mp_prev = ((struct liquid_crypto_qp *)dev->qp[qp_id])->rx_mp;
-		tx_mp_prev = ((struct liquid_crypto_qp *)dev->qp[qp_id])->tx_mp;
-		qp_config_count = ((struct liquid_crypto_qp *)dev->qp[qp_id])->qp_config_count;
-
-		liquid_crypto_qp_free(dev_id, qp_id, true);
-	}
-
-	memset(&trs_queue_conf, 0, sizeof(trs_queue_conf));
-
 	rc = dao_eth_trs_info(&trs_info);
 	if (rc != 0) {
 		dao_err("Could not get ethernet transport information.");
-		goto mempool_free;
+		return rc;
 	}
 
 	if (conf->nb_desc < trs_info.min_queue_size || conf->nb_desc > trs_info.max_queue_size) {
 		dao_err("Invalid argument. nb_desc must be between %u and %u.",
 			trs_info.min_queue_size, trs_info.max_queue_size);
-		rc = -EINVAL;
-		goto mempool_free;
+		return -EINVAL;
 	}
 
 	/*
@@ -359,21 +351,32 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	if (conf->max_seg_size < min_seg_sz || conf->max_seg_size > max_seg_sz) {
 		dao_err("Invalid argument. max_seg_size must be between %u and %u.", min_seg_sz,
 			max_seg_sz);
-		rc = -EINVAL;
-		goto mempool_free;
+		return -EINVAL;
 	}
 
 	if (trs_info.min_buf_len > LIQUID_CRYPTO_BUF_SZ_MIN) {
 		dao_err("[Internal error] Minimum buffer length exceeds the supported value.");
-		rc = -EINVAL;
-		goto mempool_free;
+		return -EINVAL;
 	}
 
 	if (conf->max_seg_size > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Maximum segment size (%u) exceeds the supported value %u.",
 			conf->max_seg_size, LIQUID_CRYPTO_MAX_SEG_SIZE);
-		rc = -EINVAL;
-		goto mempool_free;
+		return -EINVAL;
+	}
+
+	/* Free existing QP if already configured */
+	if (dev->qp[qp_id] != NULL) {
+		is_qp_reconfigure = true;
+		rx_mp_prev = ((struct liquid_crypto_qp *)dev->qp[qp_id])->rx_mp;
+		tx_mp_prev = ((struct liquid_crypto_qp *)dev->qp[qp_id])->tx_mp;
+		qp_config_count = ((struct liquid_crypto_qp *)dev->qp[qp_id])->qp_config_count;
+
+		rc = liquid_crypto_qp_free(dev_id, qp_id, true);
+		if (rc < 0) {
+			dao_err("Could not free existing queue pair configuration.");
+			return rc;
+		}
 	}
 
 	snprintf(name, sizeof(name), "lc_qp_%hhu_%hu_%hu", dev_id, qp_id, (qp_config_count % 2));
@@ -382,7 +385,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	if (qp == NULL) {
 		dao_err("could not allocate memory.");
 		rc = -ENOMEM;
-		goto mempool_free;
+		goto mp_prev_save;
 	}
 
 	/* Align to the next power of 2 to simplify datapath checks */
@@ -431,6 +434,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 		goto tx_mp_free;
 	}
 
+	memset(&trs_queue_conf, 0, sizeof(trs_queue_conf));
 	trs_queue_conf.rx_mp = qp->rx_mp;
 	trs_queue_conf.queue_size = nb_desc;
 	rc = dao_eth_trs_dev_queue_configure(dev_id, qp_id, &trs_queue_conf);
@@ -543,11 +547,32 @@ rx_mp_free:
 qp_free:
 	rte_free(qp);
 
-mempool_free:
-	if (tx_mp_prev != NULL)
-		rte_mempool_free(tx_mp_prev);
-	if (rx_mp_prev != NULL)
-		rte_mempool_free(rx_mp_prev);
+mp_prev_save:
+	/**
+	 * Lifetime of dev->prev_mp[qp_id]:
+	 *
+	 * 1) When prev_mp is populated:
+	 *    - prev_mp is populated only during QP reconfiguration
+	 *      (is_qp_reconfigure == true) and only if an error occurs during
+	 *      the reconfiguration process.
+	 *    - During initial QP configuration, there is no existing QP or
+	 *      associated mempools, so prev_mp is not used.
+	 *    - If QP reconfiguration completes successfully, the old mempools
+	 *      are freed immediately and prev_mp is not used afterward.
+	 *
+	 * 2) When the saved mempools are freed:
+	 *    - Old RX/TX mempools are saved in dev->prev_mp[qp_id] only when a
+	 *      failure occurs during QP reconfiguration.
+	 *    - In this case, the saved mempools are freed on the next call to
+	 *      liquid_crypto_qp_free() for this QP (e.g., during device
+	 *      destruction or a subsequent QP free/reconfigure), where the
+	 *      function performs the cleanup after the TRS layer has released
+	 *      all references.
+	 */
+	if (is_qp_reconfigure) {
+		dev->prev_mp[qp_id].rx_mp = rx_mp_prev;
+		dev->prev_mp[qp_id].tx_mp = tx_mp_prev;
+	}
 
 	return rc;
 }
@@ -613,13 +638,25 @@ dao_liquid_crypto_qp_inflight_req_count(uint8_t dev_id, uint16_t qp_id)
 static int
 liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id, bool is_qp_reconfigure)
 {
+	struct liquid_crypto_prev_mp *prev_mp;
 	uint32_t oct_dev_id, oct_qp_id;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	int rc = 0;
 
 	dev = &liquid_crypto_devs[dev_id];
+	prev_mp = &dev->prev_mp[qp_id];
 	qp = dev->qp[qp_id];
+
+	if (prev_mp->rx_mp != NULL) {
+		rte_mempool_free(prev_mp->rx_mp);
+		prev_mp->rx_mp = NULL;
+	}
+
+	if (prev_mp->tx_mp != NULL) {
+		rte_mempool_free(prev_mp->tx_mp);
+		prev_mp->tx_mp = NULL;
+	}
 
 	if (qp == NULL)
 		return 0;

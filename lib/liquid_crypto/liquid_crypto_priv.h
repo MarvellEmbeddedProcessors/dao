@@ -43,6 +43,10 @@
 	((uint16_t)((LIQUID_CRYPTO_BUF_SZ_MAX) - (RTE_PKTMBUF_HEADROOM) -                          \
 		    (LIQUID_CRYPTO_BUF_SDP_DATA_LEN_SZ)))
 
+struct liquid_crypto_prev_mp {
+	struct rte_mempool *tx_mp;
+	struct rte_mempool *rx_mp;
+};
 /** Liquid crypto device */
 struct liquid_crypto_dev {
 	/** Is created */
@@ -57,6 +61,8 @@ struct liquid_crypto_dev {
 	uint16_t cmd_qp_idx;
 	/** Queue pair pointers */
 	void *qp[LIQUID_CRYPTO_MAX_NB_QP];
+	/** Previous mempools used, for reconfiguration cleanup */
+	struct liquid_crypto_prev_mp prev_mp[LIQUID_CRYPTO_MAX_NB_QP];
 	/** Number of eth ports */
 	uint8_t nb_ports;
 	/** Port info of each eth port */
