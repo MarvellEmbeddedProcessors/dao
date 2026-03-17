@@ -8,7 +8,6 @@ Application User Guide
     :maxdepth: 3
     :numbered:
 
-    conntrack
     ovs-offload
     crypto-agent
     virtio-crypto

@@ -10,6 +10,7 @@ Programmer's Guide
 
     common
     conntrack_lib
+    conntrack_lib_usage
     dma_lib
     eth_transport
     flow

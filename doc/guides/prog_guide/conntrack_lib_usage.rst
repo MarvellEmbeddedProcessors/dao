@@ -1,8 +1,8 @@
 ..  SPDX-License-Identifier: Marvell-MIT
     Copyright (c) 2025 Marvell.
 
-Conntrack-Based Applications
-****************************
+Conntrack API Example Guide
+***************************
 
 This section highlights example applications built using the conntrack library, used for tracking and
 managing the state of network connections. It provides developers and network engineers
