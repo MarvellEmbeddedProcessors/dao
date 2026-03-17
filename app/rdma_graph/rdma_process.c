@@ -24,7 +24,7 @@
 
 #include "dao_pts_rdma_dev.h"
 
-#define RDMA_MAX_FRAG_SIZE 8192
+#define RDMA_MAX_FRAG_SIZE 32768
 
 extern int node_mbuf_priv1_dynfield_queue;
 
@@ -149,7 +149,7 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 static uint16_t
 rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **objs, uint16_t nb_objs)
 {
-	struct rte_mbuf *frag_mbuf[RDMA_MAX_FRAG_SIZE] = {NULL};
+	struct rte_mbuf *frag_mbuf[RDMA_MAX_FRAG_SIZE];
 	const int dyn = RDMA_NODE_PRIV1_OFF(node->ctx);
 	struct rte_mbuf **mbufs = frag_mbuf;
 	uint16_t last_spec = 0, n_segs = 0;
