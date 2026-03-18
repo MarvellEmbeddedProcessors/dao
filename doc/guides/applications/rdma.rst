@@ -33,8 +33,8 @@ standard rdma-core utilities (``ibv_*``) and RDMA perftests utilities.
 
 The application configures required RPM/SDP/DPI resources on OCTEON, launches
 workers to process Ethernet receive nodes feeding RDMA graph nodes, and allows
-users to run verbs test programs (``ibv_ud_pingpong``, ``ibv_ud_mq_trf``,
-``ibv_rdma_mq_trf``) across host <-> OCTEON or multi-device setups.
+users to run verbs test programs (``ibv_ud_pingpong``, ``ibv_rdma_mq_trf``)
+across host <-> OCTEON or multi-device setups.
 
 .. figure:: ./img/rdma.png
    :alt: RDMA Application Overview
@@ -43,7 +43,7 @@ Features
 --------
  * DPDK based RDMA dataplane orchestration on OCTEON (RPM + SDP + DPI VFs)
  * Supports UD transport ping/pong validation (``ibv_ud_pingpong``)
- * Supports multi-queue UD and RC tests (``ibv_ud_mq_trf``, ``ibv_rdma_mq_trf``)
+ * Supports multi-queue UD and RC tests (``ibv_rdma_mq_trf``)
  * Multi-device RDMA support (multiple RDMA VF devices)
  * Works with host-side ``rdma-core`` utilities for probing & stats
  * VFIO-PCI binding for RPM/SDP/DPI devices
@@ -59,82 +59,124 @@ Bind RPM device to ``vfio-pci``:
 .. code-block:: bash
 
    dpdk-devbind.py -b vfio-pci 0002:02:00.0
-   # Additional RPM PF (example latest FW):
    dpdk-devbind.py -b vfio-pci 0002:18:00.0
 
-Bind SDP device (BDF may differ on older FW):
+Bind SDP device
 
 .. code-block:: bash
 
-   dpdk-devbind.py -b vfio-pci 0002:01:00.1
-   # Old FW example: 0002:1f:00.1
+   dpdk-devbind.py -b vfio-pci 0002:01:00.2
 
-If using older FW image requiring revert:
+.. _rdma-obtain-dao:
 
-.. code-block:: bash
-
-   # Revert commit affecting SDP port-id 0 handling
-   git revert 4daa27051d79342f73916c17d9c5e37293848211
-
-PEM setup (bind platform devices):
+Obtain DAO sources and checkout DAO 26.02 branch
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-   pem_sfx="pem0-bar4-mem"
-   sdp_sfx="dpi_sdp_regs"
-   for dev_path in /sys/bus/platform/devices/*; do
-       if [[ -d "$dev_path" && "$dev_path" =~ $pem_sfx || "$dev_path" =~ $sdp_sfx ]]; then
-           dev_name=$(basename "$dev_path")
-           echo "vfio-platform" > "$dev_path/driver_override"
-           echo "$dev_name" > /sys/bus/platform/drivers/vfio-platform/bind
-           echo "Device $dev_name configured."
-       fi
-   done
+   git clone https://github.com/MarvellEmbeddedProcessors/dao.git
+   cd dao
+   git checkout dao-26.02
 
-Enable and bind DPI/NPA devices (sample script ``dpi-test-setup.sh``):
+Enable and bind DPI/NPA devices (helper script)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``dpi-test-setup.sh`` helper configures DPI VFs and related devices for the
+RDMA dataplane. It is supplied with the DAO/OCTEON SDK deliverable for your
+platform (some images install it as ``/usr/bin/dpi-test-setup.sh``). After
+cloning the repository (:ref:`rdma-obtain-dao`), you can also run a copy from
+your DAO checkout if your release ships it under ``scripts/`` or similar.
+
+The reference implementation discovers the DPI PF via ``lspci -d 177d:a080``,
+creates VFs, binds DPI VFs (``177d:a081``) and an NPA PF (``177d:a0fb``) to
+``vfio-pci``, and mounts hugepages. Adjust ``NUM_DPI`` / ``NUMVFS`` inside the
+script if your board differs.
+
+Run the packaged script when available:
 
 .. code-block:: bash
 
+   dpi-test-setup.sh
+
+If you do not have ``dpi-test-setup.sh`` on the system, save the following as
+``dpi-test-setup.sh`` (make it executable), or paste it into a root shell. It
+matches the reference script bundled on typical Marvell OCTEON images:
+
+.. code-block:: bash
+
+   # Copyright (c) 2020 Marvell.
+   # SPDX-License-Identifier: BSD-3-Clause
+
+   # Set to 2 to use two DPI blocks when present (e.g. on 98xx).
    NUM_DPI=1
+
+   # Enable DPI VFs
    NUMVFS=12
-   DPIPF=$(lspci -d 177d:a080 | awk '{print $1}' | head -${NUM_DPI})
+   DPIPF=$(lspci -d 177d:a080|awk '{print $1}' | head -${NUM_DPI})
+   echo "###### DPI PFs ######"
+   echo "$DPIPF"
+
    mkdir -p /dev/huge
    mount -t hugetlbfs nodev /dev/huge
    echo 12 > /sys/kernel/mm/hugepages/hugepages-524288kB/nr_hugepages
-   for PF in $DPIPF; do
-       DPIVFS=$(cat /sys/bus/pci/devices/$PF/sriov_numvfs)
-       if [ "x$DPIVFS" != x"$NUMVFS" ]; then
-           TOTALVFS=$(cat /sys/bus/pci/devices/$PF/sriov_totalvfs)
-           [ $TOTALVFS -lt $NUMVFS ] && NUMVFS=$TOTALVFS
-           echo 0 > /sys/bus/pci/devices/$PF/sriov_numvfs
-           echo $NUMVFS > /sys/bus/pci/devices/$PF/sriov_numvfs
-       fi
-   done
-   DPIVF=$(lspci -d 177d:a081 | awk '{print $1}')
-   NPAPF=$(lspci -d 177d:a0fb | awk '{print $1}' | head -1)
-   for DEV in ${DPIVF} $NPAPF; do
-       if [ -e /sys/bus/pci/devices/$DEV/driver/unbind ]; then
-           drv=$(basename $(readlink -f /sys/bus/pci/devices/$DEV/driver))
-           [ "$drv" != "vfio-pci" ] && echo $DEV > /sys/bus/pci/devices/$DEV/driver/unbind
-       fi
-       echo vfio-pci > /sys/bus/pci/devices/$DEV/driver_override
-       echo $DEV > /sys/bus/pci/drivers_probe
+
+   echo -e "\n"
+   echo "Creating DPI VFs ..."
+   for PF in $DPIPF
+   do
+           DPIVFS=$(cat /sys/bus/pci/devices/$PF/sriov_numvfs)
+           echo "Current number of VFs under DPIPF $PF = $DPIVFS"
+           if [ "x$DPIVFS" != x"$NUMVFS" ]; then
+                   TOTALVFS=$(cat /sys/bus/pci/devices/$PF/sriov_totalvfs)
+                   if [ $TOTALVFS -lt $NUMVFS ]; then
+                           NUMVFS=$TOTALVFS
+                   fi
+
+                   echo "Creating $NUMVFS VFs for DPIPF $PF ..."
+                   echo 0 > /sys/bus/pci/devices/$PF/sriov_numvfs
+                   echo $NUMVFS > /sys/bus/pci/devices/$PF/sriov_numvfs
+                   if [ x"$?" != "x0" ]; then
+                           echo -n \
+           """Failed to enable $DPI DMA queues.
+           """ >&2
+                   exit 1
+           fi
+           fi
    done
 
-Latest SDK firmware extra binding (if needed):
+   # Bind only required NPA and DPI VFs to vfio-pci
+   DPIVF=$(lspci -d 177d:a081|awk '{print $1}')
+   echo -e "\n"
+   echo "###### DPI VFs ######"
+   echo "$DPIVF"
+
+   NPAPF=$(lspci -d 177d:a0fb|awk '{print $1}'|head -1)
+   echo -e "\n"
+   echo "Using NPA PF $NPAPF ..."
+
+   dpi_devs=(${DPIVF} $NPAPF)
+
+   for DEV in ${dpi_devs[*]}; do
+           if [ -e /sys/bus/pci/devices/$DEV/driver/unbind ]; then
+                   drv="$(readlink -f /sys/bus/pci/devices/$DEV/driver)"
+                   drv="$(basename $drv)"
+                   if [ "$drv" != "vfio-pci" ]; then
+                           echo $DEV > "/sys/bus/pci/devices/$DEV/driver/unbind"
+                   fi
+           fi
+           echo vfio-pci > "/sys/bus/pci/devices/$DEV/driver_override"
+           echo $DEV > /sys/bus/pci/drivers_probe
+           echo "  Device $DEV moved to VFIO-PCI"
+   done
+
+If you perform **only** manual ``vfio-pci`` binding without running the script
+above, configure hugepages separately on the OCTEON:
 
 .. code-block:: bash
 
-   echo vfio-pci > /sys/bus/pci/devices/0002:18:00.0/driver_override
-   echo 0002:18:00.0 > /sys/bus/pci/drivers_probe
-
-Obtain DAO sources and checkout RDMA branch:
-
-.. code-block:: bash
-
-   git clone https://sj1git1.cavium.com/IP/SW/dataplane/dpu-offload
-   cd dpu-offload
-   git checkout rdma-core-57.0-devel
+   mkdir -p /dev/huge
+   mount -t hugetlbfs nodev /dev/huge
+   echo 12 > /sys/kernel/mm/hugepages/hugepages-524288kB/nr_hugepages
 
 Cross Compile for ARM64:
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -148,8 +190,8 @@ Export DPI device list and run application:
 
    export DPI_DEV="-a 0000:06:00.1 -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 -a 0000:06:00.6 \
    -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5"
-   cd <PATH TO DPU-OFFLOAD>/dpu-offload/build/app
-   ./dao-rdma_graph -c 0x1f -a 0002:02:00.0 -a 0002:01:00.1 $DPI_DEV --file-prefix=ep -- -p 0x3 -P
+   scp dao-rdma_graph root@OCTEON_IP:/root/
+   /root/dao-rdma_graph -c 0xf -a 0002:02:00.0 -a 0002:01:00.2 $DPI_DEV --file-prefix=ep -- -p 0x3 -P --max-pkt-len=9600 -n 1 -r 0x1 --num-mbufs 1048576 --dma-nb-desc 8192
 
 Sample boot log excerpt:
 
@@ -203,7 +245,7 @@ Clone DAO sources for host kernel driver:
 
    git clone https://github.com/MarvellEmbeddedProcessors/dao.git
    cd dao
-   git checkout dao-devel
+   git checkout dao-26.02
 
 Build DAO for x86 host
 
@@ -219,10 +261,11 @@ will be handled with following instructions.
 
 .. code-block:: bash
 
-   meson setup build -Dkernel_dir=KERNEL_BUILD_DIR -Drdma_build=true
-   Eg.
+   export KERNEL_BUILD_DIR=/usr/src/linux-headers-`uname -r`/
+   meson setup build -Dkernel_dir=${KERNEL_BUILD_DIR} -Drdma_build=true
    ninja -C build
    # Module at build/kmod/rdma/octep_rdma/octep-rdma.ko
+   # ibv CLIs at ./subprojects/rdma-core/build/bin/
 
 Insert module & dependencies (ensure Octeon FW running):
 
@@ -230,13 +273,15 @@ Insert module & dependencies (ensure Octeon FW running):
 
    modprobe ib_uverbs
    insmod build/kmod/rdma/octep_rdma/octep-rdma.ko
+   lspci | grep Cav
+   echo 1 > /sys/bus/pci/devices/0000\:01\:00.0/sriov_numvfs
 
 Validate device probing:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_devices
-   ./build/bin/ibv_devinfo
+   ./subprojects/rdma-core/build/bin/ibv_devices
+   ./subprojects/rdma-core/build/bin/ibv_devinfo
 
 Bring up host interface:
 
@@ -267,17 +312,17 @@ Client (host with octep driver):
 
 .. code-block:: bash
 
-   ./build/bin/ibv_ud_pingpong -g 1 -d octep_rdma_0 -i 1 30.0.0.11
+   ./subprojects/rdma-core/build/bin/ibv_ud_pingpong -g 1 -d octep_rdma_0 -i 1 30.0.0.11
 
 Successful output example (server/client throughput & latency lines retained).
 
-Multi-Queue UD Test (``ibv_ud_mq_trf``)
----------------------------------------
+Multi-Queue UD Test (``ibv_rdma_mq_trf``)
+-----------------------------------------
 Clone & build rdma-core (both sides) if not already done. Launch server:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_ud_mq_trf -g 1 -q 1 -s
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g 1 -q 1 -s
 
 Flags:
 
@@ -289,7 +334,7 @@ Client example:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_ud_mq_trf -g 1 -q 1 -r 20.20.20.21
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g 1 -q 1 -r 20.20.20.21
 
 Multi-Device RDMA Steps
 -----------------------
@@ -333,7 +378,7 @@ Verify IB devices:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_devices
+   ./subprojects/rdma-core/build/bin/ibv_devices
 
 Configure VF interfaces (examples):
 
@@ -347,7 +392,7 @@ Check GIDs:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_devinfo -v
+   ./subprojects/rdma-core/build/bin/ibv_devinfo -v
 
 Partner device RPM VFs & RXE configuration:
 
@@ -371,13 +416,13 @@ Partner:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_ud_pingpong -g 1 -d rxe1 -i 1
+   ibv_ud_pingpong -g 1 -d rxe1 -i 1
 
 Host:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_ud_pingpong -g 1 -d octep_rdma_1 -i 1 30.0.0.2
+   ./subprojects/rdma-core/build/bin/ibv_ud_pingpong -g 1 -d octep_rdma_1 -i 1 30.0.0.2
 
 Troubleshooting
 ---------------
@@ -395,22 +440,22 @@ Server:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -q 1000 -t 8
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -q 1000 -t 8
 
 Client UD Mode:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type UD --op-type SEND -n <iters> <server-ip>
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type UD --op-type SEND -n <iters> <server-ip>
 
 Client RC Examples:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type SEND -n 10 --size 1024 <server-ip>
-   ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type WRITE -n 10 --size 1024 <server-ip>
-   ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type WRITE_IMM -n 10 --size 1024 <server-ip>
-   ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type READ -n 10 --size 1024 <server-ip>
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type SEND -n 10 --size 1024 <server-ip>
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type WRITE -n 10 --size 1024 <server-ip>
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type WRITE_IMM -n 10 --size 1024 <server-ip>
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type RC --op-type READ -n 10 --size 1024 <server-ip>
 
 2. Single Server / Single Client, 1000 QPs, SGE=2
 
@@ -418,13 +463,13 @@ Server:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -q 1000 -t 8 --nb-sge=2
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -q 1000 -t 8 --nb-sge=2
 
 Client UD Mode:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type UD --op-type SEND -n <iters> --nb-sge=2 <server-ip>
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1000 -t 8 -d <device-name> --qp-type UD --op-type SEND -n <iters> --nb-sge=2 <server-ip>
 
 Client RC Modes (SEND/WRITE/WRITE_IMM/READ) add ``--nb-sge=2`` similarly.
 
@@ -434,7 +479,7 @@ Server:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -q 1 -t 8 -c 1000
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -q 1 -t 8 -c 1000
 
 Client Loops (example UD):
 
@@ -442,7 +487,7 @@ Client Loops (example UD):
 
    count=1
    while [ $count -le 1000 ]; do
-       ./build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1 -t 1 -d <device-name> --qp-type UD --op-type SEND -n <iters> <server-ip>
+       ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -g <gid-idx> -q 1 -t 1 -d <device-name> --qp-type UD --op-type SEND -n <iters> <server-ip>
        ((count++))
    done
 
@@ -454,7 +499,7 @@ Server:
 
 .. code-block:: bash
 
-   ./build/bin/ibv_rdma_mq_trf -q 1 -t 8 -c 1000 --nb-sge=2
+   ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -q 1 -t 8 -c 1000 --nb-sge=2
 
 Client UD / RC loops similar to SGE=1 case adding ``--nb-sge=2``.
 
