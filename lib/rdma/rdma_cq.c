@@ -8,12 +8,12 @@
 
 #include "rdma_cq.h"
 
-#define RDMA_MAX_CQ 100
+#define RDMA_MAX_CQ 1024
 
 static uint64_t cq_addr[RDMA_MAX_CQ];
 
 uint64_t
-rdma_cq_get(uint8_t index)
+rdma_cq_get(uint16_t index)
 {
 	if (index >= RDMA_MAX_CQ)
 		return 0;
@@ -29,7 +29,7 @@ rdma_cq_put(void)
 }
 
 int
-rdma_cq_insert(uint64_t addr, uint8_t index)
+rdma_cq_insert(uint64_t addr, uint16_t index)
 {
 	if (index >= RDMA_MAX_CQ)
 		return -1;
@@ -42,7 +42,7 @@ rdma_cq_insert(uint64_t addr, uint8_t index)
 }
 
 int
-rdma_cq_remove(uint8_t index)
+rdma_cq_remove(uint16_t index)
 {
 	if (index >= RDMA_MAX_CQ)
 		return -1;

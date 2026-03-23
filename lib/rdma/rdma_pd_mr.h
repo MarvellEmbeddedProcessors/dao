@@ -16,7 +16,7 @@
 
 struct pd_entry {
 	uint32_t pd_id;
-	struct octep_rdma_mr_data *mr_pool[RDMA_MAX_PD];
+	struct octep_rdma_mr_data *mr_pool[RDMA_MAX_MR];
 };
 
 int pd_init(uint32_t max_num_pd);

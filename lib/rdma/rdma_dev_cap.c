@@ -77,8 +77,17 @@ rdma_query_device_cap(int port, void *cap)
 	dao_pts_rdma_dev_info_get(DEFAULT_PEM, port, &info);
 
 	memcpy(dev_cap_ptr, &dev_cap, sizeof(dev_cap));
-	dev_cap_ptr->max_qp = info.max_qps;
-	dev_cap_ptr->max_cq = info.max_cqs;
+
+	dev_cap_ptr->max_qp = RTE_MIN((uint32_t)info.max_qps, (uint32_t)RDMA_MAX_QP_INDEX);
+	dev_cap_ptr->max_cq = RTE_MIN((uint32_t)info.max_cqs, (uint32_t)RDMA_MAX_CQ);
+
+	if (info.max_qps > (uint32_t)RDMA_MAX_QP_INDEX)
+		dao_warn("PTS max_qps %u exceeds FW limit %u, capped",
+			 info.max_qps, (uint32_t)RDMA_MAX_QP_INDEX);
+	if (info.max_cqs > (uint32_t)RDMA_MAX_CQ)
+		dao_warn("PTS max_cqs %u exceeds FW limit %u, capped",
+			 info.max_cqs, (uint32_t)RDMA_MAX_CQ);
+
 	dao_dbg("RDMA device capabilities for port %d: max_qp=%u, max_cq=%u", port,
 		dev_cap_ptr->max_qp, dev_cap_ptr->max_cq);
 
