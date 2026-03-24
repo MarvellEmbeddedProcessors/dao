@@ -23,6 +23,7 @@
 #include "ca_crypto_queue.h"
 #include "ca_eth_rx.h"
 #include "ca_ethdev.h"
+#include "ca_sess_mgr.h"
 #include "crypto_agent.h"
 
 #include <dao_card_grpc_server.h>
@@ -147,6 +148,8 @@ eth_devs_validate(void)
 		return -ENODEV;
 	}
 
+	CA_INFO("Ethernet devices available: %u", eth_dev_count);
+
 	/* Validate found ethdevs. */
 	for (dev_id = 0; dev_id < eth_dev_count; dev_id++) {
 		struct rte_eth_dev_info ethdev_info;
@@ -165,22 +168,30 @@ eth_devs_validate(void)
 		    (strcmp(ethdev_info.driver_name, ETH_DEV_PMD_NAME_CN10K) == 0)) {
 			/* Valid device found. */
 
+			if (ethdev_info.min_rx_bufsize < ETH_DEV_MIN_BUF_LEN ||
+			    ethdev_info.max_rx_pktlen > ETH_DEV_MAX_BUF_LEN) {
+				CA_ERR("Eth dev %u, invalid buffer size", dev_id);
+				CA_ERR("Min buffer size: %u, Max packet size: %u",
+				       ethdev_info.min_rx_bufsize, ethdev_info.max_rx_pktlen);
+				CA_ERR("Min buffer size should be >= %lu and max buffer size should be <= %lu",
+				       ETH_DEV_MIN_BUF_LEN, ETH_DEV_MAX_BUF_LEN);
+				return -EINVAL;
+			}
+
+			const char *dev_name = rte_dev_name(ethdev_info.device);
+
 			nb_queue_avail =
 				RTE_MIN(ethdev_info.max_rx_queues, ethdev_info.max_tx_queues);
 			nb_queue_avail = RTE_MIN(nb_queue_avail, CA_MAX_ETH_QUEUE);
 			ca_glb_ctx.eth_ctx[nb_valid_devs].nb_queue_avail = nb_queue_avail;
 			ca_glb_ctx.eth_ctx[nb_valid_devs].port_id = dev_id;
+			if (dev_name)
+				CA_INFO("Valid ethdev found: port id %u, driver %s, %s max_queues %u",
+					dev_id, ethdev_info.driver_name, dev_name, nb_queue_avail);
+			else
+				CA_INFO("Valid ethdev found: port id %u, driver %s, max_queues %u",
+					dev_id, ethdev_info.driver_name, nb_queue_avail);
 			nb_valid_devs++;
-		}
-
-		if (ethdev_info.min_rx_bufsize < ETH_DEV_MIN_BUF_LEN ||
-		    ethdev_info.max_rx_pktlen > ETH_DEV_MAX_BUF_LEN) {
-			CA_ERR("Eth dev %u, invalid buffer size", dev_id);
-			CA_ERR("Min buffer size: %u, Max packet size: %u",
-			       ethdev_info.min_rx_bufsize, ethdev_info.max_rx_pktlen);
-			CA_ERR("Min buffer size should be >= %lu and max buffer size should be <= %lu",
-			       ETH_DEV_MIN_BUF_LEN, ETH_DEV_MAX_BUF_LEN);
-			return -EINVAL;
 		}
 	}
 
@@ -260,6 +271,7 @@ crypto_devs_init(uint32_t nb_desc)
 
 		ca_glb_ctx.cryptodev_ctx[i].cpt_qptr = cpt_qptr;
 		ca_glb_ctx.cryptodev_ctx[i].nb_allowed = nb_desc;
+		ca_glb_ctx.cryptodev_ctx[i].cpt_qp_id = qp_id;
 
 		qp_id++;
 	}
@@ -425,6 +437,11 @@ worker_thread(__rte_unused void *arg)
 		rte_rcu_qsbr_quiescent(qsbr, lcore_id);
 
 		if (lconf->nb_pq == 0) {
+			if (lconf->is_soft_reset) {
+				/* Restore nb_allowed after soft reset */
+				nb_allowed = cdev_ctx->nb_allowed;
+				lconf->is_soft_reset = false;
+			}
 			rte_smp_rmb();
 			continue;
 		}
@@ -600,6 +617,156 @@ card_fini(void)
 	card_initialized = false;
 }
 
+static bool
+ca_cpt_clear_pending_reqs(uint32_t lcore_id, struct pending_queue *pq)
+{
+	uint64_t head, tail, pq_tail, mask;
+	struct cpt_inflight_req *infl_req;
+	bool has_inflight_reqs = false;
+	struct timespec start, now;
+	uint64_t elapsed_ms = 0;
+	union dao_cpt_res_s res;
+	uint64_t nb_pending, k;
+	bool is_err;
+
+	head = pq->head;
+	tail = pq->tail;
+	pq_tail = pq->tail;
+	mask = pq->pq_mask;
+
+	nb_pending = pending_queue_infl_cnt(head, tail, mask);
+
+	if (nb_pending == 0)
+		return false;
+
+	for (k = 0; k < nb_pending; k++) {
+		infl_req = &pq->req_queue[(pq_tail + k) & mask];
+		is_err = false;
+		elapsed_ms = 0;
+
+		clock_gettime(CLOCK_MONOTONIC, &start);
+
+		do {
+			res.u64[0] = __atomic_load_n(&infl_req->res.u64[0], __ATOMIC_RELAXED);
+			if ((res.cn9k.compcode == DAO_CPT_COMP_GOOD))
+				break;
+
+			if (res.cn9k.compcode == DAO_CPT_COMP_NOT_DONE) {
+				clock_gettime(CLOCK_MONOTONIC, &now);
+				elapsed_ms = (now.tv_sec - start.tv_sec) * 1000 +
+					     (now.tv_nsec - start.tv_nsec) / 1000000;
+			} else {
+				is_err = true;
+				break;
+			}
+		} while (elapsed_ms < CA_CPT_MAX_TIMEOUT_MS);
+
+		if ((elapsed_ms >= CA_CPT_MAX_TIMEOUT_MS) || is_err) {
+			CA_INFO("Request on [lcore: %u] did not complete after %d milliseconds",
+				lcore_id, CA_CPT_MAX_TIMEOUT_MS);
+			has_inflight_reqs = true;
+		}
+
+		rte_pktmbuf_free(infl_req->mbuf);
+		pending_queue_advance(&tail, mask);
+	}
+	pq->tail = tail;
+
+	return has_inflight_reqs;
+}
+
+static int
+ca_cpt_clear_inflight_reqs(struct lcore_conf *lconf_prev)
+{
+	struct ca_cryptodev_ctx *cdev_ctx;
+	bool has_inflight_reqs = false;
+	struct lcore_conf *lconf;
+	struct pending_queue *pq;
+	uint32_t lcore_id, j;
+	int ret;
+
+	for (lcore_id = 0; lcore_id < CA_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id)) {
+			cdev_ctx = &ca_glb_ctx.cryptodev_ctx[lcore_id];
+			lconf = &lconf_prev[lcore_id];
+			has_inflight_reqs = false;
+			for (j = 0; j < lconf->nb_pq; j++) {
+				pq = lconf->pq[j];
+				has_inflight_reqs = has_inflight_reqs ||
+						    ca_cpt_clear_pending_reqs(lcore_id, pq);
+			}
+
+			if (has_inflight_reqs) {
+				ret = rte_cryptodev_queue_pair_reset(ca_glb_ctx.cryptodev_ids[0],
+								     cdev_ctx->cpt_qp_id, NULL,
+								     SOCKET_ID_ANY);
+				if (ret) {
+					CA_INFO("Could not reset CPT queue for[cryptodev: %d qp: %d].",
+						ca_glb_ctx.cryptodev_ids[0], cdev_ctx->cpt_qp_id);
+					return ret;
+				}
+			}
+		}
+	}
+
+	return 0;
+}
+
+static int
+card_soft_reset(void)
+{
+	struct lcore_conf lconf_prev[CA_MAX_LCORE];
+	int rc;
+
+	if (!card_initialized) {
+		CA_ERR("Card not initialized, cannot perform soft reset");
+		return -EAGAIN;
+	}
+
+	CA_INFO("Performing soft reset on the card");
+	memcpy(lconf_prev, lcore_conf, sizeof(lcore_conf));
+
+	/* Clear lcore links from each worker */
+	rc = ca_eth_lcore_map_link_clear();
+	if (rc) {
+		CA_ERR("Failed to clear lcore links during soft reset");
+		return rc;
+	}
+
+	CA_INFO("Cleared all workers lcore links and synchronized RCU QSBR");
+
+	rc = ca_eth_rx_queue_clear_all(lconf_prev);
+	if (rc) {
+		CA_ERR("Failed to clear eth RX queues during soft reset");
+		return rc;
+	}
+
+	rc = ca_cpt_clear_inflight_reqs(lconf_prev);
+	if (rc) {
+		CA_ERR("Failed to clear inflight requests during soft reset");
+		return rc;
+	}
+
+	CA_INFO("Successfully cleared all inflight requests during soft reset");
+
+	/* Clear eth RX queues again */
+	rc = ca_eth_rx_queue_clear_all(lconf_prev);
+	if (rc) {
+		CA_ERR("Failed to clear eth RX queues during soft reset");
+		return rc;
+	}
+
+	/* Stop and close ethernet devices */
+	ca_eth_dev_stop_reset();
+
+	/* Clear symmetric sessions */
+	ca_sess_handle_clear_all();
+
+	CA_INFO("Soft reset completed successfully");
+
+	return 0;
+}
+
 static int
 card_info(struct dao_card_info *info)
 {
@@ -739,6 +906,7 @@ static struct dao_card_server_cbs card_cbs = {
 	.fini_cb = card_fini,
 	.card_info_cb = card_info,
 	.card_stats_cb = card_stats,
+	.soft_reset_cb = card_soft_reset,
 
 	.dev_create_cb = ca_eth_dev_init,
 	.dev_destroy_cb = ca_eth_dev_close,

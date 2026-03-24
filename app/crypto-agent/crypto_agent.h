@@ -30,6 +30,7 @@
 #define CA_MAX_SYM_SESSIONS   8192
 #define CA_ETHDEV_TX_BURST    64
 #define CA_ETHDEV_RX_BURST    32
+#define CA_CPT_MAX_TIMEOUT_MS 3000
 
 DAO_STATIC_ASSERT(CA_MAX_ETH_DEV <= RTE_MAX_ETHPORTS);
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= RTE_MAX_QUEUES_PER_PORT);
@@ -41,6 +42,7 @@ DAO_STATIC_ASSERT(CA_MAX_LCORE <= RTE_MAX_LCORE);
 #define CA_INFO_NH(fmt, args...) rte_log(RTE_LOG_INFO, RTE_LOGTYPE_AGENT, fmt "\n", ##args)
 #define CA_WARN(fmt, args...)    RTE_LOG(WARNING, AGENT, fmt "\n", ##args)
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
+#define CA_DEBUG(fmt, args...)   RTE_LOG(DEBUG, AGENT, fmt "\n", ##args)
 
 extern struct ca_global_ctx ca_glb_ctx;
 
@@ -65,6 +67,7 @@ DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= 64);
 struct ca_cryptodev_ctx {
 	struct rte_pmd_cnxk_crypto_qptr *cpt_qptr;
 	uint32_t nb_allowed;
+	uint32_t cpt_qp_id;
 };
 
 struct ca_global_ctx {
@@ -84,6 +87,7 @@ struct ca_global_ctx {
 
 struct lcore_conf {
 	uint16_t nb_pq;
+	bool is_soft_reset;
 	struct pending_queue *pq[CA_MAX_QUEUE_PER_CORE];
 	uint64_t rx_packets;
 	uint64_t tx_packets;

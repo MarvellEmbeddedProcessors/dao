@@ -5,6 +5,7 @@
 #include <rte_malloc.h>
 #include <rte_mempool.h>
 #include <rte_spinlock.h>
+#include <sys/queue.h>
 
 #include <dao_eth_trs.h>
 #include <hw/cpt.h>
@@ -173,4 +174,42 @@ ca_sess_handle_destroy(struct rte_mbuf *mb)
 
 exit:
 	return rc;
+}
+
+void
+ca_sess_handle_clear_all(void)
+{
+	struct ca_sess_handle *session, *tmp;
+	struct rte_mempool *sess_mempool;
+	union cpt_inst_w7 w7;
+	void *sess_ptr;
+
+	sess_mempool = ca_host_sess_mempool_get(0);
+	if (sess_mempool == NULL) {
+		CA_ERR("Could not get session mempool");
+		return;
+	}
+
+	rte_spinlock_lock(&sess_handle_list_lock);
+
+	DAO_TAILQ_FOREACH_SAFE(session, &sess_handle_list_head, next, tmp)
+	{
+		TAILQ_REMOVE(&sess_handle_list_head, session, next);
+
+		/* Skip special session IDs */
+		if (session->sess_id != DAO_LC_SESS_ID_HASH &&
+		    session->sess_id != DAO_LC_SESS_ID_AES_KEY_WRAP) {
+			w7.u64 = session->sess_id;
+			sess_ptr = (void *)(uint64_t)w7.s.cptr;
+
+			if (sess_ptr)
+				rte_mempool_put(sess_mempool, sess_ptr);
+		}
+
+		rte_free(session);
+	}
+
+	rte_spinlock_unlock(&sess_handle_list_lock);
+
+	CA_INFO("Cleared all session handles");
 }
