@@ -39,6 +39,7 @@
 #define DAO_CARD_MGR_DMESG            "card_dmesg"
 #define DAO_CARD_MGR_APPLOG           "card_applog"
 #define DAO_CARD_MGR_CARD_TEMPERATURE "card_temperature"
+#define DAO_CARD_MGR_SOFT_RESET       "card_soft_reset"
 #define DAO_CMD_ARGS_ANY              -1 /* variable args */
 
 #define DAO_CARD_MGR_MAX_ERR_MSG_LEN 256

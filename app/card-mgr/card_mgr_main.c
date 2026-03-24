@@ -47,6 +47,8 @@ const struct dao_card_cmd_spec dao_card_cmd_specs[] = {
 	 "Update firmware image"},
 	{DAO_CARD_MGR_FAILSAFE_UPDATE, 3, 3, "<absolute_path/file> <absolute_path/mrvl-oct-boot>",
 	 "Update failsafe image"},
+	{DAO_CARD_MGR_SOFT_RESET, 1, 1, "",
+	 "Perform a soft reset on the card and re-initialize without rebooting"},
 	{"help", 1, 1, "", "Show this help/command list"},
 };
 

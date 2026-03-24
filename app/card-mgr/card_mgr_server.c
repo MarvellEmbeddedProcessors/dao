@@ -240,6 +240,12 @@ dao_card_mgr_process_cmd(int cli_fd, cli_args *cmd)
 		free(new_argv);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_FINI) == 0) {
 		dao_card_fini(card_ctx);
+	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_SOFT_RESET) == 0) {
+		rc = dao_card_soft_reset(card_ctx);
+		if (rc == -EAGAIN) {
+			strncpy(err_msg, "Card is not initialized yet", sizeof(err_msg) - 1);
+			err_msg[sizeof(err_msg) - 1] = '\0';
+		}
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_CARD_INFO) == 0) {
 		rc = dao_card_info_get(card_ctx, &card_info);
 	} else if (strcmp(cmd->argv[0], DAO_CARD_MGR_IMAGE_VERSION) == 0) {
