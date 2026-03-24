@@ -51,6 +51,12 @@ typedef void (*dao_card_fini_cb)(void);
 typedef int (*dao_card_stats_cb)(struct dao_card_stats *stats);
 
 /**
+ * Function pointer for performing a soft reset on the card.
+ * @return: 0 on success, negative value on failure
+ */
+typedef int (*dao_card_soft_reset_cb)(void);
+
+/**
  * Function pointer for getting device capabilities.
  * @param caps: Pointer to device capabilities structure
  * @return: 0 on success, negative value on failure
@@ -113,6 +119,8 @@ struct dao_card_server_cbs {
 	dao_card_info_cb card_info_cb;
 	/** DAO Card stats callback */
 	dao_card_stats_cb card_stats_cb;
+	/** DAO Card soft reset callback */
+	dao_card_soft_reset_cb soft_reset_cb;
 
 	/** DAO LC dev create callback */
 	dao_lc_dev_create_cb dev_create_cb;
