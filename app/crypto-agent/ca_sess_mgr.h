@@ -17,5 +17,6 @@ struct ca_sess_handle {
 
 int ca_sess_handle_create(struct rte_mbuf *mb);
 int ca_sess_handle_destroy(struct rte_mbuf *mb);
+void ca_sess_handle_clear_all(void);
 
 #endif /* __CA_SESS_MGR_H__ */

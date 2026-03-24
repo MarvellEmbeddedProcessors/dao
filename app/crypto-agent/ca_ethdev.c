@@ -328,7 +328,40 @@ ca_eth_dev_close(uint32_t port_id)
 		}
 	}
 
+	eth_ctx->is_configured = false;
+	eth_ctx->is_started = false;
+
 	return rte_eth_dev_reset(port_id);
+}
+
+void
+ca_eth_dev_stop_reset(void)
+{
+	struct ca_eth_dev_ctx *eth_ctx;
+	uint16_t i, j;
+	int ret;
+
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
+		eth_ctx = &ca_glb_ctx.eth_ctx[i];
+		if (eth_ctx->is_configured) {
+			ret = ca_eth_dev_close(eth_ctx->port_id);
+			if (ret)
+				CA_ERR("Could not close ethdev: %d.", eth_ctx->port_id);
+		}
+	}
+
+	/** Clear Queues on each device */
+	for (i = 0; i < ca_glb_ctx.nb_valid_ethdevs; i++) {
+		eth_ctx = &ca_glb_ctx.eth_ctx[i];
+		for (j = 0; j < eth_ctx->nb_queue_avail; j++) {
+			if ((eth_ctx->init_q_mask & (1ULL << j)) == 0)
+				continue;
+			ret = ca_eth_dev_q_destroy(eth_ctx->port_id, j);
+			if (ret < 0)
+				CA_ERR("Failed to destroy queue %d on port %d: %d", j,
+				       eth_ctx->port_id, ret);
+		}
+	}
 }
 
 static int
@@ -907,4 +940,80 @@ ca_eth_flow_clear(uint8_t port_id)
 	ret = rte_flow_flush(port_id, NULL);
 	if (ret)
 		CA_ERR("Could not flush flow on port %u", port_id);
+}
+
+int
+ca_eth_lcore_map_link_clear(void)
+{
+	struct ca_eth_dev_queue_lcore_map *eth_map;
+	struct rte_rcu_qsbr *qsbr;
+	struct lcore_conf *lconf;
+	uint32_t lcore_id;
+
+	qsbr = ca_rcu_qsbr_get();
+	if (qsbr == NULL) {
+		CA_ERR("Could not get RCU QSBR.");
+		return -ENODEV;
+	}
+
+	/* Clear nb_pq on all worker lcores before any QSBR synchronize.*/
+	for (lcore_id = 0; lcore_id < CA_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0)
+			continue;
+		if (rte_get_main_lcore() == lcore_id)
+			continue;
+
+		eth_map = ca_eth_lcore_map_get(lcore_id);
+		if (eth_map == NULL) {
+			CA_ERR("Could not get eth map for lcore: %d", lcore_id);
+			return -ENODEV;
+		}
+
+		/* Skip if there are no links for this core */
+		if (eth_map->nb_links == 0)
+			continue;
+
+		lconf = &lcore_conf[lcore_id];
+		lconf->nb_pq = 0;
+		lconf->is_soft_reset = true;
+	}
+
+	/* Single QSBR synchronize after all nb_pq stores are visible.*/
+	rte_rcu_qsbr_synchronize(qsbr, RTE_QSBR_THRID_INVALID);
+
+	return 0;
+}
+
+int
+ca_eth_rx_queue_clear_all(struct lcore_conf *lcore_conf)
+{
+	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
+	struct pending_queue *pq;
+	struct lcore_conf *lconf;
+	uint32_t lcore_id, i;
+	uint16_t nb_rx;
+
+	for (lcore_id = 0; lcore_id < CA_MAX_LCORE; lcore_id++) {
+		if (!rte_lcore_is_enabled(lcore_id))
+			continue;
+		if (rte_get_main_lcore() == lcore_id)
+			continue;
+
+		lconf = &lcore_conf[lcore_id];
+
+		for (i = 0; i < lconf->nb_pq; i++) {
+			pq = lconf->pq[i];
+
+			do {
+				nb_rx = rte_eth_rx_burst(pq->eth_port_id, pq->eth_queue_id, mb,
+							 CA_ETHDEV_RX_BURST);
+
+				if (nb_rx)
+					rte_pktmbuf_free_bulk(mb, nb_rx);
+			} while (nb_rx != 0);
+		}
+	}
+
+	CA_INFO("Successfully drained all RX queues");
+	return 0;
 }
