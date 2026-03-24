@@ -17,6 +17,7 @@ service DaoCardService {
 	rpc Dmesg(Emp) returns (DmesgLogs) {}
 	rpc AppLog(Emp) returns (AppLogs) {}
 	rpc ImageVersion(Emp) returns (ImageVersionInfo) {}
+	rpc SoftReset(Emp) returns (CardResponse) {}
 }
 
 enum FileTransferType {

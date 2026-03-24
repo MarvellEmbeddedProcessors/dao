@@ -70,6 +70,15 @@ using lc_manager::Empty;
 
 struct dao_card_server_cbs *server_cbs;
 
+/* Shared mutex serializing disruptive runtime card-state operations that are
+ * known to be concurrently invoked across services:
+ * SoftReset (DaoCardServiceImpl) vs StartDev/StopDev/ConfigureQP (DaoLCServiceImpl).
+ * gRPC handlers run on different threads, so any new paths that can run
+ * concurrently with these operations and mutate shared card state
+ * must also hold this lock.
+ */
+static std::mutex card_state_mutex;
+
 static inline StatusCode
 status_code_from_rc(int rc)
 {
@@ -174,6 +183,19 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		server_cbs->fini_cb();
 
 		return Status::OK;
+	}
+
+	Status SoftReset(ServerContext *context, const Emp *empty, CardResponse *response) override
+	{
+		std::lock_guard<std::mutex> lock(card_state_mutex);
+		(void)(context);
+		(void)(empty);
+		(void)(response);
+		int rc;
+
+		rc = server_cbs->soft_reset_cb();
+
+		return status_from_rc(rc, "Failed to perform soft reset");
 	}
 
 	Status Info(ServerContext *context, const Emp *empty, CardInfo *response) override
@@ -477,9 +499,6 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 
 class DaoLCServiceImpl final : public DaoLCService::Service
 {
-private:
-	std::mutex start_stop_mutex_;
-
 public:
 	Status CreateDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
@@ -520,7 +539,7 @@ public:
 
 	Status StartDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
-		std::lock_guard<std::mutex> lock(start_stop_mutex_);
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 		(void)(context);
 		(void)response; // unused
 		int rc;
@@ -532,7 +551,7 @@ public:
 
 	Status StopDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
-		std::lock_guard<std::mutex> lock(start_stop_mutex_);
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 		(void)(context);
 		(void)response; // unused
 		int rc;
@@ -548,6 +567,8 @@ public:
 		(void)(context);
 		(void)response; // unused
 		int rc;
+
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 
 		conf.dev_id = q_conf->dev_id();
 		conf.qp_id = q_conf->qp_id();

@@ -147,6 +147,29 @@ dao_card_fini(struct dao_card_grpc_ctx *ctx)
 }
 
 int
+dao_card_soft_reset(struct dao_card_grpc_ctx *ctx)
+{
+	ClientContext context;
+	grpc::Status status;
+	CardResponse resp;
+	Emp empty;
+
+	if (ctx == NULL)
+		return -EINVAL;
+
+	status = ctx->stub->SoftReset(&context, empty, &resp);
+	if (!status.ok()) {
+		if (status.error_code() == grpc::StatusCode::UNAVAILABLE)
+			fprintf(stderr, "Card is not initialized yet\n");
+		fprintf(stderr, "Failed to perform soft reset: %s (code=%d)\n",
+			status.error_message().c_str(), status.error_code());
+		return grpc_status_to_errno(status);
+	}
+
+	return 0;
+}
+
+int
 dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 {
 	ClientContext context;

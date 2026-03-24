@@ -67,6 +67,21 @@ int dao_card_init(struct dao_card_grpc_ctx *ctx, struct dao_card_config *config)
 void dao_card_fini(struct dao_card_grpc_ctx *ctx);
 
 /**
+ * This function needs to be called from management daemon.
+ * It will stop workers and clear RX queues on the liquid crypto card.
+ * It will also clear CPT queues and if there are any failed ops in the queues, it will reset the
+ * CPT queues to clear those ops. After this function is called, card will be in same state as it is
+ * after card_init is called.
+ *
+ * @param ctx: gRPC client context
+ * @return: 0 on success, negative value on failure
+ *
+ * Note: This is a soft reset and it does not trigger a full card reboot. Host side traffic should
+ * be stopped.
+ */
+int dao_card_soft_reset(struct dao_card_grpc_ctx *ctx);
+
+/**
  * Get the card information.
  *
  * It will get the card information like number of ethdevs and max number of sessions supported.
