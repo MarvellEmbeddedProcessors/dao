@@ -437,11 +437,12 @@ rdma_tx_priv_rmbuf_head(struct rte_mbuf *owner)
 	return (struct rdma_mbufs *)(rdma_priv_base(owner) + RDMA_TX_PRIV_OFF_WR);
 }
 
-/* RX helpers */
+/* RX helpers — CQE sits after l2_len SGEs, matching PTS DAO_PTS_RDMA_MBUF_TO_CQE */
 static inline struct dao_pts_rdma_cqe *
 rdma_rx_priv_cqe(struct rte_mbuf *mbuf)
 {
-	size_t off = RDMA_RX_PRIV_OFF_SGE + sizeof(struct dao_pts_rdma_sge);
+	size_t off = RDMA_RX_PRIV_OFF_SGE +
+		     mbuf->l2_len * sizeof(struct dao_pts_rdma_sge);
 
 	return (struct dao_pts_rdma_cqe *)(rdma_priv_base(mbuf) + off);
 }

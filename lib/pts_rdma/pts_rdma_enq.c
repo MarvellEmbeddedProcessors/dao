@@ -700,6 +700,7 @@ process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_ba
 		*len = dlen;
 		return 0;
 	}
+	*len = slen;
 	if (mbuf->nb_segs > nb_enq_sges)
 		return process_multi_mbuf(mem2dev, desc_base, ci, mbuf, nb_enq_sges);
 	else

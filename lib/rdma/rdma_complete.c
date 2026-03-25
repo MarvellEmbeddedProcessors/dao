@@ -239,14 +239,15 @@ rdma_populate_wr(struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
 	struct rdma_qp *qp = pkt->rinfo.qp;
 	struct rte_mbuf *mbuf = wqe->read_mbuf;
-	struct dao_pts_rdma_cqe *cqe = rdma_rx_priv_cqe(mbuf);
 	uint8_t *sges = (uint8_t *)rdma_rx_priv_sge_base(mbuf);
+	struct dao_pts_rdma_cqe *cqe;
 	bool need_cqe;
 	uint64_t enq_flag;
 
 	memcpy(sges, &wqe->wr->sges0[0], sizeof(struct octep_rdma_sge) * wqe->wr->num_sges);
 	pkt->mbuf = mbuf;
 	mbuf->l2_len = wqe->wr->num_sges;
+	cqe = rdma_rx_priv_cqe(mbuf);
 	pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
 
 	need_cqe = ((qp->sq_sig_type == RDMA_SIGNAL_ALL_WR) ||
