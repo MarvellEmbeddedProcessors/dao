@@ -148,7 +148,7 @@ sym_sess_hash_digest_len_validate(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
 	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
 	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
-		break;
+		return 0;
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
 	case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
 		if ((mac_len >= 1) && (mac_len <= DAO_LC_MAX_DIGEST_LEN))
