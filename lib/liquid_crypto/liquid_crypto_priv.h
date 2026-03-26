@@ -145,6 +145,9 @@ struct liquid_crypto_inflight_req {
 	/** Cipher length */
 	uint16_t cipher_len;
 
+	/** Random data length requested (RNG operations) */
+	uint32_t rand_len;
+
 	/** Result offset */
 	uint16_t result_offset;
 
