@@ -714,11 +714,6 @@ lc_sym_op_cipher_only_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (op->cipher_len == 0) {
-		dao_err("Invalid cipher length for cipher only operation.");
-		return -EINVAL;
-	}
-
 	if (op->cipher_offset + op->cipher_len > op->in_buffer->total_len) {
 		dao_err("Cipher offset and length exceed input buffer total length.");
 		return -EINVAL;
@@ -732,6 +727,14 @@ lc_sym_op_cipher_only_validate(const struct dao_lc_sym_op *op,
 	}
 
 	if (op->out_buffer != NULL) {
+		if (op->out_buffer->total_len > 0) {
+			int ret = lc_buf_validate(op->out_buffer, false);
+
+			if (ret != 0) {
+				dao_err("Invalid output buffer.");
+				return ret;
+			}
+		}
 		if (op->out_buffer->total_len < op->cipher_len + op->cipher_offset) {
 			dao_err("Output buffer total length is less than cipher length.");
 			return -EINVAL;
@@ -963,7 +966,8 @@ static inline bool
 lc_sym_op_is_empty_buf_allowed(enum lc_crypto_op_type op_type)
 {
 	if ((op_type == LC_SYM_OP_AUTH_ONLY) || (op_type == LC_SYM_OP_HMAC_AUTH_ONLY) ||
-	    (op_type == LC_SYM_OP_AEAD) || (op_type == LC_SYM_OP_CIPHER_AUTH))
+	    (op_type == LC_SYM_OP_AEAD) || (op_type == LC_SYM_OP_CIPHER_AUTH) ||
+	    (op_type == LC_SYM_OP_CIPHER_ONLY))
 		return true;
 
 	return false;
