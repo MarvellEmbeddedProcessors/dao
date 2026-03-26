@@ -3197,8 +3197,8 @@ dao_lc_post_process_rng(struct liquid_crypto_inflight_req *req, struct dao_lc_re
 		return;
 	}
 #endif
-	/* For RNG, we just copy the data to the output buffer */
-	out_len = rte_pktmbuf_pkt_len(mbuf) - sizeof(struct __dao_lc_resp_sym);
+	/* For RNG, copy only requested bytes. */
+	out_len = req->rand_len;
 	dao_lc_buf_copy_from_mem(resp->rptr, req->data_out, out_len);
 }
 
@@ -3700,6 +3700,7 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op->op_cookie;
 	qp->req_queue[req_idx].data_out = op->out_buf;
+	qp->req_queue[req_idx].rand_len = op->rand_len;
 
 	/* TODO: For now support only HW RANDOM. No input required. */
 	buf_len =
