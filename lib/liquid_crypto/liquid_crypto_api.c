@@ -2430,7 +2430,8 @@ dao_lc_buf_copy_from_offset_to_mem(struct dao_lc_buf *src, uint8_t *dst, uint32_
 	}
 
 	if (tmp == NULL) {
-		/* Zero-len input buffer is a valid case for HASH/HMAC and AEAD operations. */
+		/* Zero-len input buffer is a valid case for HASH/HMAC, CIPHER_ONLY and AEAD
+		 * operations. */
 		if (len == 0 && is_zero_len_allowed)
 			return 0;
 
@@ -2760,21 +2761,22 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 	uint32_t buf_len, lc_buf_offset = 0, off_ctrl_len = ROC_SE_OFF_CTRL_LEN;
 	uint32_t dlen, cipher_offset, cipher_len, auth_offset, auth_len;
 	uint16_t pkt_iv_len, aad_len, digest_len;
+	bool is_zero_len_allowed = false;
 	const uint32_t iv_offset = 0;
 	struct __dao_lc_req_sym *req;
-	bool is_aead_op_type = false;
 	uint64_t *offset_vaddr;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
 
 	if (op_type == LC_SYM_OP_CIPHER_ONLY) {
+		is_zero_len_allowed = true;
 		aad_len = 0;
 		cipher_len = op->cipher_len;
 		auth_len = 0;
 		pkt_iv_len = sess_meta->pkt_iv_len;
 		digest_len = 0;
 	} else if (op_type == LC_SYM_OP_AEAD) {
-		is_aead_op_type = true;
+		is_zero_len_allowed = true;
 		aad_len = op->aad_len;
 		cipher_len = op->cipher_len;
 		auth_len = cipher_len + aad_len;
@@ -2896,7 +2898,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 
 	dao_lc_buf_copy_from_offset_to_mem(op->in_buffer, dptr, lc_buf_offset,
 					   op->in_buffer->total_len - lc_buf_offset,
-					   is_aead_op_type);
+					   is_zero_len_allowed);
 
 	if ((!op->encrypt) && (op->digest != NULL && digest_len != 0))
 		memcpy(dptr + op->in_buffer->total_len - lc_buf_offset, op->digest, digest_len);
