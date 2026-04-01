@@ -333,3 +333,79 @@ function ep_common_bind_driver()
 	echo $dev > /sys/bus/$s/drivers/$driver/bind
 	echo $dev > /sys/bus/$s/drivers_probe
 }
+
+function ep_common_get_v4_gid_index()
+{
+	local dev="$1"
+	local rdma_build="${2:-}"
+	local bin_path="$rdma_build/bin"
+	local lib_path="$rdma_build/lib"
+	local gid=
+
+	[[ -n "$bin_path" ]] && export PATH="${bin_path}:${PATH}"
+	[[ -n "$lib_path"  ]] && export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH:-}"
+
+	# Get gid index of 1st ipv4 address configured on the interface
+	gid=$(ibv_devinfo -d "$dev" -vvv 2>/dev/null | \
+	      awk -F'[[]|[]]' '/GID\[.*::ffff:/ { gsub(/^ +/, "", $2); print $2;}')
+
+	echo $gid
+}
+
+function ep_common_get_rdma_device()
+{
+	local rdma_build="${1:-}"
+	local bin_path="$rdma_build/bin"
+	local lib_path="$rdma_build/lib"
+	local devices=
+	local dev=
+
+	[[ -n "$bin_path" ]] && export PATH="${bin_path}:${PATH}"
+	[[ -n "$lib_path"  ]] && export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH:-}"
+
+	devices="$(ibv_devices 2>/dev/null | awk 'NR>2 && NF {print $1}')"
+	if [ -z "$devices" ]; then
+		echo "Error: No RDMA devices found." >&2
+		return 2
+	fi
+
+	while IFS= read -r dev; do
+		if ibv_devinfo -d "$dev" 2>/dev/null | awk '/state:/ && /PORT_ACTIVE/ {exit 0} AND {exit 1}'; then
+			echo $dev
+			return 0
+		fi
+	done <<< "$devices"
+
+	echo "Error: No devices have a port in PORT_ACTIVE state." >&2
+	return 3
+}
+
+function ep_common_rdma_test_cleanup()
+{
+	local force_mode="${1:-false}"
+	local test_binaries=(
+		"ibv_ud_pingpong"
+		"ibv_rc_pingpong"
+		"udaddy"
+		)
+
+	for binary in "${test_binaries[@]}"; do
+		if pgrep -f "$binary" >/dev/null 2>&1; then
+			echo "Stopping $binary processes..."
+			pkill -9 -f "$binary" 2>/dev/null || echo "Warning: Failed to stop some $binary processes"
+			sleep 2
+
+			# Verify cleanup
+			if pgrep -f "$binary" >/dev/null 2>&1; then
+				echo "WARNING: Some $binary processes still running"
+				if [[ "$force_mode" != "true" ]]; then
+					return 1
+				fi
+			else
+				echo "$binary processes stopped successfully"
+			fi
+		fi
+	done
+
+	return 0
+}

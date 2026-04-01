@@ -15,14 +15,87 @@ function ep_host_pre_setup()
 
 function ep_host_sdp_setup()
 {
-	set +e # Module may be already loaded
-	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
-		insmod $EP_HOST_MODULE_DIR/octeon_ep.ko
-	else
-		insmod $EP_DIR/ep_files/octeon_ep.ko
+	set +e
+	# Remove module if already loaded
+	if grep -q 'octeon_ep' /proc/modules; then
+		echo "Removing already loaded octeon_ep module"
+		rmmod octeon_ep
+		if [ $? -ne 0 ]; then
+			echo "Warning: Failed to remove octeon_ep module" >&2
+		fi
 	fi
+
+	# Determine module path
+	local module_path
+
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		module_path="$EP_HOST_MODULE_DIR/octeon_ep.ko"
+	else
+		module_path="$EP_DIR/ep_files/octeon_ep.ko"
+	fi
+
+	# Verify module file exists
+	if [[ ! -f "$module_path" ]]; then
+		echo "Error: Module file not found at $module_path" >&2
+		return 1
+	fi
+
+	# Insert module and verify
+	insmod "$module_path"
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to load octeon_ep module" >&2
+		return 1
+	fi
+
 	set -e
 	sleep 5
+	dmesg | tail -n 10
+}
+
+# Function shall be called after the graph app is started on the device
+function ep_host_rdma_setup()
+{
+	local num_vfs=${1:-1}
+	local bdf
+
+	# Stop Network Manager to stop ip-address being automatically removed
+	service NetworkManager stop
+
+	set +e # Module may be already loaded
+	modprobe ib_uverbs
+	sleep 1
+
+	if grep -q 'octep_rdma' /proc/modules; then
+		rmmod octep_rdma
+	fi
+
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		insmod $EP_HOST_MODULE_DIR/octep-rdma.ko
+	else
+		insmod $EP_DIR/kmod/rdma/octep_rdma/octep-rdma.ko
+	fi
+	set -e
+
+	sleep 1
+	bdf=$(ep_common_pcie_addr_get "0xB900" 1)
+	echo $num_vfs > /sys/bus/pci/devices/$bdf/sriov_numvfs
+}
+
+function ep_host_rdma_cleanup()
+{
+	local bdf=$(ep_common_pcie_addr_get "0xB900" 1)
+	local status
+
+	# Disable SR-IOV first
+	echo 0 > /sys/bus/pci/devices/$bdf/sriov_numvfs
+
+	set +e
+	# Remove octep_rdma module
+	if grep -q 'octep_rdma' /proc/modules; then
+		rmmod octep_rdma
+	fi
+
+	set -e
 }
 
 function ep_host_vdpa_common_setup()
@@ -45,11 +118,11 @@ function ep_host_vdpa_common_setup()
 		modprobe virtio-vdpa
 	fi
 	set +e # Module may be already loaded
-	rmmod octep_vdpa
+	rmmod octep_vdpa_pci
 	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
-		insmod $EP_HOST_MODULE_DIR/octep_vdpa.ko
+		insmod $EP_HOST_MODULE_DIR/octep_vdpa_pci.ko
 	else
-		insmod $EP_DIR/kmod/vdpa/octeon_ep/octep_vdpa.ko
+		insmod $EP_DIR/kmod/vdpa/octeon_ep/octep_vdpa_pci.ko
 	fi
 	set -e
 
@@ -58,7 +131,7 @@ function ep_host_vdpa_common_setup()
 	vf_cnt_max=$(cat /sys/bus/pci/devices/$host_pf/sriov_totalvfs)
 	vf_cnt=$((vf_cnt >vf_cnt_max ? vf_cnt_max : vf_cnt))
 
-	ep_common_bind_driver pci $host_pf octep_vdpa
+	ep_common_bind_driver pci $host_pf octep_vdpa_pci
 	ep_common_set_numvfs $host_pf $vf_cnt
 
 	sleep 1
@@ -114,7 +187,7 @@ function ep_host_vdpa_cleanup()
 {
 	echo "Cleaning up VDPA on host"
 	set +e # Module may be already loaded
-	rmmod octep_vdpa
+	rmmod octep_vdpa_pci
 	rmmod vhost-vdpa
 	rmmod vdpa
 	set -e
@@ -130,7 +203,7 @@ function ep_host_virtio_vdpa_cleanup()
 			echo $vdev > /sys/bus/vdpa/drivers/virtio_vdpa/unbind
 		fi
 	done
-	rmmod octep_vdpa
+	rmmod octep_vdpa_pci
 	rmmod virtio-vdpa
 	rmmod vdpa
 	set -e
@@ -348,12 +421,38 @@ function ep_host_sdp_vf_setup()
 	local num_vf=$2
 	local sdp_vfs
 
-	set +e # Module may be already loaded
-	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
-		insmod $EP_HOST_MODULE_DIR/octeon_ep_vf.ko
-	else
-		insmod $EP_DIR/ep_files/octeon_ep_vf.ko
+	set +e
+	# Remove module if already loaded
+	if grep -q 'octeon_ep_vf' /proc/modules; then
+		echo "Removing already loaded octeon_ep_vf module"
+		rmmod octeon_ep_vf
+		if [ $? -ne 0 ]; then
+			echo "Warning: Failed to remove octeon_ep_vf module" >&2
+		fi
 	fi
+
+	# Determine module path
+	local module_path
+
+	if [[ -n ${EP_HOST_MODULE_DIR:-} ]]; then
+		module_path="$EP_HOST_MODULE_DIR/octeon_ep_vf.ko"
+	else
+		module_path="$EP_DIR/ep_files/octeon_ep_vf.ko"
+	fi
+
+	# Verify module file exists
+	if [[ ! -f "$module_path" ]]; then
+		echo "Error: Module file not found at $module_path" >&2
+		return 1
+	fi
+
+	# Insert module and verify
+	insmod "$module_path"
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to load octeon_ep_vf module" >&2
+		return 1
+	fi
+
 	set -e
 	sleep 2
 

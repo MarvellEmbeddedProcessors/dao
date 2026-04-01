@@ -4,3 +4,4 @@
 subdir('common')
 subdir('virtio')
 subdir('ovs')
+subdir('rdma')

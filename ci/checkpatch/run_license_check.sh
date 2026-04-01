@@ -32,6 +32,7 @@ IGNORE_FILES=(
 	"doc/guides/_static/tab_logo.jpg"
 	"doc/guides/_static/versions.json"
 	"tests/ct-func/ct_test.pcap"
+	"kmod/iliad/README.md"
 	"kmod/rdma/README"
 )
 
@@ -66,7 +67,7 @@ BSD_LICENSE_FILES=(
 
 FAILED=""
 IGNORED=""
-FILES=$(git ls-files kmod/rdma/)
+FILES=$(git ls-files)
 
 for F in $FILES; do
 	IGNORE=""
