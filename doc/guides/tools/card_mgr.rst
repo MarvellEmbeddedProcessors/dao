@@ -224,6 +224,17 @@ available:
    resources are properly released. No commands can be run on the card after this command
    is executed. Card reboot is required to reinitialize the card.
 
+* ``card_soft_reset``
+
+   This command performs a soft reset of the DAO card. It resets the card without requiring a full
+   reboot, enabling faster recovery from certain error conditions or in scenarios where a reset is
+   needed to apply configuration changes. During the operation, the card goes through a reset
+   sequence and returns to a ready state without altering the boot source. Before issuing this
+   command, host-side traffic must be stopped and the card must already have been initialized with
+   ``card_init``. After a successful soft reset, the card returns to a runtime state equivalent to
+   the state immediately following ``card_init``; however, this does not require rerunning
+   ``card_init`` afterward.
+
 .. _diagnostics:
 
 Diagnostics
