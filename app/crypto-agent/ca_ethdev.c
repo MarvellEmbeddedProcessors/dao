@@ -978,6 +978,9 @@ ca_eth_lcore_map_link_clear(void)
 		lconf->is_soft_reset = true;
 	}
 
+	/* One publish point for all lcores */
+	rte_smp_wmb();
+
 	/* Single QSBR synchronize after all nb_pq stores are visible.*/
 	rte_rcu_qsbr_synchronize(qsbr, RTE_QSBR_THRID_INVALID);
 
@@ -985,7 +988,7 @@ ca_eth_lcore_map_link_clear(void)
 }
 
 int
-ca_eth_rx_queue_clear_all(struct lcore_conf *lcore_conf)
+ca_eth_rx_queue_clear_all(struct lcore_conf *lcore_conf_arr)
 {
 	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
 	struct pending_queue *pq;
@@ -999,7 +1002,7 @@ ca_eth_rx_queue_clear_all(struct lcore_conf *lcore_conf)
 		if (rte_get_main_lcore() == lcore_id)
 			continue;
 
-		lconf = &lcore_conf[lcore_id];
+		lconf = &lcore_conf_arr[lcore_id];
 
 		for (i = 0; i < lconf->nb_pq; i++) {
 			pq = lconf->pq[i];

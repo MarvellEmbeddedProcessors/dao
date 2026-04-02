@@ -35,6 +35,6 @@ int ca_eth_dev_start(uint32_t port_id);
 int ca_eth_dev_stop(uint32_t dev_id);
 int ca_eth_lcore_map_link_clear(void);
 void ca_eth_dev_stop_reset(void);
-int ca_eth_rx_queue_clear_all(struct lcore_conf *lcore_conf);
+int ca_eth_rx_queue_clear_all(struct lcore_conf *lcore_conf_arr);
 
 #endif /* __CA_ETHDEV_H__ */
