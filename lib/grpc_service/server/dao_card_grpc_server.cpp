@@ -72,7 +72,8 @@ struct dao_card_server_cbs *server_cbs;
 
 /* Shared mutex serializing disruptive runtime card-state operations that are
  * known to be concurrently invoked across services:
- * SoftReset (DaoCardServiceImpl) vs StartDev/StopDev/ConfigureQP (DaoLCServiceImpl).
+ * SoftReset (DaoCardServiceImpl) vs StartDev/StopDev/ConfigureQP/DestroyQP/
+ * CreateDev/DestroyDev (DaoLCServiceImpl).
  * gRPC handlers run on different threads, so any new paths that can run
  * concurrently with these operations and mutate shared card state
  * must also hold this lock.
@@ -502,6 +503,7 @@ class DaoLCServiceImpl final : public DaoLCService::Service
 public:
 	Status CreateDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 		(void)(context);
 		(void)response; // unused
 		int rc;
@@ -528,6 +530,7 @@ public:
 
 	Status DestroyDev(ServerContext *context, const DeviceId *request, Response *response) override
 	{
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 		(void)(context);
 		(void)response; // unused
 		int rc;
@@ -563,12 +566,11 @@ public:
 
 	Status ConfigureQP(ServerContext *context, const QpConf *q_conf, Response *response) override
 	{
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 		struct dao_lc_eth_qconf conf;
 		(void)(context);
 		(void)response; // unused
 		int rc;
-
-		std::lock_guard<std::mutex> lock(card_state_mutex);
 
 		conf.dev_id = q_conf->dev_id();
 		conf.qp_id = q_conf->qp_id();
@@ -583,6 +585,7 @@ public:
 
 	Status DestroyQP(ServerContext *context, const QueuePairId *request, Response *response) override
 	{
+		std::lock_guard<std::mutex> lock(card_state_mutex);
 		(void)(context);
 		(void)response; // unused
 		int rc;
