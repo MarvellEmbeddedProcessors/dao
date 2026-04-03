@@ -2,4 +2,5 @@
 # This file specifies compatible image versions for app updates
 
 [IMAGE_VERSIONS]
+26.01.1
 26.01.0
