@@ -72,10 +72,19 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 	if (qp_id < min_qp)
 		qp_id = min_qp;
 
-	while (qp_count && nb_pkts < max_pkts && retr_nb_pkts < APP_RDMA_PTS_DEQ_RTR_MAX) {
+	int32_t mgmt_qp = dao_pts_rdma_mgmt_qp_id_get(devid);
+
+	while (qp_count && nb_pkts < max_pkts &&
+	       retr_nb_pkts < APP_RDMA_PTS_DEQ_RTR_MAX) {
 		if (!(qp_map->bits[qp_id / 64] & RTE_BIT64(qp_id % 64))) {
 			qp_id = qp_id > max_qp ? min_qp : qp_id + 1;
 			continue;
+		}
+
+		if (unlikely(mgmt_qp >= 0 && (int32_t)qp_id == mgmt_qp)) {
+			count = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP,
+					max_pkts - nb_pkts);
+			goto mgmt_dequeue;
 		}
 
 		nb = dao_rdma_get_retransmition_pkts(
@@ -89,14 +98,16 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		}
 
 		can_fetch = APP_RDMA_PTS_DEQ_RTR_MAX - retr_nb_pkts;
-		drained = dao_rdma_ack_dequeue_until_read(qp_id, devid, retr_mbufs, can_fetch);
+		drained = dao_rdma_ack_dequeue_until_read(qp_id, devid, retr_mbufs,
+							  can_fetch);
 		if (drained) {
 			mbuf = retr_mbufs[0];
 			if (unlikely(!mbuf))
 				break;
 			rte_prefetch0(mbuf);
 			node_mbuf_priv1(mbuf, dyn)->queue = ctx->queue_id;
-			rte_node_enqueue(graph, node, tx_edge, (void **)retr_mbufs, drained);
+			rte_node_enqueue(graph, node, tx_edge, (void **)retr_mbufs,
+					 drained);
 			retr_nb_pkts += drained;
 			goto next_qp;
 		}
@@ -106,7 +117,8 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 			goto next_qp;
 
 		{
-			struct rte_mbuf *sched_mbuf = dao_rdma_need_qp_schedule(qp_id, devid);
+			struct rte_mbuf *sched_mbuf =
+				dao_rdma_need_qp_schedule(qp_id, devid);
 
 			if (sched_mbuf) {
 				mbufs[nb_pkts++] = sched_mbuf;
@@ -121,14 +133,15 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		}
 
 		{
-			uint16_t limit = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP, max_pkts - nb_pkts);
+			uint16_t limit = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP,
+						 max_pkts - nb_pkts);
 
 			count = dao_rdma_adjust_burst_count(count, limit);
 		}
 
+mgmt_dequeue:
 		count = dao_pts_rdma_dequeue_burst(devid, qp_id, &mbufs[nb_pkts], count);
 		if (likely(count)) {
-			/* Only annotate first mbuf of this QP run; downstream will read nb_pkts */
 			mbuf = mbufs[nb_pkts];
 			if (likely(mbuf)) {
 				node_mbuf_priv1(mbuf, dyn)->qp_id = qp_id;
@@ -136,15 +149,14 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 				node_mbuf_priv1(mbuf, dyn)->queue = ctx->queue_id;
 				node_mbuf_priv1(mbuf, dyn)->devid = devid;
 				node_mbuf_priv1(mbuf, dyn)->nb_pkts = count;
-				/* Prefetch a couple of mbufs in this run to help the next node */
 				if (count > 1) {
 					rte_prefetch0(mbufs[nb_pkts + 1]);
 					if (count > 2)
 						rte_prefetch0(mbufs[nb_pkts + 2]);
 				}
 			} else {
-				dao_err("Got NULL mbuf for qp %d devid %d count %d\n", qp_id, devid,
-					count);
+				dao_err("Got NULL mbuf for qp %d devid %d count %d\n",
+					qp_id, devid, count);
 			}
 
 			nb_pkts += count;

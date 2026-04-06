@@ -32,8 +32,6 @@ extern int node_mbuf_priv1_dynfield_queue;
 
 struct rdma_node_main *rdma_nm;
 
-uint8_t port_type[RTE_MAX_ETHPORTS * 2];
-
 static inline void
 flush_speculated(void ***to_next_ptr, void ***from_ptr, uint16_t *last_spec, uint16_t *held)
 {
@@ -91,7 +89,34 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 		mbuf = (struct rte_mbuf *)objs[i];
 		next = rdma_next_edge_for_host(mbuf);
 
-		if (dao_rdma_pkt_check(mbuf)) {
+		if (!dao_rdma_pkt_check(mbuf)) {
+			uint16_t dport = rdma_nm->rdma_fwd_tbl[mbuf->port];
+
+			if (dport >= RTE_MAX_ETHPORTS) {
+				uint16_t devid = dport - RTE_MAX_ETHPORTS;
+				int32_t mgmt_qp = dao_pts_rdma_mgmt_qp_id_get(devid);
+
+				if (mgmt_qp >= 0) {
+					int enq_ret;
+
+					mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE << 60;
+					enq_ret = dao_pts_rdma_enqueue_burst(devid, mgmt_qp,
+									     &mbuf, 1);
+					if (enq_ret < 1)
+						rte_pktmbuf_free(mbuf);
+				} else {
+					rte_pktmbuf_free(mbuf);
+				}
+			} else {
+				rte_pktmbuf_free(mbuf);
+			}
+			if (unlikely(last_spec))
+				flush_speculated(&to_next, &from, &last_spec, &held);
+			from += 1;
+			continue;
+		}
+
+		{
 			uint16_t queue = node_mbuf_priv1(mbuf, dyn)->queue;
 			uint16_t dport = rdma_nm->rdma_fwd_tbl[mbuf->port];
 			uint16_t devid = dport - RTE_MAX_ETHPORTS;
@@ -191,7 +216,6 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 				uint16_t dport_i;
 
 				dport_i = rdma_nm->rdma_fwd_tbl[mbuf->port];
-				/* Doing below to get RPM port ID for MTU update*/
 				mbuf->port = dport_i;
 				next = (dport_i < RTE_MAX_ETHPORTS) ?
 					       rdma_nm->eth_tx_edge[dport_i] :
@@ -199,9 +223,8 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 			}
 
 			ret = dao_rdma_tx_process(mbuf, qp_id, devid, mbufs, &n_segs);
-			if (ret < 0) {
+			if (ret < 0)
 				next = RDMA_NEXT_PKT_DROP;
-			}
 			node_mbuf_priv1(mbuf, dyn)->queue = queue;
 			if (n_segs > 1) {
 				if (unlikely(last_spec))

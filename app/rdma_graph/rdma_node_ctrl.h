@@ -114,8 +114,6 @@ typedef struct rdma_node_eth_ctrl_conf {
 	uint16_t mp_count;
 } rdma_node_eth_ctrl_conf_t;
 
-extern uint8_t port_type[RTE_MAX_ETHPORTS * 2];
-
 /**
  * Control API for configuring Eth nodes
  *

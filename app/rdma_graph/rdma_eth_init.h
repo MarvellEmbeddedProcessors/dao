@@ -50,7 +50,6 @@ typedef struct rdma_ethdev_param {
 	uint16_t nb_ports;
 } rdma_ethdev_param_t;
 
-uint8_t is_host_port(uint16_t portid);
 int rdma_ethdev_init(struct rdma_main_cfg_data *rdma_main_cfg);
 int rdma_config_port_max_pkt_len(rdma_config_param_t *cfg_prm, struct rte_eth_conf *conf,
 				 struct rte_eth_dev_info *dev_info);

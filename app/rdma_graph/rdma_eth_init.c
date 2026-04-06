@@ -318,8 +318,6 @@ port_init(struct rdma_main_cfg_data *rdma_main_cfg, uint16_t portid, uint16_t nb
 	RTE_SET_USED(nb_lcores);
 	cfg_prm = rdma_main_cfg->cfg_prm;
 
-	port_type[portid] = is_host_port(portid);
-
 	/* Init port */
 	dao_dbg("Initializing port %d ... ", portid);
 	/* Use number of worker lcores for TX queues to keep 1:1 mapping with RX queues */
@@ -474,21 +472,6 @@ fail:
 	return errno;
 }
 
-uint8_t
-is_host_port(uint16_t portid)
-{
-	struct rte_eth_dev_info dev_info;
-	const char *info;
-	int rc;
-
-	rc = rte_eth_dev_info_get(portid, &dev_info);
-	if (rc)
-		dao_dbg("Ethdev info get failed.");
-
-	info = rte_dev_bus_info(dev_info.device);
-	return (strstr(info, "a0f7") != NULL);
-}
-
 struct rdma_ethdev_port_info *
 rdma_ethdev_port_info_get(uint16_t portid)
 {
@@ -506,8 +489,6 @@ rdma_ethdev_port_info_get(uint16_t portid)
 	eth_prm = rdma_main_cfg->eth_prm;
 
 	for (i = 0; i < (RTE_MAX_ETHPORTS / 2); i++) {
-		if (eth_prm->host_mac_map[i].host_port.port_id == portid)
-			return &eth_prm->host_mac_map[i].host_port;
 		if (eth_prm->host_mac_map[i].mac_port.port_id == portid)
 			return &eth_prm->host_mac_map[i].mac_port;
 	}
@@ -518,19 +499,10 @@ rdma_ethdev_port_info_get(uint16_t portid)
 uint16_t
 rdma_ethdev_port_pair_get(rdma_ethdev_host_mac_map_t *host_mac_map, uint16_t portid)
 {
-	uint16_t i;
-
-	for (i = 0; i < (RTE_MAX_ETHPORTS / 2); i++) {
-		if (host_mac_map[i].host_port.port_id == portid)
-			return host_mac_map[i].mac_port.port_id;
-		if (host_mac_map[i].mac_port.port_id == portid)
-			return host_mac_map[i].host_port.port_id;
-	}
-
-	return i;
+	RTE_SET_USED(host_mac_map);
+	return portid;
 }
 
-/* XXX: Only for SDP side of interfaces, but being used for all the interfaces. */
 static struct rte_flow *
 port_rss_flow_create(uint16_t portid)
 {
@@ -589,65 +561,44 @@ port_rss_flow_create(uint16_t portid)
 }
 
 static inline int
-rdma_create_ethdev_sdp_port_map(rdma_ethdev_host_mac_map_t *host_mac_map, uint32_t port_mask,
-				uint16_t *nb_ports, uint32_t dev_mask, int rdma_map_config_enable)
+rdma_create_ethdev_port_map(rdma_ethdev_host_mac_map_t *host_mac_map, uint32_t port_mask,
+			    uint16_t *nb_ports, uint32_t dev_mask, int rdma_map_config_enable)
 {
-	uint16_t host_ports[RTE_MAX_ETHPORTS];
 	uint16_t mac_ports[RTE_MAX_ETHPORTS];
-	uint16_t portid, i = 0, j = 0;
+	uint16_t portid, j = 0;
+
+	RTE_ETH_FOREACH_DEV(portid) {
+		if (port_mask & (1 << portid)) {
+			dao_dbg("Mac port %d\n", portid);
+			mac_ports[j++] = portid;
+		}
+	}
+
+	if (j == 0) {
+		dao_err("Error: no mac ports found");
+		return -1;
+	}
+
+	*nb_ports = j;
 
 	if (rdma_map_config_enable) {
-		uint16_t rdma_devid, index;
-
-		RTE_ETH_FOREACH_DEV(portid) {
-			if (port_mask & (1 << portid)) {
-				if (is_host_port(portid)) {
-					dao_dbg("Host port %d\n", portid);
-					host_ports[i++] = portid;
-				} else {
-					dao_dbg("Mac port %d\n", portid);
-					mac_ports[j++] = portid;
-				}
-			}
-		}
-		*nb_ports = i;
-
 		for (portid = 0; portid < *nb_ports; portid++) {
+			uint16_t rdma_devid = eth_map[portid].id;
+
 			host_mac_map[portid].mac_port.port_id = mac_ports[portid];
-			rdma_devid = eth_map[portid].id;
-			/* Mapping between RDMA dev id and SDP DPDK port*/
-			if (dev_mask & (1 << rdma_devid)) {
-				index = __builtin_popcount(dev_mask & ((1U << rdma_devid) - 1));
-				host_mac_map[portid].host_port.port_id = host_ports[index];
-			} else {
+			if (!(dev_mask & (1 << rdma_devid))) {
 				dao_err("Error: RDMA device %d not enabled in config", rdma_devid);
 				return -1;
 			}
 		}
 	} else {
-		RTE_ETH_FOREACH_DEV(portid) {
-			if (port_mask & (1 << portid)) {
-				if (is_host_port(portid)) {
-					dao_dbg("Host port %d\n", portid);
-					host_mac_map[i++].host_port.port_id = portid;
-				} else {
-					dao_dbg("Mac port %d\n", portid);
-					host_mac_map[j++].mac_port.port_id = portid;
-				}
-			}
-		}
-
-		if (i != j) {
-			dao_err("Error: host port count %u != mac port count %u", i, j);
-			return -1;
-		}
-		*nb_ports = i;
+		for (portid = 0; portid < *nb_ports; portid++)
+			host_mac_map[portid].mac_port.port_id = mac_ports[portid];
 	}
 
-	for (int i = 0; i < *nb_ports; i++) {
-		dao_dbg("Host port %d, Mac port %d\n", host_mac_map[i].host_port.port_id,
-			host_mac_map[i].mac_port.port_id);
-	}
+	for (int i = 0; i < *nb_ports; i++)
+		dao_dbg("Mac port %d\n", host_mac_map[i].mac_port.port_id);
+
 	return 0;
 }
 
@@ -656,7 +607,7 @@ rdma_ethdev_init(struct rdma_main_cfg_data *rdma_main_cfg)
 {
 	uint16_t nb_ports, lcore_id, nb_lcores = 0;
 	uint16_t nb_ports_available = 0;
-	uint16_t host_port, mac_port;
+	uint16_t mac_port;
 	rdma_ethdev_param_t *eth_prm;
 	rdma_config_param_t *cfg_prm;
 	uint16_t rdma_devid = 0;
@@ -705,27 +656,18 @@ rdma_ethdev_init(struct rdma_main_cfg_data *rdma_main_cfg)
 
 	/* reset host_mac_map */
 	memset(eth_prm->host_mac_map, 0, sizeof(eth_prm->host_mac_map));
-	if (rdma_create_ethdev_sdp_port_map(
+	if (rdma_create_ethdev_port_map(
 		    rdma_main_cfg->eth_prm->host_mac_map, rdma_main_cfg->cfg_prm->enabled_port_mask,
 		    &eth_prm->nb_ports, dev_mask, cfg_prm->rdma_map_config_enable))
 		return -1;
 
-	/* Normal forwarding table setup */
 	rdma_main_cfg->graph_prm->fm_ctrl_cfg.nb_ports = eth_prm->nb_ports;
 	for (portid = 0; portid < eth_prm->nb_ports; portid++) {
-		host_port = eth_prm->host_mac_map[portid].host_port.port_id;
 		mac_port = eth_prm->host_mac_map[portid].mac_port.port_id;
-
-		rdma_main_cfg->graph_prm->fm_ctrl_cfg.host_mac_map[host_port] = mac_port;
-		rdma_main_cfg->graph_prm->fm_ctrl_cfg.host_mac_map[mac_port] = host_port;
-
-		rdma_main_cfg->graph_prm->fm_ctrl_cfg.host_ports[portid] = host_port;
-
-		/* TODO: FIXME */
-		rdma_main_cfg->graph_prm->fm_ctrl_cfg.host_mac_map[RTE_MAX_ETHPORTS] = mac_port;
+		rdma_main_cfg->graph_prm->fm_ctrl_cfg.host_mac_map[portid] = mac_port;
 	}
 
-	rdma_main_cfg->graph_prm->fm_ctrl_cfg.active_host_ports = rdma_main_cfg->eth_prm->nb_ports;
+	rdma_main_cfg->graph_prm->fm_ctrl_cfg.active_host_ports = eth_prm->nb_ports;
 
 	/* Initialize all ports */
 	RTE_ETH_FOREACH_DEV(portid) {
@@ -733,13 +675,9 @@ rdma_ethdev_init(struct rdma_main_cfg_data *rdma_main_cfg)
 		rc = port_init(rdma_main_cfg, portid, nb_lcores);
 		if (rc)
 			DAO_ERR_GOTO(rc, fail, "Failed to init port %d", portid);
-		idx = 0;
-		while (eth_prm->nb_ports > idx) {
-			if (eth_prm->host_mac_map[idx].host_port.port_id == portid)
-				eth_prm->host_mac_map[idx].host_port.nb_rxq = nb_rx_queue;
-			else
+		for (idx = 0; idx < eth_prm->nb_ports; idx++) {
+			if (eth_prm->host_mac_map[idx].mac_port.port_id == portid)
 				eth_prm->host_mac_map[idx].mac_port.nb_rxq = nb_rx_queue;
-			idx++;
 		}
 		nb_ports_available++;
 	}
@@ -800,7 +738,7 @@ rdma_ethdev_init(struct rdma_main_cfg_data *rdma_main_cfg)
 		if (cfg_prm->promiscuous_on)
 			rte_eth_promiscuous_enable(portid);
 
-		/* Flow for port based RSS - SDP host ring to octeon queue 1-1 mapping */
+		/* Flow for port based RSS */
 		if (!port_rss_flow_create(portid))
 			rte_exit(EXIT_FAILURE, "Cannot create RSS flow: err=%d, port=%d\n", errno,
 				 portid);
