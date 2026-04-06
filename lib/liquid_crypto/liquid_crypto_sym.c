@@ -580,6 +580,28 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		return -EINVAL;
 	}
 
+	if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
+		switch (hash_ctx->hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
+			dao_err("Unsupported HMAC/hash type for HMAC operation.");
+			return -ENOTSUP;
+		default:
+			break;
+		}
+	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
+		switch (hash_ctx->hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+		case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+		case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+			dao_err("Unsupported HMAC/hash type for HASH operation.");
+			return -ENOTSUP;
+		default:
+			break;
+		}
+	}
+
 	digest_len = hash_ctx->digest_len;
 	switch (hash_ctx->hmac_hash_type) {
 	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
