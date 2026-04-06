@@ -71,7 +71,8 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 	__atomic_store_n(&sq->last_off, off, __ATOMIC_RELEASE);
 	__atomic_store_n(sq->ci_addr, off, __ATOMIC_RELEASE);
 
-	return nb_mbufs;
+	/* Return actual packets processed */
+	return i;
 }
 
 static __rte_always_inline void

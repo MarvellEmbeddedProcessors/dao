@@ -404,6 +404,24 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 	return 0;
 }
 
+/*
+ * Compute the number of RQE ring slots consumed by one receive WQE.
+ * The KMOD packs the first SGE into the 32-byte header RQE; remaining
+ * SGEs spill into extension RQEs (up to 2 SGEs per extension slot).
+ */
+static __rte_always_inline uint16_t
+calculate_rqe_desc_count(uintptr_t desc_base, uint16_t ci)
+{
+	uint64_t w0;
+	uint16_t num_sges, next_desc;
+
+	w0 = *RQ_DESC_PTR_OFF(desc_base, ci, 0);
+	num_sges = (w0 >> 48) & 0xFFFF;
+	next_desc = num_sges > 1 ? RTE_ALIGN_CEIL(num_sges - 1, 2) / 2 : 0;
+
+	return next_desc + 1;
+}
+
 static inline int
 process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *qp,
 		       struct rte_mbuf *mbuf)
@@ -413,14 +431,26 @@ process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *
 	struct pts_rdma_cq_data *cq_data;
 	struct dao_pts_rdma_cqe *cqe;
 	uint16_t ci, pi, q_sz;
+	uint16_t rqe_slots;
 
 	cq_data = &qp->rq.cq_data;
 	ci = rq->sd_mbuf_off;
 	pi = __atomic_load_n(&rq->sd_desc_dma_off, __ATOMIC_ACQUIRE);
 	q_sz = rq->q_sz;
 
-	/* Check for space in RQ */
-	if (unlikely(desc_off_diff(pi, ci, q_sz) < 1))
+	/* Ensure at least the first RQE slot is DMA'd before reading descriptor */
+	if (unlikely(!desc_off_diff(pi, ci, q_sz)))
+		return -1;
+
+	rqe_slots = calculate_rqe_desc_count(desc_base, ci);
+
+	if (unlikely(rqe_slots > 1)) {
+		if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
+			return -1;
+	}
+
+	/* Check for space in RQ (all slots for this WQE) */
+	if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
 		return -1;
 
 	/* Check for space in CQ */
@@ -436,7 +466,7 @@ process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *
 
 	/* Push CQE at last */
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
-	ci = (ci + 1) & (q_sz - 1);
+	ci = desc_off_add(ci, rqe_slots, q_sz);
 	rq->sd_mbuf_off = ci;
 
 	return 0;
@@ -716,6 +746,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	struct pts_rdma_cq_data *cq_data;
 	struct dao_pts_rdma_cqe *cqe;
 	uint16_t ci, pi, q_sz;
+	uint16_t rqe_slots;
 	uint32_t len = 0;
 
 	cq_data = &qp->rq.cq_data;
@@ -723,8 +754,19 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	pi = __atomic_load_n(&rq->sd_desc_dma_off, __ATOMIC_ACQUIRE);
 	q_sz = rq->q_sz;
 
-	/* Check for space in RQ */
-	if (unlikely(desc_off_diff(pi, ci, q_sz) < 1))
+	/* Ensure at least the first RQE slot is DMA'd before reading descriptor */
+	if (unlikely(!desc_off_diff(pi, ci, q_sz)))
+		return -1;
+
+	rqe_slots = calculate_rqe_desc_count(desc_base, ci);
+
+	if (unlikely(rqe_slots > 1)) {
+		if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
+			return -1;
+	}
+
+	/* Check for space in RQ (all slots for this WQE) */
+	if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
 		return -1;
 
 	/* Check for space in CQ */
@@ -750,7 +792,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 
 	/* Push CQE at last */
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
-	ci = (ci + 1) & (q_sz - 1);
+	ci = desc_off_add(ci, rqe_slots, q_sz);
 	rq->sd_mbuf_off = ci;
 
 	return 0;
@@ -786,33 +828,52 @@ push_enq_buffers(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbufs
 		mbuf = mbufs[i];
 		ol_flags = mbuf->ol_flags;
 		type = ol_flags >> 60;
+		/*
+		 * Clear the 4-bit type tag from ol_flags before DMA queuing so
+		 * autofree never sees stale metadata.  On processing failure the
+		 * tag is restored before goto exit, allowing the graph node to
+		 * retry the same mbuf without leaking it (type == 0 would skip
+		 * all branches and silently count the mbuf as processed).
+		 */
 		mbuf->ol_flags &= ~(0xFULL << 60);
 		if (type == DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE) {
 			ret = process_rdma_read_resp(qp, mem2dev, mbuf);
-			if (ret)
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
+			}
 			nb_read_cqe++;
 		} else if (type == DAO_PTS_RDMA_ENQ_M2D_SQE) {
 			ret = process_rdma_read_resp_no_cqe(mem2dev, mbuf);
-			if (ret)
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
+			}
 		} else if (type == DAO_PTS_RDMA_ENQ_D2M) {
 			ret = process_rdma_read_req(devid, qp, dev2mem, mbuf, &roff);
-			if (ret)
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
+			}
 			nb_read_enq++;
 		} else if (type == DAO_PTS_RDMA_ENQ_M2D) {
 			ret = process_rdma_write(mem2dev, mbuf);
-			if (ret)
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
+			}
 		} else if (type == DAO_PTS_RDMA_ENQ_M2D_WITH_CQE) {
 			ret = process_rdma_write_imm(mem2dev, qp, mbuf);
-			if (ret)
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
+			}
 		} else if (type == DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE) {
 			ret = process_m2d_rqe_with_cqe(qp, mem2dev, mbuf);
-			if (ret)
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
 				goto exit;
+			}
 			nb_cqe++;
 		}
 		i++;
