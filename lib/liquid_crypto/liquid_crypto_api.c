@@ -3856,7 +3856,8 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 	if (digest_len > prime_len) {
 		dao_err("Invalid argument. digest_len (%d) cannot be greater than prime_len (%d).",
 			digest_len, prime_len);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto mbuf_free;
 	}
 
 	/* Calculate aligned lengths and offsets */
@@ -3866,7 +3867,8 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 
 	if (pk_offset < 0) {
 		dao_err("Invalid offset: pk_offset = %d", pk_offset);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto mbuf_free;
 	}
 
 	/* dlen = sum(sizeof(fpm address) + ROUNDUP8 (prime_len) for nonce +  ROUNDUP8(digest_len)
@@ -3945,12 +3947,12 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 
 	return 0;
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 #endif
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
 }
 
@@ -4081,7 +4083,8 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	if (digest_len > prime_len) {
 		dao_err("Invalid argument. digest_len (%d) cannot be greater than prime_len (%d).",
 			digest_len, prime_len);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto mbuf_free;
 	}
 
 	/* Calculate aligned lengths and offsets */
@@ -4097,7 +4100,8 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 	if (qx_offset < 0 || qy_offset < 0 || r_offset < 0 || s_offset < 0) {
 		dao_err("Invalid offset: qx_offset = %d, qy_offset = %d, r_offset = %d, s_offset = %d",
 			qx_offset, qy_offset, r_offset, s_offset);
-		return -EINVAL;
+		rc = -EINVAL;
+		goto mbuf_free;
 	}
 
 	/* dlen = sum(sizeof(fpm address) + ROUNDUP8 (digest_len) +  ROUNDUP8(sign_len(r,s)) +
@@ -4184,12 +4188,12 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 
 	return 0;
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free(mbuf);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
 idx_put:
-	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 #endif
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 	return rc;
 }
 
