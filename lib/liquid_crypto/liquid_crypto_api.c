@@ -2901,7 +2901,8 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 	if (!(op->is_wrap_pad)) {
 		if (key_len < 16) {
 			dao_err("Invalid key length. Key length must be at least 16 bytes for AES-KW.");
-			return -EINVAL;
+			rte_errno = EINVAL;
+			return 0;
 		}
 	}
 
