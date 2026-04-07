@@ -397,6 +397,7 @@ dao_liquid_crypto_qp_configure(uint8_t dev_id, uint16_t qp_id, struct dao_lc_qp_
 	nb_desc = rte_align32pow2(conf->nb_desc);
 
 	max_seg_size = conf->max_seg_size;
+	qp->max_seg_size = max_seg_size;
 
 	snprintf(name, sizeof(name), "lc_rx_mp_%hhu_%hu_%hu", dev_id, qp_id, (qp_config_count % 2));
 
@@ -2014,6 +2015,7 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	struct liquid_crypto_dev *dev;
 	struct __dao_lc_req_pqc *req;
 	struct liquid_crypto_qp *qp;
+	uint32_t resp_data_len;
 	struct rte_mbuf *mbuf;
 	union cpt_inst_w4 w4;
 	uint8_t *dptr;
@@ -2204,6 +2206,37 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 		return -EINVAL;
 	}
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	switch (op->op_type) {
+	case DAO_LC_ML_KEM_OP_KEYGEN:
+	case DAO_LC_ML_DSA_OP_KEYGEN:
+		resp_data_len = pqc_ml_pub_key_len[op->alg] + pqc_ml_priv_key_len[op->alg];
+		break;
+	case DAO_LC_ML_KEM_OP_ENCAP:
+		resp_data_len = DAO_LC_ML_KEM_SHARED_SECRET_LEN + pqc_ml_ciphertext_len[op->alg];
+		break;
+	case DAO_LC_ML_KEM_OP_DECAP:
+		resp_data_len = DAO_LC_ML_KEM_SHARED_SECRET_LEN;
+		break;
+	case DAO_LC_ML_DSA_OP_SIGN:
+		resp_data_len = pqc_ml_signature_len[op->alg];
+		break;
+	default: /* DAO_LC_ML_DSA_OP_VERIFY */
+		resp_data_len = 0;
+		break;
+	}
+
+	if ((sizeof(struct __dao_lc_req_pqc) + w4.s.dlen > qp->max_seg_size) ||
+	    (sizeof(struct __dao_lc_resp_pqc) + resp_data_len > qp->max_seg_size)) {
+		dao_err("PQC op exceeds QP segment size.");
+		rc = -EINVAL;
+		goto mbuf_free;
+	}
+
+#endif
+	RTE_SET_USED(resp_data_len);
+
 	req->hdr.trs_hdr.op_len =
 		RTE_MAX(sizeof(struct __dao_lc_req_pqc) + w4.s.dlen, LIQUID_CRYPTO_BUF_SZ_MIN);
 #ifdef DAO_LIQUID_CRYPTO_DEBUG

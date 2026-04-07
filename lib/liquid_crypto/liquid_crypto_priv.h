@@ -79,6 +79,8 @@ struct liquid_crypto_qp {
 	uint16_t queue_id;
 	/** Queue pair configuration count */
 	uint32_t qp_config_count;
+	/** Maximum segment size configured for this queue pair */
+	uint16_t max_seg_size;
 	/** RX mempool */
 	struct rte_mempool *rx_mp;
 	/** TX mempool */
