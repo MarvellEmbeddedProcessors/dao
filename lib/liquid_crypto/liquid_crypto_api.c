@@ -892,6 +892,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	 */
 	uint8_t ecc_num_components = 10;
 	uint16_t req_resp_hdr_sz = 0;
+	uint32_t aligned_payload = 0;
 	uint16_t aligned_prime_len;
 	int kek_len, rc;
 
@@ -930,7 +931,16 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 			/* Payload */
-			sym_seg_sz += RTE_ALIGN(params->sym.cipher_auth_payload_len, 16);
+			aligned_payload =
+				RTE_ALIGN((uint32_t)params->sym.cipher_auth_payload_len, 16);
+
+			if (aligned_payload > LIQUID_CRYPTO_MAX_SEG_SIZE) {
+				dao_err("Payload length %u (aligned to %u) exceeds maximum supported size %u.",
+					params->sym.cipher_auth_payload_len, aligned_payload,
+					LIQUID_CRYPTO_MAX_SEG_SIZE);
+				return 0;
+			}
+			sym_seg_sz += aligned_payload;
 
 			if ((params->sym.digest_len > DAO_LC_MAX_DIGEST_LEN) ||
 			    (params->sym.digest_len == 0)) {
