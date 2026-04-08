@@ -1382,6 +1382,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = em;
+	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_ENCRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1546,6 +1547,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = msg;
+	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_DECRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1714,6 +1716,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = em;
+	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_ENCRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -1880,6 +1883,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = op_cookie;
 	qp->req_queue[req_idx].data_out = msg;
+	qp->req_queue[req_idx].op_type = LC_ASYM_RSA_DECRYPT;
 
 	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
@@ -2255,9 +2259,16 @@ dao_lc_post_process_asym(struct liquid_crypto_inflight_req *req, struct dao_lc_r
 		break;
 	case LC_ASYM_ECDSA_VERIFY:
 		break;
-	default:
+	case LC_ASYM_RSA_DECRYPT:
+	case LC_ASYM_RSA_ENCRYPT:
+	case LC_ASYM_RSA_OAEP_ENCRYPT:
+	case LC_ASYM_RSA_OAEP_DECRYPT:
 		res->rsa.data_out_len = resp->res.cn9k.reserved_17_63;
 		memcpy((uint8_t *)req->data_out, resp->rptr, resp->res.cn9k.reserved_17_63);
+		break;
+	default:
+		dao_err("Unsupported asymmetric operation type: %d", req->op_type);
+		rte_errno = EINVAL;
 		break;
 	}
 }
