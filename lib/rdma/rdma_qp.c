@@ -141,6 +141,16 @@ rdma_qp_destroy(uint8_t portid, uint32_t qid)
 
 	rdma_delete_all_wqe(qp);
 
+	/* Free the RC fast-path sentinel mbuf allocated during QP creation.
+	 * Without this, each RC QP destroy leaks one mbuf from the pool,
+	 * eventually exhausting it and crashing rdma_fp.c when
+	 * dummy_mbuf is dereferenced as NULL.
+	 */
+	if (qp->req.dummy_mbuf) {
+		rte_pktmbuf_free(qp->req.dummy_mbuf);
+		qp->req.dummy_mbuf = NULL;
+	}
+
 	rte_free(qp);
 	port->num_active_qp--;
 
@@ -163,6 +173,13 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 	qp->valid = 0;
 	qp_status_cb(port, qp->qid, false);
 	rdma_delete_all_wqe(qp);
+	/* Release the old sentinel mbuf before the QP is re-enabled;
+	 * a fresh one will be allocated on the next RC SEND.
+	 */
+	if (qp->req.dummy_mbuf) {
+		rte_pktmbuf_free(qp->req.dummy_mbuf);
+		qp->req.dummy_mbuf = NULL;
+	}
 	qp->valid = 1;
 	qp_status_cb(port, qp->qid, true);
 

@@ -280,10 +280,8 @@ octep_rdma_dealloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 	bool device_active;
 	int ret;
 
-	/* Check if device is still active for communication */
 	device_active = octep_rdma_device_ready(rdma_dev);
 
-	/* Try to delete on device side, but continue cleanup even if it fails */
 	if (device_active) {
 		ret = octep_rdma_prepare_pd_del_cmd(rdma_dev, pd->pdn);
 		if (ret) {
@@ -296,11 +294,21 @@ octep_rdma_dealloc_pd(struct ib_pd *ibpd, struct ib_udata *udata)
 		ibdev_info(ibpd->device, "Device inactive, skipping remote PD cleanup\n");
 	}
 
-	/* Always continue with local cleanup */
+	/*
+	 * Always free the bitmap index and return success, even if the
+	 * firmware-side pd_delete mbox failed.  This function is called
+	 * from the IB core's cleanup path (process exit / ib_dealloc_pd);
+	 * returning an error would leak the kernel ib_pd structure.
+	 *
+	 * If the mbox did fail, the firmware still holds a stale PD entry.
+	 * The freed bitmap index may be reused by a subsequent
+	 * octep_rdma_alloc_pd, which sends a pd_add mbox with the same ID.
+	 * The firmware's pd_add handler is designed to detect and replace
+	 * such stale entries, so the inconsistency is self-healing.
+	 */
 	ibdev_info(ibpd->device, "Deallocating PD %d\n", pd->pdn);
 	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_PD], pd->pdn);
 
-	/* Always return success for cleanup operations to avoid resource leaks */
 	return 0;
 }
 

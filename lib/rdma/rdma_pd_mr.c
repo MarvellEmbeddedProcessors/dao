@@ -43,9 +43,24 @@ pd_add(void *add)
 		return -1;
 	}
 
+	/*
+	 * Handle stale PD entries left over from a failed cleanup.
+	 *
+	 * When the kmod's octep_rdma_dealloc_pd runs (e.g. on process exit),
+	 * it sends a pd_delete mbox to the firmware, then unconditionally
+	 * frees the PD index from the kmod bitmap so the index can be reused.
+	 * If the pd_delete mbox fails (timeout, firmware busy with deferred
+	 * QP cleanup, etc.), the firmware still holds the old PD entry while
+	 * the kmod considers the index free.
+	 *
+	 * On the next pd_add with the same index, we detect the stale entry
+	 * here and replace it, keeping kmod and firmware in sync without
+	 * requiring complex retry or deferred-cleanup logic in the kmod.
+	 */
 	if (pd_array[pd_id]) {
-		dao_err("PD with id %u already exists", pd_id);
-		return -1;
+		dao_warn("PD %u already exists, replacing stale entry", pd_id);
+		rte_free(pd_array[pd_id]);
+		pd_array[pd_id] = NULL;
 	}
 
 	pd = (struct pd_entry *)rte_zmalloc("pd_entry", sizeof(struct pd_entry), 0);
@@ -53,7 +68,6 @@ pd_add(void *add)
 		dao_err("Failed to allocate memory for PD entry");
 		return -1;
 	}
-	memset(pd, 0, sizeof(struct pd_entry));
 
 	pd->pd_id = pd_id;
 	pd_array[pd_id] = pd;
