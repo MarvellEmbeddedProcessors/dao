@@ -303,6 +303,14 @@ void dao_dma_compl_wait_ops(uint16_t vchan);
 void dao_dma_compl_wait_sp(uint16_t vchan);
 
 /**
+ * Check and wait for all DMA requests that are enqueued to current tail index
+ *
+ * @param vchan
+ *    Vchan ID
+ */
+void dao_dma_compl_wait_for_curr_tail(uint16_t vchan);
+
+/**
  * Tests DMA stats support
  *
  * @return

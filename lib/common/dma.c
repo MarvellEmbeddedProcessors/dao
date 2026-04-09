@@ -649,3 +649,71 @@ dao_dma_compl_wait_sp(uint16_t vchan)
 	}
 	rte_io_wmb();
 }
+
+void
+dao_dma_compl_wait_for_curr_tail(uint16_t vchan)
+{
+	struct dao_dma_vchan_state *dev2mem, *mem2dev;
+	struct dao_dma_vchan_info *vchan_info;
+	uint32_t self = rte_lcore_id();
+	uint16_t mem2dev_tail, mem2dev_head;
+	uint16_t dev2mem_tail, dev2mem_head;
+	uint32_t lcore_id;
+
+	/* Drain the calling lcore's own inflight ops first (safe — we own it).
+	 * Skip when called from a non-EAL thread (e.g. ctrl_reg_poll) where
+	 * rte_lcore_id() returns LCORE_ID_ANY.
+	 */
+	if (self != LCORE_ID_ANY) {
+		vchan_info = vchan_info_p[self];
+		if (vchan_info) {
+			dev2mem = &vchan_info->dev2mem[vchan];
+			mem2dev = &vchan_info->mem2dev[vchan];
+			while (dev2mem->head != dev2mem->tail) {
+				if (dev2mem->dma_ops)
+					dao_dma_check_meta_compl_ops(dev2mem, 1);
+				else
+					dao_dma_check_compl(dev2mem);
+			}
+			while (mem2dev->head != mem2dev->tail) {
+				if (mem2dev->dma_ops)
+					dao_dma_check_meta_compl_ops(mem2dev, 1);
+				else
+					dao_dma_check_compl(mem2dev);
+			}
+		}
+	}
+
+	/* Spin-wait on other lcores (they drain their own completions) */
+	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
+		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore() ||
+		    lcore_id == self)
+			continue;
+
+		vchan_info = vchan_info_p[lcore_id];
+		if (!vchan_info)
+			continue;
+		/* All queues use same vchan */
+		dev2mem = &vchan_info->dev2mem[vchan];
+		mem2dev = &vchan_info->mem2dev[vchan];
+
+		/* Use current tail index to poll to avoid indefinite wait */
+		mem2dev_tail = __atomic_load_n(&mem2dev->tail, __ATOMIC_ACQUIRE);
+		mem2dev_head = __atomic_load_n(&mem2dev->head, __ATOMIC_ACQUIRE);
+
+		dev2mem_tail = __atomic_load_n(&dev2mem->tail, __ATOMIC_ACQUIRE);
+		dev2mem_head = __atomic_load_n(&dev2mem->head, __ATOMIC_ACQUIRE);
+
+		/* head can be advanced by more than current tail index on other cores.
+		 * use the diff to calculate head wrap around
+		 */
+		while ((uint16_t)(__atomic_load_n(&dev2mem->head, __ATOMIC_ACQUIRE) -
+				  dev2mem_head) < (uint16_t)(dev2mem_tail - dev2mem_head))
+			rte_pause();
+
+		while ((uint16_t)(__atomic_load_n(&mem2dev->head, __ATOMIC_ACQUIRE) -
+				  mem2dev_head) < (uint16_t)(mem2dev_tail - mem2dev_head))
+			rte_pause();
+	}
+	rte_io_wmb();
+}
