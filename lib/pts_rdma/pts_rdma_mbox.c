@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Marvell.
  */
 #include "pts_rdma_mbox.h"
+#include "dao_dma.h"
 #include "pts_rdma_dev_priv.h"
 
 extern struct dao_pts_rdma_dev_cbs pts_rdma_dev_cbs;
