@@ -228,6 +228,9 @@ static uint16_t num_pem_devs;
 
 static bool ethdev_cgx_loopback;
 
+/** Use virtio DMA ops mode (default). When false, use copy/poll mode. */
+static bool virtio_ops_mode = true;
+
 /* RCU QSBR variable */
 static struct rte_rcu_qsbr *qs_v;
 
@@ -407,7 +410,9 @@ init_lcore_virtio_rx(void)
 
 			lcore_conf[lcore].virtio_rx[nb_virtio_rx].virtio_devid = virtio_devid;
 			snprintf(lcore_conf[lcore].virtio_rx[nb_virtio_rx].node_name,
-				 RTE_NODE_NAMESIZE, "l2_virtio_rx_ops-%u", virtio_devid);
+				 RTE_NODE_NAMESIZE,
+				 virtio_ops_mode ? "l2_virtio_rx_ops-%u" : "l2_virtio_rx-%u",
+				 virtio_devid);
 			lcore_conf[lcore].nb_virtio_rx++;
 		}
 	}
@@ -438,7 +443,8 @@ print_usage(const char *prgname)
 		" [--per-port-pool]"
 		" [--disable-tx-mseg]"
 		" [--num-pkt-cap]"
-		" [--enable-l4-csum]\n\n"
+		" [--enable-l4-csum]"
+		" [--no-ops-mode]\n\n"
 
 		"  -p PORTMASK_L[,PORTMASK_H]: Hexadecimal bitmask of ports to configure\n"
 		"  -v VIRTIOMASK_L[,VIRTIOMASK_H]: Hexadecimal bitmask of virtio to configure\n"
@@ -462,7 +468,8 @@ print_usage(const char *prgname)
 		"  --pcap-enable: Enables pcap capture\n"
 		"  --pcap-num-cap NUMPKT: Number of packets to capture\n"
 		"  --pcap-file-name NAME: Pcap file name\n"
-		"  --enable-l4-csum: Enable IPv4 L4 checksum offload capability\n\n",
+		"  --enable-l4-csum: Enable IPv4 L4 checksum offload capability\n"
+		"  --no-ops-mode: Use virtio copy/poll mode instead of DMA ops mode (default: ops)\n\n",
 		prgname);
 }
 
@@ -730,6 +737,7 @@ static const char short_options[] = "p:" /* portmask */
 #define CMD_LINE_OPT_NUM_PKT_CAP   "pcap-num-cap"
 #define CMD_LINE_OPT_PCAP_FILENAME "pcap-file-name"
 #define CMD_LINE_OPT_ENA_L4_CSUM   "enable-l4-csum"
+#define CMD_LINE_OPT_NO_OPS_MODE   "no-ops-mode"
 enum {
 	/* Long options mapped to a short option */
 
@@ -749,6 +757,7 @@ enum {
 	CMD_LINE_OPT_PARSE_NUM_PKT_CAP,
 	CMD_LINE_OPT_PCAP_FILENAME_CAP,
 	CMD_LINE_OPT_PARSE_ENA_L4_CSUM,
+	CMD_LINE_OPT_PARSE_NO_OPS_MODE,
 };
 
 static const struct option lgopts[] = {
@@ -764,6 +773,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_NUM_PKT_CAP, 1, 0, CMD_LINE_OPT_PARSE_NUM_PKT_CAP},
 	{CMD_LINE_OPT_PCAP_FILENAME, 1, 0, CMD_LINE_OPT_PCAP_FILENAME_CAP},
 	{CMD_LINE_OPT_ENA_L4_CSUM, 0, 0, CMD_LINE_OPT_PARSE_ENA_L4_CSUM},
+	{CMD_LINE_OPT_NO_OPS_MODE, 0, 0, CMD_LINE_OPT_PARSE_NO_OPS_MODE},
 	{NULL, 0, 0, 0},
 };
 
@@ -985,6 +995,11 @@ parse_args(int argc, char **argv)
 		case CMD_LINE_OPT_PARSE_ENA_L4_CSUM:
 			APP_INFO("IPv4 Checksum offload feature is enabled\n");
 			enable_l4_csum = true;
+			break;
+
+		case CMD_LINE_OPT_PARSE_NO_OPS_MODE:
+			virtio_ops_mode = false;
+			APP_INFO("Virtio copy/poll mode selected (no DMA ops)\n");
 			break;
 
 		default:
@@ -1224,7 +1239,10 @@ l2_virtio_desc_process(uint64_t netdev_map, uint16_t *netdev_qp_count)
 			dev_id++;
 			continue;
 		}
-		dao_virtio_net_desc_manage_ops(dev_id, netdev_qp_count[dev_id]);
+		if (virtio_ops_mode)
+			dao_virtio_net_desc_manage_ops(dev_id, netdev_qp_count[dev_id]);
+		else
+			dao_virtio_net_desc_manage(dev_id, netdev_qp_count[dev_id]);
 		netdev_map >>= 1;
 		dev_id++;
 	}
@@ -1246,10 +1264,15 @@ service_main_loop(void *conf)
 	qs_v = qconf->qs_v;
 
 	/* Set per lcore DMA device id */
-	rc = dao_dma_lcore_dev2mem_set_ops(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr,
-					   VCHAN_NB_DESC);
-	rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr,
-					    VCHAN_NB_DESC);
+	if (virtio_ops_mode) {
+		rc = dao_dma_lcore_dev2mem_set_ops(qconf->dev2mem_id, qconf->nb_vchans,
+						   dma_flush_thr, VCHAN_NB_DESC);
+		rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans,
+						    dma_flush_thr, VCHAN_NB_DESC);
+	} else {
+		rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
+		rc |= dao_dma_lcore_mem2dev_set(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr);
+	}
 	if (rc) {
 		APP_ERR("Error in setting DMA device on lcore\n");
 		return -1;
@@ -1265,8 +1288,11 @@ service_main_loop(void *conf)
 		/* Process virtio descriptors */
 		l2_virtio_desc_process(qconf->netdev_map, qconf->netdev_qp_count);
 
-		/* Flush and submit DMA ops */
-		dao_dma_flush_submit_ops();
+		/* Flush and submit DMA */
+		if (virtio_ops_mode)
+			dao_dma_flush_submit_ops();
+		else
+			dao_dma_flush_submit();
 
 		/* Update quiescent state */
 		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
@@ -1299,14 +1325,21 @@ graph_main_loop(void *conf)
 	}
 
 	/* Set per lcore DMA device id */
-	rc = dao_dma_lcore_dev2mem_set_ops(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr,
-					   VCHAN_NB_DESC);
-	rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr,
-					    VCHAN_NB_DESC);
-	for (i = 0; i < qconf->nb_vchans; i++)
-		rc |= dao_dma_lcore_mem2dev_autofree_set(qconf->mem2dev_id, i,
-							 virtio_netdev_autofree);
-
+	if (virtio_ops_mode) {
+		rc = dao_dma_lcore_dev2mem_set_ops(qconf->dev2mem_id, qconf->nb_vchans,
+						   dma_flush_thr, VCHAN_NB_DESC);
+		rc |= dao_dma_lcore_mem2dev_set_ops(qconf->mem2dev_id, qconf->nb_vchans,
+						    dma_flush_thr, VCHAN_NB_DESC);
+		for (i = 0; i < qconf->nb_vchans; i++)
+			rc |= dao_dma_lcore_mem2dev_autofree_set(qconf->mem2dev_id, i,
+								 virtio_netdev_autofree);
+	} else {
+		rc = dao_dma_lcore_dev2mem_set(qconf->dev2mem_id, qconf->nb_vchans, dma_flush_thr);
+		rc |= dao_dma_lcore_mem2dev_set(qconf->mem2dev_id, qconf->nb_vchans, dma_flush_thr);
+		for (i = 0; i < qconf->nb_vchans; i++)
+			rc |= dao_dma_lcore_mem2dev_autofree_set(qconf->mem2dev_id, i,
+								 virtio_netdev_autofree);
+	}
 	if (rc) {
 		APP_ERR("Error in setting DMA device on lcore\n");
 		return -1;
@@ -1322,8 +1355,11 @@ graph_main_loop(void *conf)
 		/* Walk through graph */
 		rte_graph_walk(graph);
 
-		/* Flush and submit DMA ops */
-		dao_dma_flush_submit_ops();
+		/* Flush and submit DMA */
+		if (virtio_ops_mode)
+			dao_dma_flush_submit_ops();
+		else
+			dao_dma_flush_submit();
 
 		/* Update quiescent state */
 		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
@@ -2691,7 +2727,9 @@ setup_eth_devices(void)
 			rte_node_edge_update(ethdev_rx_nodes[portid], RTE_EDGE_ID_INVALID,
 					     &edge_name, 1);
 		} else {
-			snprintf(name, sizeof(name), "l2_virtio_tx_ops-%u", eth_map[portid].id);
+			snprintf(name, sizeof(name),
+				 virtio_ops_mode ? "l2_virtio_tx_ops-%u" : "l2_virtio_tx-%u",
+				 eth_map[portid].id);
 			rte_node_edge_update(ethdev_rx_nodes[portid], RTE_EDGE_ID_INVALID,
 					     &edge_name, 1);
 		}
@@ -2744,8 +2782,8 @@ setup_dma_devices(void)
 		memset(&dma_conf, 0, sizeof(dma_conf));
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
-		/* Enable ops flag for worker DMA devices (skip first 2 pairs for control) */
-		if (cnt >= 2)
+		/* Enable ops flag for worker DMA devices only when ops mode is selected */
+		if (cnt >= 2 && virtio_ops_mode)
 			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
 
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
@@ -2803,8 +2841,8 @@ setup_dma_devices(void)
 		memset(&dma_conf, 0, sizeof(dma_conf));
 		dma_conf.nb_vchans = nb_virtio_netdevs;
 
-		/* Enable ops flag for worker DMA devices (skip first 2 pairs for control) */
-		if (cnt >= 2)
+		/* Enable ops flag for worker DMA devices only when ops mode is selected */
+		if (cnt >= 2 && virtio_ops_mode)
 			dma_conf.flags |= RTE_DMA_CFG_FLAG_ENQ_DEQ;
 
 		if (rte_dma_configure(dma_devid, &dma_conf) != 0)
@@ -3024,15 +3062,16 @@ setup_virtio_devices(void)
 
 		/* Clone virtio rx and tx nodes for this ethdev */
 		snprintf(name, sizeof(name), "%u", virtio_devid);
-		node_reg = l2_virtio_rx_ops_node_get();
+		node_reg = virtio_ops_mode ? l2_virtio_rx_ops_node_get() : l2_virtio_rx_node_get();
 		virtio_rx_nodes[virtio_devid] = rte_node_clone(node_reg->id, name);
 
-		node_reg = l2_virtio_tx_ops_node_get();
+		node_reg = virtio_ops_mode ? l2_virtio_tx_ops_node_get() : l2_virtio_tx_node_get();
 		virtio_tx_nodes[virtio_devid] = rte_node_clone(node_reg->id, name);
 
 		/* Prepare graph edge name for next node */
 		if (virtio_map[virtio_devid].type == VIRTIO_NEXT) {
-			snprintf(name, sizeof(name), "l2_virtio_tx_ops-%u",
+			snprintf(name, sizeof(name),
+				 virtio_ops_mode ? "l2_virtio_tx_ops-%u" : "l2_virtio_tx-%u",
 				 virtio_map[virtio_devid].id);
 			rte_node_edge_update(virtio_rx_nodes[virtio_devid], RTE_EDGE_ID_INVALID,
 					     &edge_name, 1);
@@ -3329,6 +3368,7 @@ main(int argc, char **argv)
 			node = rte_graph_node_get(graph_id, node_id);
 			qconf->ethdev_rx[i].ethdev_rx = (struct l2_ethdev_rx_node_ctx *)node->ctx;
 			qconf->ethdev_rx[i].ethdev_rx->eth_port = portid;
+			qconf->ethdev_rx[i].ethdev_rx->ops_mode = virtio_ops_mode;
 			qconf->ethdev_rx[i].ethdev_rx->virtio_next = 1;
 
 			if (eth_map[portid].type == ETHDEV_NEXT) {

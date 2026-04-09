@@ -10,6 +10,7 @@ l2_ethdev_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 	uint16_t virtio_devid = ctx->virtio_devid;
 	uint16_t nb_pkts = 0, next_index, count;
 	uint16_t max_pkts, max_que_per_ethdev;
+	uint8_t ops_mode = ctx->ops_mode;
 	uint16_t rxq_map_count, max_q;
 	struct rte_mbuf **mbufs;
 	uint16_t port, queue;
@@ -43,7 +44,10 @@ l2_ethdev_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 			l2_mbuf_tx_priv1(mbufs[nb_pkts])->nb_pkts = count;
 		} else {
 			/* Flush previously initiated Tx pkts */
-			dao_virtio_net_enqueue_burst(virtio_devid, queue << 1, NULL, 0);
+			if (ops_mode)
+				dao_virtio_net_enqueue_burst_ops(virtio_devid, queue << 1, NULL, 0);
+			else
+				dao_virtio_net_enqueue_burst(virtio_devid, queue << 1, NULL, 0);
 		}
 
 		nb_pkts += count;

@@ -16,7 +16,14 @@
 typedef struct l2_ethdev_rx_node_ctx {
 	uint64_t rx_q_map;
 	uint16_t eth_port;
-	uint16_t rx_q_count;
+	/**
+	 * RX queue count used for graph weighting (virtio_l2fwd). uint8_t keeps
+	 * this context within RTE_NODE_CTX_SZ alongside ops_mode; counts above
+	 * 255 wrap — not an issue while queue count stays within app limits
+	 * (e.g. L2_ETHDEV_RX_Q_MAX).
+	 */
+	uint8_t rx_q_count;
+	uint8_t ops_mode;
 	uint8_t virtio_next;
 	uint8_t next_q;
 	uint16_t virtio_devid;
