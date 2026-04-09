@@ -36,13 +36,16 @@ struct virtio_net_queue {
 	uint16_t pend_compl_idx;
 	uint16_t pend_compl;
 	uint16_t compl_off;
+	uint16_t sd_desc_off;
 
 	RTE_CACHE_GUARD;
 
+	/* Written by worker, read by service */
 	uint16_t last_off __rte_cache_aligned;
-	uint16_t sd_desc_off;
 	uint16_t sd_mbuf_off;
-	uint32_t *cb_notify_addr;
+
+	/* Read-mostly after init (service reads, worker reads) */
+	uint32_t *cb_notify_addr __rte_cache_aligned;
 	uint64_t *cb_intr_addr;
 	uint64_t cb_intr_val;
 	uint64_t *cb_ack_addr;
