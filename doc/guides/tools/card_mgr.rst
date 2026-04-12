@@ -79,7 +79,8 @@ Once the client is launched, various commands can be executed to manage DAO card
 
    ``dao_card_mgr`` performs a hard check at startup and will exit immediately if the effective
    user ID is not ``root``. This is because several commands (e.g. *card_boot_source*,
-   *card_app_update*,  *card_fw_update*, *card_failsafe_update*, *card_mcu_update*) require
+   *card_app_update*, *card_app_fallback*, *card_fw_update*, *card_failsafe_update*,
+   *card_mcu_update*) require
    unloading / reloading kernel modules and configuring network interfaces as part of the reboot or
    bring-up sequence. These operations fundamentally require full root privileges; partial
    capabilities are not accepted.
@@ -132,7 +133,8 @@ process or where a clean module state is required after firmware updates.
     $ ./build/app/dao-card-mgr -s
 
 **Note:** This setting affects all boot-related operations including ``card_boot_source``,
-``card_app_update``, ``card_fw_update``, and ``card_failsafe_update`` commands.
+``card_app_update``, ``card_app_fallback``, ``card_fw_update``, and ``card_failsafe_update``
+commands.
 
 OCTEON_EP_KO_PATH
 ~~~~~~~~~~~~~~~~~
@@ -140,8 +142,9 @@ OCTEON_EP_KO_PATH
 **Description:**
 
 Specifies the absolute path to the ``octeon_ep`` kernel module. This environment variable is
-**mandatory** for all update operations (``card_app_update``, ``card_fw_update``,
-``card_failsafe_update``, ``card_boot_source``, and ``card_reboot``). The card manager uses
+**mandatory** for all update and boot-recovery operations (``card_app_update``, ``card_fw_update``,
+``card_failsafe_update``, ``card_app_fallback``, ``card_boot_source``, and ``card_reboot``). The
+card manager uses
 ``insmod`` with this path to load the kernel module after firmware updates or boot operations.
 
 **Usage:** Set this environment variable to the absolute path of the kernel module.
@@ -356,6 +359,7 @@ available for managing firmware:
    - For active operations: Wait for completion. Typical durations:
 
      * ``card_app_update``: 1-3 minutes
+     * ``card_app_fallback``: ~2 minutes
      * ``card_fw_update``: 3-5 minutes
      * ``card_failsafe_update``: 10-12 minutes
      * ``card_mcu_update``: 2-4 minutes
@@ -370,8 +374,9 @@ available for managing firmware:
       # View operation events
       $ journalctl -t dao-card-mgr | grep OPERATION_
 
-   **Protected operations**: ``card_app_update``, ``card_fw_update``, ``card_failsafe_update``,
-   ``card_mcu_update``, and ``card_reboot`` commands. Read-only commands (``card_info``,
+   **Protected operations**: ``card_app_update``, ``card_app_fallback``, ``card_fw_update``,
+   ``card_failsafe_update``, ``card_mcu_update``, ``card_boot_source``, and ``card_reboot``
+   commands. Read-only commands (``card_info``,
    ``card_stats``, ``card_dmesg``, etc.) are
    not affected and can run concurrently.
 
@@ -458,14 +463,22 @@ Both versions are retrieved via a single gRPC call for efficiency.
 
    This command is supported on LiquidCrypto (LC) cards.
 
-* ``card_app_fallback``
+* ``card_app_fallback <file_path>/mrvl-oct-boot``
 
    This command switches the application images used by the 'main' image on LiquidCrypto card.
    This command is useful for recovery scenarios when an application image updated using
-   ``card-app_update`` fails to start.
-   The command is only supported when the card is booted from the 'failsafe' image.
+   ``card_app_update`` fails to start. The argument specifies the full path to the
+   ``mrvl-oct-boot`` binary used to boot the card to failsafe.
 
-   If the card is not in SPI boot mode, the command will return an error.
+**Example:**
+   .. code-block:: console
+
+      card_app_fallback /tmp/mrvl-oct-boot
+
+   The card manager boots the card to failsafe using the supplied ``mrvl-oct-boot`` binary and
+   waits for the card to become ready, then runs the fallback over gRPC.
+
+   This command is supported on LiquidCrypto (LC) cards.
 
 * ``card_fw_update <file_path>/main_fw.tar <file_path>/mrvl-oct-boot``
 
