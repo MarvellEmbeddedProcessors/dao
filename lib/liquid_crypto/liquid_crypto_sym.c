@@ -817,9 +817,12 @@ static int
 lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 			       const struct dao_lc_sym_sess_meta *sess_meta)
 {
-	uint16_t cipher_offset = op->cipher_offset, auth_offset = op->auth_offset;
-	uint16_t cipher_len = op->cipher_len, auth_len = op->auth_len;
-	uint16_t digest_len_in_pkt = 0, total_len_reqd = 0;
+	uint32_t cipher_offset = op->cipher_offset, auth_offset = op->auth_offset;
+	uint32_t cipher_len = op->cipher_len, auth_len = op->auth_len;
+	uint32_t cipher_end = cipher_offset + cipher_len;
+	uint32_t auth_end = auth_offset + auth_len;
+	uint16_t digest_len_in_pkt = 0;
+	uint32_t total_len_reqd = 0;
 
 	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
 		dao_err("Invalid cipher IV pointer for cipher auth operation.");
@@ -848,17 +851,17 @@ lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if ((auth_offset + auth_len) < (cipher_offset + cipher_len)) {
+	if (auth_end < cipher_end) {
 		dao_err("Cipher end offset is more than auth end offset.");
 		return -EINVAL;
 	}
 
-	if ((auth_offset + auth_len) - (cipher_offset + cipher_len) > 56) {
+	if ((auth_end - cipher_end) > 56) {
 		dao_err("Auth end offset is more than 56 bytes after cipher end offset.");
 		return -EINVAL;
 	}
 
-	if (auth_offset + auth_len > op->in_buffer->total_len) {
+	if (auth_end > op->in_buffer->total_len) {
 		dao_err("Auth offset and length exceed input buffer total length.");
 		return -EINVAL;
 	}
@@ -871,12 +874,16 @@ lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 	if ((sess_meta->digest_len != 0) && (op->digest == NULL))
 		digest_len_in_pkt = sess_meta->digest_len;
 
-	total_len_reqd = auth_offset + auth_len + digest_len_in_pkt;
+	total_len_reqd = auth_end + digest_len_in_pkt;
 
 	if (op->out_buffer != NULL) {
 		if (op->encrypt) {
-			if (op->in_buffer->total_len != auth_offset + auth_len) {
+			if (op->in_buffer->total_len != auth_end) {
 				dao_err("Auth region and input region (without digest) must end at the same point.");
+				return -EINVAL;
+			}
+			if (op->out_buffer->total_len < total_len_reqd) {
+				dao_err("Output buffer total length is less than required length.");
 				return -EINVAL;
 			}
 		} else {
@@ -884,11 +891,10 @@ lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 				dao_err("Input buffer total length is less than required length.");
 				return -EINVAL;
 			}
-		}
-
-		if (op->out_buffer->total_len < auth_offset + auth_len) {
-			dao_err("Output buffer total length is less than required length.");
-			return -EINVAL;
+			if (op->out_buffer->total_len < auth_end) {
+				dao_err("Output buffer total length is less than required length.");
+				return -EINVAL;
+			}
 		}
 	} else {
 		if (op->in_buffer->total_len != total_len_reqd) {
