@@ -99,8 +99,13 @@ dao_liquid_crypto_fini(void)
 	int i, rc;
 
 	for (i = 0; i < lc_info.nb_dev; i++) {
-		if (liquid_crypto_devs[i].is_created)
-			dao_liquid_crypto_dev_destroy(i);
+		if (liquid_crypto_devs[i].is_created) {
+			rc = dao_liquid_crypto_dev_destroy(i);
+			if (rc != 0) {
+				dao_err("Could not destroy liquid crypto device %u.", i);
+				return rc;
+			}
+		}
 	}
 
 	rc = dao_eth_trs_fini();
@@ -247,6 +252,12 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 		return -EBUSY;
 	}
 
+	rc = dao_eth_trs_dev_free(dev_id);
+	if (rc != 0) {
+		dao_err("Could not free ethernet transport device.");
+		return rc;
+	}
+
 	if (dev->is_created) {
 		for (i = 0; i < dev->nb_ports; i++) {
 			struct dao_eth_trs_port_info *port_info = &dev->port_info;
@@ -257,12 +268,6 @@ dao_liquid_crypto_dev_destroy(uint8_t dev_id)
 				return rc;
 			}
 		}
-	}
-
-	rc = dao_eth_trs_dev_free(dev_id);
-	if (rc != 0) {
-		dao_err("Could not free ethernet transport device.");
-		return rc;
 	}
 
 	if (dev->is_created) {
