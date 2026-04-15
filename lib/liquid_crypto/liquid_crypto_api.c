@@ -2050,6 +2050,14 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	}
 #endif
 
+	if (op->op_type == DAO_LC_ML_KEM_OP_KEYGEN || op->op_type == DAO_LC_ML_DSA_OP_KEYGEN) {
+		if (op->keygen.seed != NULL) {
+			dao_err("User-provided seed is not supported for key generation. Seed must be NULL.");
+			rc = -ENOTSUP;
+			goto mbuf_free;
+		}
+	}
+
 	rte_pktmbuf_append(mbuf, buf_len);
 
 	/* Append payload to mbuf */

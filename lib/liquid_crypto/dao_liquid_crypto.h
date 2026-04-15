@@ -1545,7 +1545,11 @@ struct dao_lc_pqc_op {
 			uint8_t *pub_key;
 			/** The private key for decryption/sign generation */
 			uint8_t *priv_key;
-			/** The optional seed of length DAO_LC_ML_KEYPAIR_SEED_LEN */
+			/**
+			 * The optional seed of length DAO_LC_ML_KEYPAIR_SEED_LEN.
+			 * Note: Seeded key generation is currently unsupported.
+			 * If seed is non-NULL, the API will return -ENOTSUP.
+			 */
 			uint8_t *seed;
 		} keygen;
 		/** The encapsulation operation */
