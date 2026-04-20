@@ -759,43 +759,9 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (sess_meta->digest_len == 0 || sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
-		dao_err("Invalid digest length. digest_len: %d.", sess_meta->digest_len);
-		return -EINVAL;
-	}
-
-	if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
-		if (sess_meta->alg_iv_len != 12 || op->auth_iv == NULL) {
-			dao_err("Invalid auth IV pointer for GMAC operation.");
-			return -EINVAL;
-		}
-	}
-
-	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128) ||
-	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256)) {
-		if (op->kmac_params.custom_string == NULL) {
-			dao_err("Invalid custom-string pointer for KMAC operation.");
-			return -EINVAL;
-		}
-		if ((op->kmac_params.output_len == 0) ||
-		    (op->kmac_params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
-			dao_err("Invalid output length for KMAC operation. output_len: %d.",
-				op->kmac_params.output_len);
-			return -EINVAL;
-		}
-		if (op->kmac_params.custom_string_len > DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN) {
-			dao_err("Invalid custom-string length for KMAC operation. custom_string_len:%d.",
-				op->kmac_params.custom_string_len);
-			return -EINVAL;
-		}
-	}
-
-	if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE128) ||
-	    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE256)) {
-		if (op->cshake_params.custom_string == NULL) {
-			dao_err("Invalid custom-string pointer for cSHAKE operation.");
-			return -EINVAL;
-		}
+	switch (sess_meta->hash_type) {
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		if ((op->cshake_params.output_len == 0) ||
 		    (op->cshake_params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
 			dao_err("Invalid output length for cSHAKE operation. output_len: %d.",
@@ -812,6 +778,37 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 				op->cshake_params.function_name_len);
 			return -EINVAL;
 		}
+		break;
+	case DAO_LC_HASH_TYPE_GMAC:
+		if (sess_meta->alg_iv_len != 12 || op->auth_iv == NULL) {
+			dao_err("Invalid auth IV pointer for GMAC operation.");
+			return -EINVAL;
+		}
+		if (sess_meta->digest_len == 0 || sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
+			dao_err("Invalid digest length. digest_len: %d.", sess_meta->digest_len);
+			return -EINVAL;
+		}
+		break;
+	case DAO_LC_HASH_TYPE_SHA3_KMAC128:
+	case DAO_LC_HASH_TYPE_SHA3_KMAC256:
+		if ((op->kmac_params.output_len == 0) ||
+		    (op->kmac_params.output_len > DAO_LC_MAX_DIGEST_LEN)) {
+			dao_err("Invalid output length for KMAC operation. output_len: %d.",
+				op->kmac_params.output_len);
+			return -EINVAL;
+		}
+		if (op->kmac_params.custom_string_len > DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN) {
+			dao_err("Invalid custom-string length for KMAC operation. custom_string_len:%d.",
+				op->kmac_params.custom_string_len);
+			return -EINVAL;
+		}
+		break;
+	default:
+		if (sess_meta->digest_len == 0 || sess_meta->digest_len > DAO_LC_MAX_DIGEST_LEN) {
+			dao_err("Invalid digest length. digest_len: %d.", sess_meta->digest_len);
+			return -EINVAL;
+		}
+		break;
 	}
 
 	return 0;
