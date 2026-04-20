@@ -35,6 +35,14 @@ lc_buf_validate(struct dao_lc_buf *first_buf, bool is_zero_len_allowed)
 			dao_err("Invalid buffer total length.");
 			return -EINVAL;
 		}
+
+		if (first_buf->frag_len != 0 || first_buf->next != NULL) {
+			dao_err("Fragment length should be zero when total length is zero."
+				" Next buffer should also be NULL.");
+			return -EINVAL;
+		}
+
+		return 0;
 	}
 
 	buf = first_buf;
