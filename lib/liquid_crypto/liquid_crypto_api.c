@@ -3061,13 +3061,10 @@ dao_lc_sym_prepare_ops(struct liquid_crypto_qp *qp, struct dao_lc_sym_op *ops,
 			break;
 		}
 
-		RTE_SET_USED(ret);
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
 		if (ret == 0) {
 			/* Prepare operation failed, return the number of successful operations */
 			return i;
 		}
-#endif
 	}
 
 	return nb_ops;
@@ -3150,7 +3147,12 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 
 	i = dao_lc_sym_prepare_ops(qp, ops, mbufs, req_idxs, nb_ops);
 
+	/** Free mbufs if no operations were prepared. */
+	if (i == 0)
+		goto mbuf_free;
+
 	tx_cnt = rte_eth_tx_burst(qp->port_id, qp->queue_id, mbufs, i);
+
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	/* Free mbufs that are not transmitted. */
 	if (tx_cnt != i) {
@@ -3158,27 +3160,27 @@ dao_liquid_crypto_sym_enqueue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_l
 		rte_errno = EIO;
 		goto mbuf_free;
 	}
+#endif
 
 	/* Free remaining mbufs if not all instructions are submitted. */
 	if (nb_ops != i)
 		goto mbuf_free;
-#endif
 
 	return tx_cnt;
 
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
 mbuf_free:
 	rte_pktmbuf_free_bulk(mbufs + tx_cnt, nb_ops - tx_cnt);
 	for (i = tx_cnt; i < nb_ops; i++)
 		mbufs[i] = NULL;
 
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
 put_req_idx:
+#endif
 	for (i = tx_cnt; i < nb_ops; i++)
 		liquid_crypto_qp_req_idx_put(qp, req_idxs[i], false);
 
 	return tx_cnt;
 
-#endif
 exit:
 	RTE_SET_USED(rc);
 	return 0;
