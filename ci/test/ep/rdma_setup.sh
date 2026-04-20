@@ -32,7 +32,7 @@ function verify_rdma_setup()
 {
 	local host_ip="30.0.0.3"
 	local remote_ip="30.0.0.11"
-	local num_mbufs=1048576
+	local num_mbufs=524288
 	local max_pkt_len=9600
 	local dma_nb_desc=8192
 	local serialized_args

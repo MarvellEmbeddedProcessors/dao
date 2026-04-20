@@ -22,7 +22,7 @@ function rdma_app_launch()
 	local num_cores=$(ep_device_get_num_cores)
 	local pci_devs=""
 	local maxpktlen=9600
-	local num_mbuf=1048576
+	local num_mbuf=524288
 	local num_dma_desc=8192
 	local max_cores=$num_cores
 	local cpu_mask="0x7"
