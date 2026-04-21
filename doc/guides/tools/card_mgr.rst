@@ -236,7 +236,9 @@ available:
    command, host-side traffic must be stopped and the card must already have been initialized with
    ``card_init``. After a successful soft reset, the card returns to a runtime state equivalent to
    the state immediately following ``card_init``; however, this does not require rerunning
-   ``card_init`` afterward.
+   ``card_init`` afterward. When a card soft reset fails due to timeouts during crypto queue draining,
+   new operations may continue to be enqueued and can trigger hardware errors. To recover from this
+   condition, the card needs to be restarted.
 
 .. _diagnostics:
 
