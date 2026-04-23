@@ -4901,9 +4901,23 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id, ui
 
 	/* Reserve 2 bytes for rptr offset and 2 bytes for rlen */
 	buf_len += 4;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("RSA OAEP CRT decrypt data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
+		dao_err("RSA OAEP CRT decrypt data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
 
 	rte_pktmbuf_append(mbuf, buf_len);
-	mbuf->pkt_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 
 	/* Add payload to mbuf */
 	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
