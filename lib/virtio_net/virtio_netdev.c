@@ -758,7 +758,7 @@ virtio_netdev_status_cb(struct virtio_dev *dev, uint8_t status)
 		rc = user_cbs.status_cb(netdev->dev.dev_id, status);
 		for (i = 0; i < (DAO_VIRTIO_MAX_QUEUES - 1); i++) {
 			if (netdev->qs[i]) {
-				dao_dma_compl_wait_sp(dev->dma_vchan);
+				dao_dma_compl_wait_inflight(dev->dma_vchan);
 				break;
 			}
 		}

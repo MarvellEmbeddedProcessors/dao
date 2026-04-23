@@ -180,7 +180,7 @@ virtio_blkdev_status_cb(struct virtio_dev *dev, uint8_t status)
 		for (i = 0; i < (DAO_VIRTIO_MAX_QUEUES - 1); i++) {
 			if (blkdev->qs[i]) {
 				q = (struct virtio_blk_queue *)blkdev->qs[i];
-				dao_dma_compl_wait(q->dma_vchan);
+				dao_dma_compl_wait_inflight(q->dma_vchan);
 				break;
 			}
 		}

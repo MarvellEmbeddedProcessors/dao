@@ -383,7 +383,7 @@ virtio_cryptodev_reset_handle(struct virtio_dev *dev)
 		 */
 
 		if (queue != NULL) {
-			dao_dma_compl_wait(queue->dma_vchan);
+			dao_dma_compl_wait_inflight(queue->dma_vchan);
 			break;
 		}
 	}

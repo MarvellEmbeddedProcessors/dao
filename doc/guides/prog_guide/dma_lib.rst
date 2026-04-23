@@ -39,5 +39,5 @@ To get DMA status by index ``dao_dma_op_status``, fetch complete DMA statistics 
 ``dao_dma_stats_get``.
 
 DMA completion status can be checked using ``dao_dma_check_compl``. Block wait on DMA
-completions using ``dao_dma_compl_wait`` used to handle reset request.
+completions using ``dao_dma_compl_wait_inflight`` used to handle reset request.
 

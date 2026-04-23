@@ -543,63 +543,17 @@ dao_dma_flush_submit_ops(void)
 }
 
 void
-dao_dma_compl_wait(uint16_t vchan)
+dao_dma_compl_wait_inflight(uint16_t vchan)
 {
-	struct dao_dma_vchan_state *dev2mem, *mem2dev;
-	struct dao_dma_vchan_info *vchan_info;
-	uint32_t lcore_id;
-
-	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
-		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
-			continue;
-
-		vchan_info = vchan_info_p[lcore_id];
-		if (!vchan_info)
-			continue;
-		/* All queues use same vchan */
-		dev2mem = &vchan_info->dev2mem[vchan];
-		mem2dev = &vchan_info->mem2dev[vchan];
-		while (dev2mem->head != dev2mem->tail)
-			dao_dma_check_compl(dev2mem);
-
-		while (mem2dev->head != mem2dev->tail)
-			dao_dma_check_compl(mem2dev);
-	}
-	rte_io_wmb();
-}
-
-void
-dao_dma_compl_wait_ops(uint16_t vchan)
-{
-	struct dao_dma_vchan_state *dev2mem, *mem2dev;
-	struct dao_dma_vchan_info *vchan_info;
-	uint32_t lcore_id;
-
-	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
-		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore())
-			continue;
-
-		vchan_info = vchan_info_p[lcore_id];
-		if (!vchan_info)
-			continue;
-		/* All queues use same vchan */
-		dev2mem = &vchan_info->dev2mem[vchan];
-		mem2dev = &vchan_info->mem2dev[vchan];
-		while (dev2mem->head != dev2mem->tail)
-			dao_dma_check_meta_compl_ops(dev2mem, 1);
-
-		while (mem2dev->head != mem2dev->tail)
-			dao_dma_check_meta_compl_ops(mem2dev, 1);
-	}
-	rte_io_wmb();
-}
-
-void
-dao_dma_compl_wait_sp(uint16_t vchan)
-{
+	struct {
+		struct dao_dma_vchan_state *dev2mem, *mem2dev;
+		uint16_t dev2mem_target;
+		uint16_t mem2dev_target;
+	} pending[RTE_MAX_LCORE];
 	struct dao_dma_vchan_state *dev2mem, *mem2dev;
 	struct dao_dma_vchan_info *vchan_info;
 	uint32_t self = rte_lcore_id();
+	int n_pending = 0, n_remain, i;
 	uint32_t lcore_id;
 
 	/* Drain the calling lcore's own inflight ops first (safe — we own it).
@@ -626,7 +580,6 @@ dao_dma_compl_wait_sp(uint16_t vchan)
 		}
 	}
 
-	/* Spin-wait on other lcores (they drain their own completions) */
 	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
 		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore() ||
 		    lcore_id == self)
@@ -635,85 +588,39 @@ dao_dma_compl_wait_sp(uint16_t vchan)
 		vchan_info = vchan_info_p[lcore_id];
 		if (!vchan_info)
 			continue;
-		/* All queues use same vchan */
+
 		dev2mem = &vchan_info->dev2mem[vchan];
 		mem2dev = &vchan_info->mem2dev[vchan];
 
-		while (__atomic_load_n(&dev2mem->head, __ATOMIC_ACQUIRE) !=
-		       __atomic_load_n(&dev2mem->tail, __ATOMIC_ACQUIRE))
-			rte_delay_us(1);
+		pending[n_pending].dev2mem = dev2mem;
+		pending[n_pending].mem2dev = mem2dev;
+		pending[n_pending].dev2mem_target =
+			__atomic_load_n(&dev2mem->tail, __ATOMIC_ACQUIRE);
+		pending[n_pending].mem2dev_target =
+			__atomic_load_n(&mem2dev->tail, __ATOMIC_ACQUIRE);
 
-		while (__atomic_load_n(&mem2dev->head, __ATOMIC_ACQUIRE) !=
-		       __atomic_load_n(&mem2dev->tail, __ATOMIC_ACQUIRE))
-			rte_delay_us(1);
+		/* Skip lcores that are already fully drained at snapshot time */
+		if ((int16_t)(__atomic_load_n(&dev2mem->head, __ATOMIC_ACQUIRE) -
+			      pending[n_pending].dev2mem_target) < 0 ||
+		    (int16_t)(__atomic_load_n(&mem2dev->head, __ATOMIC_ACQUIRE) -
+			      pending[n_pending].mem2dev_target) < 0)
+			n_pending++;
 	}
-	rte_io_wmb();
-}
 
-void
-dao_dma_compl_wait_for_curr_tail(uint16_t vchan)
-{
-	struct dao_dma_vchan_state *dev2mem, *mem2dev;
-	struct dao_dma_vchan_info *vchan_info;
-	uint32_t self = rte_lcore_id();
-	uint16_t mem2dev_tail, mem2dev_head;
-	uint16_t dev2mem_tail, dev2mem_head;
-	uint32_t lcore_id;
+	while (n_pending > 0) {
+		n_remain = 0;
+		for (i = 0; i < n_pending; i++) {
+			uint16_t d2m_head =
+				__atomic_load_n(&pending[i].dev2mem->head, __ATOMIC_ACQUIRE);
+			uint16_t m2d_head =
+				__atomic_load_n(&pending[i].mem2dev->head, __ATOMIC_ACQUIRE);
 
-	/* Drain the calling lcore's own inflight ops first (safe — we own it).
-	 * Skip when called from a non-EAL thread (e.g. ctrl_reg_poll) where
-	 * rte_lcore_id() returns LCORE_ID_ANY.
-	 */
-	if (self != LCORE_ID_ANY) {
-		vchan_info = vchan_info_p[self];
-		if (vchan_info) {
-			dev2mem = &vchan_info->dev2mem[vchan];
-			mem2dev = &vchan_info->mem2dev[vchan];
-			while (dev2mem->head != dev2mem->tail) {
-				if (dev2mem->dma_ops)
-					dao_dma_check_meta_compl_ops(dev2mem, 1);
-				else
-					dao_dma_check_compl(dev2mem);
-			}
-			while (mem2dev->head != mem2dev->tail) {
-				if (mem2dev->dma_ops)
-					dao_dma_check_meta_compl_ops(mem2dev, 1);
-				else
-					dao_dma_check_compl(mem2dev);
-			}
+			if ((int16_t)(d2m_head - pending[i].dev2mem_target) < 0 ||
+			    (int16_t)(m2d_head - pending[i].mem2dev_target) < 0)
+				pending[n_remain++] = pending[i];
 		}
-	}
-
-	/* Spin-wait on other lcores (they drain their own completions) */
-	for (lcore_id = 0; lcore_id < RTE_MAX_LCORE; lcore_id++) {
-		if (rte_lcore_is_enabled(lcore_id) == 0 || lcore_id == rte_get_main_lcore() ||
-		    lcore_id == self)
-			continue;
-
-		vchan_info = vchan_info_p[lcore_id];
-		if (!vchan_info)
-			continue;
-		/* All queues use same vchan */
-		dev2mem = &vchan_info->dev2mem[vchan];
-		mem2dev = &vchan_info->mem2dev[vchan];
-
-		/* Use current tail index to poll to avoid indefinite wait */
-		mem2dev_tail = __atomic_load_n(&mem2dev->tail, __ATOMIC_ACQUIRE);
-		mem2dev_head = __atomic_load_n(&mem2dev->head, __ATOMIC_ACQUIRE);
-
-		dev2mem_tail = __atomic_load_n(&dev2mem->tail, __ATOMIC_ACQUIRE);
-		dev2mem_head = __atomic_load_n(&dev2mem->head, __ATOMIC_ACQUIRE);
-
-		/* head can be advanced by more than current tail index on other cores.
-		 * use the diff to calculate head wrap around
-		 */
-		while ((uint16_t)(__atomic_load_n(&dev2mem->head, __ATOMIC_ACQUIRE) -
-				  dev2mem_head) < (uint16_t)(dev2mem_tail - dev2mem_head))
-			rte_pause();
-
-		while ((uint16_t)(__atomic_load_n(&mem2dev->head, __ATOMIC_ACQUIRE) -
-				  mem2dev_head) < (uint16_t)(mem2dev_tail - mem2dev_head))
-			rte_pause();
+		n_pending = n_remain;
+		rte_delay_us(1);
 	}
 	rte_io_wmb();
 }
