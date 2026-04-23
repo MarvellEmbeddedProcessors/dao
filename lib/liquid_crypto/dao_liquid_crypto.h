@@ -335,7 +335,8 @@ union dao_cpt_res_s {
 		uint64_t reserved_64_127;
 	} cn9k;
 
-	struct {
+	/** CPT_RES_S for pqc */
+	struct cpt_pqc_res_s {
 		/**
 		 * The return code.
 		 * @see enum dao_pqc_comp_code
@@ -450,15 +451,6 @@ struct dao_lc_res {
 			/** Length of the key data wrapped or unwrapped */
 			uint16_t wrap_unwrap_key_len;
 		} key_wrap;
-		/** Metadata associated with PQC operations */
-		struct {
-			/** The operation type */
-			uint8_t op_type;
-			/** The algorithm used */
-			uint8_t alg;
-			/** The return code */
-			uint8_t ret_code;
-		} pqc;
 		/** Generic 64-bit metadata */
 		uint64_t u64;
 	};
