@@ -67,6 +67,9 @@ struct dao_lc_sym_op_kmac_params {
 /**
  * The params required for cSHAKE operations.
  * Note: cSHAKE128 and cSHAKE256 are supported in XOF=True mode.
+ * Note: It is advised to use the NIST specified function-names listed in the document
+ * NIST SP 800-185 "SHA-3 Derived Functions: cSHAKE, KMAC, TupleHash, and ParallelHash"
+ * https://nvlpubs.nist.gov/nistpubs/specialpublications/nist.sp.800-185.pdf.
  */
 struct dao_lc_sym_op_cshake_params {
 	/** Customized String. Utilized for cSHAKE. */
