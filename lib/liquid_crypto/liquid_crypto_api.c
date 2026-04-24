@@ -1143,7 +1143,10 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 								 DAO_LC_ML_KEM_1024_CIPHERTEXT_LEN);
 			pqc_seg_sz = RTE_MAX(pqc_seg_sz, DAO_LC_ML_DSA_87_PRIV_KEY_LEN +
 								 DAO_LC_ML_DSA_87_PUB_KEY_LEN +
-								 DAO_LC_ML_DSA_87_SIGNATURE_LEN);
+								 DAO_LC_ML_DSA_87_SIGNATURE_LEN +
+								 DAO_LC_ML_DSA_MAX_MSG_LEN +
+								 DAO_LC_ML_DSA_CTX_LEN_MAX);
+			pqc_seg_sz += sizeof(struct __dao_lc_req_pqc);
 		}
 
 		max_seg_size = RTE_MAX(sym_seg_sz, asym_seg_sz);
@@ -1974,6 +1977,35 @@ lc_pqc_key_validate(const uint8_t *key, uint16_t len, const char *name)
 	return -EINVAL;
 }
 
+static inline int
+lc_validate_pqc_msg_and_ctx_and_seed(struct dao_lc_pqc_op *op)
+{
+	if (op->op_type == DAO_LC_ML_KEM_OP_KEYGEN || op->op_type == DAO_LC_ML_DSA_OP_KEYGEN) {
+		if (op->keygen.seed != NULL) {
+			dao_err("User-provided seed is not supported for key generation. Seed must be NULL.");
+			return -ENOTSUP;
+		}
+	} else if (op->op_type == DAO_LC_ML_DSA_OP_SIGN) {
+		if (op->sign.msg_len > DAO_LC_ML_DSA_MAX_MSG_LEN ||
+		    op->sign.ctx_len > DAO_LC_ML_DSA_CTX_LEN_MAX) {
+			dao_err("Message length (%u) or context length (%u) exceeds maximum allowed for ML DSA signing (max msg: %u, max ctx: %u).",
+				op->sign.msg_len, op->sign.ctx_len, DAO_LC_ML_DSA_MAX_MSG_LEN,
+				DAO_LC_ML_DSA_CTX_LEN_MAX);
+			return -EINVAL;
+		}
+	} else if (op->op_type == DAO_LC_ML_DSA_OP_VERIFY) {
+		if (op->verify.msg_len > DAO_LC_ML_DSA_MAX_MSG_LEN ||
+		    op->verify.ctx_len > DAO_LC_ML_DSA_CTX_LEN_MAX) {
+			dao_err("Message length (%u) or context length (%u) exceeds maximum allowed for ML DSA verification (max msg: %u, max ctx: %u).",
+				op->verify.msg_len, op->verify.ctx_len, DAO_LC_ML_DSA_MAX_MSG_LEN,
+				DAO_LC_ML_DSA_CTX_LEN_MAX);
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
 int
 dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_op *op,
 			      uint64_t op_cookie)
@@ -2050,13 +2082,9 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	}
 #endif
 
-	if (op->op_type == DAO_LC_ML_KEM_OP_KEYGEN || op->op_type == DAO_LC_ML_DSA_OP_KEYGEN) {
-		if (op->keygen.seed != NULL) {
-			dao_err("User-provided seed is not supported for key generation. Seed must be NULL.");
-			rc = -ENOTSUP;
-			goto mbuf_free;
-		}
-	}
+	rc = lc_validate_pqc_msg_and_ctx_and_seed(op);
+	if (rc < 0)
+		goto mbuf_free;
 
 	rte_pktmbuf_append(mbuf, buf_len);
 
