@@ -279,12 +279,42 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			goto sess_meta_free;
 
 		sess_meta->hash_type = ctx->hash.hmac_hash_type;
-		sess_meta->op_type = LC_SYM_OP_AUTH_ONLY;
-		w4.s.opcode_major = ROC_SE_MAJOR_OP_HASH;
-		w4.s.opcode_minor = 0x0;
-		w4.s.param1 = 0;
-		w4.s.param2 =
-			((uint16_t)ctx->hash.hmac_hash_type << 8) | (uint16_t)ctx->hash.digest_len;
+		if ((ctx->hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE128) ||
+		    (ctx->hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE256)) {
+			sess_meta->op_type = LC_SYM_OP_HMAC_AUTH_ONLY;
+			if (ctx->hash.hmac_key_len != 0) {
+				dao_err("Unsupported auth-key-len for cSHAKE operations.");
+				goto sess_meta_free;
+			}
+		} else {
+			sess_meta->op_type = LC_SYM_OP_AUTH_ONLY;
+		}
+
+		switch (ctx->hash.hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+			hash_field = ((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE128) << 8);
+			w4.s.opcode_major = ROC_SE_MAJOR_OP_HMAC;
+			w4.s.opcode_minor = 0x0;
+			w4.s.param1 = 0;
+			w4.s.param2 = (uint16_t)(DAO_LC_CSHAKE_PARAM2 << 12) | (hash_field) |
+					  ctx->hash.digest_len;
+			break;
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+			hash_field = ((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE256) << 8);
+			w4.s.opcode_major = ROC_SE_MAJOR_OP_HMAC;
+			w4.s.opcode_minor = 0x0;
+			w4.s.param1 = 0;
+			w4.s.param2 = (uint16_t)(DAO_LC_CSHAKE_PARAM2 << 12) | (hash_field) |
+					  ctx->hash.digest_len;
+			break;
+		default:
+			w4.s.opcode_major = ROC_SE_MAJOR_OP_HASH;
+			w4.s.opcode_minor = 0x0;
+			w4.s.param1 = 0;
+			w4.s.param2 = ((uint16_t)ctx->hash.hmac_hash_type << 8) |
+					  (uint16_t)ctx->hash.digest_len;
+			break;
+		}
 		sess_meta->digest_len = ctx->hash.digest_len;
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
 		if (sym_sess_hash_digest_len_validate(ctx))
@@ -293,18 +323,12 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		sess_meta->hash_type = ctx->hash.hmac_hash_type;
 		sess_meta->op_type = LC_SYM_OP_HMAC_AUTH_ONLY;
 		sess_meta->auth_key_len = ctx->hash.hmac_key_len;
-		switch (sess_meta->hash_type) {
-		case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
-		case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
-		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
-		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
+		if ((sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_SHAKE128) ||
+		    (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_SHAKE256)) {
 			if (sess_meta->auth_key_len != 0) {
-				dao_err("Unsupported auth-key-len for SHAKE and cSHAKE operations.");
+				dao_err("Unsupported auth-key-len for SHAKE operations.");
 				goto sess_meta_free;
 			}
-			break;
-		default:
-			break;
 		}
 		memcpy(sess_meta->auth_key, ctx->hash.hmac_auth_key, ctx->hash.hmac_key_len);
 
@@ -323,16 +347,6 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 			w4.s.param2 = (uint16_t)(DAO_LC_KMAC_PARAM2 << 12) |
 			((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE256) << 8) |
 			ctx->hash.digest_len;
-			break;
-		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
-			hash_field = ((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE128) << 8);
-			w4.s.param2 = (uint16_t)(DAO_LC_CSHAKE_PARAM2 << 12) | (hash_field) |
-									ctx->hash.digest_len;
-			break;
-		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
-			hash_field = ((DAO_LC_HASH_MASK & DAO_LC_HASH_TYPE_SHA3_SHAKE256) << 8);
-			w4.s.param2 = (uint16_t)(DAO_LC_CSHAKE_PARAM2 << 12) | (hash_field) |
-									ctx->hash.digest_len;
 			break;
 		default:
 			w4.s.param2 = (sess_meta->hash_type << 8) | ctx->hash.digest_len;
@@ -582,6 +596,8 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 
 	if (ctx->opcode == DAO_LC_SYM_OPCODE_HMAC) {
 		switch (hash_ctx->hmac_hash_type) {
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
+		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		case DAO_LC_HASH_TYPE_SHA3_SHAKE128:
 		case DAO_LC_HASH_TYPE_SHA3_SHAKE256:
 			dao_err("Unsupported HMAC/hash type for HMAC operation.");
@@ -591,8 +607,6 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 		}
 	} else if (ctx->opcode == DAO_LC_SYM_OPCODE_HASH) {
 		switch (hash_ctx->hmac_hash_type) {
-		case DAO_LC_HASH_TYPE_SHA3_CSHAKE128:
-		case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		case DAO_LC_HASH_TYPE_CMAC:
 		case DAO_LC_HASH_TYPE_SHA3_KMAC128:
 		case DAO_LC_HASH_TYPE_SHA3_KMAC256:
@@ -776,6 +790,11 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 		if (op->cshake_params.function_name_len > DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN) {
 			dao_err("Invalid function-name length for cSHAKE operation. function_name_len: %d.",
 				op->cshake_params.function_name_len);
+			return -EINVAL;
+		}
+		if (sess_meta->auth_key_len > 0) {
+			dao_err("Invalid key length for cSHAKE operation. auth_key_len: %d.",
+				sess_meta->auth_key_len);
 			return -EINVAL;
 		}
 		break;
