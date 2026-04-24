@@ -1457,6 +1457,9 @@ enum dao_lc_pqc_op_type {
 #define DAO_LC_ML_DSA_87_PRIV_KEY_LEN  (4896)
 #define DAO_LC_ML_DSA_87_SIGNATURE_LEN (4627)
 
+/* Maximum supported ML DSA message length in bytes */
+#define DAO_LC_ML_DSA_MAX_MSG_LEN (10240)
+
 static uint16_t pqc_ml_pub_key_len[] = {[DAO_LC_ML_KEM_512] = DAO_LC_ML_KEM_512_PUB_KEY_LEN,
 					[DAO_LC_ML_KEM_768] = DAO_LC_ML_KEM_768_PUB_KEY_LEN,
 					[DAO_LC_ML_KEM_1024] = DAO_LC_ML_KEM_1024_PUB_KEY_LEN,
