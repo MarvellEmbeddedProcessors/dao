@@ -162,6 +162,18 @@ validate_feature(struct dao_flow_offload_config *config)
 		return -EINVAL;
 	}
 
+	if (config->kex_profile == DAO_FLOW_KEX_CPT_EM &&
+	    config->alg != DAO_FLOW_ALG_CPT_EM) {
+		dao_err("CPT_EM kex profile requires CPT_EM algorithm");
+		return -EINVAL;
+	}
+
+	if (config->alg == DAO_FLOW_ALG_CPT_EM &&
+	    config->kex_profile != DAO_FLOW_KEX_CPT_EM) {
+		dao_err("CPT_EM algorithm requires CPT_EM kex profile");
+		return -EINVAL;
+	}
+
 	return 0;
 }
 
@@ -180,17 +192,12 @@ parse_profile_setup(uint16_t port_id, struct flow_global_cfg *gbl_cfg,
 		break;
 	case DAO_FLOW_KEX_CPT_EM:
 		gbl_cfg->flow_cfg[port_id].parse_prfl = &cpt_em_kex_profile;
+		gbl_cfg->flow_cfg[port_id].prfl_ops = &exact_match_prfl_ops;
 		break;
 	default:
 		dao_err("Invalid kex profile: %s", config->parse_profile);
 	}
 
-	if (config->kex_profile & DAO_FLOW_KEX_CPT_EM) {
-		/* Key generation is done by CPT microcode, but KEX profile is needed
-		 * to validate and create key from rte_flow patters and action. */
-		//             gbl_cfg->flow_cfg[port_id].prfl_ops = &exact_match_prfl_ops;
-		gbl_cfg->flow_cfg[port_id].parse_prfl = &cpt_em_kex_profile;
-	}
 }
 
 int
@@ -222,10 +229,16 @@ dao_flow_init(uint16_t port_id, struct dao_flow_offload_config *hw_offload_cfg)
 		break;
 	case DAO_FLOW_ALG_CPT_EM:
 		gbl_cfg->flow_ops = &cpt_em_flow_ops;
+		gbl_cfg->cpt_egrp = config->cpt_egrp;
+		gbl_cfg->cpt_ctx_cache_enable = config->cpt_ctx_cache_enable;
 		break;
 	default:
 		DAO_ERR_GOTO(-EINVAL, error, "Flow alg not supported.");
 	}
+
+	gbl_cfg->flow_cfg[port_id].alg = config->alg;
+	gbl_cfg->flow_cfg[port_id].cpt_ctx_cache_enable =
+		(config->alg == DAO_FLOW_ALG_CPT_EM) ? config->cpt_ctx_cache_enable : false;
 
 	rc = gbl_cfg->flow_ops->init(port_id, &gbl_cfg->sw_flow_cfg);
 	if (rc)
@@ -347,17 +360,20 @@ fail:
 int
 dao_flow_lookup(uint16_t port_id, struct rte_mbuf **objs, uint16_t nb_objs)
 {
-	uint32_t result[nb_objs];
+	static __thread uint32_t result_buf[2048];
+	uint32_t *result = result_buf;
 	int rc, i;
 
+	if (unlikely(nb_objs > RTE_DIM(result_buf)))
+		return -EINVAL;
+
 	memset(result, 0, nb_objs * sizeof(uint32_t));
-	/* Here 'depth' arg is the start value for depth. It gets incremented in the
-	 * recursion inside this call upto MAX_JUMP_DEPTH. */
+
 	rc = gbl_cfg->flow_ops->lookup(gbl_cfg->sw_flow_cfg, port_id, objs, nb_objs, result, 1);
 	if (rc)
 		return rc;
 
-	if (gbl_cfg->flow_cfg[port_id].hw_offload_enabled) {
+	if (unlikely(gbl_cfg->flow_cfg[port_id].hw_offload_enabled)) {
 		for (i = 0; i < nb_objs; i++) {
 			if (result[i]) {
 				rc = flow_install_hardware(gbl_cfg, port_id, result[i]);
@@ -641,4 +657,22 @@ dao_flow_flush(uint16_t port_id, struct rte_flow_error *error)
 	return 0;
 fail:
 	return rc;
+}
+
+int
+dao_flow_ctx_cache_warm(uint16_t port_id)
+{
+	if (!gbl_cfg || !gbl_cfg->sw_flow_cfg)
+		return -EINVAL;
+
+	if (port_id >= RTE_MAX_ETHPORTS)
+		return -EINVAL;
+
+	if (gbl_cfg->flow_cfg[port_id].alg != DAO_FLOW_ALG_CPT_EM)
+		return -ENOTSUP;
+
+	if (!gbl_cfg->flow_cfg[port_id].cpt_ctx_cache_enable)
+		return -EINVAL;
+
+	return cpt_em_ctx_cache_warm(gbl_cfg->sw_flow_cfg, port_id);
 }

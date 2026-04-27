@@ -63,6 +63,10 @@ struct dao_flow_offload_config {
 	char parse_profile[DAO_FLOW_PROFILE_NAME_MAX];
 	/** Flow aging timeout in seconds */
 	uint32_t aging_tmo_sec;
+	/** CPT engine group: 0 = SE only, 1 = SE+IE */
+	uint8_t cpt_egrp;
+	/** Enable CPT EM context caching (ctx_val=1, requires egrp=0) */
+	bool cpt_ctx_cache_enable;
 };
 
 /** DAO flow handle */
@@ -287,4 +291,20 @@ int dao_flow_info(uint16_t port_id, FILE *file, struct rte_flow_error *error);
  */
 
 int dao_flow_count(uint16_t port_id, struct dao_flow_count *count, struct rte_flow_error *error);
+
+/**
+ * Warm the CPT EM context cache for a port.
+ *
+ * Converts the EM table to big-endian format and sets ctx_val=1 in
+ * instruction templates so subsequent lookups use on-chip SRAM cache.
+ * Requires enable_ctx_cache=true at init. Only supported with CPT-EM flow ops.
+ *
+ * @param[in] port_id
+ *    Port identifier of Ethernet device.
+ * @return
+ *   0 on success, -ENOTSUP if not CPT-EM, -EINVAL if ctx cache not enabled,
+ *   negative errno otherwise.
+ */
+int dao_flow_ctx_cache_warm(uint16_t port_id);
+
 #endif /* __DAO_FLOW_OFFLOAD_H__ */

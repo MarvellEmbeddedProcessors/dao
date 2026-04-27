@@ -42,6 +42,10 @@ struct flow_config_per_port {
 	struct flow_parser_tcam_kex *parse_prfl;
 	/** Flow parsing profile operations */
 	struct parse_profile_ops *prfl_ops;
+	/** Algorithm selected for this port (DAO_FLOW_ALG_*) */
+	uint32_t alg;
+	/** Per-port CPT EM context-cache enable */
+	bool cpt_ctx_cache_enable;
 
 	TAILQ_HEAD(flow_data_list, flow_data) flow_list;
 };
@@ -56,7 +60,11 @@ struct flow_global_cfg {
 	struct flow_config_per_port flow_cfg[RTE_MAX_ETHPORTS];
 	uint16_t num_initialized_ports;
 	struct flow_fops_t *flow_ops;
+	uint8_t cpt_egrp;
+	bool cpt_ctx_cache_enable;
 };
+
+extern int cpt_em_ctx_cache_warm(void *gcfg, uint16_t port_id);
 
 struct flow_fops_t {
 	int (*init)(uint16_t port_id, void **gcfg);

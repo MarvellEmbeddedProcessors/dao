@@ -4,6 +4,7 @@
 
 #ifndef __FLOW_CPT_EM_PRIV_H__
 #define __FLOW_CPT_EM_PRIV_H__
+#include "flow_parser_priv.h"
 #include "key.h"
 #include <rte_mbuf.h>
 #include <stdint.h>
@@ -58,14 +59,21 @@ struct cpt_em_table_info {
 };
 
 struct cpt_em_table {
-	union ctx_hdr w0;
 	struct cpt_em_table_info tbl;
 	uint64_t free_index;
 	struct key_config_int *key_fields;
-	uint8_t ptype_len[4][16];
+	uint8_t ptype_len[6][16];
 	struct key_ext_opaque ext_opaque;
 	struct cpt_em_entry entries[];
 };
+
+static inline uint64_t *
+cpt_em_delete_ptr(struct cpt_em_table *tbl)
+{
+	return (uint64_t *)((uint8_t *)tbl +
+		sizeof(struct cpt_em_table) +
+		(tbl->tbl.table_size * sizeof(struct cpt_em_entry)));
+}
 
 struct cpt_em_parse_info {
 	const struct rte_flow_item *pattern;
@@ -102,13 +110,26 @@ struct cpt_em_actions {
 	struct cpt_em_rule_data *rule_data;
 };
 
-/* Single ACL table instance for a port */
+#define NB_DESC       20000
+#define CPT_LKP_RING_SZ 2048
+
+struct cpt_em_lcore_ctx {
+	struct rte_mempool *mempool;
+	struct cpt_inst_s *inst_mem;
+	void *data_ptrs[CPT_LKP_RING_SZ];
+	union cpt_res_s *res_ptrs[CPT_LKP_RING_SZ];
+	uint8_t *rptr_ptrs[CPT_LKP_RING_SZ];
+	bool templates_ready;
+} __rte_cache_aligned;
+
+/* Single CPT-EM table instance for a port */
 struct dao_cpt_em_table {
 	uint16_t port_id;
 	uint16_t tbl_id;
 	bool tbl_val;
 	uint32_t num_rules;
 	struct cpt_em_table *cpt_em_table;
+	void *base_alloc;
 	struct cpt_em_table *ttable_ctx;
 	struct key_config_int key_fields;
 	struct key_config_int *kf_ptr_save;
@@ -118,23 +139,24 @@ struct dao_cpt_em_table {
 	uint32_t size;
 	struct parse_profile_ops *prfl_ops;
 	bool init_done;
-	struct rte_mempool *mempool;
-	struct cpt_inst_s *inst_mem;
-#define NB_DESC 20000
-	void *data_ptrs[NB_DESC];
+	bool ctx_converted;
+	struct cpt_em_lcore_ctx *lcore_ctx[RTE_MAX_LCORE];
+	uint8_t egrp;
+	bool enable_ctx_cache;
+	bool ctx_cache_active;
 	/* Spinlock */
 	rte_spinlock_t ctx_lock;
 
 	TAILQ_HEAD(cpt_em_rule_list, cpt_em_rule_data) flow_list;
 };
 
-/* Per port ACL tables */
+/* Per port CPT-EM tables */
 struct cpt_em_config_per_port {
 	struct dao_cpt_em_table dao_cpt_em_tbl;
 	uint32_t num_rules_per_prt;
 };
 
-/* Global ACL confiuration - across all ports */
+/* Global CPT-EM configuration - across all ports */
 struct cpt_em_global_config {
 	struct cpt_em_config_per_port cpt_em_cfg_prt[RTE_MAX_ETHPORTS];
 };

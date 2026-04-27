@@ -19,28 +19,273 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <fcntl.h>
+#include <sys/mman.h>
+
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
 #include <rte_mbuf.h>
 #include <rte_mempool.h>
 #include <rte_pmd_cnxk_crypto.h>
+#include <rte_vfio.h>
 
 #include "cpt_em_profile.h"
+#include "dao_log.h"
 #include "dao_util.h"
 #include "flow_cpt_em_priv.h"
+#include "flow_em_priv.h"
+#include "flow_gbl_priv.h"
 #include "hw/cpt.h"
 #include "key.h"
 
-struct flow_parser cpt_em_parser;
+struct key_config cpt_em_kcfg[] = {
+	/*LTYPE, LID, offset_in_ltype, offset_in_key, size*/
+	/* VLAN -> DMAC 6 bytes */
+	{RTE_PTYPE_L2_ETHER_VLAN, 0, 0, 0, 6},
+	/* IPV4 -> SIP 4 bytes */
+	{(RTE_PTYPE_L3_IPV4 >> 4), 1, 12, 6, 4},
+	/* IPV4 -> DIP 4 bytes */
+	{(RTE_PTYPE_L3_IPV4 >> 4), 1, 16, 10, 4},
+	/* UDP -> SPORT 2 bytes */
+	{(RTE_PTYPE_L4_UDP >> 8), 2, 0, 14, 2},
+};
+
+struct flow_parser_tcam_kex cpt_em_kex_profile = {
+	.mkex_sign = MKEX_SIGN,
+	.name = "cpt-em",
+	.prfl_version = FLOW_PARSER_PROFILE_VER,
+	.keyx_cfg = {
+			/* nibble: LA..LE (ltype only) + Error code + Channel */
+			[NIX_INTF_RX] = ((uint64_t)PROFILE_TCAM_KEY_X2 << 32) |
+					PARSE_NIBBLE_INTF_RX | (uint64_t)PROFILE_EXACT_NIBBLE_HIT,
+			/* nibble: LA..LE (ltype only) */
+			[NIX_INTF_TX] =
+				((uint64_t)PROFILE_TCAM_KEY_X2 << 32) | PARSE_NIBBLE_INTF_TX,
+		},
+	.intf_lid_lt_ld = {
+			/* Default RX MCAM KEX profile */
+			[NIX_INTF_RX] = {
+					[PROFILE_LID_LA] = {
+							/* Layer A: Ethernet: */
+							[PROFILE_LT_LA_ETHER] = {
+									/* DMAC: 6 bytes */
+									/* (bytesm1, hdr_ofs, ena,
+									   flags_ena, key_ofs) */
+									KEX_LD_CFG(0x05, 0x0, 0x1,
+										   0x0, 0x5),
+								},
+						},
+					[PROFILE_LID_LC] = {
+							/* Layer C: IPv4 */
+							[PROFILE_LT_LC_IP] = {
+									/* SIP+DIP: 8 bytes */
+									KEX_LD_CFG(0x07, 0xc, 0x1,
+										   0x0, 0xB),
+								},
+						},
+					[PROFILE_LID_LD] = {
+							/* Layer D:UDP */
+							[PROFILE_LT_LD_UDP] = {
+									/* SPORT+DPORT: 4 bytes */
+									KEX_LD_CFG(0x3, 0x0, 0x1,
+										   0x0, 0x13),
+								},
+						},
+				},
+
+			/* Default TX MCAM KEX profile */
+			[NIX_INTF_TX] = {
+					[PROFILE_LID_LA] = {
+							/* Layer A: NIX_INST_HDR_S + Ethernet */
+							/* NIX appends 8 bytes of NIX_INST_HDR_S at
+							 * the start of each TX packet supplied to
+							 * profile.
+							 */
+							[PROFILE_LT_LA_IH_NIX_ETHER] = {
+									/* PF_FUNC: 2B , KW0 [47:32]
+									 */
+									KEX_LD_CFG(0x01, 0x0, 0x1,
+										   0x0, 0x4),
+									/* DMAC: 6 bytes, KW1[63:16]
+									 */
+									KEX_LD_CFG(0x05, 0x8, 0x1,
+										   0x0, 0xa),
+								},
+							/* Layer A: HiGig2: */
+							[PROFILE_LT_LA_IH_NIX_HIGIG2_ETHER] = {
+									/* PF_FUNC: 2B , KW0 [47:32]
+									 */
+									KEX_LD_CFG(0x01, 0x0, 0x1,
+										   0x0, 0x4),
+									/* VID: 2 bytes, KW1[31:16]
+									 */
+									KEX_LD_CFG(0x01, 0x10,
+										   0x1, 0x0, 0xa),
+								},
+						},
+					[PROFILE_LID_LB] = {
+							/* Layer B: Single VLAN (CTAG) */
+							[PROFILE_LT_LB_CTAG] = {
+									/* CTAG VLAN[2..3]
+									   KW0[63:48] */
+									KEX_LD_CFG(0x01, 0x2, 0x1,
+										   0x0, 0x6),
+									/* CTAG VLAN[2..3] KW1[15:0]
+									 */
+									KEX_LD_CFG(0x01, 0x4, 0x1,
+										   0x0, 0x8),
+								},
+							/* Layer B: Stacked VLAN (STAG|QinQ) */
+							[PROFILE_LT_LB_STAG_QINQ] = {
+									/* Outer VLAN: 2 bytes,
+									   KW0[63:48] */
+									KEX_LD_CFG(0x01, 0x2, 0x1,
+										   0x0, 0x6),
+									/* Outer VLAN: 2 Bytes,
+									   KW1[15:0] */
+									KEX_LD_CFG(0x01, 0x8, 0x1,
+										   0x0, 0x8),
+								},
+						},
+					[PROFILE_LID_LC] = {
+							/* Layer C: IPv4 */
+							[PROFILE_LT_LC_IP] = {
+									/* SIP+DIP: 8 bytes,
+									   KW2[63:0] */
+									KEX_LD_CFG(0x07, 0xc, 0x1,
+										   0x0, 0x10),
+								},
+							/* Layer C: IPv6 */
+							[PROFILE_LT_LC_IP6] = {
+									/* Everything up to SADDR: 8
+									   bytes, KW2[63:0] */
+									KEX_LD_CFG(0x07, 0x0, 0x1,
+										   0x0, 0x10),
+								},
+						},
+					[PROFILE_LID_LD] = {
+							/* Layer D:UDP */
+							[PROFILE_LT_LD_UDP] = {
+									/* SPORT+DPORT: 4 bytes,
+									   KW3[31:0] */
+									KEX_LD_CFG(0x3, 0x0, 0x1,
+										   0x0, 0x18),
+								},
+							/* Layer D:TCP */
+							[PROFILE_LT_LD_TCP] = {
+									/* SPORT+DPORT: 4 bytes,
+									   KW3[31:0] */
+									KEX_LD_CFG(0x3, 0x0, 0x1,
+										   0x0, 0x18),
+								},
+						},
+				},
+		},
+};
+
+static struct flow_parser cpt_em_parser;
 
 #define BURST_SIZE_MAX           2048
 #define CPT_RES_ALIGN            sizeof(union cpt_res_s)
 #define CPT_EM_MAX_TABLE_ENTRIES (4 * 1024 * 1024)
 #define MAX_KEY_LEN              64
 #define KEY_LEN                  16
+#define CTX_CACHE_WORDS          (896 / 8)
 
-uint8_t key[CPT_EM_MAX_TABLE_ENTRIES][MAX_KEY_LEN];
-uint8_t action[CPT_EM_MAX_TABLE_ENTRIES][CPT_EM_ACTION_DATA_SIZE];
+#define HUGEPAGE_512M_SIZE (512UL * 1024 * 1024)
+#define HUGEPAGE_512M_PATH "/dev/hugepages"
+
+static struct {
+	void *addr;
+	size_t size;
+	char path[256];
+	int allocated;
+} g_512m_alloc[RTE_MAX_ETHPORTS];
+
+static void *
+alloc_from_512mb_hugepage(size_t size, int port_id)
+{
+	char path[256];
+	size_t alloc_size;
+	int num_pages, fd;
+	void *addr;
+
+	num_pages = (size + HUGEPAGE_512M_SIZE - 1) / HUGEPAGE_512M_SIZE;
+	if (num_pages > 2)
+		return NULL;
+
+	alloc_size = (size_t)num_pages * HUGEPAGE_512M_SIZE;
+
+	snprintf(path, sizeof(path), "%s/cpt_em_table_p%d_%d",
+		 HUGEPAGE_512M_PATH, port_id, getpid());
+
+	fd = open(path, O_CREAT | O_RDWR, 0600);
+	if (fd < 0)
+		return NULL;
+
+	if (ftruncate(fd, alloc_size) < 0) {
+		close(fd);
+		unlink(path);
+		return NULL;
+	}
+
+	addr = mmap(NULL, alloc_size, PROT_READ | PROT_WRITE,
+		    MAP_SHARED | MAP_POPULATE, fd, 0);
+	close(fd);
+
+	if (addr == MAP_FAILED) {
+		unlink(path);
+		return NULL;
+	}
+
+	if (rte_extmem_register(addr, alloc_size, NULL, 0,
+				HUGEPAGE_512M_SIZE) < 0) {
+		munmap(addr, alloc_size);
+		unlink(path);
+		return NULL;
+	}
+
+	if (rte_vfio_container_dma_map(RTE_VFIO_DEFAULT_CONTAINER_FD,
+				       (uint64_t)(uintptr_t)addr,
+				       (uint64_t)(uintptr_t)addr,
+				       alloc_size) < 0) {
+		rte_extmem_unregister(addr, alloc_size);
+		munmap(addr, alloc_size);
+		unlink(path);
+		return NULL;
+	}
+
+	memset(addr, 0, size);
+
+	g_512m_alloc[port_id].addr = addr;
+	g_512m_alloc[port_id].size = alloc_size;
+	snprintf(g_512m_alloc[port_id].path, sizeof(g_512m_alloc[port_id].path),
+		 "%s", path);
+	g_512m_alloc[port_id].allocated = 1;
+
+	printf("512M-HP: port %d: allocated %zu bytes (%d pages) at %p\n",
+	       port_id, size, num_pages, addr);
+
+	return addr;
+}
+
+static void
+free_512mb_hugepage(int port_id)
+{
+	if (!g_512m_alloc[port_id].allocated)
+		return;
+
+	rte_vfio_container_dma_unmap(RTE_VFIO_DEFAULT_CONTAINER_FD,
+				     (uint64_t)(uintptr_t)g_512m_alloc[port_id].addr,
+				     (uint64_t)(uintptr_t)g_512m_alloc[port_id].addr,
+				     g_512m_alloc[port_id].size);
+	rte_extmem_unregister(g_512m_alloc[port_id].addr,
+			      g_512m_alloc[port_id].size);
+	munmap(g_512m_alloc[port_id].addr, g_512m_alloc[port_id].size);
+	unlink(g_512m_alloc[port_id].path);
+	g_512m_alloc[port_id].allocated = 0;
+	g_512m_alloc[port_id].addr = NULL;
+}
 
 struct lcore_conf {
 	uint8_t dev_id;
@@ -53,7 +298,7 @@ struct cpt_dev_info {
 	uint8_t enabled_cdevs[RTE_CRYPTO_MAX_DEVS];
 };
 
-struct cpt_dev_info ctx;
+static struct cpt_dev_info ctx;
 
 static int
 key_ext_init(struct key_config key[], uint16_t nkey_fields, uint16_t key_size,
@@ -89,59 +334,103 @@ key_ext_init(struct key_config key[], uint16_t nkey_fields, uint16_t key_size,
 	return 0;
 }
 
-static int
-cpt_em_key_size_get(struct key_config *kcfg)
+static bool table_uses_hugepage[RTE_MAX_ETHPORTS];
+
+
+static __rte_always_inline uint32_t
+bitreverse(uint32_t x)
 {
-	uint32_t key_size = 0, offset_in_key = 0;
-	uint32_t num_key_fields;
+	x = ((x >> 1) & 0x55555555) | ((x << 1) & 0xAAAAAAAA);
+	x = ((x >> 2) & 0x33333333) | ((x << 2) & 0xCCCCCCCC);
+	x = ((x >> 4) & 0x0F0F0F0F) | ((x << 4) & 0xF0F0F0F0);
+	x = ((x >> 8) & 0x00FF00FF) | ((x << 8) & 0xFF00FF00);
+	x = (x >> 16) | (x << 16);
+	return x;
+}
 
-	num_key_fields = sizeof(cpt_em_kcfg) / sizeof(struct key_config);
+static __rte_always_inline uint64_t
+get_hash(uint8_t *key, uint32_t key_size)
+{
+	uint32_t iv_upper = 0xFFFFFFFF;
+	uint32_t crc, byte, temp, k;
 
-	for (uint32_t i = 0; i < num_key_fields; i++) {
-		offset_in_key += kcfg[i].size;
-		if (offset_in_key & 0x1) {
-			offset_in_key++;
-			key_size++;
+	for (uint32_t i = 0; i < key_size; i++) {
+		temp = key[i];
+		byte = 0;
+		for (k = 0; k < 8; k++)
+			byte = (byte << 1) | ((temp >> k) & 1);
+		iv_upper ^= (byte << 24);
+		for (k = 0; k < 8; k++) {
+			if (iv_upper >> 31)
+				iv_upper = (iv_upper << 1) ^ 0x04C11DB7;
+			else
+				iv_upper <<= 1;
 		}
-		key_size += kcfg[i].size;
 	}
-	return key_size;
+
+	iv_upper ^= 0xFFFFFFFF;
+	crc = bitreverse(iv_upper);
+	crc = htobe32(crc);
+	return (crc & 0x3FFFFF);
 }
 
 static void *
-cpt_em_table_init(uint32_t table_size, uint16_t action_size, bool enable_ctx_caching)
+cpt_em_table_init(uint32_t table_size, uint16_t action_size, bool enable_ctx_caching,
+		  int port_id)
 {
 	uint32_t num_key_fields = 0, offset_in_key = 0;
 	struct cpt_em_table *table = NULL;
 	struct cpt_em_entry *entry = NULL;
 	uint64_t memory_base = 0;
 	uint16_t key_size = 0;
+	size_t alloc_size;
+	void *base_alloc = NULL;
 	int rc = 0;
 
 	flow_parser_init(&cpt_em_parser, &cpt_em_kex_profile);
 
-	table = rte_malloc(NULL,
-			   sizeof(struct cpt_em_table) +
-				   (table_size * sizeof(struct cpt_em_entry)) + (table_size * 8),
-			   0);
-	if (!table)
-		return NULL;
+	alloc_size = sizeof(struct cpt_em_table) +
+		     (table_size * sizeof(struct cpt_em_entry)) + (table_size * 8);
+
+	if (enable_ctx_caching)
+		alloc_size += 8;
+
+	if (port_id >= 0 && port_id < (int)RTE_MAX_ETHPORTS)
+		base_alloc = alloc_from_512mb_hugepage(alloc_size, port_id);
+
+	if (base_alloc) {
+		table_uses_hugepage[port_id] = true;
+	} else {
+		base_alloc = rte_malloc(NULL, alloc_size, 128);
+		if (!base_alloc)
+			return NULL;
+		memset(base_alloc, 0, alloc_size);
+		if (port_id >= 0 && port_id < (int)RTE_MAX_ETHPORTS)
+			table_uses_hugepage[port_id] = false;
+	}
+
+	if (enable_ctx_caching)
+		table = (struct cpt_em_table *)((uint8_t *)base_alloc + 8);
+	else
+		table = (struct cpt_em_table *)base_alloc;
 
 	memory_base = (uint64_t)table;
 	memory_base += sizeof(struct cpt_em_table) + (table_size * sizeof(struct cpt_em_entry));
 	if (memory_base & (0xfULL << 60)) {
 		printf("Memory allocation failed\n");
-		rte_free(table);
+		if (port_id >= 0 && port_id < (int)RTE_MAX_ETHPORTS && table_uses_hugepage[port_id])
+			free_512mb_hugepage(port_id);
+		else
+			rte_free(base_alloc);
 		return NULL;
 	}
 
-	memset(table, 0,
-	       sizeof(struct cpt_em_table) + (table_size * sizeof(struct cpt_em_entry)) +
-		       (table_size * 8));
-
 	table->key_fields = rte_malloc(NULL, sizeof(struct key_config_int), 0);
 	if (!table->key_fields) {
-		rte_free(table);
+		if (port_id >= 0 && port_id < (int)RTE_MAX_ETHPORTS && table_uses_hugepage[port_id])
+			free_512mb_hugepage(port_id);
+		else
+			rte_free(base_alloc);
 		return NULL;
 	}
 
@@ -159,14 +448,16 @@ cpt_em_table_init(uint32_t table_size, uint16_t action_size, bool enable_ctx_cac
 		table->key_fields->kinfo[i].size = cpt_em_kcfg[i].size;
 		key_size += cpt_em_kcfg[i].size;
 	}
-	table->key_fields->num_fields = num_key_fields;
 
 	key_size = key_size + cpt_em_kcfg[0].offset_in_key;
 
 	rc = key_ext_init(cpt_em_kcfg, num_key_fields, key_size, &table->ext_opaque);
 	if (rc < 0) {
 		rte_free(table->key_fields);
-		rte_free(table);
+		if (port_id >= 0 && port_id < (int)RTE_MAX_ETHPORTS && table_uses_hugepage[port_id])
+			free_512mb_hugepage(port_id);
+		else
+			rte_free(base_alloc);
 		return NULL;
 	}
 	table->tbl.table_type = TABLE_TYPE_EM;
@@ -180,10 +471,6 @@ cpt_em_table_init(uint32_t table_size, uint16_t action_size, bool enable_ctx_cac
 		entry->next = htobe64(i + 1);
 		entry->id = i;
 		entry->index = i;
-		entry->direct = 0;
-		entry->valid = 0;
-		memset(entry->key, 0, CPT_EM_ENTRY_DATA_SIZE);
-		memset(entry->action, 0, CPT_EM_ACTION_DATA_SIZE);
 		entry++;
 	}
 	table->free_index = 0;
@@ -202,32 +489,71 @@ cpt_em_table_init(uint32_t table_size, uint16_t action_size, bool enable_ctx_cac
 
 	table->ptype_len[3][RTE_PTYPE_TUNNEL_VXLAN >> 12] = 8;
 
+	table->ptype_len[4][RTE_PTYPE_L2_ETHER] = 14;
+	table->ptype_len[4][RTE_PTYPE_L2_ETHER_VLAN] = 18;
+	table->ptype_len[4][RTE_PTYPE_L2_ETHER_QINQ] = 20;
+
+	table->ptype_len[5][RTE_PTYPE_L3_IPV4 >> 4] = 20;
+	table->ptype_len[5][RTE_PTYPE_L3_IPV6 >> 4] = 40;
+
 	table->tbl.reserved = enable_ctx_caching;
 
 	return table;
 }
 
-static void *
-cpt_em_table_enable_ctx_caching(void *table)
+static struct cpt_em_lcore_ctx *
+cpt_em_lcore_ctx_create(uint16_t port_id, unsigned int lcore_id)
 {
-	struct cpt_em_table *em_table = table;
-	uint64_t *ctx_data = table;
-	int i;
+	struct cpt_em_lcore_ctx *lctx;
+	char name[64];
+	int len, ret;
 
-	if (!em_table->tbl.reserved)
-		return ((uint8_t *)table + 8);
+	lctx = rte_zmalloc(NULL, sizeof(*lctx), RTE_CACHE_LINE_SIZE);
+	if (!lctx)
+		return NULL;
 
-	em_table->w0.u64 = 0;
-	em_table->w0.s.ctx_size = 7;
-	em_table->w0.s.aop_valid = 1;
-	em_table->w0.s.ctx_hdr_size = 0;
-	em_table->w0.s.ctx_push_size = 125;
+	snprintf(name, sizeof(name), "cpt_dptr_p%u_c%u", port_id, lcore_id);
+	len = sizeof(union cpt_res_s) + 128 + 8;
+	lctx->mempool = rte_mempool_create(name, CPT_LKP_RING_SZ * 2, len,
+					   RTE_MEMPOOL_CACHE_MAX_SIZE, 0,
+					   NULL, NULL, NULL, NULL, SOCKET_ID_ANY, 0);
+	if (!lctx->mempool) {
+		rte_free(lctx);
+		return NULL;
+	}
 
-	for (i = 1; i < 125; i++)
-		ctx_data[i] = rte_cpu_to_be_64(ctx_data[i]);
+	lctx->inst_mem = rte_malloc(NULL,
+				    CPT_LKP_RING_SZ * sizeof(struct cpt_inst_s),
+				    RTE_CACHE_LINE_SIZE);
+	if (!lctx->inst_mem) {
+		rte_mempool_free(lctx->mempool);
+		rte_free(lctx);
+		return NULL;
+	}
 
-	return table;
+	ret = rte_mempool_get_bulk(lctx->mempool, lctx->data_ptrs, CPT_LKP_RING_SZ);
+	if (ret) {
+		rte_free(lctx->inst_mem);
+		rte_mempool_free(lctx->mempool);
+		rte_free(lctx);
+		return NULL;
+	}
+
+	return lctx;
 }
+
+static void
+cpt_em_lcore_ctx_destroy(struct cpt_em_lcore_ctx *lctx)
+{
+	if (!lctx)
+		return;
+
+	rte_free(lctx->inst_mem);
+	rte_mempool_free(lctx->mempool);
+	rte_free(lctx);
+}
+
+static bool cpt_cryptodev_initialized;
 
 static int
 cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
@@ -237,38 +563,15 @@ cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
 	struct rte_cryptodev_config config;
 	unsigned int j, nb_qp, qps_reqd;
 	uint8_t socket_id, nb_lcores;
-	int ret, core_id, len = 0;
+	int ret, core_id;
 	uint32_t dev_cnt;
 	void *table;
 	uint64_t i;
-	char name[64];
 
 	nb_lcores = rte_lcore_count();
 
-	snprintf(name, 63, "dptr_mp_%d", cpt_em_cfg->dao_cpt_em_tbl.port_id);
-
-	len = sizeof(union cpt_res_s) + 2048;
-	cpt_em_cfg->dao_cpt_em_tbl.mempool =
-		rte_mempool_create(name, NB_DESC, len, RTE_MEMPOOL_CACHE_MAX_SIZE, 0, NULL, NULL,
-				   NULL, NULL, SOCKET_ID_ANY, 0);
-	if (cpt_em_cfg->dao_cpt_em_tbl.mempool == NULL) {
-		RTE_LOG(ERR, USER1, "Could not create DPTR mempool\n");
-		return -1;
-	}
-
-	cpt_em_cfg->dao_cpt_em_tbl.inst_mem =
-		rte_malloc(NULL, BURST_SIZE_MAX * sizeof(struct cpt_inst_s), 0);
-	if (cpt_em_cfg->dao_cpt_em_tbl.inst_mem == NULL) {
-		printf("Could not allocate instruction memory\n");
-		return -1;
-	}
-
-	ret = rte_mempool_get_bulk(cpt_em_cfg->dao_cpt_em_tbl.mempool,
-				   cpt_em_cfg->dao_cpt_em_tbl.data_ptrs, BURST_SIZE_MAX);
-	if (ret) {
-		printf("Could not allocate data buffers\n");
-		return -1;
-	}
+	if (cpt_cryptodev_initialized)
+		goto skip_crypto_init;
 
 	dev_cnt = rte_cryptodev_devices_get("crypto_cn10k", ctx.enabled_cdevs, RTE_CRYPTO_MAX_DEVS);
 	if (dev_cnt == 0) {
@@ -282,12 +585,14 @@ cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
 	i = 0;
 
 	do {
-		rte_cryptodev_info_get(i, &dev_info);
+		uint8_t dev_id = ctx.enabled_cdevs[i];
+
+		rte_cryptodev_info_get(dev_id, &dev_info);
 		qps_reqd = RTE_MIN(dev_info.max_nb_queue_pairs, qps_reqd);
-		rte_cryptodev_stop(i);
+		rte_cryptodev_stop(dev_id);
 
 		for (j = 0; j < qps_reqd; j++) {
-			ctx.lconf[core_id].dev_id = i;
+			ctx.lconf[core_id].dev_id = dev_id;
 			ctx.lconf[core_id].qp_id = j;
 			core_id++;
 			if (core_id == RTE_MAX_LCORE)
@@ -300,9 +605,9 @@ cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
 		config.nb_queue_pairs = nb_qp;
 		config.socket_id = socket_id;
 
-		ret = rte_cryptodev_configure(i, &config);
+		ret = rte_cryptodev_configure(dev_id, &config);
 		if (ret < 0) {
-			RTE_LOG(ERR, USER1, "Could not configure cryptodev - %" PRIu64 "\n", i);
+			RTE_LOG(ERR, USER1, "Could not configure cryptodev - %u\n", dev_id);
 			return -1;
 		}
 
@@ -310,15 +615,15 @@ cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
 		qp_conf.nb_descriptors = NB_DESC;
 
 		for (j = 0; j < nb_qp; j++) {
-			ret = rte_cryptodev_queue_pair_setup(i, j, &qp_conf, socket_id);
+			ret = rte_cryptodev_queue_pair_setup(dev_id, j, &qp_conf, socket_id);
 			if (ret < 0) {
 				RTE_LOG(ERR, USER1,
-					"Could not configure queue pair: %" PRIu64 " - %d\n", i, j);
+					"Could not configure queue pair: %u - %d\n", dev_id, j);
 				return -1;
 			}
 		}
 
-		ret = rte_cryptodev_start(i);
+		ret = rte_cryptodev_start(dev_id);
 		if (ret < 0) {
 			RTE_LOG(ERR, USER1, "Could not start cryptodev\n");
 			return -1;
@@ -330,9 +635,12 @@ cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
 	} while (i < dev_cnt && core_id < RTE_MAX_LCORE);
 
 	ctx.nb_cryptodevs = i;
+	cpt_cryptodev_initialized = true;
 
-	// table = cpt_em_table_init(CPT_EM_MAX_TABLE_ENTRIES, CPT_EM_ACTION_DATA_SIZE, 1);
-	table = cpt_em_table_init(CPT_EM_MAX_TABLE_ENTRIES, 8, 1);
+skip_crypto_init:
+	table = cpt_em_table_init(CPT_EM_MAX_TABLE_ENTRIES, 8,
+				  cpt_em_cfg->dao_cpt_em_tbl.enable_ctx_cache,
+				  cpt_em_cfg->dao_cpt_em_tbl.port_id);
 	if (table == NULL) {
 		printf("Table init failed\n");
 		return 1;
@@ -340,6 +648,10 @@ cryptodev_init(struct cpt_em_config_per_port *cpt_em_cfg)
 	printf("Table init success\n");
 
 	cpt_em_cfg->dao_cpt_em_tbl.cpt_em_table = table;
+	if (cpt_em_cfg->dao_cpt_em_tbl.enable_ctx_cache)
+		cpt_em_cfg->dao_cpt_em_tbl.base_alloc = (uint8_t *)table - 8;
+	else
+		cpt_em_cfg->dao_cpt_em_tbl.base_alloc = table;
 	cpt_em_cfg->dao_cpt_em_tbl.kf_ptr_save =
 		cpt_em_cfg->dao_cpt_em_tbl.cpt_em_table->key_fields;
 
@@ -364,17 +676,23 @@ cpt_em_global_config_init(uint16_t port_id, void **gcfg)
 	if (!cpt_em_gbl) {
 		cpt_em_gbl = rte_zmalloc("cpt_em_global_config",
 					 sizeof(struct cpt_em_global_config), RTE_CACHE_LINE_SIZE);
-		if (!cpt_em_gbl)
-			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to allocate memory");
+		if (!cpt_em_gbl) {
+			rc = -ENOMEM;
+			DAO_ERR_GOTO(rc, fail, "Failed to allocate memory");
+		}
 
 		*gcfg = (void *)cpt_em_gbl;
 	}
-	/* Initialize global ACL configuration */
+	/* Initialize global CPT-EM configuration */
+	if (port_id >= RTE_MAX_ETHPORTS) {
+		rc = -EINVAL;
+		DAO_ERR_GOTO(rc, fail, "Invalid port_id %d", port_id);
+	}
 	cpt_em_cfg_prt = &cpt_em_gbl->cpt_em_cfg_prt[port_id];
-	if (!cpt_em_cfg_prt)
-		DAO_ERR_GOTO(-EINVAL, fail, "Failed to get per cpt em tables for port %d", port_id);
 
 	cpt_em_cfg_prt->dao_cpt_em_tbl.port_id = port_id;
+	cpt_em_cfg_prt->dao_cpt_em_tbl.egrp = gbl_cfg->cpt_egrp;
+	cpt_em_cfg_prt->dao_cpt_em_tbl.enable_ctx_cache = gbl_cfg->cpt_ctx_cache_enable;
 
 	rc = cryptodev_init(cpt_em_cfg_prt);
 	if (rc)
@@ -383,7 +701,7 @@ cpt_em_global_config_init(uint16_t port_id, void **gcfg)
 
 	return 0;
 fail:
-	return errno;
+	return rc;
 }
 
 static int
@@ -398,9 +716,7 @@ cpt_em_table_delete_rule(void *table, uint64_t rule_id)
 	if (rule_id == CPT_EM_INVALID_INDEX)
 		return -1;
 
-	delete_ptr = (uint64_t *)((uint8_t *)table +
-				  (sizeof(struct cpt_em_table) +
-				   (em_table->tbl.table_size * sizeof(struct cpt_em_entry))));
+	delete_ptr = cpt_em_delete_ptr(em_table);
 
 	entry = &em_table->entries[delete_ptr[rule_id]];
 	if (!entry->valid)
@@ -408,7 +724,7 @@ cpt_em_table_delete_rule(void *table, uint64_t rule_id)
 
 	if (entry->direct) {
 		if (entry->next != CPT_EM_INVALID_INDEX) {
-			next_entry = &em_table->entries[htobe64(entry->next)];
+			next_entry = &em_table->entries[be64toh(entry->next)];
 			memcpy(entry->key, next_entry->key, CPT_EM_ENTRY_DATA_SIZE);
 			memcpy(entry->action, next_entry->action, CPT_EM_ACTION_DATA_SIZE);
 			entry->next = next_entry->next;
@@ -422,9 +738,9 @@ cpt_em_table_delete_rule(void *table, uint64_t rule_id)
 	}
 
 	if (entry->prev != CPT_EM_INVALID_INDEX)
-		em_table->entries[htobe64(entry->prev)].next = entry->next;
+		em_table->entries[be64toh(entry->prev)].next = entry->next;
 	if (entry->next != CPT_EM_INVALID_INDEX)
-		em_table->entries[htobe64(entry->next)].prev = entry->prev;
+		em_table->entries[be64toh(entry->next)].prev = entry->prev;
 
 	free_entry = &em_table->entries[free_index];
 	free_entry->prev = entry->prev;
@@ -460,20 +776,25 @@ cpt_em_delete_rule(void *cpt_em_cfg, uint16_t port_id, uint32_t tbl_id, void *ar
 
 	dao_dbg("       After deleted - index made free %d, earlier free index was %d",
 		dao_cpt_em_tbl->action[0].index, tid);
-	dao_dbg("[%s]: Removed ACL rule data %p rule %d", __func__, prule, prule->act_idx);
+	dao_dbg("[%s]: Removed CPT-EM rule data %p rule %d", __func__, prule, prule->act_idx);
 
-	/* Add rules back to context except the one to be deleted */
-	TAILQ_FOREACH(prule, &dao_cpt_em_tbl->flow_list, next) {
-		if ((uintptr_t)prule == (uintptr_t)arule) {
-			cpt_em_table_delete_rule(dao_cpt_em_tbl->cpt_em_table, prule->rule_idx);
-			TAILQ_REMOVE(&dao_cpt_em_tbl->flow_list, prule, next);
+	{
+		struct cpt_em_rule_data *iter, *tmp;
+
+		DAO_TAILQ_FOREACH_SAFE(iter, &dao_cpt_em_tbl->flow_list, next, tmp) {
+			if ((uintptr_t)iter == (uintptr_t)arule) {
+				cpt_em_table_delete_rule(dao_cpt_em_tbl->cpt_em_table,
+							 iter->rule_idx);
+				TAILQ_REMOVE(&dao_cpt_em_tbl->flow_list, iter, next);
+				break;
+			}
 		}
 	}
 
 	cpt_em_port_cfg->num_rules_per_prt--;
 	rte_spinlock_unlock(&dao_cpt_em_tbl->ctx_lock);
 
-	rte_free(prule);
+	rte_free(arule);
 
 	return 0;
 }
@@ -508,7 +829,7 @@ cpt_em_table_rule_flush(struct dao_cpt_em_table *tbl)
 
 		dao_dbg("       After deleted - index made free %d, earlier free index was %d",
 			tbl->action[0].index, tid);
-		dao_dbg("[%s]: Removed ACL rule data %p rule %ld", __func__, prule,
+		dao_dbg("[%s]: Removed CPT-EM rule data %p rule %ld", __func__, prule,
 			prule->rule_idx);
 		rte_free(prule);
 	}
@@ -521,14 +842,40 @@ fail:
 static int
 cpt_em_table_cleanup(struct dao_cpt_em_table *cpt_em_tbl)
 {
+	int pid = cpt_em_tbl->port_id;
+
+	if (cpt_em_tbl->ctx_cache_active && cpt_em_tbl->cpt_em_table) {
+		uint64_t *uc_ctx = (uint64_t *)cpt_em_tbl->cpt_em_table;
+		uint32_t ctx_words = sizeof(struct cpt_em_table) / sizeof(uint64_t);
+		uint32_t i;
+
+		if (ctx_words > CTX_CACHE_WORDS)
+			ctx_words = CTX_CACHE_WORDS;
+
+		for (i = 0; i < ctx_words; i++)
+			uc_ctx[i] = be64toh(uc_ctx[i]);
+		cpt_em_tbl->ctx_cache_active = false;
+	}
+
 	if (cpt_em_table_rule_flush(cpt_em_tbl))
 		DAO_ERR_GOTO(errno, fail, "Failed to flush cpt em rules list for table %d",
 			     cpt_em_tbl->tbl_id);
 
-	rte_mempool_free(cpt_em_tbl->mempool);
-	rte_free(cpt_em_tbl->inst_mem);
+	{
+		uint32_t lc;
+
+		for (lc = 0; lc < RTE_MAX_LCORE; lc++) {
+			cpt_em_lcore_ctx_destroy(cpt_em_tbl->lcore_ctx[lc]);
+			cpt_em_tbl->lcore_ctx[lc] = NULL;
+		}
+	}
 	rte_free(cpt_em_tbl->kf_ptr_save);
 	rte_free(cpt_em_tbl->action);
+
+	if (pid >= 0 && pid < (int)RTE_MAX_ETHPORTS && table_uses_hugepage[pid])
+		free_512mb_hugepage(pid);
+	else if (cpt_em_tbl->base_alloc)
+		rte_free(cpt_em_tbl->base_alloc);
 
 	return 0;
 fail:
@@ -597,75 +944,58 @@ cpt_em_get_entry_dump(void *cfg, uint16_t port_id, uint32_t tbl_id, void *rule_d
 		printf("prev = 0x%lx, next = 0x%lx, id = 0x%lx, direct = %d, valid = %d\n",
 		       (entry->prev), (entry->next), (entry->id), entry->direct, entry->valid);
 		printf("Key:");
-		for (int i = 0; i < tbl_info->key_size; i++)
-			printf("0x%02x ", entry->key[i]);
+		for (int j = 0; j < tbl_info->key_size; j++)
+			printf("0x%02x ", entry->key[j]);
 		printf("\nAction:");
-		for (int i = 0; i < tbl_info->action_size; i++)
-			printf("0x%02x ", entry->action[i]);
+		for (int j = 0; j < tbl_info->action_size; j++)
+			printf("0x%02x ", entry->action[j]);
 		printf("\n");
 	}
 
 	return 0;
 }
 
-// Function to reverse the bits of a 32-bit unsigned integer
-static uint32_t
-bitreverse(uint32_t x)
+#define CPT_EM_PKT_OFF_ETH   0
+#define CPT_EM_PKT_OFF_IP   (14 + 4)
+#define CPT_EM_PKT_OFF_UDP  (14 + 4 + 20)
+#define CPT_EM_KEY_OFF_DMAC 0
+#define CPT_EM_KEY_OFF_IP   6
+#define CPT_EM_KEY_OFF_SPORT 14
+
+static __rte_always_inline void
+cpt_em_extract_key_from_pkt(const uint8_t *p, uint8_t *key_out)
 {
-	x = ((x >> 1) & 0x55555555) | ((x << 1) & 0xAAAAAAAA);
-	x = ((x >> 2) & 0x33333333) | ((x << 2) & 0xCCCCCCCC);
-	x = ((x >> 4) & 0x0F0F0F0F) | ((x << 4) & 0xF0F0F0F0);
-	x = ((x >> 8) & 0x00FF00FF) | ((x << 8) & 0xFF00FF00);
-	x = (x >> 16) | (x << 16);
-	return x;
+	/* DMAC: 6 bytes, network order */
+	memcpy(key_out, p, 6);
+
+	/* SIP + DIP: 8 bytes at IP offset 12, network order */
+	memcpy(key_out + 6, p + CPT_EM_PKT_OFF_IP + 12, 8);
+
+	/* UDP src port: 2 bytes, network order */
+	memcpy(key_out + 14, p + CPT_EM_PKT_OFF_UDP, 2);
 }
 
-// Function to calculate the CRC
-static void
-calculate_crc(uint32_t *iv, unsigned char *ptr, uint32_t len, bool flip)
+static __rte_always_inline uint32_t
+cpt_em_sw_lookup_at(struct cpt_em_entry *entry, const uint8_t *key,
+		    uint16_t key_size, struct cpt_em_entry *entries,
+		    uint32_t table_size)
 {
-	uint32_t iv_upper = *iv;
-	uint32_t byte, temp, k;
+	uint64_t idx;
 
-	for (uint32_t i = 0; i < len; i++) {
-		byte = (uint32_t)*ptr;
-		ptr++;
-		temp = byte;
-
-		if (flip) {
-			for (k = 0; k < 8; k++)
-				byte = (byte << 1) | ((temp >> k) & 1);
-		}
-
-		iv_upper = iv_upper ^ (byte << 24);
-
-		for (k = 0; k < 8; k++) {
-			if (iv_upper >> 31)
-				iv_upper = (iv_upper << 1) ^ 0x04C11DB7;
-			else
-				iv_upper = iv_upper << 1;
-		}
+	while (entry->valid) {
+		if (memcmp(entry->key, key, key_size) == 0)
+			return *(uint32_t *)entry->action;
+		idx = entry->next;
+		if (idx == CPT_EM_INVALID_INDEX)
+			return 0;
+		idx = rte_be_to_cpu_64(idx);
+		if (idx >= table_size)
+			return 0;
+		entry = &entries[idx];
 	}
-	iv_upper = iv_upper ^ 0xFFFFFFFF;
-	*iv = iv_upper;
-	*(iv + 1) = bitreverse(iv_upper);
+	return 0;
 }
 
-static uint64_t
-get_hash(uint8_t *key, uint32_t key_size)
-{
-	uint32_t iv[2] = {0xFFFFFFFF, 0}, crc;
-
-	calculate_crc(iv, key, key_size, true); // get 4 bytes crc
-	crc = iv[1];
-	crc = htobe32(crc);
-	// printf("CRC32 of key = 0x%x,\n", crc);
-	// return crc & (table_size-1);
-	// return (crc % table_size); //if the number of entries is 4194304
-	return (crc & 0x3FFFFF); // if the number of entries is 4194304
-}
-
-uint32_t count;
 static uint64_t
 cpt_em_table_add_entry(struct dao_cpt_em_table *dao_cpt_em_tbl, uint8_t okey[], uint8_t action[])
 {
@@ -675,16 +1005,14 @@ cpt_em_table_add_entry(struct dao_cpt_em_table *dao_cpt_em_tbl, uint8_t okey[], 
 	struct cpt_em_table_info *tbl_info = &dao_cpt_em_tbl->tbl_info;
 	uint64_t hash;
 	uint64_t *delete_ptr = NULL;
-	uint8_t key[CPT_EM_ENTRY_DATA_SIZE];
+	uint8_t key[CPT_EM_ENTRY_DATA_SIZE] = {0};
 
 	if (!em_table)
 		return -1;
 
 	key_fields = &dao_cpt_em_tbl->key_fields;
 
-	delete_ptr = (uint64_t *)((uint8_t *)em_table +
-				  (sizeof(struct cpt_em_table) +
-				   (em_table->tbl.table_size * sizeof(struct cpt_em_entry))));
+	delete_ptr = cpt_em_delete_ptr(em_table);
 	dao_cpt_em_tbl->delete_ptr = delete_ptr;
 	for (int i = 0; i < key_fields->num_fields; i++) {
 		uint8_t offset_in_key = key_fields->kinfo[i].user_key;
@@ -694,21 +1022,21 @@ cpt_em_table_add_entry(struct dao_cpt_em_table *dao_cpt_em_tbl, uint8_t okey[], 
 		memcpy(key + offset_in_alg_key, okey + offset_in_key, size);
 	}
 
-	hash = get_hash(key, em_table->tbl.key_size); //, em_table->tbl.table_size);
+	hash = get_hash(key, em_table->tbl.key_size);
 	entry = &em_table->entries[hash];
-	// printf("entries start:%p, count = %d hash = 0x%lx\n", em_table->entries, count++, hash);
 
 	if (!entry->valid) {
-		// printf("new location, index = 0x%lx\n", hash);
 		memcpy(entry->key, key, tbl_info->key_size);
 		memcpy(entry->action, action, tbl_info->action_size);
 		entry->valid = 1;
 		entry->direct = 1;
 		if (em_table->free_index == hash)
-			em_table->free_index = htobe64(entry->next);
+			em_table->free_index = be64toh(entry->next);
 
-		em_table->entries[htobe64(entry->prev)].next = entry->next;
-		em_table->entries[htobe64(entry->next)].prev = entry->prev;
+		if (entry->prev != CPT_EM_INVALID_INDEX)
+			em_table->entries[be64toh(entry->prev)].next = entry->next;
+		if (entry->next != CPT_EM_INVALID_INDEX)
+			em_table->entries[be64toh(entry->next)].prev = entry->prev;
 		entry->prev = CPT_EM_INVALID_INDEX;
 		entry->next = CPT_EM_INVALID_INDEX;
 		delete_ptr[entry->id] = entry->index;
@@ -718,7 +1046,7 @@ cpt_em_table_add_entry(struct dao_cpt_em_table *dao_cpt_em_tbl, uint8_t okey[], 
 	if (entry->valid && entry->direct) {
 		uint64_t index = em_table->free_index;
 
-		printf("collision, direct, index = %lu\n", index);
+		dao_dbg("collision, direct, index = %lu", index);
 		if (index == CPT_EM_INVALID_INDEX)
 			return -1;
 		free_entry = &em_table->entries[index];
@@ -726,14 +1054,15 @@ cpt_em_table_add_entry(struct dao_cpt_em_table *dao_cpt_em_tbl, uint8_t okey[], 
 		memcpy(free_entry->action, action, tbl_info->action_size);
 		free_entry->valid = 1;
 		free_entry->direct = 0;
-		em_table->free_index = htobe64(free_entry->next);
+		em_table->free_index = be64toh(free_entry->next);
 		if (free_entry->prev != CPT_EM_INVALID_INDEX)
-			em_table->entries[htobe64(free_entry->prev)].next = free_entry->next;
+			em_table->entries[be64toh(free_entry->prev)].next = free_entry->next;
 		if (free_entry->next != CPT_EM_INVALID_INDEX)
-			em_table->entries[htobe64(free_entry->next)].prev = free_entry->prev;
+			em_table->entries[be64toh(free_entry->next)].prev = free_entry->prev;
 		free_entry->prev = htobe64(hash);
 		free_entry->next = entry->next;
-		em_table->entries[htobe64(entry->next)].prev = htobe64(index);
+		if (entry->next != CPT_EM_INVALID_INDEX)
+			em_table->entries[be64toh(entry->next)].prev = htobe64(index);
 		entry->next = htobe64(index);
 		delete_ptr[free_entry->id] = free_entry->index;
 		return free_entry->id;
@@ -743,26 +1072,26 @@ cpt_em_table_add_entry(struct dao_cpt_em_table *dao_cpt_em_tbl, uint8_t okey[], 
 		uint64_t index = em_table->free_index;
 		uint64_t tid;
 
-		// printf("collision, non direct, index = %lu\n", index);
 		if (index == CPT_EM_INVALID_INDEX)
 			return -1;
 		free_entry = &em_table->entries[index];
-		em_table->free_index = htobe64(free_entry->next);
+		em_table->free_index = be64toh(free_entry->next);
 
 		memcpy(free_entry->key, entry->key, CPT_EM_ENTRY_DATA_SIZE);
 		memcpy(free_entry->action, entry->action, CPT_EM_ACTION_DATA_SIZE);
 		free_entry->valid = 1;
 		free_entry->direct = 0;
 		if (free_entry->prev != CPT_EM_INVALID_INDEX)
-			em_table->entries[htobe64(free_entry->prev)].next = free_entry->next;
+			em_table->entries[be64toh(free_entry->prev)].next = free_entry->next;
 		if (free_entry->next != CPT_EM_INVALID_INDEX)
-			em_table->entries[htobe64(free_entry->next)].prev = free_entry->prev;
+			em_table->entries[be64toh(free_entry->next)].prev = free_entry->prev;
 		free_entry->prev = entry->prev;
 		free_entry->next = entry->next;
 		tid = free_entry->id;
 		free_entry->id = entry->id;
 		delete_ptr[free_entry->id] = free_entry->index;
-		em_table->entries[htobe64(entry->prev)].next = htobe64(index);
+		if (entry->prev != CPT_EM_INVALID_INDEX)
+			em_table->entries[be64toh(entry->prev)].next = htobe64(index);
 
 		memcpy(entry->key, key, tbl_info->key_size);
 		memcpy(entry->action, action, tbl_info->action_size);
@@ -793,28 +1122,23 @@ cpt_em_populate_action(const struct rte_flow_action actions[], struct cpt_em_act
 			act_mark = (const struct rte_flow_action_mark *)actions->conf;
 			mark = act_mark->id;
 			em_act->in_use = true;
-			em_act->act_map |= ACL_ACTION_MARK;
+			em_act->act_map |= CPT_EM_ACTION_MARK;
 			em_act->u.rx_action = (uint64_t)mark;
 			break;
 		case RTE_FLOW_ACTION_TYPE_COUNT:
 			em_act->counter_enable = true;
-			em_act->act_map |= ACL_ACTION_COUNT;
+			em_act->act_map |= CPT_EM_ACTION_COUNT;
 			break;
 		case RTE_FLOW_ACTION_TYPE_JUMP:
 			act_jmp = (const struct rte_flow_action_jump *)actions->conf;
 			em_act->in_use = true;
 			em_act->n_tblid = act_jmp->group;
-			em_act->act_map |= ACL_ACTION_JUMP;
-
-		case RTE_FLOW_ACTION_TYPE_END:
+			em_act->act_map |= CPT_EM_ACTION_JUMP;
 			break;
 		default:
 			return -1;
 		}
 	}
-	/* Enabling count action for all */
-	em_act->counter_enable = true;
-	em_act->act_map |= ACL_ACTION_COUNT;
 
 	return 0;
 }
@@ -827,13 +1151,19 @@ cpt_em_parse_action(const struct rte_flow_action actions[], struct dao_cpt_em_ta
 
 	/* Out of space, expand the array */
 	if (cpt_em_tbl->action[0].index == (uint32_t)~0x0) {
+		uint32_t new_size = cpt_em_tbl->size * 2;
+
 		cpt_em_tbl->action =
-			rte_realloc(cpt_em_tbl->action, cpt_em_tbl->size * 2, RTE_CACHE_LINE_SIZE);
-		for (i = cpt_em_tbl->size; i < (cpt_em_tbl->size * 2) - 1; i++)
+			rte_realloc(cpt_em_tbl->action,
+				    sizeof(struct cpt_em_actions) * new_size,
+				    RTE_CACHE_LINE_SIZE);
+		if (cpt_em_tbl->action == NULL)
+			DAO_ERR_GOTO(-ENOMEM, fail, "Failed to expand action array");
+		for (i = cpt_em_tbl->size; i < new_size - 1; i++)
 			cpt_em_tbl->action[i].index = i + 1;
 		cpt_em_tbl->action[i].index = (uint32_t)~0x0;
 		cpt_em_tbl->action[0].index = cpt_em_tbl->size;
-		cpt_em_tbl->size = (cpt_em_tbl->size * 2);
+		cpt_em_tbl->size = new_size;
 	}
 	/* Get free action index */
 	action = cpt_em_tbl->action[0].index;
@@ -852,21 +1182,38 @@ fail:
 }
 
 static void
-cpt_em_rule_prepare(struct cpt_em_rule_data *rule_data, struct parsed_flow *flow)
+cpt_em_rule_prepare_from_pattern(struct cpt_em_rule_data *rule_data,
+				 const struct rte_flow_item pattern[])
 {
-	int i, offset, key_size;
-	uint8_t *buf = (uint8_t *)flow->parsed_data;
+	uint8_t *key = (uint8_t *)rule_data->parsed_flow_data;
 
-	key_size = cpt_em_key_size_get(cpt_em_kcfg);
-	offset = 5; // Skip parse nibbles.
+	memset(rule_data->parsed_flow_data, 0, sizeof(rule_data->parsed_flow_data));
 
-	//	memset((uint8_t *)flow->parsed_data, 0, cpt_em_kcfg[0].offset_in_key);
-	memmove(buf, &buf[offset], key_size);
-	memset(&buf[key_size], 0, offset);
-
-	for (i = 0; i < FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS; i++) {
-		rule_data->parsed_flow_data[i] = flow->parsed_data[i];
-		rule_data->parsed_flow_data_mask[i] = flow->parsed_data_mask[i];
+	for (; pattern->type != RTE_FLOW_ITEM_TYPE_END; pattern++) {
+		switch (pattern->type) {
+		case RTE_FLOW_ITEM_TYPE_ETH: {
+			const struct rte_flow_item_eth *eth = pattern->spec;
+			if (eth)
+				memcpy(key + 0, eth->hdr.dst_addr.addr_bytes, 6);
+			break;
+		}
+		case RTE_FLOW_ITEM_TYPE_IPV4: {
+			const struct rte_flow_item_ipv4 *ip = pattern->spec;
+			if (ip) {
+				memcpy(key + 6, &ip->hdr.src_addr, 4);
+				memcpy(key + 10, &ip->hdr.dst_addr, 4);
+			}
+			break;
+		}
+		case RTE_FLOW_ITEM_TYPE_UDP: {
+			const struct rte_flow_item_udp *udp = pattern->spec;
+			if (udp)
+				memcpy(key + 14, &udp->hdr.src_port, 2);
+			break;
+		}
+		default:
+			break;
+		}
 	}
 }
 
@@ -895,21 +1242,20 @@ cpt_em_rule_create(void *cpt_em_cfg, const struct rte_flow_attr *attr,
 
 	if (!dao_cpt_em_tbl->init_done) {
 		if (!dao_cpt_em_tbl->action) {
-			/* Allocate space for action data */
+#define CPT_EM_INIT_ACTION_SIZE 4096
 			dao_cpt_em_tbl->action = rte_zmalloc("cpt_em_action",
 							     sizeof(struct cpt_em_actions) *
-								     CPT_EM_MAX_TABLE_ENTRIES,
+								     CPT_EM_INIT_ACTION_SIZE,
 							     RTE_CACHE_LINE_SIZE);
 			if (dao_cpt_em_tbl->action == NULL)
 				return NULL;
 
-			/* MRU mechanism, action[0] holds next free index */
-			for (i = 0; i < CPT_EM_MAX_TABLE_ENTRIES - 1; i++)
+			for (i = 0; i < CPT_EM_INIT_ACTION_SIZE - 1; i++)
 				dao_cpt_em_tbl->action[i].index = i + 1;
 			dao_cpt_em_tbl->action[i].index = (uint32_t)~0x0;
 		}
 
-		dao_cpt_em_tbl->size = CPT_EM_MAX_TABLE_ENTRIES;
+		dao_cpt_em_tbl->size = CPT_EM_INIT_ACTION_SIZE;
 
 		/* Synchronizing EM context */
 		rte_spinlock_init(&dao_cpt_em_tbl->ctx_lock);
@@ -924,171 +1270,255 @@ cpt_em_rule_create(void *cpt_em_cfg, const struct rte_flow_attr *attr,
 		dao_info("Flow create failed..");
 		return NULL;
 	}
-	/* Parse action */
-	act_idx = cpt_em_parse_action(actions, dao_cpt_em_tbl);
-
-	if (act_idx < 0)
-		DAO_ERR_GOTO(-EINVAL, fail, "Failed to parse actions %d", act_idx);
 
 	rule_data =
 		rte_zmalloc("em_rule_data", sizeof(struct cpt_em_rule_data), RTE_CACHE_LINE_SIZE);
 	if (!rule_data) {
+		rte_free(flow);
 		dao_info("Failed to allocate rule_data memory");
 		return NULL;
 	}
 
-	cpt_em_rule_prepare(rule_data, flow);
+	cpt_em_rule_prepare_from_pattern(rule_data, pattern);
+	rte_free(flow);
+	flow = NULL;
 
 	rte_spinlock_lock(&dao_cpt_em_tbl->ctx_lock);
+
+	act_idx = cpt_em_parse_action(actions, dao_cpt_em_tbl);
+	if (act_idx < 0) {
+		rte_spinlock_unlock(&dao_cpt_em_tbl->ctx_lock);
+		rte_free(rule_data);
+		DAO_ERR_GOTO(-EINVAL, fail, "Failed to parse actions %d", act_idx);
+	}
 
 	rule_id = cpt_em_table_add_entry(dao_cpt_em_tbl, (uint8_t *)rule_data->parsed_flow_data,
 					 (uint8_t *)&act_idx);
 
-	/* Parse action */
 	dao_cpt_em_tbl->action[act_idx].rule_data = rule_data;
 	dao_cpt_em_tbl->action[act_idx].index = act_idx;
 	rule_data->rule_idx = rule_id;
 	rule_data->act_idx = act_idx;
 	dao_cpt_em_tbl->num_rules++;
+
 	rte_spinlock_unlock(&dao_cpt_em_tbl->ctx_lock);
 
 	TAILQ_INSERT_TAIL(&dao_cpt_em_tbl->flow_list, rule_data, next);
-	dao_dbg("Added new ACL rule data %p ", rule_data);
+	dao_dbg("Added new CPT-EM rule data %p ", rule_data);
 
 	cpt_em_port_cfg->num_rules_per_prt++;
 	*rule_idx = rule_data->rule_idx;
 
 	return (void *)rule_data;
 fail:
+	rte_free(flow);
 	return NULL;
 }
 
-static int
-cpt_em_action_mark_id(uint64_t rx_action, struct rte_mbuf *mbuf)
+
+static __rte_cache_aligned struct rte_pmd_cnxk_crypto_qptr *cached_qptr[RTE_MAX_LCORE];
+
+static void
+cpt_em_init_templates(struct dao_cpt_em_table *tbl, struct cpt_em_lcore_ctx *lctx)
 {
-	RTE_SET_USED(mbuf);
+	const uint32_t rptr_off = sizeof(union cpt_res_s) + 128;
+	struct cpt_inst_s *inst;
+	union cpt_inst_w4 w4;
+	union cpt_inst_w7 w7;
+	uint16_t ks, as;
+	uint32_t i;
 
-	uint16_t mark;
+	ks = tbl->tbl_info.key_size;
+	as = tbl->tbl_info.action_size;
 
-	if (!rx_action)
-		DAO_ERR_GOTO(-EINVAL, fail, "Mark ID not received");
+	w4.u64 = 0;
+	w4.s.opcode_major = 0x7;
+	w4.s.dlen = 128;
+	w4.s.param2 = ((((ks + 7) >> 3) & 0xf) << 4) | (((as + 7) >> 3) & 0xf);
 
-	//        mark = ((uint64_t)rx_action >> 40) & 0xFFFF;
-	mark = (uint64_t)rx_action & 0xFFFF;
+	w7.u64 = 0;
+	w7.s.egrp = tbl->egrp;
+	if (tbl->tbl_info.reserved && tbl->ctx_cache_active) {
+		uint8_t *base_ptr = (uint8_t *)tbl->cpt_em_table - 8;
 
-	dao_dbg("Action Mark id is %d", mark);
+		w7.s.ctx_val = 1;
+		w7.s.cptr = (uint64_t)base_ptr;
+	} else {
+		w7.s.ctx_val = 0;
+		w7.s.cptr = (uint64_t)tbl->cpt_em_table;
+	}
 
-	mbuf->ol_flags |= RTE_MBUF_F_RX_FDIR_ID;
-	mbuf->hash.fdir.hi = mark;
+	for (i = 0; i < CPT_LKP_RING_SZ; i++) {
+		inst = &lctx->inst_mem[i];
 
-	return 0;
-fail:
-	return errno;
+		lctx->res_ptrs[i] = RTE_PTR_ALIGN_CEIL(lctx->data_ptrs[i], CPT_RES_ALIGN);
+		lctx->rptr_ptrs[i] = (uint8_t *)lctx->data_ptrs[i] + rptr_off;
+
+		inst->w0.u64 = 0;
+		inst->res_addr = (uint64_t)lctx->res_ptrs[i];
+		inst->w2.u64 = 0;
+		inst->w3.u64 = 0;
+		inst->w3.s.qord = (tbl->ctx_cache_active) ? 1 : 0;
+		inst->w4.u64 = w4.u64;
+		inst->rptr = (uint64_t)lctx->rptr_ptrs[i];
+		inst->w7.u64 = w7.u64;
+	}
+
+	lctx->templates_ready = true;
 }
 
-static int
-cpt_em_flow_action_execute(struct cpt_em_config_per_port *em, uint32_t index, struct rte_mbuf *obj)
-{
-	struct cpt_em_actions *em_act = NULL;
-
-	if (!em)
-		DAO_ERR_GOTO(-EINVAL, fail, "Invalid em table");
-
-	em_act = &em->dao_cpt_em_tbl.action[index];
-	if (em_act->index != index)
-		DAO_ERR_GOTO(-EINVAL, fail, "Invalid action index mismatch %d and %d",
-			     em_act->index, index);
-
-	RTE_SET_USED(obj);
-
-	if (!em_act->in_use)
-		DAO_ERR_GOTO(-EINVAL, fail, "Action %d marked unused", em_act->index);
-
-	if (em_act->act_map & EM_ACTION_MARK)
-		if (cpt_em_action_mark_id(em_act->u.rx_action, obj))
-			goto fail;
-
-	if ((em_act->counter_enable) && (em_act->act_map & EM_ACTION_COUNT))
-		em_act->rule_data->rule_hits++;
-
-	return 0;
-fail:
-	return errno;
-}
+#define CPT_EM_BURST_SZ  256
+#define CPT_EM_RING_MASK (CPT_LKP_RING_SZ - 1)
 
 static int
 cpt_em_lookup_process(struct dao_cpt_em_table *dao_cpt_em_tbl, struct rte_mbuf **pkts,
 		      uint32_t nb_objs, uint32_t *result)
 {
-	struct cpt_inst_s *inst, *inst_mem = dao_cpt_em_tbl->inst_mem;
-	struct rte_pmd_cnxk_crypto_qptr *qptr = 0;
-	union cpt_res_s res, *hw_res = 0;
-	uint8_t *result_buf;
-	uint32_t len;
-	uint64_t i;
-	const union cpt_res_s res_init = {
-		.cn10k.compcode = CPT_COMP_NOT_DONE,
-	};
+	struct cpt_em_lcore_ctx *lctx;
+	struct cpt_inst_s *inst_mem;
+	union cpt_res_s **res_ptrs;
+	uint8_t **rptr_ptrs;
+	struct rte_pmd_cnxk_crypto_qptr *qptr;
+	uint32_t submitted, completed, pending;
+	uint32_t head, tail;
+	uint64_t t0, timeout;
+	uint32_t polls;
+	unsigned int lid;
 
-	len = sizeof(union cpt_res_s) + 2048;
+	lid = rte_lcore_id();
 
-	qptr = rte_pmd_cnxk_crypto_qptr_get(0, 0);
-	if (qptr == NULL) {
-		printf("Could not get QPTR\n");
-		return -1;
-	}
+	if (unlikely(!cached_qptr[lid])) {
+		uint8_t dev = ctx.lconf[lid].dev_id;
+		uint8_t qp = ctx.lconf[lid].qp_id;
 
-	dao_cpt_em_tbl->ttable_ctx = cpt_em_table_enable_ctx_caching(dao_cpt_em_tbl->cpt_em_table);
-	for (i = 0; i < nb_objs;) {
-		memset(dao_cpt_em_tbl->data_ptrs[i], 0, len);
-		inst = RTE_PTR_ADD(inst_mem, i * sizeof(struct cpt_inst_s));
-		hw_res = RTE_PTR_ALIGN_CEIL(dao_cpt_em_tbl->data_ptrs[i], CPT_RES_ALIGN);
-		memset(hw_res, 0, sizeof(union cpt_res_s));
-		memset(inst, 0, sizeof(struct cpt_inst_s));
-		inst->w3.s.qord = 1;
-		inst->w4.s.opcode_major = 0x7;
-		inst->w4.s.opcode_minor = 0;
-		uint16_t ptypes = pkts[i]->packet_type;
-
-		inst->w4.s.param1 = ptypes;
-		inst->w4.s.param2 = ((16 << 8) | 8);
-		uint16_t dlen = pkts[i]->pkt_len;
-
-		if (dlen > 256)
-			dlen = 256;
-		inst->w4.s.dlen = dlen;
-		uint8_t *dptr = (uint8_t *)pkts[i]->buf_addr + pkts[i]->data_off;
-
-		inst->dptr = ((uintptr_t)dptr);
-		result_buf = (uint8_t *)dao_cpt_em_tbl->data_ptrs[i];
-		inst->rptr = (uint64_t)&result_buf[sizeof(union cpt_res_s) + 128];
-		inst->w7.s.ctx_val = 1;
-		inst->w7.s.egrp = ROC_CPT_DFLT_ENG_GRP_SE;
-		inst->w7.s.cptr = (uint64_t)dao_cpt_em_tbl->ttable_ctx;
-		inst->res_addr = (uint64_t)hw_res;
-		__atomic_store_n(&hw_res->u64[0], res_init.u64[0], __ATOMIC_RELAXED);
-		i++;
-	}
-	inst = inst_mem;
-	rte_pmd_cnxk_crypto_submit(qptr, inst, i);
-	do {
-		hw_res = RTE_PTR_ALIGN_CEIL(dao_cpt_em_tbl->data_ptrs[i - 1], CPT_RES_ALIGN);
-		res.u64[0] = __atomic_load_n(&hw_res->u64[0], __ATOMIC_RELAXED);
-	} while (res.cn10k.compcode == CPT_COMP_NOT_DONE);
-
-	for (uint64_t j = 0; j < i; j++) {
-		hw_res = RTE_PTR_ALIGN_CEIL(dao_cpt_em_tbl->data_ptrs[j], CPT_RES_ALIGN);
-		res.u64[0] = __atomic_load_n(&hw_res->u64[0], __ATOMIC_RELAXED);
-		result_buf = (uint8_t *)dao_cpt_em_tbl->data_ptrs[j];
-		if (res.cn10k.compcode != 1 || res.cn10k.uc_compcode != 0) {
-			printf("compcode: 0x%x, uc_compcode = 0x%x\n", res.cn10k.compcode,
-			       res.cn10k.uc_compcode);
-			return -1;
+		cached_qptr[lid] = rte_pmd_cnxk_crypto_qptr_get(dev, qp);
+		if (!cached_qptr[lid]) {
+			RTE_LOG(ERR, USER1, "Core %u: no QPTR for dev %u qp %u, "
+				"falling back to dev 0 qp 0\n", lid, dev, qp);
+			cached_qptr[lid] = rte_pmd_cnxk_crypto_qptr_get(0, 0);
+			if (!cached_qptr[lid])
+				return -ENODEV;
 		}
-		// memcpy(&result[j], &result_buf[sizeof(union cpt_res_s) + 128],
-		// CPT_EM_ACTION_DATA_SIZE);
-		memcpy(&result[j], &result_buf[sizeof(union cpt_res_s) + 128], 4);
 	}
+
+	lctx = dao_cpt_em_tbl->lcore_ctx[lid];
+	if (unlikely(!lctx)) {
+		lctx = cpt_em_lcore_ctx_create(dao_cpt_em_tbl->port_id, lid);
+		if (!lctx)
+			return -ENOMEM;
+		dao_cpt_em_tbl->lcore_ctx[lid] = lctx;
+	}
+	if (unlikely(!lctx->templates_ready))
+		cpt_em_init_templates(dao_cpt_em_tbl, lctx);
+
+	qptr = cached_qptr[lid];
+	inst_mem = lctx->inst_mem;
+	res_ptrs = lctx->res_ptrs;
+	rptr_ptrs = lctx->rptr_ptrs;
+
+	head = 0;
+	tail = 0;
+	submitted = 0;
+	completed = 0;
+
+	while (completed < nb_objs) {
+		while (submitted < nb_objs) {
+			pending = (tail - head) & CPT_EM_RING_MASK;
+			if (pending >= CPT_LKP_RING_SZ - 1)
+				break;
+
+			uint32_t avail = CPT_LKP_RING_SZ - 1 - pending;
+			uint32_t remaining = nb_objs - submitted;
+			uint32_t count = RTE_MIN(avail, RTE_MIN(remaining, (uint32_t)CPT_EM_BURST_SZ));
+			uint32_t i;
+
+			if (count == 0)
+				break;
+
+			uint32_t first = count;
+			uint32_t tail_idx = tail & CPT_EM_RING_MASK;
+
+			if (tail_idx + count > CPT_LKP_RING_SZ)
+				first = CPT_LKP_RING_SZ - tail_idx;
+
+			for (i = 0; i < first; i++) {
+				struct rte_mbuf *m = pkts[submitted + i];
+
+				if (i + 4 < first)
+					rte_prefetch0(pkts[submitted + i + 4]);
+				inst_mem[tail_idx + i].w4.s.param1 = m->packet_type;
+				inst_mem[tail_idx + i].dptr =
+					(uint64_t)((uint8_t *)m->buf_addr + m->data_off);
+				*(uint32_t *)rptr_ptrs[tail_idx + i] = 0;
+				res_ptrs[tail_idx + i]->u64[0] = CPT_COMP_NOT_DONE;
+			}
+
+			rte_pmd_cnxk_crypto_submit(qptr, &inst_mem[tail_idx], first);
+
+			if (count > first) {
+				uint32_t wrap = count - first;
+
+				for (i = 0; i < wrap; i++) {
+					struct rte_mbuf *m = pkts[submitted + first + i];
+
+					inst_mem[i].w4.s.param1 = m->packet_type;
+					inst_mem[i].dptr =
+						(uint64_t)((uint8_t *)m->buf_addr + m->data_off);
+					*(uint32_t *)rptr_ptrs[i] = 0;
+					res_ptrs[i]->u64[0] = CPT_COMP_NOT_DONE;
+				}
+
+				rte_pmd_cnxk_crypto_submit(qptr, &inst_mem[0], wrap);
+			}
+
+			submitted += count;
+			tail += count;
+		}
+
+		t0 = 0;
+		timeout = 0;
+		polls = 0;
+		pending = (tail - head) & CPT_EM_RING_MASK;
+
+		while (pending > 0) {
+			uint32_t head_idx = head & CPT_EM_RING_MASK;
+			volatile union cpt_res_s *rp = res_ptrs[head_idx];
+
+			if (rp->cn10k.compcode == CPT_COMP_NOT_DONE) {
+				if (unlikely(++polls > 10000)) {
+					polls = 0;
+					if (!t0) {
+						t0 = rte_get_timer_cycles();
+						timeout = rte_get_timer_hz();
+					} else if ((rte_get_timer_cycles() - t0) > timeout) {
+						printf("CPT poll timeout at pkt %u "
+						       "(submitted=%u completed=%u "
+						       "head=%u tail=%u)\n",
+						       completed, submitted,
+						       completed, head, tail);
+						return -ETIMEDOUT;
+					}
+				}
+				if (submitted < nb_objs && pending < CPT_LKP_RING_SZ - 1)
+					break;
+				continue;
+			}
+
+			if (likely(rp->cn10k.compcode == 1 && rp->cn10k.uc_compcode == 0))
+				result[completed] = *(uint32_t *)rptr_ptrs[head_idx];
+			else
+				result[completed] = UINT32_MAX;
+
+			completed++;
+			head++;
+			pending--;
+			polls = 0;
+
+			if (submitted < nb_objs && (completed % CPT_EM_BURST_SZ) == 0)
+				break;
+		}
+	}
+
 	return 0;
 }
 
@@ -1098,7 +1528,8 @@ cpt_em_flow_lookup(void *em_cfg, uint16_t port_id, struct rte_mbuf **objs, uint1
 {
 	struct cpt_em_global_config *em_gbl = (struct cpt_em_global_config *)em_cfg;
 	struct cpt_em_config_per_port *em;
-	int i;
+	struct dao_cpt_em_table *tbl;
+	int rc, i;
 
 	RTE_SET_USED(depth);
 
@@ -1111,26 +1542,190 @@ cpt_em_flow_lookup(void *em_cfg, uint16_t port_id, struct rte_mbuf **objs, uint1
 	if (!objs)
 		return EM_RULE_OBJ_INVALID;
 
-	cpt_em_lookup_process(&em->dao_cpt_em_tbl, objs, nb_objs, result);
+	tbl = &em->dao_cpt_em_tbl;
+
+	rc = cpt_em_lookup_process(tbl, objs, nb_objs, result);
+	if (rc)
+		return rc;
+
 	for (i = 0; i < nb_objs; i++) {
-		if (objs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID)
+		struct cpt_em_actions *act;
+		uint32_t r = result[i];
+
+		if (r == UINT32_MAX || (objs[i]->ol_flags & RTE_MBUF_F_RX_FDIR_ID))
 			continue;
-		if ((result[i] != UINT32_MAX) && em->num_rules_per_prt)
-			cpt_em_flow_action_execute(em, result[i], objs[i]);
+
+		if (unlikely(r >= tbl->size)) {
+			result[i] = UINT32_MAX;
+			continue;
+		}
+
+		if (i + 4 < nb_objs) {
+			uint32_t r_pf = result[i + 4];
+
+			if (r_pf != UINT32_MAX && r_pf < tbl->size)
+				rte_prefetch0(&tbl->action[r_pf]);
+		}
+
+		act = &tbl->action[r];
+
+		if (likely(act->in_use && act->index == r)) {
+			if (act->act_map & CPT_EM_ACTION_MARK) {
+				objs[i]->ol_flags |= RTE_MBUF_F_RX_FDIR_ID;
+				objs[i]->hash.fdir.hi = (uint64_t)act->u.rx_action & 0xFFFF;
+			}
+			if ((act->counter_enable) && (act->act_map & CPT_EM_ACTION_COUNT))
+				__atomic_add_fetch(&act->rule_data->rule_hits,
+						   1, __ATOMIC_RELAXED);
+		}
 	}
 
 	return 0;
 }
 
-/*
-struct flow_fops_t {
-...
-	int (*query)(void *cfg, uint16_t port_id, uint32_t tbl_id, void *rule_data,
-		     struct dao_flow_query_count *query);
-	int (*flush)(void *cfg, uint16_t port_id);
-	int (*info)(void *rule_data, FILE *file, bool is_hw_offloaded);
-	int (*count)(void *cfg, uint16_t port_id);
-};*/
+int
+cpt_em_ctx_cache_warm(void *gcfg, uint16_t port_id)
+{
+	struct cpt_em_global_config *em_gbl = (struct cpt_em_global_config *)gcfg;
+	struct cpt_em_config_per_port *em;
+	struct dao_cpt_em_table *tbl;
+
+	if (!em_gbl)
+		return -EINVAL;
+
+	if (port_id >= RTE_MAX_ETHPORTS) {
+		dao_err("Invalid port_id %u (max %u)", port_id, RTE_MAX_ETHPORTS);
+		return -EINVAL;
+	}
+
+	em = &em_gbl->cpt_em_cfg_prt[port_id];
+	tbl = &em->dao_cpt_em_tbl;
+
+	if (!tbl->enable_ctx_cache) {
+		dao_info("port %u: ctx cache not enabled, skipping warm\n", port_id);
+		return 0;
+	}
+
+	if (!tbl->cpt_em_table) {
+		dao_warn("port %u: table not allocated\n", port_id);
+		return -EINVAL;
+	}
+
+	if (!tbl->tbl_info.reserved) {
+		dao_warn("port %u: table not allocated for ctx caching (no 8B header)\n",
+			 port_id);
+		return -EINVAL;
+	}
+
+	{
+		uint8_t *base_ptr = (uint8_t *)tbl->cpt_em_table - 8;
+		uint64_t *uc_ctx = (uint64_t *)tbl->cpt_em_table;
+		union ctx_hdr hwctx;
+		uint16_t ctx_words = sizeof(struct cpt_em_table) / sizeof(uint64_t);
+		uint32_t i;
+
+		if (ctx_words > CTX_CACHE_WORDS)
+			ctx_words = CTX_CACHE_WORDS;
+
+		for (i = 0; i < ctx_words; i++)
+			uc_ctx[i] = htobe64(uc_ctx[i]);
+
+		hwctx.u64 = 0;
+		hwctx.s.ctx_hdr_size = 0;
+		hwctx.s.ctx_push_size = (1 + hwctx.s.ctx_hdr_size) + ctx_words;
+		hwctx.s.aop_valid = 1;
+		hwctx.s.ctx_size =
+			((8 * (ctx_words + (1 + hwctx.s.ctx_hdr_size)) + 127) / 128);
+
+		memcpy(base_ptr, &hwctx, 8);
+
+		dao_info("port %u: ctx_val=1 hwctx=0x%016lx push=%u size=%u"
+			 " cptr=%p (128B aligned: %s) table=%p\n",
+			 port_id, hwctx.u64,
+			 hwctx.s.ctx_push_size, hwctx.s.ctx_size,
+			 (void *)base_ptr,
+			 ((uintptr_t)base_ptr & 127) == 0 ? "YES" : "NO",
+			 (void *)tbl->cpt_em_table);
+	}
+
+	tbl->ctx_cache_active = true;
+
+	{
+		uint32_t lc;
+
+		for (lc = 0; lc < RTE_MAX_LCORE; lc++) {
+			if (tbl->lcore_ctx[lc])
+				tbl->lcore_ctx[lc]->templates_ready = false;
+		}
+	}
+
+	dao_info("port %u: ctx cache warmed (ctx_val=1, data in BE)\n", port_id);
+	return 0;
+}
+
+static int
+cpt_em_flow_flush(void *cfg, uint16_t port_id)
+{
+	struct cpt_em_global_config *cpt_em_gbl = (struct cpt_em_global_config *)cfg;
+	struct cpt_em_config_per_port *cpt_em_port_cfg;
+
+	cpt_em_port_cfg = &cpt_em_gbl->cpt_em_cfg_prt[port_id];
+
+	return cpt_em_table_rule_flush(&cpt_em_port_cfg->dao_cpt_em_tbl);
+}
+
+static int
+cpt_em_flow_count(void *cfg, uint16_t port_id)
+{
+	struct cpt_em_global_config *cpt_em_gbl = (struct cpt_em_global_config *)cfg;
+	struct cpt_em_config_per_port *cpt_em_port_cfg;
+
+	cpt_em_port_cfg = &cpt_em_gbl->cpt_em_cfg_prt[port_id];
+
+	return cpt_em_port_cfg->num_rules_per_prt;
+}
+
+static int
+cpt_em_rule_query(void *cpt_em_cfg, uint16_t port_id, uint32_t tbl_id, void *arule,
+		  struct dao_flow_query_count *query)
+{
+	struct cpt_em_rule_data *rule_data = (struct cpt_em_rule_data *)arule;
+	uint32_t hits;
+
+	RTE_SET_USED(cpt_em_cfg);
+	RTE_SET_USED(port_id);
+	RTE_SET_USED(tbl_id);
+
+	if (!rule_data || !query)
+		return -EINVAL;
+
+	hits = __atomic_load_n(&rule_data->rule_hits, __ATOMIC_RELAXED);
+	query->rule_hits = hits;
+
+	if (query->reset)
+		__atomic_store_n(&rule_data->rule_hits, 0, __ATOMIC_RELAXED);
+
+	return 0;
+}
+
+static int
+cpt_em_rule_info(void *rule_data, FILE *file, bool is_hw_offloaded)
+{
+	struct cpt_em_rule_data *arule = (struct cpt_em_rule_data *)rule_data;
+
+	if (!arule || !file)
+		return -EINVAL;
+
+	fprintf(file, "\tCPT-EM Rule handle: %p\n", arule);
+	fprintf(file, "\tCPT-EM Rule Index: %lu\n", arule->rule_idx);
+	fprintf(file, "\tCPT-EM Action Index: %u\n", arule->act_idx);
+	fprintf(file, "\tCPT-EM rule hits: %u\n",
+		__atomic_load_n(&arule->rule_hits, __ATOMIC_RELAXED));
+	fprintf(file, "\tCPT-EM rule HW offloaded: %s\n", is_hw_offloaded ? "true" : "false");
+	fprintf(file, "\n");
+
+	return 0;
+}
 
 struct flow_fops_t cpt_em_flow_ops = {
 	.init = cpt_em_global_config_init,
@@ -1138,9 +1733,9 @@ struct flow_fops_t cpt_em_flow_ops = {
 	.create = cpt_em_rule_create,
 	.destroy = cpt_em_delete_rule,
 	.lookup = cpt_em_flow_lookup,
+	.query = cpt_em_rule_query,
 	.dump = cpt_em_get_entry_dump,
-	/*        .query = acl_rule_query,
-		.flush = acl_rule_flush,
-		.info = acl_rule_info,
-		.count = acl_port_rule_count,*/
+	.flush = cpt_em_flow_flush,
+	.info = cpt_em_rule_info,
+	.count = cpt_em_flow_count,
 };

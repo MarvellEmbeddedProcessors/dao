@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define NPC_MAX_LIDS           7
+#define NPC_MAX_LIDS           6
 #define NPC_MAX_LTYPES_PER_LID 16
 #define NPC_MAX_EXT_PER_LTYPE  2
 
