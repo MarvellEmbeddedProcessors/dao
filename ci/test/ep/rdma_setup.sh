@@ -36,13 +36,8 @@ function verify_rdma_setup()
 	local max_pkt_len=9600
 	local dma_nb_desc=8192
 	local serialized_args
-	local num_eth_ifcs=1
-	local eth_pf_ifcs=""
 	local remote_iface
-	local sdp_vf_name
-	local cur_sdp_idx
 	local ping_status
-	local sdp_pcie_vf
 	local pci_devs=""
 	local rdma_utils
 	local app_cmd
@@ -65,21 +60,6 @@ function verify_rdma_setup()
 
 	ep_device_op bind_driver pci $ext_iface vfio-pci
 	pci_devs="$pci_devs $ext_iface"
-
-	# For RDMA sdp vf shall start from index-2
-	cur_sdp_idx=2
-	sdp_pcie_vf=$(ep_device_op pcie_addr_get  $PCI_DEVID_CN10K_RVU_SDP_VF)
-	for iface in $sdp_pcie_vf; do
-		local sdp_pcie_addr=$(get_vf_pcie_addr ${sdp_pcie_vf} $cur_sdp_idx)
-		ep_device_op bind_driver pci $sdp_pcie_addr vfio-pci
-		pci_devs="$pci_devs $sdp_pcie_addr"
-
-		if (( cur_sdp_idx == num_eth_ifcs + 1 )); then
-			break
-		fi
-
-		((cur_sdp_idx++))
-	done
 
 	# Add DPI VFs
 	read -r -a dpi_vfs <<< "$(ep_device_op pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
@@ -108,17 +88,17 @@ function verify_rdma_setup()
 	# Configure Octeon Host
 	ep_host_op rdma_setup 1
 	sleep 1
-	sdp_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
+	rdma_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
 
-	ep_host_op if_configure --pcie-addr $sdp_vfs --ip $host_ip
+	ep_host_op if_configure --pcie-addr $rdma_vfs --ip $host_ip
 	ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
 
 	# Ping remote from host
-	echo "Checking $sdp_vfs (Host) <-> $remote_iface (Remote)"
+	echo "Checking $rdma_vfs (Host) <-> $remote_iface (Remote)"
 	ping_status=$(ep_host_op ping $host_ip $remote_ip 2)
 
 	# Undo all the configurations
-	ep_host_op if_configure --pcie-addr $sdp_vfs --down
+	ep_host_op if_configure --pcie-addr $rdma_vfs --down
 	ep_remote_op if_configure --pcie-addr $remote_iface --down
 
 	ep_host_op rdma_cleanup
