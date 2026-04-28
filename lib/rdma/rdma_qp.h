@@ -95,6 +95,7 @@ typedef enum rdma_qp_type {
 	RDMA_QPT_XRC_INI,
 	RDMA_QPT_XRC_TGT,
 	RDMA_QPT_MAX,
+	RDMA_QPT_MGMT = 0xFF,
 } rdma_qp_type_e;
 
 typedef enum rdma_qp_state {

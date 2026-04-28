@@ -21,6 +21,9 @@ enum pts_rdma_dev_mbox_ids {
 
 /* Mbox data structures */
 
+/* Management QP type — raw Ethernet traffic routed through this QP */
+#define PTS_RDMA_QP_TYPE_MGMT 0xFF
+
 /* MBOX_MSG_SET_QP_CONFIG */
 struct pts_rdma_dev_set_qp_config_req {
 	uint16_t port_id;
@@ -30,6 +33,8 @@ struct pts_rdma_dev_set_qp_config_req {
 	uint16_t rq_size;
 	uint16_t send_cq_id;
 	uint16_t recv_cq_id;
+	uint8_t type;
+	uint8_t sq_sig_type;
 	uint64_t sq_base;
 	uint64_t rq_base;
 	uint64_t ibqp;

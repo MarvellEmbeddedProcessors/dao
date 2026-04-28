@@ -22,6 +22,9 @@ pts_rdma_qp_mem_free(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 	if (!qp)
 		return;
 
+	if (qp->is_mgmt && dev->mgmt_qp_id == qp->qp_id)
+		dev->mgmt_qp_id = -1;
+
 	rte_bitmap_clear(dev->qp_bmap, qp->qp_id);
 	rte_free(qp->rq.cq_data.ring_base);
 	rte_free(qp->rq.sd_desc_base);
@@ -172,6 +175,9 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	}
 
 	qp->qp_id = qp_id;
+	qp->is_mgmt = (req->type == PTS_RDMA_QP_TYPE_MGMT) ? 1 : 0;
+	if (qp->is_mgmt)
+		dao_info("[dev %u] QP %u configured as management QP", dev->dev_id, qp_id);
 	sq = &qp->sq;
 	rq = &qp->rq;
 
@@ -294,10 +300,12 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 		goto rq_free;
 	}
 
-	/* Require for ULP's */
 	qp->ibqp = req->ibqp;
 
 	dao_dev->qps[qp_id] = qp;
+
+	if (qp->is_mgmt)
+		dev->mgmt_qp_id = qp_id;
 
 	dao_dbg("[dev %u] Adding qp%d: sq_desc_base %p sq_sz %u rq_desc_base %p rq_sz %u",
 		dev->dev_id, qp_id, (void *)sq->desc_base, sq->q_sz, (void *)rq->desc_base,

@@ -389,6 +389,10 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 			goto error;
 		}
 		qp->req.dummy_mbuf->port = RTE_MAX_ETHPORTS + devid;
+	} else if (unlikely(qp->type == RDMA_QPT_MGMT)) {
+		wqe.wr = rdma_tx_priv_wr(mbuf);
+		wqe.status = RDMA_WC_SUCCESS;
+		dao_send_cqe(qp, false, &wqe);
 	} else {
 		qp->req.opcode = -1;
 		wqe.wr = rdma_tx_priv_wr(mbuf);

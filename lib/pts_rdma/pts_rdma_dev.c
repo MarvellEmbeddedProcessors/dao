@@ -188,6 +188,7 @@ dao_pts_rdma_dev_init(uint16_t devid, struct dao_pts_rdma_dev_conf *conf)
 	}
 
 	dev->dev_id = devid;
+	dev->mgmt_qp_id = -1;
 	dev->pem_devid = conf->pem_devid;
 	dev->dma_vchan = conf->dma_vchan;
 	dev->pool = conf->data_pool;
@@ -235,6 +236,7 @@ dao_pts_rdma_dev_init(uint16_t devid, struct dao_pts_rdma_dev_conf *conf)
 	/* Populate default config */
 
 	mac_port_id = conf->mac_port_id;
+	dev->mac_port_id = mac_port_id;
 	pts_rdma_dev_config_populate(dev, mac_port_id);
 
 	/* Add signature for each device at beginning of BAR */
@@ -410,6 +412,21 @@ dao_pts_rdma_dev_config_update(uint16_t devid, uint8_t *cfg, uint16_t cfg_len)
 		cfg_reg->opaque_data[1], cfg_reg->opaque_data[2], cfg_reg->opaque_data[3],
 		cfg_reg->opaque_data[4], cfg_reg->opaque_data[5]);
 	return 0;
+}
+
+int32_t
+dao_pts_rdma_mgmt_qp_id_get(uint16_t devid)
+{
+	struct dao_pts_rdma_dev *dao_dev;
+	struct pts_rdma_dev *dev;
+
+	if (devid >= DAO_PTS_RDMA_MAX_DEVS)
+		return -1;
+
+	dao_dev = &dao_pts_rdma_devs[devid];
+	dev = pts_rdma_dev_priv(dao_dev);
+
+	return dev->mgmt_qp_id;
 }
 
 int

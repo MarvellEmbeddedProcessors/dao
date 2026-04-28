@@ -696,7 +696,7 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 
 static __rte_always_inline int
 process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint16_t ci,
-			  struct rte_mbuf *mbuf, uint16_t qp_id, uint32_t *len)
+			  struct rte_mbuf *mbuf, uint32_t *len, bool skip_iova_mask)
 {
 	uint64_t slen, dst_ptr, dst_len;
 	uint32_t nb_enq_sges, dlen;
@@ -711,15 +711,7 @@ process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_ba
 		dst_len = *RQ_DESC_PTR_OFF(desc_base, ci, 24) & 0xFFFFFFFF;
 		dlen = slen > dst_len ? dst_len : slen;
 
-		/* QP ID 1 corresponds to a QPT_GSI (General Service Interface) queue pair,
-		 * which is kernel-managed. The DMA addresses for kernel QPs are already
-		 * properly aligned within the 39-bit address boundary, so IOVA masking
-		 * is not required.
-		 *
-		 * TODO: Implement a mechanism to identify all kernel ULP (Upper Layer Protocol)
-		 * queue pairs and bypass IOVA masking for improved performance.
-		 */
-		if (unlikely(qp_id == 1))
+		if (unlikely(skip_iova_mask))
 			dao_dma_enq_dst_x1(mem2dev, dst_ptr, dlen);
 		else
 			dao_dma_enq_dst_x1(mem2dev, dst_ptr & PTS_RDMA_DEV_IOVA_MASK, dlen);
@@ -744,6 +736,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	struct pts_rdma_qp_rq *rq = &qp->rq;
 	uintptr_t desc_base = (uintptr_t)rq->sd_desc_base;
 	struct pts_rdma_cq_data *cq_data;
+	struct dao_pts_rdma_cqe stack_cqe;
 	struct dao_pts_rdma_cqe *cqe;
 	uint16_t ci, pi, q_sz;
 	uint16_t rqe_slots;
@@ -773,24 +766,27 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci)))
 		return -1;
 
-	if (unlikely(process_and_enq_mbuf_desc(mem2dev, desc_base, ci, mbuf, qp->qp_id, &len)))
+	if (unlikely(process_and_enq_mbuf_desc(mem2dev, desc_base, ci, mbuf, &len,
+					       qp->qp_id == 1 || qp->is_mgmt)))
 		return -1;
 
 #ifdef RTE_LIBRTE_MEMPOOL_DEBUG
-	/* All the buffers would be freed to NPA by DPI.
-	 * Mark them as put since SW did not free them
-	 */
 	RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
 #endif
-	/* Get CQE and update wr_id */
-	cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
-	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);
-	if (unlikely(qp->qp_id == 1))
+
+	if (unlikely(qp->is_mgmt)) {
+		memset(&stack_cqe, 0, sizeof(stack_cqe));
+		cqe = &stack_cqe;
 		cqe->opcode = *RQ_DESC_PTR_OFF(desc_base, ci, 4);
+	} else {
+		cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
+		if (unlikely(qp->qp_id == 1))
+			cqe->opcode = *RQ_DESC_PTR_OFF(desc_base, ci, 4);
+	}
+	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);
 	cqe->byte_len = len;
 	cqe->ibqp = qp->ibqp;
 
-	/* Push CQE at last */
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
 	ci = desc_off_add(ci, rqe_slots, q_sz);
 	rq->sd_mbuf_off = ci;

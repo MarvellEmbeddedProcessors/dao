@@ -100,13 +100,8 @@ rdma_port_link_state_update(uint16_t port_num, uint16_t link_state)
 		return 0;
 
 	rport->state = link_state;
-	if (rport->state == RDMA_PORT_ST_DOWN) {
-		rdma_qp_free(rport->qp);
-		rdma_av_free(rport->av);
-		rdma_pd_free(rport->pd_array);
-	} else {
+	if (rport->state != RDMA_PORT_ST_DOWN)
 		rdma_port_attr_init(rport);
-	}
 
 	dao_info("Port %u is %s", port_num,
 		 rport->state == RDMA_PORT_ST_DOWN ? "RDMA_PORT_ST_DOWN" : "RDMA_PORT_ST_UP");

@@ -351,6 +351,16 @@ int dao_pts_rdma_dequeue_burst(uint16_t devid, int qp_id, struct rte_mbuf **rx_p
 			       uint16_t nb_pkts);
 
 /**
+ * Get the management QP ID for a device.
+ *
+ * @param devid
+ *   Device identifier
+ * @return
+ *   Management QP ID (>= 0) if configured, -1 if not
+ */
+int32_t dao_pts_rdma_mgmt_qp_id_get(uint16_t devid);
+
+/**
  * Enqueue burst of packets to a qp(completion queue or just DMA?) of a RDMA TR device.
  *
  * MBUF data expected.

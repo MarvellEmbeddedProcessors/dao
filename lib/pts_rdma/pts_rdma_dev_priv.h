@@ -160,6 +160,7 @@ struct pts_rdma_qp {
 	uint16_t r_last_off;
 	uint16_t r_q_sz;
 	uint16_t qp_id;
+	uint8_t is_mgmt;
 	uint64_t ibqp;
 };
 
@@ -167,6 +168,7 @@ struct pts_rdma_dev {
 	uint16_t dev_id;
 	uint16_t dma_vchan;
 	uint16_t pem_devid;
+	uint16_t mac_port_id;
 	uint64_t bar4;
 	size_t bar4_sz;
 	size_t host_page_sz;
@@ -193,6 +195,9 @@ struct pts_rdma_dev {
 
 	struct rte_bitmap *qp_bmap;
 	void *qp_bmap_mem;
+
+	/* Management QP for non-RDMA (raw Ethernet) traffic, -1 = not configured */
+	int32_t mgmt_qp_id;
 
 #define MBOX_USR_RSP_SIZE 1024
 	void *mbox_usr_rsp_mem;
