@@ -308,7 +308,7 @@ following commands are available for diagnostics:
 
       card_image_version
       Image version: 25.10.0
-      App version: 25.09.0
+      App version: 25.10.1
 
     This command is particularly useful when:
 
