@@ -977,6 +977,16 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 	qp_init_attr->sq_sig_type = qp->attrs.sq_sig_type;
 
 	up_read(&qp->state_lock);
+	/*
+	 * Ensure non-zero defaults for RDMA READ atomic counts.
+	 * ucma_modify_qp_rtr() queries these BEFORE the first modify_qp(RTR),
+	 * so both irq_size/orq_size and mod values are still 0.
+	 * A zero max_dest_rd_atomic causes firmware to reject inbound READs.
+	 */
+	if (qp_attr->max_rd_atomic == 0)
+		qp_attr->max_rd_atomic = 1;
+	if (qp_attr->max_dest_rd_atomic == 0)
+		qp_attr->max_dest_rd_atomic = 1;
 
 	/* Fallback port_num from device if not set via modify */
 	if (!qp_attr->port_num)
