@@ -3501,6 +3501,7 @@ int
 dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t sess_cookie)
 {
 	struct __dao_lc_req_resp_sess_destroy *req;
+	struct dao_lc_sym_sess_meta *sess_meta;
 	struct liquid_crypto_dev *dev;
 	struct liquid_crypto_qp *qp;
 	struct rte_mbuf *mb;
@@ -3522,6 +3523,8 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 		dao_err("Invalid argument. sess_id not found.");
 		return -EINVAL;
 	}
+
+	sess_meta = DAO_LC_SYM_META_GET_PTR(sess_id);
 
 	dev = &liquid_crypto_devs[dev_id];
 
@@ -3548,6 +3551,7 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 
 	lc_inflight_req_reset(&qp->req_queue[req_idx]);
 	qp->req_queue[req_idx].op_cookie = sess_cookie;
+	qp->req_queue[req_idx].sess_meta = sess_meta;
 
 	mb = rte_pktmbuf_alloc(qp->tx_mp);
 	if (unlikely(mb == NULL)) {
@@ -3577,7 +3581,8 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_SYM_SESSION_DESTROY;
 	req->hdr.trs_hdr.op_len = sizeof(struct __dao_lc_req_resp_sess_destroy);
 	req->hdr.req_idx = req_idx;
-	req->sess_id = DAO_LC_SYM_META_GET_PTR(sess_id)->w7;
+
+	req->sess_id = dao_lc_sym_sess_meta_wire_destroy_id(sess_meta);
 
 	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mb, 1);
 
@@ -3644,6 +3649,8 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 	nb_rx = rte_eth_rx_burst(qp->port_id, qp->queue_id, mbufs, nb_events);
 
 	for (i = 0; i < nb_rx; i++) {
+		uint64_t int_sess_id;
+
 		mbuf = mbufs[i];
 
 		lc_hdr = rte_pktmbuf_mtod(mbuf, struct __dao_lc_hdr *);
@@ -3660,9 +3667,20 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 				events[i].sess_event.sess_id = DAO_LC_SESS_ID_INVALID;
 				dao_err("Could not create session.");
 			} else {
+				if (sess_create->sess_id == DAO_LC_SESS_ID_HASH) {
+					dao_lc_sym_sess_meta_set_kind(req->sess_meta,
+								      DAO_LC_SYM_SESS_KIND_HASH);
+					int_sess_id = (uint64_t)req->sess_meta;
+				} else if (sess_create->sess_id == DAO_LC_SESS_ID_AES_KEY_WRAP) {
+					dao_lc_sym_sess_meta_set_kind(
+						req->sess_meta, DAO_LC_SYM_SESS_KIND_AES_KEY_WRAP);
+					int_sess_id = (uint64_t)req->sess_meta;
+				} else {
+					int_sess_id = (uint64_t)sess_create->sess_id;
+				}
+
 				events[i].sess_event.sess_id = (uint64_t)req->sess_meta;
-				liquid_crypto_sym_sess_meta_insert(req->sess_meta,
-								   sess_create->sess_id);
+				liquid_crypto_sym_sess_meta_insert(req->sess_meta, int_sess_id);
 				dev->active_sess_count++;
 			}
 			break;
@@ -3671,10 +3689,21 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 				rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_resp_sess_destroy *);
 			events[i].event_type = DAO_LC_CMD_EVENT_SESS_DESTROY;
 			events[i].sess_event.sess_cookie = req->op_cookie;
-			rc = liquid_crypto_sym_sess_meta_remove(sess_destroy->sess_id,
+			int_sess_id = (uint64_t)sess_destroy->sess_id;
+
+			if (int_sess_id == DAO_LC_SESS_ID_HASH ||
+			    int_sess_id == DAO_LC_SESS_ID_AES_KEY_WRAP)
+				int_sess_id = (uint64_t)req->sess_meta;
+
+			rc = liquid_crypto_sym_sess_meta_remove(int_sess_id,
 								&events[i].sess_event.sess_id);
-			if ((rc == 0) && (dev->active_sess_count > 0))
+
+			if (rc != 0) {
+				events[i].sess_event.sess_id = DAO_LC_SESS_ID_INVALID;
+				dao_err("Could not destroy session meta: rc = %d.", rc);
+			} else if (dev->active_sess_count > 0) {
 				dev->active_sess_count--;
+			}
 			break;
 		default:
 			dao_err("Invalid op_type.");
