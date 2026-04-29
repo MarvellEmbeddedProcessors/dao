@@ -3664,6 +3664,10 @@ dao_liquid_crypto_cmd_event_dequeue(uint8_t dev_id, struct dao_lc_cmd_event *eve
 			events[i].event_type = DAO_LC_CMD_EVENT_SESS_CREATE;
 			events[i].sess_event.sess_cookie = req->op_cookie;
 			if (sess_create->sess_id == DAO_LC_SESS_ID_INVALID) {
+				/* Free the associated sess_meta */
+				liquid_crypto_sym_sess_meta_free(req->sess_meta);
+				req->sess_meta = NULL;
+
 				events[i].sess_event.sess_id = DAO_LC_SESS_ID_INVALID;
 				dao_err("Could not create session.");
 			} else {
