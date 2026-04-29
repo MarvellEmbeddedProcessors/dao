@@ -14,6 +14,19 @@
 	((struct dao_lc_sym_sess_meta *)((uintptr_t)(sess_opaque)))
 
 /**
+ * Kind subfield of dao_lc_sym_sess_meta::flags:
+ * low bits = dao_lc_sym_sess_kind; high bits reserved
+ */
+#define DAO_LC_SYM_SESS_F_KIND_SHIFT 0u
+#define DAO_LC_SYM_SESS_F_KIND_MASK  0xFFu
+
+enum dao_lc_sym_sess_kind {
+	DAO_LC_SYM_SESS_KIND_HW = 0,
+	DAO_LC_SYM_SESS_KIND_HASH = 1,
+	DAO_LC_SYM_SESS_KIND_AES_KEY_WRAP = 2,
+};
+
+/**
  * The liquid crypto symmetric context.
  */
 struct dao_lc_sym_sess_meta {
@@ -24,6 +37,12 @@ struct dao_lc_sym_sess_meta {
 
 	/** CPT Instruction W7 */
 	uint64_t w7;
+
+	/**
+	 * Session kind and future attributes. Kind (see dao_lc_sym_sess_kind) selects the wire
+	 * session id used for SYM_SESSION_DESTROY; remaining bits are reserved.
+	 */
+	uint16_t flags;
 
 	/**
 	 * Algorithm IV length provided by user.
@@ -64,6 +83,38 @@ struct dao_lc_sym_sess_meta {
 	/* Key encryption key for AES Key wrap */
 	uint8_t kek[DAO_LC_AES_MAX_KEY_ENC_KEY_LEN];
 };
+
+static inline enum dao_lc_sym_sess_kind
+dao_lc_sym_sess_meta_get_kind(const struct dao_lc_sym_sess_meta *sess_meta)
+{
+	return (enum dao_lc_sym_sess_kind)((sess_meta->flags >> DAO_LC_SYM_SESS_F_KIND_SHIFT) &
+					   DAO_LC_SYM_SESS_F_KIND_MASK);
+}
+
+static inline void
+dao_lc_sym_sess_meta_set_kind(struct dao_lc_sym_sess_meta *sess_meta,
+			      enum dao_lc_sym_sess_kind kind)
+{
+	uint16_t k = (uint16_t)kind & (uint16_t)DAO_LC_SYM_SESS_F_KIND_MASK;
+	uint16_t kind_bits =
+		(uint16_t)(DAO_LC_SYM_SESS_F_KIND_MASK << DAO_LC_SYM_SESS_F_KIND_SHIFT);
+
+	sess_meta->flags &= (uint16_t)~kind_bits;
+	sess_meta->flags |= (uint16_t)(k << DAO_LC_SYM_SESS_F_KIND_SHIFT);
+}
+
+static inline uint64_t
+dao_lc_sym_sess_meta_wire_destroy_id(const struct dao_lc_sym_sess_meta *sess_meta)
+{
+	switch (dao_lc_sym_sess_meta_get_kind(sess_meta)) {
+	case DAO_LC_SYM_SESS_KIND_HASH:
+		return DAO_LC_SESS_ID_HASH;
+	case DAO_LC_SYM_SESS_KIND_AES_KEY_WRAP:
+		return DAO_LC_SESS_ID_AES_KEY_WRAP;
+	default:
+		return sess_meta->w7;
+	}
+}
 
 int liquid_crypto_sym_sess_verify(const struct dao_lc_sym_ctx *ctx);
 
