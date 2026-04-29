@@ -1262,7 +1262,7 @@ dao_liquid_crypto_enqueue_op_passthrough(uint8_t dev_id, uint16_t qp_id, uint64_
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -1413,7 +1413,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc(uint8_t dev_id, uint16_t qp_id,
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -1578,7 +1578,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec(uint8_t dev_id, uint16_t qp_id,
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -1747,7 +1747,7 @@ dao_liquid_crypto_enq_op_pkcs1v15enc_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -1914,7 +1914,7 @@ dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uint16_
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -2081,7 +2081,7 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Operation data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -2250,7 +2250,7 @@ dao_liquid_crypto_pqc_enqueue(uint8_t dev_id, uint16_t qp_id, struct dao_lc_pqc_
 	req->hdr.trs_hdr.op_len =
 		RTE_MAX(sizeof(struct __dao_lc_req_pqc) + w4.s.dlen, LIQUID_CRYPTO_BUF_SZ_MIN);
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (req->hdr.trs_hdr.op_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (req->hdr.trs_hdr.op_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", req->hdr.trs_hdr.op_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -2618,7 +2618,7 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 		return 0;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rte_errno = ENOMEM;
 		return 0;
@@ -2745,7 +2745,7 @@ dao_lc_sym_prepare_ops_single_cipher_auth(struct liquid_crypto_qp *qp, struct da
 		return 0;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rte_errno = ENOMEM;
 		return 0;
@@ -2884,7 +2884,7 @@ dao_lc_sym_prepare_ops_single(struct liquid_crypto_qp *qp, struct dao_lc_sym_op 
 		return 0;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rte_errno = ENOMEM;
 		return 0;
@@ -3040,7 +3040,7 @@ dao_lc_sym_prepare_ops_single_keywrap(struct liquid_crypto_qp *qp, struct dao_lc
 		return 0;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data is too large. buf_len = %u", buf_len);
 		rte_errno = ENOMEM;
 		return 0;
@@ -3461,7 +3461,7 @@ dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ctx *c
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -3566,7 +3566,7 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -3788,7 +3788,7 @@ dao_liquid_crypto_enq_op_random(uint8_t dev_id, uint16_t qp_id, struct dao_lc_ra
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("Input data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -3988,7 +3988,7 @@ dao_liquid_crypto_enq_op_ecdsa_sign(uint8_t dev_id, uint16_t qp_id,
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("ECDSA sign data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -4221,7 +4221,7 @@ dao_liquid_crypto_enq_op_ecdsa_verify(uint8_t dev_id, uint16_t qp_id,
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("ECDSA verify data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -4451,7 +4451,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("RSA OAEP enc data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
@@ -4681,7 +4681,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_exp_dec(uint8_t dev_id, uint16_t qp_id, ui
 		goto mbuf_free;
 	}
 
-	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
 		dao_err("RSA OAEP exp decrypt data too large. buf_len = %u", buf_len);
 		rc = -ENOMEM;
 		goto mbuf_free;
