@@ -1726,6 +1726,10 @@ int dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ct
  * The session destroy request would be submitted via the command queue designated by cmd_qp_idx
  * of the device.
  *
+ * Only one destroy operation may be outstanding per session at a time: after a successful submit,
+ * further destroy calls for the same session return ``-EBUSY`` until the completion for that
+ * destroy operation has been dequeued via dao_liquid_crypto_cmd_event_dequeue().
+ *
  * @param dev_id
  * The identifier of the device.
  * @param sess_id
@@ -1736,7 +1740,9 @@ int dao_liquid_crypto_sym_sess_create(uint8_t dev_id, const struct dao_lc_sym_ct
  *
  * @return
  * - On success, 0 is returned.
- * - On failure, a negative value is returned indicating the cause
+ * - ``-EBUSY``, if a destroy for this session has already been submitted and its completion has not
+ *    yet been dequeued.
+ * - On other failures, a negative value is returned indicating the cause.
  */
 int dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t sess_cookie);
 
