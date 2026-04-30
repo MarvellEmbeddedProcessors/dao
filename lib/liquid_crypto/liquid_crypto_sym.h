@@ -13,9 +13,14 @@
 #define DAO_LC_SYM_META_GET_PTR(sess_opaque)                                                       \
 	((struct dao_lc_sym_sess_meta *)((uintptr_t)(sess_opaque)))
 
-/**
- * Kind subfield of dao_lc_sym_sess_meta::flags:
- * low bits = dao_lc_sym_sess_kind; high bits reserved
+/** @name dao_lc_sym_sess_meta::flags (kind in low byte, session state in upper bits)
+ * Low 8 bits hold dao_lc_sym_sess_kind, encoded with DAO_LC_SYM_SESS_F_KIND_SHIFT and
+ * DAO_LC_SYM_SESS_F_KIND_MASK (see dao_lc_sym_sess_meta_get_kind /
+ * dao_lc_sym_sess_meta_set_kind).
+ * Bits 8 and above are session state and must not overlap the kind subfield.
+ * DAO_LC_SESS_F_DESTROY_INFLIGHT is set after a successful destroy request is submitted;
+ * the API uses it to gate duplicate destroys.
+ * @{
  */
 #define DAO_LC_SYM_SESS_F_KIND_SHIFT 0u
 #define DAO_LC_SYM_SESS_F_KIND_MASK  0xFFu
@@ -25,6 +30,9 @@ enum dao_lc_sym_sess_kind {
 	DAO_LC_SYM_SESS_KIND_HASH = 1,
 	DAO_LC_SYM_SESS_KIND_AES_KEY_WRAP = 2,
 };
+
+#define DAO_LC_SESS_F_DESTROY_INFLIGHT (1u << 8)
+/** @} */
 
 /**
  * The liquid crypto symmetric context.
@@ -39,8 +47,9 @@ struct dao_lc_sym_sess_meta {
 	uint64_t w7;
 
 	/**
-	 * Session kind and future attributes. Kind (see dao_lc_sym_sess_kind) selects the wire
-	 * session id used for SYM_SESSION_DESTROY; remaining bits are reserved.
+	 * Kind (DAO_LC_SYM_SESS_F_KIND_*, enum dao_lc_sym_sess_kind) and session state
+	 * (DAO_LC_SESS_F_DESTROY_INFLIGHT); see grouped documentation under
+	 * dao_lc_sym_sess_meta::flags. Zero-initialized on alloc; cleared when meta is freed.
 	 */
 	uint16_t flags;
 

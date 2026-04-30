@@ -3526,6 +3526,11 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 
 	sess_meta = DAO_LC_SYM_META_GET_PTR(sess_id);
 
+	if (sess_meta->flags & DAO_LC_SESS_F_DESTROY_INFLIGHT) {
+		dao_err("Session destroy already in progress for this session.");
+		return -EBUSY;
+	}
+
 	dev = &liquid_crypto_devs[dev_id];
 
 	const uint16_t qp_id = dev->cmd_qp_idx;
@@ -3591,6 +3596,8 @@ dao_liquid_crypto_sym_sess_destroy(uint8_t dev_id, uint64_t sess_id, uint64_t se
 		rc = -EIO;
 		goto mbuf_free;
 	}
+
+	DAO_LC_SYM_META_GET_PTR(sess_id)->flags |= DAO_LC_SESS_F_DESTROY_INFLIGHT;
 
 	return 0;
 
