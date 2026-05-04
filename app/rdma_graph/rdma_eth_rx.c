@@ -11,6 +11,7 @@
 #include <rte_hexdump.h>
 #include <rte_mbuf_core.h>
 
+#include "rdma_counter.h"
 #include "rdma_eth_rx_priv.h"
 #include "rdma_node_ctrl.h"
 
@@ -39,6 +40,7 @@ rdma_eth_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 
 	if (!count)
 		return 0;
+	RDMA_DBG_ADD_PORT_COUNTER(rte_lcore_id(), port, RDMA_RX_PORT_ETH_RX_RECVD, count);
 
 	/* Burst of packets received will be from same port and queue-id */
 	for (i = 0; i < count; i++) {
@@ -46,7 +48,7 @@ rdma_eth_rx_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		node_mbuf_priv1(mbuf, dyn)->queue = queue;
 		node_mbuf_priv1(mbuf, dyn)->port = port;
 	}
-#ifdef RDMA_DEBUG
+#ifdef DAO_RDMA_DEBUG
 	dao_dbg("lcore %d name %s port %d queue %d count %u", rte_lcore_id(), node->name, port,
 		queue, count);
 #endif

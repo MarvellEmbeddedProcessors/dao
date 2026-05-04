@@ -5,6 +5,7 @@
 #include "rdma_retransmit.h"
 #include "dao_rdma_fp.h"
 #include "rdma_common.h"
+#include "rdma_counter.h"
 #include "rdma_opcode.h"
 #include "rdma_qp.h"
 #include <assert.h>
@@ -38,6 +39,8 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 		/* READ: always retransmit from the first mbuf */
 		qp->req.retransmit.curr_mbuf = rmbuf;
 		qp->req.in_retransmission = 1;
+		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					RDMA_TX_QP_READ_RETRANSMIT);
 		return;
 	}
 
@@ -47,6 +50,12 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 	}
 	qp->req.retransmit.curr_mbuf = rmbuf;
 	qp->req.in_retransmission = 1;
+#ifdef DAO_RDMA_DEBUG
+	if (wqe->mask & WR_SEND_MASK)
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_SEND_RETRANSMIT);
+	else if (wqe->mask & WR_WRITE_MASK)
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_WRITE_RETRANSMIT);
+#endif
 }
 
 static inline void
@@ -202,15 +211,6 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 			rte_timer_stop(&qp->timer_data->retrans_timer);
 		rte_timer_reset(&qp->timer_data->retrans_timer, qp->req.timeout_cycles, SINGLE,
 				rte_lcore_id(), rdma_timeout_handler_cb, qp->timer_data);
-		dao_dbg("Retransmission completed for QP %d qp->comp.retry_cnt %d\n", qp_id,
-			qp->comp.retry_cnt);
 	}
-#ifdef RDMA_DEBUG
-	/* clang-format off */
-	dao_dbg("[%s] Retrans QP %d produced %u (limit %d) curr_wqe %p cur_wqe %p state %d\n",
-		__func__, qp_id, produced, num_pkts, wqe, qp->req.cur_wqe,
-		wqe ? wqe->state : (enum rdma_wqe_state)-1);
-	/* clang-format on */
-#endif
 	return produced;
 }

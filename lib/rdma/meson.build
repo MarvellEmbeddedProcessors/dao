@@ -35,7 +35,3 @@ headers = files(
 
 deps += ['common', 'pem', 'pts_rdma']
 
-# Enable RDMA debug flag if requested
-if get_option('rdma_debug')
-    cflags += ['-DRDMA_DEBUG']
-endif

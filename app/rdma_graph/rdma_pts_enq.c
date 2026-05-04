@@ -11,9 +11,12 @@
 #include <rte_mbuf_core.h>
 #include <rte_pause.h>
 
+#include <rte_lcore.h>
+
 #include <dao_log.h>
 #include <dao_pts_rdma_dev.h>
 
+#include "rdma_counter.h"
 #include "rdma_node_ctrl.h"
 #include "rdma_pts_enq_priv.h"
 
@@ -55,6 +58,8 @@ rdma_pts_enq_node_process(struct rte_graph *graph, struct rte_node *node, void *
 			n = dao_pts_rdma_enqueue_burst(devid, qp_id,
 						       (struct rte_mbuf **)&objs[i + sent], todo);
 			if (likely(n > 0)) {
+				RDMA_DBG_ADD_QP_COUNTER(rte_lcore_id(), devid, qp_id,
+							RDMA_TX_QP_PTS_ENQUEUE, n);
 				sent += n;
 				todo -= n;
 				/* If not all sent, try again for remainder */
@@ -74,9 +79,8 @@ rdma_pts_enq_node_process(struct rte_graph *graph, struct rte_node *node, void *
 		if (todo > 0) {
 			mbuf->ol_flags = 0;
 			rte_node_enqueue(graph, node, 0, &objs[i + sent], todo);
-			dao_dbg("RDMA PTS Enqueue failed on dev %u qp %u, sent %u/%u pkts "
-				"(retries=%u)",
-				devid, qp_id, sent, nb_pkts, retries);
+			RDMA_ADD_QP_COUNTER(rte_lcore_id(), devid, qp_id, RDMA_TX_QP_PTS_ENQ_FAIL,
+					    todo);
 		}
 		i += nb_pkts;
 	}

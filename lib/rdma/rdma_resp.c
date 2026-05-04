@@ -8,12 +8,12 @@
 
 #include "dao_rdma_fp.h"
 #include "rdma_common.h"
+#include "rdma_counter.h"
 #include "rdma_net.h"
 #include "rdma_opcode.h"
 #include "rdma_qp.h"
 #include "rdma_resp.h"
 #include "rdma_utils.h"
-#include "rdma_counter.h"
 
 #define RDMA_ACK_MAX 32
 
@@ -77,7 +77,7 @@ queue_check(struct rdma_qp *qp)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	if (qp->state == QP_STATE_ERROR) {
 		/* Go drain recv wr queue */
@@ -94,7 +94,7 @@ check_psn(struct rdma_qp *qp, struct pkt_info *pinfo)
 	struct rdma_pkt_info *pkt = &pinfo->rinfo;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	/* PSN is 24 bit number. */
 	int diff = psn_compare(pkt->psn, qp->resp.psn);
@@ -132,7 +132,7 @@ check_op_seq(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	switch (qp->type) {
 	case RDMA_QPT_RC:
@@ -199,7 +199,7 @@ check_op_valid(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	switch (qp->type) {
 	case RDMA_QPT_RC:
@@ -243,7 +243,7 @@ check_resource(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	if (pkt->mask & RDMA_READ_MASK) {
 		if (likely(qp->resp.resp_read_rq_bal > 0))
@@ -295,7 +295,7 @@ validate_rkey(struct pkt_info *pinfo)
 	uint64_t va = rte_be_to_cpu_64(pkt->reth->va);
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	if (index >= RDMA_MAX_MR) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_VAL_RKEY_INV_RKEY_INDEX);
@@ -333,7 +333,7 @@ check_rkey(struct rdma_qp *qp, struct pkt_info *pkt)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	RTE_SET_USED(qp);
 
@@ -353,7 +353,7 @@ prepare_ack_packet_with_mbuf(struct rdma_qp *qp, int opcode, int payload, uint32
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	struct rdma_pkt_info ainfo;
 	int padlen;
 	int paylen;
@@ -400,7 +400,7 @@ prepare_ack_packet(struct rdma_qp *qp, int opcode, int payload, uint32_t psn, ui
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	struct rte_mbuf *mbuf;
 
 	mbuf = rte_pktmbuf_alloc(pool);
@@ -492,7 +492,7 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	/*
 	 * Get the first ACK entry.
@@ -531,6 +531,8 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	mbuf->ol_flags &= ~(DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS);
 
 	/* Process all packets */
+	uint16_t read_pkt_start __rte_unused = *n_mbufs;
+
 	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
 	while (rmbuf) {
 		struct rte_mbuf *seg;
@@ -548,6 +550,9 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		(*n_mbufs)++;
 		rmbuf = next_rmbuf;
 	}
+
+	RDMA_DBG_ADD_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_RSP_PKT_SENT,
+				*n_mbufs - read_pkt_start);
 
 	/* All packets processed, cleanup */
 	STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
@@ -567,6 +572,7 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
 	STAILQ_INIT(&qp->resp.read_reply.mbuf_list);
 	qp->resp.resp_read_rq_bal++;
+	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_RSP_COMPLETE);
 
 	return 0;
 }
@@ -658,6 +664,7 @@ rdma_update_final_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 	pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
 	pinfo->rinfo.opcode = wqe->opcode;
 	rdma_populate_cqe(qp, pinfo);
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_SEND_REQ_RECVD);
 }
 
 static inline void
@@ -681,6 +688,7 @@ rdma_update_write_final_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 		rdma_populate_dma_and_cqe(qp, pinfo);
 	else
 		rdma_populate_dma_info(pinfo, DAO_PTS_RDMA_ENQ_M2D);
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_WRITE_REQ_RECVD);
 }
 
 static inline void
@@ -705,7 +713,7 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 	uint32_t dma_len = rte_be_to_cpu_32(rinfo->reth->len);
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	port = pinfo->mbuf->port;
 	rte_pktmbuf_reset(pinfo->mbuf);
@@ -766,7 +774,7 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	uint32_t dma_len = rte_be_to_cpu_32(pinfo->rinfo.reth->len);
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	if (dma_len > RDMA_PORT_MAX_MSG_SZ) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
@@ -790,6 +798,7 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	qp->resp.ack_psn = qp->resp.psn;
 
 	rdma_update_ack_pending_list(qp, pinfo->mbuf, pinfo->rinfo.psn, AETH_ACK_UNLIMITED, true);
+	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_READ_REQ_RCVD);
 
 	return RDMA_RESPST_DONE;
 }
@@ -822,10 +831,13 @@ execute(struct rdma_qp *qp, struct pkt_info *pinfo)
 		else
 			rdma_update_final_mbuf(qp, pinfo);
 	} else if (rinfo->mask & RDMA_WRITE_MASK) {
-		if (!(rinfo->mask & RDMA_END_MASK))
+		if (!(rinfo->mask & RDMA_END_MASK)) {
 			rdma_save_mbuf(qp, pinfo);
-		else
+		} else {
 			rdma_update_write_final_mbuf(qp, pinfo);
+			RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						RDMA_RX_QP_WRITE_MSG_COMPLETE);
+		}
 	} else if (rinfo->mask & RDMA_READ_MASK) {
 		return rdma_handle_read_request(qp, pinfo);
 	} else {
@@ -855,7 +867,7 @@ do_complete(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	RTE_SET_USED(pkt);
 
@@ -887,7 +899,7 @@ send_ack(struct rdma_qp *qp, uint8_t syndrome, struct pkt_info *pinfo, int opcod
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	struct rte_mbuf *mbuf;
 
 	RTE_SET_USED(msg);
@@ -906,6 +918,7 @@ send_ack(struct rdma_qp *qp, uint8_t syndrome, struct pkt_info *pinfo, int opcod
 		return -ENOMEM;
 	}
 
+	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ACK_QUEUED);
 	return 0;
 }
 
@@ -915,10 +928,13 @@ acknowledge(struct rdma_qp *qp, struct pkt_info *pinfo)
 	if (qp->type != RDMA_QPT_RC)
 		return RDMA_RESPST_CLEANUP;
 
-	if (qp->resp.aeth_syndrome != AETH_ACK_UNLIMITED)
+	if (qp->resp.aeth_syndrome != AETH_ACK_UNLIMITED) {
 		send_ack(qp, qp->resp.aeth_syndrome, pinfo, RDMA_OPCODE_RC_ACKNOWLEDGE, "ACK");
-	else if (bth_ack(&pinfo->rinfo))
+		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_ACK_GENERATED);
+	} else if (bth_ack(&pinfo->rinfo)) {
 		send_ack(qp, AETH_ACK_UNLIMITED, pinfo, RDMA_OPCODE_RC_ACKNOWLEDGE, "ACK");
+		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_ACK_GENERATED);
+	}
 
 	return RDMA_RESPST_CLEANUP;
 }
@@ -1002,7 +1018,7 @@ send_dup_ack(struct rdma_qp *qp, uint8_t syndrome, struct pkt_info *pinfo, uint3
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	struct rte_mbuf *mbuf;
 
 	mbuf = prepare_ack_packet(qp, opcode, 0, psn, syndrome, pinfo->mbuf->pool);
@@ -1066,6 +1082,8 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 			rdma_read_prep_for_pts(qp, pkt, &npkts);
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,
 						     AETH_ACK_UNLIMITED, true);
+			RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						RDMA_RX_QP_READ_DUP_REQ);
 		}
 	}
 	return RDMA_RESPST_CLEANUP;
@@ -1235,6 +1253,7 @@ dao_rdma_ack_dequeue_until_read(uint32_t qp_id, int devid, struct rte_mbuf **mbu
 			break;
 		STAILQ_REMOVE_HEAD(&qp->resp.ack_pending_list, next);
 		mbufs[n++] = ack->mbuf;
+		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp_id, RDMA_RX_QP_ACK_SENT);
 	}
 
 	return n;

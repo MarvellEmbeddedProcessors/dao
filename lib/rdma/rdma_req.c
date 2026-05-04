@@ -5,13 +5,13 @@
 #include <dao_log.h>
 #include <rte_ethdev.h>
 
+#include "rdma_counter.h"
 #include "rdma_net.h"
 #include "rdma_priv.h"
 #include "rdma_qp.h"
 #include "rdma_req.h"
 #include "rdma_retransmit.h"
 #include "rdma_utils.h"
-#include "rdma_counter.h"
 
 static int
 next_opcode_rc(struct rdma_qp *qp, uint32_t opcode, bool no_segs)
@@ -200,7 +200,7 @@ rdma_hdr_insert(struct rte_mbuf *pkt, struct rdma_av *av, uint32_t payload,
 	struct rdma_qp *qp = pinfo->qp;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	int ret = -1;
 
 	RTE_SET_USED(payload);
@@ -351,7 +351,7 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	struct rdma_pkt_info pinfo;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	enum rdma_hdr_mask mask;
 	struct rdma_av *av;
 	uint32_t payload;
@@ -425,6 +425,7 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 					    RDMA_TX_QP_REQ_READ_CREDIT_EXHAUSTED);
 			goto exit;
 		}
+		RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_REQ_SENT);
 	}
 
 	payload = (mask & RDMA_WRITE_OR_SEND_MASK) ? mbuf->pkt_len : 0;
@@ -482,6 +483,15 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 	update_wqe_state(qp, wqe, &pinfo);
 	update_wqe_psn(qp, wqe, &pinfo, num_pkt);
 	update_state(qp);
+
+#ifdef DAO_RDMA_DEBUG
+	if (mask & RDMA_SEND_MASK)
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_SEND_REQ_PKT_SENT);
+	else if (mask & RDMA_WRITE_MASK)
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_WRITE_REQ_PKT_SENT);
+	else if (mask & RDMA_READ_MASK)
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_REQ_PKT_SENT);
+#endif
 
 done:
 	ret = 0;

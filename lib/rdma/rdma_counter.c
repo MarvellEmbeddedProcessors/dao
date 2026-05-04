@@ -3,6 +3,7 @@
  */
 
 #include <dao_log.h>
+#include <rte_ethdev.h>
 #include <rte_malloc.h>
 #include <rte_telemetry.h>
 #include <stdlib.h>
@@ -18,7 +19,7 @@ uint8_t num_rport;
 
 const char *rdma_port_counter_type_str[RDMA_MAX_NUM_PORT_COUNTERS] = {
 #define X(name) #name,
-	RDMA_PORT_COUNTER_LIST
+	RDMA_PORT_COUNTER_LIST RDMA_PORT_DBG_COUNTER_LIST
 #undef X
 };
 
@@ -28,12 +29,13 @@ const char *rdma_qp_counter_type_str[RDMA_MAX_NUM_QP_COUNTERS] = {
 #undef X
 };
 
-int rdma_counter_init(uint8_t nport)
+int
+rdma_counter_init(uint8_t nport)
 {
 	int lcore_id, nb_lcore = 0;
 
-	rdma_lcore_map = rte_zmalloc("rdma_lcore_map", sizeof(rdma_lcore_map_t),
-				     RTE_CACHE_LINE_SIZE);
+	rdma_lcore_map =
+		rte_zmalloc("rdma_lcore_map", sizeof(rdma_lcore_map_t), RTE_CACHE_LINE_SIZE);
 
 	if (!rdma_lcore_map) {
 		dao_err("Failed to allocate rdma_lcore_map");
@@ -46,8 +48,7 @@ int rdma_counter_init(uint8_t nport)
 	}
 
 	rdma_lcore_map->nb_lcore = nb_lcore;
-	rdma_counter_table = rte_zmalloc("rdma_counter_table",
-					 sizeof(rdma_counter_t *) * nb_lcore,
+	rdma_counter_table = rte_zmalloc("rdma_counter_table", sizeof(rdma_counter_t *) * nb_lcore,
 					 RTE_CACHE_LINE_SIZE);
 
 	if (!rdma_counter_table) {
@@ -59,9 +60,9 @@ int rdma_counter_init(uint8_t nport)
 	num_rport = nport;
 	for (int lcore = 0; lcore < nb_lcore; lcore++) {
 		lcore_id = rdma_lcore_map->index_to_lcore[lcore];
-		rdma_counter_table[lcore] = rte_zmalloc("rdma_counters_per_lcore",
-							sizeof(rdma_counter_t) * num_rport,
-							RTE_CACHE_LINE_SIZE);
+		rdma_counter_table[lcore] =
+			rte_zmalloc("rdma_counters_per_lcore", sizeof(rdma_counter_t) * num_rport,
+				    RTE_CACHE_LINE_SIZE);
 		if (!rdma_counter_table[lcore]) {
 			dao_err("Failed to allocate counters for lcore %d", lcore_id);
 			goto free_lcores;
@@ -549,8 +550,7 @@ rdma_qp_counters_handler(const char *cmd __rte_unused, const char *params, struc
 		return 0;
 	}
 
-	if (filter_qp < 0 || filter_qp >= RDMA_QP_MAX ||
-	    !rdma_qp_query(filter_qp, filter_port)) {
+	if (filter_qp < 0 || filter_qp >= RDMA_QP_MAX || !rdma_qp_query(filter_qp, filter_port)) {
 		fill_qp_info(filter_port, info);
 		snprintf(key, sizeof(key), "QP %d is not valid for RDMA Port %d.", filter_qp,
 			 filter_port);
@@ -562,8 +562,7 @@ rdma_qp_counters_handler(const char *cmd __rte_unused, const char *params, struc
 	qp = rdma_qp_query(filter_qp, filter_port);
 	if (qp == NULL) {
 		rc = -EINVAL;
-		DAO_ERR_GOTO(rc, free, "Failed to get qp %d on port %d", filter_qp,
-			     filter_port);
+		DAO_ERR_GOTO(rc, free, "Failed to get qp %d on port %d", filter_qp, filter_port);
 	}
 
 	lcore_idx = rdma_lcore_map->lcore_to_index[qp->lcore];
@@ -583,6 +582,43 @@ fail:
 	return rc;
 }
 
+static int
+rdma_ethdev_stats_handler(const char *cmd __rte_unused, const char *params __rte_unused,
+			  struct rte_tel_data *d)
+{
+	struct rte_eth_stats stats;
+	uint16_t port_id;
+
+	rte_tel_data_start_dict(d);
+
+	/* clang-format off */
+	RTE_ETH_FOREACH_DEV(port_id) {
+		struct rte_tel_data *pdata = rte_tel_data_alloc();
+		char key[32];
+
+		if (!pdata)
+			continue;
+		rte_tel_data_start_dict(pdata);
+
+		if (rte_eth_stats_get(port_id, &stats) == 0) {
+			rte_tel_data_add_dict_uint(pdata, "ipackets", stats.ipackets);
+			rte_tel_data_add_dict_uint(pdata, "opackets", stats.opackets);
+			rte_tel_data_add_dict_uint(pdata, "ibytes", stats.ibytes);
+			rte_tel_data_add_dict_uint(pdata, "obytes", stats.obytes);
+			rte_tel_data_add_dict_uint(pdata, "imissed", stats.imissed);
+			rte_tel_data_add_dict_uint(pdata, "ierrors", stats.ierrors);
+			rte_tel_data_add_dict_uint(pdata, "oerrors", stats.oerrors);
+			rte_tel_data_add_dict_uint(pdata, "rx_nombuf", stats.rx_nombuf);
+		}
+
+		snprintf(key, sizeof(key), "port_%u", port_id);
+		rte_tel_data_add_dict_container(d, key, pdata, 0);
+	}
+	/* clang-format on */
+
+	return 0;
+}
+
 RTE_INIT(rdma_register_counter_telemetry)
 {
 	rte_telemetry_register_cmd(
@@ -599,4 +635,8 @@ RTE_INIT(rdma_register_counter_telemetry)
 	rte_telemetry_register_cmd(
 		"/rdma/qp/counters", rdma_qp_counters_handler,
 		"Returns statistics for a specific RDMA Queue Pair (QP). Parameters: int port, int qp.");
+
+	rte_telemetry_register_cmd(
+		"/rdma/ethdev/stats", rdma_ethdev_stats_handler,
+		"Returns DPDK ethdev HW stats (ipackets, opackets, imissed, oerrors, etc.). No parameters.");
 }

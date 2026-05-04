@@ -8,11 +8,13 @@
 #include <rte_graph.h>
 #include <rte_graph_worker.h>
 #include <rte_hexdump.h>
+#include <rte_lcore.h>
 #include <rte_mbuf_core.h>
 #include <rte_pause.h>
 
 #include <dao_log.h>
 
+#include "rdma_counter.h"
 #include "rdma_eth_tx_priv.h"
 #include "rdma_node_ctrl.h"
 
@@ -83,14 +85,15 @@ rdma_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **
 	}
 	count = sent;
 
+	RDMA_DBG_ADD_PORT_COUNTER(rte_lcore_id(), port, RDMA_TX_PORT_ETH_TX_SENT, count);
+
 	/* Redirect unsent pkts to drop node */
-	if (count != nb_objs)
-		rte_node_enqueue(graph, node, EP_ETH_TX_NEXT_PKT_DROP, &objs[count],
-				 nb_objs - count);
-#ifdef RDMA_DEBUG
-	dao_dbg("RDMA ETH TX: port %u queue %u sent %u packets, unsent %u packets", port, queue,
-		count, nb_objs - count);
-#endif
+	if (count != nb_objs) {
+		uint16_t dropped = nb_objs - count;
+
+		RDMA_ADD_PORT_COUNTER(rte_lcore_id(), port, RDMA_PORT_ETH_TX_DROP, dropped);
+		rte_node_enqueue(graph, node, EP_ETH_TX_NEXT_PKT_DROP, &objs[count], dropped);
+	}
 	return count;
 }
 

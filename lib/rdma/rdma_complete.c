@@ -75,8 +75,11 @@ rdma_check_psn(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 	diff = psn_compare(pkt->rinfo.psn, wqe->last_psn);
 	if (diff > 0) {
 		if (wqe->state == wqe_state_pending) {
-			if (wqe->mask & WR_READ_MASK)
+			if (wqe->mask & WR_READ_MASK) {
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_RX_QP_CHK_PSN_READ_PSN_AHEAD_RETRY);
 				return RDMA_COMPST_ERROR_RETRY;
+			}
 
 			reset_retry_counters(qp);
 			return RDMA_COMPST_COMP_WQE;
@@ -275,6 +278,8 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 		return RDMA_COMPST_ERROR;
 	}
 
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_READ_RSP_RCVD);
+
 	wqe->dma_length -= rte_pktmbuf_pkt_len(mbuf);
 	pkt->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
 	if (!wqe->read_mbuf) {
@@ -298,6 +303,8 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 	}
 	pkt->mbuf = NULL;
 	if (wqe->dma_length == 0 && (pkt->rinfo.mask & RDMA_END_MASK)) {
+		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					RDMA_RX_QP_READ_MSG_COMPLETE);
 		rdma_populate_wr(pkt, wqe);
 		return RDMA_COMPST_COMP_ACK;
 	}

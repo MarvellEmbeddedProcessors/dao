@@ -30,8 +30,10 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 
 	uint64_t now = rte_get_tsc_cycles();
 
-	if (now - qp->cc.last_cnp_tx_cycles < qp->cc.cnp_min_interval_cycles)
-		return 0; /* throttled */
+	if (now - qp->cc.last_cnp_tx_cycles < qp->cc.cnp_min_interval_cycles) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CNP_THROTTLED);
+		return 0;
+	}
 
 	/* Allocate new mbuf from same pool as triggering packet */
 	struct rte_mbuf *mbuf = rte_pktmbuf_alloc(rx_mbuf->pool);
@@ -62,8 +64,7 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 	/* Insert L2/L3/L4 headers */
 	if (rdma_net_hdr_insert(mbuf, &qp->av, qp->sport) < 0) {
 		rte_pktmbuf_free(mbuf);
-		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-				    RDMA_RX_QP_SEND_CNP_NET_HDR_INS_FAIL);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_SEND_CNP_NET_HDR_INS_FAIL);
 		return -1;
 	}
 
@@ -85,5 +86,6 @@ rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf)
 
 	qp->cc.cnp_tx_cnt++;
 	qp->cc.last_cnp_tx_cycles = now;
+	RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CNP_SENT);
 	return 0;
 }

@@ -10,6 +10,7 @@
 #include <rte_graph.h>
 #include <rte_graph_worker.h>
 #include <rte_hexdump.h>
+#include <rte_lcore.h>
 #include <rte_malloc.h>
 #include <rte_mbuf_core.h>
 #include <rte_timer.h>
@@ -19,6 +20,7 @@
 #include <dao_pts_rdma_dev.h>
 
 #include "dao_rdma_fp.h"
+#include "rdma_counter.h"
 #include "rdma_node_ctrl.h"
 #include "rdma_pts_deq_priv.h"
 
@@ -139,9 +141,11 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 			count = dao_rdma_adjust_burst_count(count, limit);
 		}
 
-mgmt_dequeue:
+	mgmt_dequeue:
 		count = dao_pts_rdma_dequeue_burst(devid, qp_id, &mbufs[nb_pkts], count);
 		if (likely(count)) {
+			RDMA_DBG_ADD_QP_COUNTER(rte_lcore_id(), devid, qp_id,
+						RDMA_TX_QP_PTS_DEQUEUE, count);
 			mbuf = mbufs[nb_pkts];
 			if (likely(mbuf)) {
 				node_mbuf_priv1(mbuf, dyn)->qp_id = qp_id;

@@ -16,6 +16,7 @@
 #include "dao_rdma_sp.h"
 #include "rdma_common.h"
 #include "rdma_comp.h"
+#include "rdma_counter.h"
 #include "rdma_cq.h"
 #include "rdma_hdr.h"
 #include "rdma_opcode.h"
@@ -24,9 +25,9 @@
 #include "rdma_resp.h"
 #include "rdma_retransmit.h"
 #include "rdma_utils.h"
-#include "rdma_counter.h"
 
 rcu_cb_t rcu_cb;
+/* clang-format off */
 struct rdma_wr_opcode_info rdma_wr_opcode_info[] = {
 	[RDMA_WR_RDMA_WRITE] = {
 		.name = "RDMA_WR_RDMA_WRITE",
@@ -107,6 +108,8 @@ struct rdma_wr_opcode_info rdma_wr_opcode_info[] = {
 	},
 };
 
+/* clang-format on */
+
 int
 dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, int devid)
 {
@@ -130,6 +133,8 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RX_PROC_ICRC_CHK_FAIL);
 		return -1;
 	}
+
+	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_PKT_RECV);
 
 	/* DCQCN RP: detect CNP opcode and apply rate reduction, then drop. */
 	if (pinfo.rinfo.opcode == RDMA_OPCODE_CNP) {
@@ -168,6 +173,7 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 		}
 		result = RDMA_RESPONDER_DONE;
 	} else {
+		RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ACK_RECVD);
 		if (rdma_process_ack(&pinfo)) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_RX_QP_RX_PROC_PROCESS_ACK_FAIL);
@@ -284,7 +290,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	struct rdma_send_wqe *wqe = qp->req.cur_wqe;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	if (wqe && wqe->state == wqe_state_processing)
 		return dao_rdma_process_remaining_segs(qp, mbufs, n_mbufs);
@@ -412,7 +418,7 @@ dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe)
 	struct dao_pts_rdma_cqe cqe = {0};
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 	bool post = false;
 	int rc;
 
@@ -431,8 +437,7 @@ dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe)
 	}
 
 	if (wqe->status != RDMA_WC_SUCCESS)
-		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-				    RDMA_TX_QP_SEND_CQE_FAIL);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_SEND_CQE_FAIL);
 
 	return 0;
 }
@@ -511,7 +516,7 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	struct rte_mbuf *mtu_head = NULL, *mtu_tail = NULL;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
 
 	/* On TX, private area holds wr, wqe, and rdma_mbuf nodes */
 	wr = rdma_tx_priv_wr(mbuf);
@@ -576,6 +581,18 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	if (packet_type != DAO_PTS_RDMA_D2M_COMPL) {
 		wqe->mask = rdma_wr_opcode_info[wr->opcode].mask[qp->type];
 		STAILQ_INSERT_TAIL(&qp->req.wqe_head, wqe, next);
+
+#ifdef DAO_RDMA_DEBUG
+		if (wr->opcode == RDMA_WR_SEND || wr->opcode == RDMA_WR_SEND_WITH_IMM)
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_SEND_WQE_PROCESSED);
+		else if (wr->opcode == RDMA_WR_RDMA_WRITE || wr->opcode == RDMA_WR_WRITE_WITH_IMM)
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_WRITE_WQE_PROCESSED);
+		else if (wr->opcode == RDMA_WR_RDMA_READ)
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_READ_WQE_PROCESSED);
+#endif
 	}
 
 	return 0;

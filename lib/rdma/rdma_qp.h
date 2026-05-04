@@ -20,12 +20,13 @@
 #include <dao_pts_rdma_dev.h>
 #include <rte_mbuf.h>
 
+#ifndef RDMA_QP_MAX
 #define RDMA_QP_MAX 1024
+#endif
 
 #define RDMA_QPN_MASK      0xFFFFFF
 #define RDMA_MULTICAST_QPN 0xFFFFFF
 
-#define RDMA_QP_MAX     1024
 #define MAX_RESP_BUCKET 32
 
 enum rdma_wr_opcode {

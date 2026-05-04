@@ -9,15 +9,50 @@
 #include <rte_lcore.h>
 #include <stdint.h>
 
+#include <dao_config.h>
+
+#ifndef RDMA_QP_MAX
 #define RDMA_QP_MAX 1024
+#endif
+
+/** Lcore to use for counter updates when not on an EAL worker (e.g. PEM/mbox). */
+static inline unsigned int
+rdma_counter_update_lcore(void)
+{
+	unsigned int lc = rte_lcore_id();
+
+	if (lc == LCORE_ID_ANY)
+		lc = rte_get_main_lcore();
+	return lc;
+}
 
 #define RDMA_INC_PORT_COUNTER(lcore, port, counter)                                                \
 	rdma_counter_table[rdma_lcore_map->lcore_to_index[(lcore)]][(port)]                        \
 		.port_counters[(counter)]++
 
+#define RDMA_ADD_PORT_COUNTER(lcore, port, counter, count)                                         \
+	rdma_counter_table[rdma_lcore_map->lcore_to_index[(lcore)]][(port)]                        \
+		.port_counters[(counter)] += (count)
+
 #define RDMA_INC_QP_COUNTER(lcore, port, qid, counter)                                             \
 	rdma_counter_table[rdma_lcore_map->lcore_to_index[(lcore)]][(port)]                        \
 		.qp_counters[(qid)][(counter)]++
+
+#define RDMA_ADD_QP_COUNTER(lcore, port, qid, counter, count)                                      \
+	rdma_counter_table[rdma_lcore_map->lcore_to_index[(lcore)]][(port)]                        \
+		.qp_counters[(qid)][(counter)] += (count)
+
+#ifdef DAO_RDMA_DEBUG
+#define RDMA_DBG_INC_PORT_COUNTER(...) RDMA_INC_PORT_COUNTER(__VA_ARGS__)
+#define RDMA_DBG_ADD_PORT_COUNTER(...) RDMA_ADD_PORT_COUNTER(__VA_ARGS__)
+#define RDMA_DBG_INC_QP_COUNTER(...)   RDMA_INC_QP_COUNTER(__VA_ARGS__)
+#define RDMA_DBG_ADD_QP_COUNTER(...)   RDMA_ADD_QP_COUNTER(__VA_ARGS__)
+#else
+#define RDMA_DBG_INC_PORT_COUNTER(...)
+#define RDMA_DBG_ADD_PORT_COUNTER(...)
+#define RDMA_DBG_INC_QP_COUNTER(...)
+#define RDMA_DBG_ADD_QP_COUNTER(...)
+#endif
 
 #define RDMA_PORT_COUNTER_LIST                                                                     \
 	/** BTH header version mismatch detected during RDMA header validation. */                 \
@@ -35,7 +70,75 @@
 	/** Invalid QPN encountered during TX Processing. */                                       \
 	X(RDMA_TX_PORT_TX_PROC_QP_INV)                                                             \
 	/** Invalid QPN encountered during requester Processing. */                                \
-	X(RDMA_TX_PORT_REQ_QP_INV)
+	X(RDMA_TX_PORT_REQ_QP_INV)                                                                 \
+	/** QP destroy operation. */                                                               \
+	X(RDMA_PORT_QP_DESTROY)                                                                    \
+	/** QP destroy with ACK pending. */                                                        \
+	X(RDMA_PORT_QP_DESTROY_ACK_PENDING)                                                        \
+	/** QP modify operation. */                                                                \
+	X(RDMA_PORT_QP_MODIFY)                                                                     \
+	/** Packets dropped in ETH TX. */                                                          \
+	X(RDMA_PORT_ETH_TX_DROP)
+
+#ifdef DAO_RDMA_DEBUG
+#define RDMA_PORT_DBG_COUNTER_LIST                                                                 \
+	/** Packets received via rte_eth_rx_burst. */                                              \
+	X(RDMA_RX_PORT_ETH_RX_RECVD)                                                               \
+	/** Packets sent via rte_eth_tx_burst. */                                                  \
+	X(RDMA_TX_PORT_ETH_TX_SENT)
+#else
+#define RDMA_PORT_DBG_COUNTER_LIST
+#endif
+
+#ifdef DAO_RDMA_DEBUG
+#define RDMA_QP_DBG_COUNTER_LIST                                                                   \
+	/** Valid RDMA packet received and entered responder/completer path. */                    \
+	X(RDMA_RX_QP_PKT_RECV)                                                                     \
+	/** Mbufs successfully enqueued to PTS (dao_pts_rdma_enqueue_burst). */                    \
+	X(RDMA_TX_QP_PTS_ENQUEUE)                                                                  \
+	/** Mbufs dequeued from PTS toward RDMA (dao_pts_rdma_dequeue_burst). */                   \
+	X(RDMA_TX_QP_PTS_DEQUEUE)                                                                  \
+	/** SEND WQE processed and queued to requester. */                                         \
+	X(RDMA_TX_QP_SEND_WQE_PROCESSED)                                                           \
+	/** WRITE WQE processed and queued to requester. */                                        \
+	X(RDMA_TX_QP_WRITE_WQE_PROCESSED)                                                          \
+	/** READ WQE processed and queued to requester. */                                         \
+	X(RDMA_TX_QP_READ_WQE_PROCESSED)                                                           \
+	/** SEND request packet sent by requester (hdr inserted). */                               \
+	X(RDMA_TX_QP_SEND_REQ_PKT_SENT)                                                            \
+	/** WRITE request packet sent by requester (hdr inserted). */                              \
+	X(RDMA_TX_QP_WRITE_REQ_PKT_SENT)                                                           \
+	/** READ request packet sent by requester (hdr inserted). */                               \
+	X(RDMA_TX_QP_READ_REQ_PKT_SENT)                                                            \
+	/** SEND request received (all segments complete, CQE populated). */                       \
+	X(RDMA_RX_QP_SEND_REQ_RECVD)                                                               \
+	/** WRITE request received (all segments complete, DMA populated). */                      \
+	X(RDMA_RX_QP_WRITE_REQ_RECVD)                                                              \
+	/** ACK packet received from requester. */                                                 \
+	X(RDMA_RX_QP_ACK_RECVD)                                                                    \
+	/** Responder: READ request accepted and D2M DMA queued. */                                \
+	X(RDMA_RX_QP_READ_REQ_RCVD)                                                                \
+	/** Responder: duplicate READ request re-queued for DMA. */                                \
+	X(RDMA_RX_QP_READ_DUP_REQ)                                                                 \
+	/** Responder TX: READ response packets formed and handed to TX. */                        \
+	X(RDMA_TX_QP_READ_RSP_PKT_SENT)                                                            \
+	/** Responder TX: entire READ response completed, credit restored. */                      \
+	X(RDMA_TX_QP_READ_RSP_COMPLETE)                                                            \
+	/** Requester: READ request packet sent (credit consumed). */                              \
+	X(RDMA_TX_QP_READ_REQ_SENT)                                                                \
+	/** Requester RX: READ response segment received and reassembled. */                       \
+	X(RDMA_RX_QP_READ_RSP_RCVD)                                                                \
+	/** Requester RX: full READ data reassembled (all segments received). */                   \
+	X(RDMA_RX_QP_READ_MSG_COMPLETE)                                                            \
+	/** READ retransmission triggered (full request re-sent from first segment). */            \
+	X(RDMA_TX_QP_READ_RETRANSMIT)                                                              \
+	/** SEND retransmission triggered. */                                                      \
+	X(RDMA_TX_QP_SEND_RETRANSMIT)                                                              \
+	/** WRITE retransmission triggered. */                                                     \
+	X(RDMA_TX_QP_WRITE_RETRANSMIT)
+#else
+#define RDMA_QP_DBG_COUNTER_LIST
+#endif
 
 #define RDMA_QP_COUNTER_LIST                                                                       \
 	/** QP accessed by a non-owner lcore during RDMA header check. */                          \
@@ -52,6 +155,18 @@
 	X(RDMA_RX_QP_ICRC_CHECK_ICRC_MISMATCH)                                                     \
 	/** Invalid ICRC detected during RDMA RX Process. */                                       \
 	X(RDMA_RX_QP_RX_PROC_ICRC_CHK_FAIL)                                                        \
+	/** WRITE message fully reassembled (END_MASK reached in execute). */                      \
+	X(RDMA_RX_QP_WRITE_MSG_COMPLETE)                                                           \
+	/** WRITE LAST received without ACK_REQ bit set. */                                        \
+	X(RDMA_RX_QP_WRITE_LAST_NO_ACK_REQ)                                                        \
+	/** ACK/NAK generated and sent by responder. */                                            \
+	X(RDMA_RX_QP_ACK_GENERATED)                                                                \
+	/** ACK/NAK successfully queued into ack_pending_list. */                                  \
+	X(RDMA_RX_QP_ACK_QUEUED)                                                                   \
+	/** ACK dequeued from ack_pending_list for TX. */                                          \
+	X(RDMA_RX_QP_ACK_SENT)                                                                     \
+	/** CNP generation throttled (min interval not elapsed). */                                \
+	X(RDMA_RX_QP_CNP_THROTTLED)                                                                \
 	/** Failed to allocate mbuf during CNP packet preparation. */                              \
 	X(RDMA_RX_QP_SEND_CNP_MBUF_ALLOC_FAIL)                                                     \
 	/** Failed to prepend headers to mbuf during CNP packet preparation. */                    \
@@ -62,8 +177,6 @@
 	X(RDMA_RX_QP_SEND_CNP_ICRC_GEN_FAIL)                                                       \
 	/** Failed to transmit CNP packet during CNP packet preparation. */                        \
 	X(RDMA_RX_QP_SEND_CNP_TX_BURST_FAIL)                                                       \
-	/** CNP sending throttled due to rate-limiting interval. */                                \
-	X(RDMA_RX_QP_CNP_THROTTLED)                                                                \
 	/** CNP packet successfully sent. */                                                       \
 	X(RDMA_RX_QP_CNP_SENT)                                                                     \
 	/** ECN Congestion Experienced (CE) mark detected on incoming packet. */                   \
@@ -219,11 +332,14 @@
 	/** Failed to insert network headers. */                                                   \
 	X(RDMA_QP_NET_HDR_INSERT_FAIL)                                                             \
 	/** Failed to append generated ICRC to packet. */                                          \
-	X(RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL)
+	X(RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL)                                                       \
+	/** PTS enqueue failed after retries exhausted; packets dropped. */                        \
+	X(RDMA_TX_QP_PTS_ENQ_FAIL)                                                                 \
+	RDMA_QP_DBG_COUNTER_LIST
 
 enum rdma_port_counters {
 #define X(name) name,
-	RDMA_PORT_COUNTER_LIST
+	RDMA_PORT_COUNTER_LIST RDMA_PORT_DBG_COUNTER_LIST
 #undef X
 		RDMA_MAX_NUM_PORT_COUNTERS
 };

@@ -17,6 +17,7 @@ extern "C" {
 
 #mesondefine DAO_DMA_STATS
 #mesondefine DAO_VIRTIO_DEBUG
+#mesondefine DAO_RDMA_DEBUG
 #mesondefine DAO_LIBOQS_DEP
 
 #ifdef __cplusplus

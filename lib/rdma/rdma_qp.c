@@ -8,12 +8,12 @@
 
 #include "dao_pts_rdma_dev.h"
 #include "rdma_common.h"
+#include "rdma_counter.h"
 #include "rdma_kernel_abi.h"
 #include "rdma_mbox_priv.h"
 #include "rdma_port_priv.h"
 #include "rdma_qp.h"
 
-#define RDMA_QP_MAX        1024
 #define MAX_NUM_MPOOL_MBUF 1024
 #define MEMPOOL_CACHE_SIZE 256
 
@@ -117,6 +117,11 @@ rdma_qp_destroy(uint8_t portid, uint32_t qid)
 		dao_err("QP %d does not exist", qid);
 		return -1;
 	}
+
+	RDMA_INC_PORT_COUNTER(rdma_counter_update_lcore(), portid, RDMA_PORT_QP_DESTROY);
+	if (!STAILQ_EMPTY(&qp->resp.ack_pending_list))
+		RDMA_INC_PORT_COUNTER(rdma_counter_update_lcore(), portid,
+				      RDMA_PORT_QP_DESTROY_ACK_PENDING);
 
 	qp->valid = 0;
 	port->qp[qid] = NULL;
@@ -368,6 +373,8 @@ rdma_qp_modify(void *data)
 		return -1;
 
 	qp = (struct rdma_qp *)port->qp[qid];
+	RDMA_INC_PORT_COUNTER(rdma_counter_update_lcore(), req->port_num, RDMA_PORT_QP_MODIFY);
+
 	if (rdma_qp_update_from_attr(qp, req, mask, req->port_num) < 0)
 		return -1;
 

@@ -118,3 +118,4 @@ else
 	DAO_BUILD_CONF.set('DAO_DMA_STATS', 0)
 endif
 DAO_BUILD_CONF.set('DAO_VIRTIO_DEBUG', get_option('virtio_debug'))
+DAO_BUILD_CONF.set('DAO_RDMA_DEBUG', get_option('rdma_debug'))

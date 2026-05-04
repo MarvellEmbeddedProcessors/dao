@@ -25,8 +25,8 @@ typedef struct {
 struct rdma_pts_deq_node_ctx {
 	rdma_pts_bitmap_t *qp_map;
 	uint8_t devid;
-	uint8_t next_qp;
-	uint8_t qp_count;
+	uint16_t next_qp;
+	uint16_t qp_count;
 	uint8_t next_node;
 	uint16_t tx_node_idx;
 	uint32_t queue_id;

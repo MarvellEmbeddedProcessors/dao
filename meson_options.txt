@@ -28,6 +28,6 @@ option('virtio_blk_debug', type: 'boolean', value: false, description:
 option('rdma_build', type: 'boolean', value: true, description:
        'RDMA kmod build')
 option('rdma_debug', type: 'boolean', value: false, description:
-       'Enable RDMA debug logs (defines RDMA_DEBUG).')
+       'Enable RDMA debug logs (defines DAO_RDMA_DEBUG).')
 option('build_host_dir', type: 'string', value: '', description:
        'Build host directory path for rdma-core prefix installation.')
