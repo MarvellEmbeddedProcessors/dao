@@ -108,9 +108,9 @@ struct dao_lc_sym_op {
 	/** Session ID to be used. */
 	uint64_t sess_id;
 	/**
-	 * Data buffer input for the operation. The memory pointed to by in_buffer must remain
-	 * valid until the operation is completed and dequeued by the application using
-	 * dao_liquid_crypto_dequeue_burst().
+	 * Data buffer input for the operation. Must not be NULL. The memory pointed to
+	 * by in_buffer must remain valid until the operation is completed and dequeued
+	 * by the application using dao_liquid_crypto_dequeue_burst().
 	 */
 	struct dao_lc_buf *in_buffer;
 	/**
