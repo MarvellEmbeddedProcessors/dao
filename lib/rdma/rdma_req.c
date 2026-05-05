@@ -403,20 +403,19 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 
 	mtu = get_mtu(qp, mbuf->port);
 	mask = rdma_opcode[opcode].mask;
-	/* CC pacing check: if enabled and we have an active pacing interval */
-	if (qp->cc.cc_enabled && qp->cc.pacing_interval_cycles) {
-		uint64_t now = rte_get_tsc_cycles();
 
-		if (qp->cc.recovery_quiet_cycles &&
-		    now - qp->cc.last_cnp_rx_cycles > qp->cc.recovery_quiet_cycles) {
-			qp->cc.pacing_interval_cycles = 0; /* back to wire-speed */
-		} else {
-			if (now < qp->cc.next_send_cycles) {
-				/* pacing postponed */
-				ret = RDMA_REQUESTER_POSTPONED_RC;
-				goto out;
-			}
-			qp->cc.next_send_cycles = now + qp->cc.pacing_interval_cycles;
+	/* DCQCN RP pacing gate (RC only — UD callers do not handle postpone).
+	 * READ requests carry no data payload (mbuf was reset), so only
+	 * account for protocol headers to avoid grossly overestimating.
+	 */
+	if (qp->type == RDMA_QPT_RC) {
+		uint32_t payload_est = (mask & RDMA_WRITE_OR_SEND_MASK) ?
+					       (mbuf->pkt_len ? mbuf->pkt_len : mtu) :
+					       0;
+
+		if (dcqcn_rp_pacing_check(&qp->cc, payload_est + DCQCN_ROCEV2_HDR_OVERHEAD)) {
+			ret = RDMA_REQUESTER_POSTPONED_RC;
+			goto out;
 		}
 	}
 

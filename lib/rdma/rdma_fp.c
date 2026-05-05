@@ -131,39 +131,30 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 		return -1;
 	}
 
-	/* Simple CC: detect CNP opcode early and apply backoff, then drop */
+	/* DCQCN RP: detect CNP opcode and apply rate reduction, then drop. */
 	if (pinfo.rinfo.opcode == RDMA_OPCODE_CNP) {
-		struct rdma_qp *qp = (struct rdma_qp *)pinfo.rinfo.qp; /* set in hdr_check */
+		struct rdma_qp *qp = (struct rdma_qp *)pinfo.rinfo.qp;
 
-		if (qp && qp->cc.cc_enabled) {
-			uint64_t now = rte_get_tsc_cycles();
-
-			qp->cc.cnp_rx_cnt++;
-			qp->cc.last_cnp_rx_cycles = now;
-			/* Exponential backoff of pacing interval within bounds */
-			if (qp->cc.pacing_interval_cycles == 0)
-				qp->cc.pacing_interval_cycles = qp->cc.min_pacing_cycles;
-			else
-				qp->cc.pacing_interval_cycles =
-					RTE_MIN(qp->cc.pacing_interval_cycles * 2,
-						qp->cc.max_pacing_cycles);
+		if (qp && qp->cc.enabled) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp->qid,
+					    RDMA_RX_QP_DCQCN_CNP_RECEIVED);
+			dcqcn_rp_cnp_received(&qp->cc);
 		}
-		/* CNP carries no further processing */
 		return RDMA_COMPLETION_DONE;
 	}
 
-	/* ECN CE detection (IPv4 only for now): increment counter & possibly send CNP */
+	/* DCQCN NP: ECN CE detection (IPv4, RC only) — generate CNP back to
+	 * requester.  UD QPs have no fixed dest_qp_num so CNPs would carry a
+	 * stale/zero QPN and be dropped or misdelivered by the peer.
+	 */
 	if ((pinfo.ptype & RTE_PTYPE_L3_IPV4) && (pinfo.rinfo.mask & RDMA_REQ_MASK)) {
 		struct rte_ipv4_hdr *iph = (struct rte_ipv4_hdr *)pinfo.iph;
 
-		if ((iph->type_of_service & 0x03) == 0x03) { /* CE */
-			struct rdma_qp *qp =
-				(struct rdma_qp *)pinfo.rinfo.qp; /* Valid after hdr_check */
-			if (qp && qp->cc.cc_enabled) {
-				qp->cc.ecn_ce_marks++;
-				/* Generate CNP if allowed */
-				rdma_send_cnp(qp, mbuf);
-			}
+		if ((iph->type_of_service & 0x03) == 0x03) {
+			struct rdma_qp *qp = (struct rdma_qp *)pinfo.rinfo.qp;
+
+			if (qp && qp->cc.enabled && qp->type == RDMA_QPT_RC)
+				dcqcn_np_ecn_detected(qp, mbuf, rx_queue);
 		}
 	}
 
@@ -242,20 +233,22 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 	struct rdma_send_wqe *wqe = qp->req.cur_wqe;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id  = qp->qid;
+	uint32_t qp_id = qp->qid;
+	int nb;
 
 	if (wqe == NULL) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_TX_QP_PROC_REMAINING_SEGS_WQE_EMPTY);
 		return -1;
 	}
+	nb = wqe->dma_length / qp->mtu + ((wqe->dma_length % qp->mtu) ? 1 : 0);
 	rmbuf = qp->req.cur_mbuf;
 	while (rmbuf) {
 		m_segs = wqe->n_rdma_segs > 1 ? true : false;
 		next_r = STAILQ_NEXT(rmbuf, next);
 		if (next_r)
 			rte_prefetch0(rte_pktmbuf_mtod(next_r->mbuf, void *));
-		ret = rdma_requester(qp, wqe, rmbuf->mbuf, m_segs, 0);
+		ret = rdma_requester(qp, wqe, rmbuf->mbuf, m_segs, nb);
 		if (ret < 0) {
 			rdma_requester_error2(qp, wqe);
 			*n_mbufs = 0;
@@ -340,7 +333,8 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 					    RDMA_TX_QP_PROC_RC_REQUESTER_FAIL);
 			return -1;
 		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
-			qp->req.cur_mbuf = next_r;
+			qp->req.cur_mbuf = rmbuf;
+			wqe->state = wqe_state_processing;
 			break;
 		}
 		wqe->n_rdma_segs--;
@@ -629,10 +623,10 @@ dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport)
 	if (cb->rdma_map_cb)
 		dao_rdma_register_rdma_map_cb(cb->rdma_map_cb);
 
-	/* Apply global CC disable before any QP creation */
-	rdma_global_cc_disable_set(disable_cc);
+	/* Apply global DCQCN disable before any QP creation */
+	dcqcn_global_disable_set(disable_cc);
 	if (disable_cc)
-		dao_info("RDMA CC globally disabled via init param");
+		dao_info("RDMA DCQCN globally disabled via init param");
 
 	return ret;
 }

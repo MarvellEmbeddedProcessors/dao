@@ -20,15 +20,6 @@
 /* Max default QP's supported. (Zero-initialized) */
 static rdma_qp_status_cb_t qp_status_cb;
 
-/* Global toggle set by application before QP creation. 0=enabled(default),1=disabled */
-static uint8_t g_rdma_disable_cc;
-
-void
-rdma_global_cc_disable_set(int disable)
-{
-	g_rdma_disable_cc = !!disable;
-}
-
 int
 rdma_qp_create(void *data)
 {
@@ -82,22 +73,19 @@ rdma_qp_create(void *data)
 	qp->valid = 1;
 	qp->lcore = 0;
 
-	/* Initialize simple CC parameters */
-	qp->cc.cc_enabled = g_rdma_disable_cc ? 0 : 1; /* honor global */
-	qp->cc.last_cnp_tx_cycles = 0;
-	qp->cc.last_cnp_rx_cycles = 0;
-	qp->cc.pacing_interval_cycles = 0; /* start unlimited */
-	qp->cc.next_send_cycles = 0;
-	uint64_t hz = rte_get_tsc_hz();
-	/* base min pacing ~0 (wire speed), max pacing ~1 millisecond */
-	qp->cc.min_pacing_cycles = hz / 1000000;     /* 1 usec default low bound */
-	qp->cc.max_pacing_cycles = hz / 1000;        /* 1 ms upper bound */
-	qp->cc.cnp_min_interval_cycles = hz / 20000; /* 50 usec */
-	/* Reset pacing if we see no new CNP for ~100us (tunable) */
-	qp->cc.recovery_quiet_cycles = hz / 10000; /* 100 us */
-	qp->cc.ecn_ce_marks = 0;
-	qp->cc.cnp_tx_cnt = 0;
-	qp->cc.cnp_rx_cnt = 0;
+	/* Initialize DCQCN congestion control state. Query the port link
+	 * speed so the algorithm knows the line rate ceiling.
+	 */
+	{
+		struct rte_eth_link link;
+		uint64_t link_speed_bps = 0;
+
+		if (rte_eth_link_get_nowait(qp->port_id, &link) == 0 &&
+		    link.link_speed != RTE_ETH_SPEED_NUM_NONE)
+			link_speed_bps = (uint64_t)link.link_speed * 1000000ULL;
+
+		dcqcn_init_qp(&qp->cc, link_speed_bps);
+	}
 
 	port->num_active_qp++;
 
@@ -180,6 +168,21 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 		rte_pktmbuf_free(qp->req.dummy_mbuf);
 		qp->req.dummy_mbuf = NULL;
 	}
+
+	/* Reinitialize DCQCN state so stale rate/alpha/timers from the
+	 * previous flow do not carry over into the next use of this QP.
+	 */
+	{
+		struct rte_eth_link link;
+		uint64_t link_speed_bps = 0;
+
+		if (rte_eth_link_get_nowait(qp->port_id, &link) == 0 &&
+		    link.link_speed != RTE_ETH_SPEED_NUM_NONE)
+			link_speed_bps = (uint64_t)link.link_speed * 1000000ULL;
+
+		dcqcn_init_qp(&qp->cc, link_speed_bps);
+	}
+
 	qp->valid = 1;
 	qp_status_cb(port, qp->qid, true);
 

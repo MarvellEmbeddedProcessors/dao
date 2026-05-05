@@ -12,6 +12,7 @@
 
 #include "dao_rdma_fp.h"
 #include "rdma_av.h"
+#include "rdma_dcqcn.h"
 #include "rdma_dev_cap_priv.h"
 #include "rdma_hdr.h"
 #include "rdma_pd_mr.h"
@@ -365,21 +366,8 @@ typedef struct rdma_qp {
 	uint32_t mtu;
 	uint32_t lcore;
 	uint8_t valid;
-	/* Congestion Control (ECN + CNP) --- */
-	struct {
-		uint64_t last_cnp_tx_cycles;      /* Last time we transmitted a CNP */
-		uint64_t last_cnp_rx_cycles;      /* Last time we received a CNP */
-		uint64_t pacing_interval_cycles;  /* Current enforced inter-send interval */
-		uint64_t next_send_cycles;        /* Earliest cycle timestamp we may send */
-		uint64_t min_pacing_cycles;       /* Lower bound */
-		uint64_t max_pacing_cycles;       /* Upper bound */
-		uint64_t cnp_min_interval_cycles; /* Throttle CNP generation */
-		uint64_t recovery_quiet_cycles;   /* Quiet-period threshold to reset pacing */
-		uint32_t ecn_ce_marks;            /* CE marks observed (via receiver) */
-		uint32_t cnp_tx_cnt;              /* CNP packets sent */
-		uint32_t cnp_rx_cnt;              /* CNP packets received */
-		uint8_t cc_enabled;               /* Feature toggle */
-	} cc;
+	/* DCQCN congestion control state (NP + RP) */
+	struct dcqcn_state cc;
 } rdma_qp_t;
 
 /* ---- MBUF private-area helpers (embed small objects) ---- */
@@ -552,10 +540,5 @@ int rdma_check_keys(struct rdma_pkt_info *pinfo, uint32_t qpn, struct rdma_qp *q
 int rdma_qp_state_check(struct rdma_pkt_info *pinfo, struct rdma_qp *qp);
 int dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf);
 int rdma_cb_register(rdma_cb_t *cb);
-
-/* Congestion control utility (CNP generation) */
-int rdma_send_cnp(struct rdma_qp *qp, struct rte_mbuf *rx_mbuf);
-/* Global CC toggle setter (called by application) */
-void rdma_global_cc_disable_set(int disable);
 
 #endif /* __RDMA_QP_H__ */
