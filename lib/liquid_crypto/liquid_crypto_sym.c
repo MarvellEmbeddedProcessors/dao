@@ -710,6 +710,8 @@ static int
 lc_sym_op_cipher_only_validate(const struct dao_lc_sym_op *op,
 			       const struct dao_lc_sym_sess_meta *sess_meta)
 {
+	int ret;
+
 	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
 		dao_err("Invalid cipher IV pointer for cipher only operation.");
 		return -EINVAL;
@@ -728,14 +730,12 @@ lc_sym_op_cipher_only_validate(const struct dao_lc_sym_op *op,
 	}
 
 	if (op->out_buffer != NULL) {
-		if (op->out_buffer->total_len > 0) {
-			int ret = lc_buf_validate(op->out_buffer, false);
-
-			if (ret != 0) {
-				dao_err("Invalid output buffer.");
-				return ret;
-			}
+		ret = lc_buf_validate(op->out_buffer, true);
+		if (ret != 0) {
+			dao_err("Invalid output buffer.");
+			return ret;
 		}
+
 		if (op->out_buffer->total_len < op->cipher_len + op->cipher_offset) {
 			dao_err("Output buffer total length is less than cipher length.");
 			return -EINVAL;
@@ -827,6 +827,7 @@ lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 	uint32_t auth_end = auth_offset + auth_len;
 	uint16_t digest_len_in_pkt = 0;
 	uint32_t total_len_reqd = 0;
+	int ret;
 
 	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
 		dao_err("Invalid cipher IV pointer for cipher auth operation.");
@@ -881,6 +882,12 @@ lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 	total_len_reqd = auth_end + digest_len_in_pkt;
 
 	if (op->out_buffer != NULL) {
+		ret = lc_buf_validate(op->out_buffer, true);
+		if (ret != 0) {
+			dao_err("Invalid output buffer.");
+			return ret;
+		}
+
 		if (op->encrypt) {
 			if (op->in_buffer->total_len != auth_end) {
 				dao_err("Auth region and input region (without digest) must end at the same point.");
@@ -915,6 +922,7 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 			const struct dao_lc_sym_sess_meta *sess_meta)
 {
 	uint16_t digest_len_in_pkt = 0, total_len_reqd = 0;
+	int ret;
 
 	if (sess_meta->alg_iv_len && op->cipher_iv == NULL) {
 		dao_err("Invalid cipher IV pointer for AEAD operation.");
@@ -942,6 +950,12 @@ lc_sym_op_aead_validate(const struct dao_lc_sym_op *op,
 	total_len_reqd = op->cipher_offset + op->cipher_len + digest_len_in_pkt;
 
 	if (op->out_buffer != NULL) {
+		ret = lc_buf_validate(op->out_buffer, true);
+		if (ret != 0) {
+			dao_err("Invalid output buffer.");
+			return ret;
+		}
+
 		if (op->encrypt) {
 			if (op->out_buffer->total_len < total_len_reqd) {
 				dao_err("Output buffer total length is less than required length.");
@@ -980,6 +994,7 @@ lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
 {
 	uint32_t output_len_required = 0;
 	uint16_t key_len, kek_len;
+	int ret;
 
 	key_len = op->wrap_unwrap_key_len;
 	kek_len = sess_meta->kek_len;
@@ -1018,6 +1033,14 @@ lc_sym_aes_key_wrap_param_validate(const struct dao_lc_sym_op *op,
 		dao_err("Invalid key length (%u). Key length exceeds maximum limit (%u bytes).",
 			key_len, DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN);
 		return -EINVAL;
+	}
+
+	if (op->out_buffer != NULL) {
+		ret = lc_buf_validate(op->out_buffer, false);
+		if (ret != 0) {
+			dao_err("Invalid output buffer.");
+			return ret;
+		}
 	}
 
 	/* For wrap operations, check output buffer size */
@@ -1068,14 +1091,6 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 	if (ret != 0) {
 		dao_err("Invalid input buffer.");
 		return ret;
-	}
-
-	if (!lc_sym_op_is_empty_buf_allowed(op_type) && op->out_buffer != NULL) {
-		ret = lc_buf_validate(op->out_buffer, false);
-		if (ret != 0) {
-			dao_err("Invalid output buffer.");
-			return ret;
-		}
 	}
 
 	switch (op_type) {
