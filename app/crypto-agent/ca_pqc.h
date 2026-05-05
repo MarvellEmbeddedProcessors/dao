@@ -30,12 +30,14 @@ static const char *const pqc_ml_dsa_alg_names[] = {
 static int
 ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 {
-	struct __dao_lc_req_pqc *req;
 	struct __dao_lc_resp_pqc *resp;
+	struct __dao_lc_req_pqc *req;
+	uint16_t data_out_len = 0;
 	union cpt_inst_w4 w4;
-	size_t sig_len = 0;
 	OQS_KEM *kem = NULL;
 	OQS_SIG *dsa = NULL;
+	size_t sig_len = 0;
+	uint8_t compcode;
 	uint8_t alg = 0;
 
 	req = rte_pktmbuf_mtod(mb, struct __dao_lc_req_pqc *);
@@ -46,6 +48,7 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 		if (kem == NULL) {
 			dao_err("Failed to create KEM instance for algorithm: %d", w4.s.param2);
 			rte_errno = ENOMEM;
+			res->pqc.data_out_len = 0;
 			return -ENOMEM;
 		}
 
@@ -54,11 +57,13 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 			resp = (struct __dao_lc_resp_pqc *)req;
 			res->pqc.op_type = DAO_LC_ML_KEM_OP_KEYGEN;
 			res->pqc.alg = w4.s.param2;
-			res->pqc.compcode = OQS_KEM_keypair(
+			compcode = OQS_KEM_keypair(
 				kem, resp->rptr /*public key */,
 				resp->rptr + pqc_ml_pub_key_len[w4.s.param2] /* private key */);
-			res->pqc.data_out_len =
-				pqc_ml_pub_key_len[w4.s.param2] + pqc_ml_priv_key_len[w4.s.param2];
+
+			if (compcode == 0)
+				data_out_len = pqc_ml_pub_key_len[w4.s.param2] +
+					       pqc_ml_priv_key_len[w4.s.param2];
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			rte_hexdump(stdout, "Public Key", resp->rptr,
 				    pqc_ml_pub_key_len[w4.s.param2]);
@@ -66,8 +71,9 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 				    resp->rptr + pqc_ml_pub_key_len[w4.s.param2],
 				    pqc_ml_priv_key_len[w4.s.param2]);
 #endif
+			res->pqc.data_out_len = data_out_len;
 			OQS_KEM_free(kem);
-			return res->pqc.compcode;
+			return compcode;
 		case ROC_AE_MINOR_OP_ML_KEM_ENCAP:
 			resp = (struct __dao_lc_resp_pqc *)rte_pktmbuf_adj(
 				mb,
@@ -77,11 +83,13 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 			resp->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC;
 			res->pqc.op_type = DAO_LC_ML_KEM_OP_ENCAP;
 			res->pqc.alg = w4.s.param2;
-			res->pqc.compcode = OQS_KEM_encaps(
+			compcode = OQS_KEM_encaps(
 				kem, resp->rptr + DAO_LC_ML_KEM_SHARED_SECRET_LEN /* cipher text */,
 				resp->rptr /* shared secret */, req->dptr /* public key */);
-			res->pqc.data_out_len = pqc_ml_ciphertext_len[w4.s.param2] +
-						DAO_LC_ML_KEM_SHARED_SECRET_LEN;
+
+			if (compcode == 0)
+				data_out_len = pqc_ml_ciphertext_len[w4.s.param2] +
+					       DAO_LC_ML_KEM_SHARED_SECRET_LEN;
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			rte_hexdump(stdout, "Shared Secret (Encap)", resp->rptr,
 				    DAO_LC_ML_KEM_SHARED_SECRET_LEN);
@@ -89,8 +97,9 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 				    resp->rptr + DAO_LC_ML_KEM_SHARED_SECRET_LEN,
 				    pqc_ml_ciphertext_len[w4.s.param2]);
 #endif
+			res->pqc.data_out_len = data_out_len;
 			OQS_KEM_free(kem);
-			return res->pqc.compcode;
+			return compcode;
 		case ROC_AE_MINOR_OP_ML_KEM_DECAP:
 			resp = (struct __dao_lc_resp_pqc *)rte_pktmbuf_adj(
 				mb, sizeof(struct __dao_lc_req_pqc) +
@@ -101,22 +110,26 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 			resp->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC;
 			res->pqc.op_type = DAO_LC_ML_KEM_OP_DECAP;
 			res->pqc.alg = w4.s.param2;
-			res->pqc.compcode = OQS_KEM_decaps(
+			compcode = OQS_KEM_decaps(
 				kem, resp->rptr,                              /* shared secret */
 				req->dptr + pqc_ml_priv_key_len[w4.s.param2], /* cipher text*/
 				req->dptr /* Private key */);
-			res->pqc.data_out_len = DAO_LC_ML_KEM_SHARED_SECRET_LEN;
+
+			if (compcode == 0)
+				data_out_len = DAO_LC_ML_KEM_SHARED_SECRET_LEN;
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			rte_hexdump(stdout, "Shared Secret (Decap)",
 				    resp->rptr + pqc_ml_priv_key_len[w4.s.param2] +
 					    pqc_ml_ciphertext_len[w4.s.param2],
 				    DAO_LC_ML_KEM_SHARED_SECRET_LEN);
 #endif
+			res->pqc.data_out_len = data_out_len;
 			OQS_KEM_free(kem);
-			return res->pqc.compcode;
+			return compcode;
 		default:
 			dao_err("Unsupported PQC ML KEM operation: %d", w4.s.opcode_minor);
 			rte_errno = EINVAL;
+			res->pqc.data_out_len = 0;
 			OQS_KEM_free(kem);
 			return -EINVAL;
 		}
@@ -135,17 +148,20 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 			resp = (struct __dao_lc_resp_pqc *)req;
 			res->pqc.op_type = DAO_LC_ML_DSA_OP_KEYGEN;
 			res->pqc.alg = alg;
-			res->pqc.compcode = OQS_SIG_keypair(
+			compcode = OQS_SIG_keypair(
 				dsa, resp->rptr, /*public key */
 				resp->rptr + pqc_ml_pub_key_len[alg] /* private key */);
-			res->pqc.data_out_len = pqc_ml_pub_key_len[alg] + pqc_ml_priv_key_len[alg];
+
+			if (compcode == 0)
+				data_out_len = pqc_ml_pub_key_len[alg] + pqc_ml_priv_key_len[alg];
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			rte_hexdump(stdout, "DSA Public Key", resp->rptr, pqc_ml_pub_key_len[alg]);
 			rte_hexdump(stdout, "DSA Private Key", resp->rptr + pqc_ml_pub_key_len[alg],
 				    pqc_ml_priv_key_len[alg]);
 #endif
+			res->pqc.data_out_len = data_out_len;
 			OQS_SIG_free(dsa);
-			return res->pqc.compcode;
+			return compcode;
 		case ROC_AE_MINOR_OP_ML_DSA_SIGN:
 			resp = (struct __dao_lc_resp_pqc *)rte_pktmbuf_adj(
 				mb, sizeof(struct __dao_lc_req_pqc) + pqc_ml_priv_key_len[alg] +
@@ -155,7 +171,7 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 			resp->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC;
 			res->pqc.op_type = DAO_LC_ML_DSA_OP_SIGN;
 			res->pqc.alg = alg;
-			res->pqc.compcode = OQS_SIG_sign_with_ctx_str(
+			compcode = OQS_SIG_sign_with_ctx_str(
 				dsa, resp->rptr, /* signature */
 				&sig_len,        /* signature length */
 				req->dptr + pqc_ml_priv_key_len[alg] +
@@ -164,16 +180,19 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 				req->dptr + pqc_ml_priv_key_len[alg], /* context */
 				(w4.s.param2 >> 2),                   /* context length */
 				req->dptr /*private key*/);
+
+			if (compcode == 0)
+				data_out_len = sig_len;
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 			rte_hexdump(stdout, "DSA Signature", resp->rptr, sig_len);
 #endif
-			res->pqc.data_out_len = sig_len;
+			res->pqc.data_out_len = data_out_len;
 			OQS_SIG_free(dsa);
-			return res->pqc.compcode;
+			return compcode;
 		case ROC_AE_MINOR_OP_ML_DSA_VERIFY:
 			res->pqc.op_type = DAO_LC_ML_DSA_OP_VERIFY;
 			res->pqc.alg = alg;
-			res->pqc.compcode = OQS_SIG_verify_with_ctx_str(
+			compcode = OQS_SIG_verify_with_ctx_str(
 				dsa,
 				req->dptr + pqc_ml_pub_key_len[alg] +
 					(w4.s.param2 >> 2) /* message */,
@@ -185,7 +204,7 @@ ca_pqc_process(struct rte_mbuf *mb, union dao_cpt_res_s *res)
 				(w4.s.param2 >> 2) /* context length */, req->dptr /*public key*/);
 			res->pqc.data_out_len = 0;
 			OQS_SIG_free(dsa);
-			return res->pqc.compcode;
+			return compcode;
 		default:
 			dao_err("Unsupported PQC ML DSA operation: %d", w4.s.opcode_minor);
 			rte_errno = EINVAL;
