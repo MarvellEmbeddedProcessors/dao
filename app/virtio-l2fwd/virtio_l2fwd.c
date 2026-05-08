@@ -1055,7 +1055,8 @@ init_eth_mempool(uint16_t portid, uint32_t nb_mbuf)
 				rte_pktmbuf_pool_create(s, nb_mbuf, MEMPOOL_CACHE_SIZE,
 							RTE_CACHE_LINE_SIZE, pool_buf_len, 0);
 			if (e_pktmbuf_pool[portid] == NULL)
-				rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+				rte_exit(EXIT_FAILURE, "Failed to create packet mbuf pool: %s\n",
+					 rte_strerror(rte_errno));
 			else
 				APP_INFO("Allocated ethdev mbuf pool for portid=%d\n", portid);
 		}
@@ -1081,7 +1082,8 @@ init_virtio_mempool(uint16_t devid, uint32_t nb_mbuf)
 				rte_pktmbuf_pool_create(s, nb_mbuf, MEMPOOL_CACHE_SIZE,
 							RTE_CACHE_LINE_SIZE, pool_buf_len, 0);
 			if (v_pktmbuf_pool[devid] == NULL)
-				rte_exit(EXIT_FAILURE, "Cannot init mbuf pool\n");
+				rte_exit(EXIT_FAILURE, "Failed to create packet mbuf pool: %s\n",
+					 rte_strerror(rte_errno));
 			else
 				APP_INFO("Allocated virtio_dev mbuf pool for devid=%d\n", devid);
 		}
