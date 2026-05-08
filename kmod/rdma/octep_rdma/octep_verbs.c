@@ -924,6 +924,7 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 {
 	struct octep_rdma_qp *qp;
 	struct octep_rdma_dev *dev;
+	struct octep_rdma_qp_mod_attrs *mod;
 
 	if (ibqp && qp_attr && qp_init_attr) {
 		qp = to_octep_rdma_qp(ibqp);
@@ -932,6 +933,15 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 		return -EINVAL;
 	}
 
+	down_read(&qp->state_lock);
+
+	mod = qp->attrs.qp_mod_attr;
+
+	/* QP state */
+	qp_attr->qp_state = octep_rdma_get_ibqp_state(qp->attrs.state);
+	qp_attr->cur_qp_state = qp_attr->qp_state;
+
+	/* Capabilities */
 	qp_attr->cap.max_inline_data = OCTEP_RDMA_MAX_INLINE;
 	qp_attr->qkey = qp->attrs.qkey;
 	qp_init_attr->cap.max_inline_data = OCTEP_RDMA_MAX_INLINE;
@@ -945,10 +955,35 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 	qp_attr->max_rd_atomic = qp->attrs.irq_size;
 	qp_attr->max_dest_rd_atomic = qp->attrs.orq_size;
 
-	qp_attr->qp_access_flags =
-		IB_ACCESS_LOCAL_WRITE | IB_ACCESS_REMOTE_WRITE | IB_ACCESS_REMOTE_READ;
+	qp_attr->qp_access_flags = IB_ACCESS_LOCAL_WRITE | IB_ACCESS_REMOTE_WRITE |
+				   IB_ACCESS_REMOTE_READ;
+
+	/* Connection parameters from last modify_qp */
+	qp_attr->dest_qp_num = qp->attrs.dest_qpn;
+	if (mod) {
+		qp_attr->sq_psn = mod->sq_psn;
+		qp_attr->rq_psn = mod->rq_psn;
+		qp_attr->timeout = mod->timeout;
+		qp_attr->retry_cnt = mod->retry_cnt;
+		qp_attr->rnr_retry = mod->rnr_retry_cnt;
+		qp_attr->min_rnr_timer = mod->min_rnr_timer;
+		qp_attr->pkey_index = mod->pkey_index;
+		qp_attr->port_num = mod->port_num;
+		if (qp_attr->max_rd_atomic == 0)
+			qp_attr->max_rd_atomic = mod->max_rd_atomic;
+		if (qp_attr->max_dest_rd_atomic == 0)
+			qp_attr->max_dest_rd_atomic = mod->max_dest_rd_atomic;
+	}
+	qp_init_attr->sq_sig_type = qp->attrs.sq_sig_type;
+
+	up_read(&qp->state_lock);
+
+	/* Fallback port_num from device if not set via modify */
+	if (!qp_attr->port_num)
+		qp_attr->port_num = 1;
 
 	qp_init_attr->cap = qp_attr->cap;
+	qp_init_attr->qp_type = ibqp->qp_type;
 
 	return 0;
 }

@@ -494,7 +494,7 @@ octep_rdma_prepare_user_qp_modify_cmd(struct octep_rdma_dev *rdma_dev, struct oc
 	return ret;
 }
 
-static enum ib_qp_state
+enum ib_qp_state
 octep_rdma_get_ibqp_state(enum octep_rdma_qp_state qp_state)
 {
 	switch (qp_state) {

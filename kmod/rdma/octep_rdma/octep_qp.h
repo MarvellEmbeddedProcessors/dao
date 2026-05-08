@@ -191,4 +191,5 @@ int octep_rdma_qp_validate_attr(struct octep_rdma_dev *dev, struct ib_qp_init_at
 int octep_rdma_qp_validate_cap(struct octep_rdma_dev *rdma_dev, struct ib_qp_init_attr *attrs);
 void octep_rdma_qp_get(struct octep_rdma_qp *qp);
 void octep_rdma_qp_put(struct octep_rdma_qp *qp);
+enum ib_qp_state octep_rdma_get_ibqp_state(enum octep_rdma_qp_state qp_state);
 #endif /* __OCTEP_QP_H__ */
