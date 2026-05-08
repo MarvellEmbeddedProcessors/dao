@@ -101,6 +101,7 @@ static void octep_cxl_quirk_unregister_pci(int pci_idx)
 static int octep_cxl_quirk_register_pci(struct pci_dev *pdev, int pci_idx)
 {
 	int max_vfs, rsrc_div, vecs_per_dev;
+	struct platform_device *plat_pdev;
 	int dev_idx, res_idx, irq;
 	struct resource res[10];
 	u32 per_dev_bar4_sz;
@@ -156,16 +157,38 @@ static int octep_cxl_quirk_register_pci(struct pci_dev *pdev, int pci_idx)
 			 (unsigned long long)res[res_idx].end);
 		res_idx++;
 
-		octep_plat[pci_idx][dev_idx] = platform_device_register_simple(
-			OCTEP_VDPA_PLAT_NAME, plat_id, res, res_idx);
-		if (IS_ERR(octep_plat[pci_idx][dev_idx])) {
-			rc = PTR_ERR(octep_plat[pci_idx][dev_idx]);
-			dev_warn(&pdev->dev, "Failed to register platform device %d.%d: %d\n",
-				 pci_idx, dev_idx, rc);
-			octep_plat[pci_idx][dev_idx] = NULL;
+		/* Allocate, set parent, then add. The parent must be set before
+		 * platform_device_add() so that device_add() takes a reference on
+		 * the parent PCI device and so that the platform driver's probe
+		 * sees a valid dev->parent (used for DMA setup).
+		 */
+		plat_pdev = platform_device_alloc(OCTEP_VDPA_PLAT_NAME, plat_id);
+		if (!plat_pdev) {
+			dev_warn(&pdev->dev, "Failed to alloc platform device %d.%d\n", pci_idx,
+				 dev_idx);
+			rc = -ENOMEM;
 			goto unregister;
 		}
-		octep_plat[pci_idx][dev_idx]->dev.parent = &pdev->dev;
+		plat_pdev->dev.parent = &pdev->dev;
+
+		rc = platform_device_add_resources(plat_pdev, res, res_idx);
+		if (rc) {
+			dev_warn(&pdev->dev,
+				 "Failed to add resources to platform device %d.%d: %d\n", pci_idx,
+				 dev_idx, rc);
+			platform_device_put(plat_pdev);
+			goto unregister;
+		}
+
+		rc = platform_device_add(plat_pdev);
+		if (rc) {
+			dev_warn(&pdev->dev, "Failed to register platform device %d.%d: %d\n",
+				 pci_idx, dev_idx, rc);
+			platform_device_put(plat_pdev);
+			goto unregister;
+		}
+
+		octep_plat[pci_idx][dev_idx] = plat_pdev;
 		dev_info(&pdev->dev, "Registered %s.%d\n", OCTEP_VDPA_PLAT_NAME, plat_id);
 	}
 
