@@ -23,10 +23,13 @@
 
 #define OCTEP_PLAT_MAX_DEVICES 4
 
+/* Maximum number of CXL PCI functions we will service. */
+#define OCTEP_MAX_CXL_PCI 4
+
 /* Resource divisor for splitting the MSI-X vectors and BAR4 among devices. */
 #define ILIAD_RESOURCE_DIVISOR(n) ((n) > 2 ? 4 : (n))
 
-static struct platform_device *octep_plat[OCTEP_PLAT_MAX_DEVICES];
+static struct platform_device *octep_plat[OCTEP_MAX_CXL_PCI][OCTEP_PLAT_MAX_DEVICES];
 
 /* Verify BAR4 firmware signature and read parameters. */
 static int octep_cxl_quirk_verify_fw_ready(struct pci_dev *pdev, u32 *per_dev_bar4_sz, int *max_vfs)
@@ -37,14 +40,14 @@ static int octep_cxl_quirk_verify_fw_ready(struct pci_dev *pdev, u32 *per_dev_ba
 
 	bar4_total = pci_resource_len(pdev, 4);
 	if (!bar4_total) {
-		pr_err("CXL device does not have BAR4\n");
+		dev_warn(&pdev->dev, "CXL device does not have BAR4\n");
 		return -ENODEV;
 	}
 
 	/* Read the firmware signature and parameters from BAR4. */
 	bar4_map = ioremap(pci_resource_start(pdev, 4), 16);
 	if (!bar4_map) {
-		pr_err("Failed to ioremap BAR4 for signature read\n");
+		dev_warn(&pdev->dev, "Failed to ioremap BAR4 for signature read\n");
 		return -ENOMEM;
 	}
 
@@ -55,8 +58,8 @@ static int octep_cxl_quirk_verify_fw_ready(struct pci_dev *pdev, u32 *per_dev_ba
 	iounmap(bar4_map);
 
 	if (sig[0] != OCTEP_FW_READY_SIG0 || sig[1] != OCTEP_FW_READY_SIG1) {
-		pr_err("BAR4 signature mismatch (0x%08x 0x%08x); is app running?\n", sig[0],
-		       sig[1]);
+		dev_warn(&pdev->dev, "BAR4 signature mismatch (0x%08x 0x%08x); is app running?\n",
+			 sig[0], sig[1]);
 		return -ENODEV;
 	}
 
@@ -64,43 +67,53 @@ static int octep_cxl_quirk_verify_fw_ready(struct pci_dev *pdev, u32 *per_dev_ba
 	*max_vfs = (int)sig[3];
 
 	if (!*per_dev_bar4_sz || (bar4_total % *per_dev_bar4_sz) != 0) {
-		pr_err("Invalid per-device BAR4 size %u (total %llu)\n", *per_dev_bar4_sz,
-		       (unsigned long long)bar4_total);
+		dev_warn(&pdev->dev, "Invalid per-device BAR4 size %u (total %llu)\n",
+			 *per_dev_bar4_sz, (unsigned long long)bar4_total);
 		return -EINVAL;
 	}
 
 	if (!*max_vfs || *max_vfs > OCTEP_PLAT_MAX_DEVICES) {
-		pr_err("Invalid max_vfs %d from BAR4 signature\n", *max_vfs);
+		dev_warn(&pdev->dev, "Invalid max_vfs %d from BAR4 signature\n", *max_vfs);
 		return -EINVAL;
 	}
 
 	return 0;
 }
 
-static int __init octep_cxl_quirk_init(void)
+static void octep_cxl_quirk_unregister_pci(int pci_idx)
+{
+	int i;
+
+	for (i = OCTEP_PLAT_MAX_DEVICES - 1; i >= 0; i--) {
+		if (!IS_ERR_OR_NULL(octep_plat[pci_idx][i])) {
+			dev_info(&octep_plat[pci_idx][i]->dev, "Unregistering %s.%d\n",
+				 OCTEP_VDPA_PLAT_NAME, octep_plat[pci_idx][i]->id);
+			platform_device_unregister(octep_plat[pci_idx][i]);
+			octep_plat[pci_idx][i] = NULL;
+		}
+	}
+}
+
+/* Register one set of vDPA platform devices for a single CXL PCI function.
+ * Returns 0 on success, negative errno on failure (in which case any partial
+ * registrations made for this pdev are rolled back).
+ */
+static int octep_cxl_quirk_register_pci(struct pci_dev *pdev, int pci_idx)
 {
 	int max_vfs, rsrc_div, vecs_per_dev;
-	struct pci_dev *pdev = NULL;
 	int dev_idx, res_idx, irq;
 	struct resource res[10];
 	u32 per_dev_bar4_sz;
-	int i, rc = 0;
-
-	pdev = pci_get_device(PCI_VENDOR_ID_CAVIUM, PCI_DEVICE_ID_CAVIUM_CXL, NULL);
-	if (!pdev) {
-		pr_err("CXL PCI device not found\n");
-		return -ENODEV;
-	}
+	int i, rc;
 
 	if (!pdev->msix_enabled || pci_msix_vec_count(pdev) <= 0) {
-		pr_err("CXL device does not support MSI-X or has no vectors\n");
-		rc = -ENODEV;
-		goto put_dev;
+		dev_warn(&pdev->dev, "MSI-X not enabled or no vectors\n");
+		return -ENODEV;
 	}
 
 	rc = octep_cxl_quirk_verify_fw_ready(pdev, &per_dev_bar4_sz, &max_vfs);
 	if (rc)
-		goto put_dev;
+		return rc;
 
 	rsrc_div = ILIAD_RESOURCE_DIVISOR(max_vfs);
 	vecs_per_dev = OCTEP_MSIX_VEC_COUNT / rsrc_div;
@@ -109,8 +122,9 @@ static int __init octep_cxl_quirk_init(void)
 		 "BAR4 signature OK: per_dev_sz=%u max_vfs=%d rsrc_div=%d vecs_per_dev=%d\n",
 		 per_dev_bar4_sz, max_vfs, rsrc_div, vecs_per_dev);
 
-	/* Register one platform device per virtual device */
 	for (dev_idx = 0; dev_idx < max_vfs; dev_idx++) {
+		int plat_id = pci_idx * OCTEP_PLAT_MAX_DEVICES + dev_idx;
+
 		memset(res, 0, sizeof(res));
 		res_idx = 0;
 
@@ -120,8 +134,9 @@ static int __init octep_cxl_quirk_init(void)
 
 			irq = pci_irq_vector(pdev, vec);
 			if (irq <= 0 || irq_has_action(irq)) {
-				pr_err("MSI-X vector %d not available for device %d\n", vec,
-				       dev_idx);
+				dev_warn(&pdev->dev,
+					 "MSI-X vector %d not available for device %d\n", vec,
+					 dev_idx);
 				rc = -ENODEV;
 				goto unregister;
 			}
@@ -141,45 +156,71 @@ static int __init octep_cxl_quirk_init(void)
 			 (unsigned long long)res[res_idx].end);
 		res_idx++;
 
-		octep_plat[dev_idx] = platform_device_register_simple(OCTEP_VDPA_PLAT_NAME, dev_idx,
-								      res, res_idx);
-		if (IS_ERR(octep_plat[dev_idx])) {
-			rc = PTR_ERR(octep_plat[dev_idx]);
-			pr_err("Failed to register platform device %d: %d\n", dev_idx, rc);
-			octep_plat[dev_idx] = NULL;
+		octep_plat[pci_idx][dev_idx] = platform_device_register_simple(
+			OCTEP_VDPA_PLAT_NAME, plat_id, res, res_idx);
+		if (IS_ERR(octep_plat[pci_idx][dev_idx])) {
+			rc = PTR_ERR(octep_plat[pci_idx][dev_idx]);
+			dev_warn(&pdev->dev, "Failed to register platform device %d.%d: %d\n",
+				 pci_idx, dev_idx, rc);
+			octep_plat[pci_idx][dev_idx] = NULL;
 			goto unregister;
 		}
-		octep_plat[dev_idx]->dev.parent = &pdev->dev;
-		dev_info(&pdev->dev, "Registered %s.%d\n", OCTEP_VDPA_PLAT_NAME, dev_idx);
+		octep_plat[pci_idx][dev_idx]->dev.parent = &pdev->dev;
+		dev_info(&pdev->dev, "Registered %s.%d\n", OCTEP_VDPA_PLAT_NAME, plat_id);
 	}
 
-	pci_dev_put(pdev);
 	return 0;
 
 unregister:
-	for (i = dev_idx - 1; i >= 0; i--) {
-		if (!IS_ERR_OR_NULL(octep_plat[i])) {
-			platform_device_unregister(octep_plat[i]);
-			octep_plat[i] = NULL;
-		}
-	}
-put_dev:
-	pci_dev_put(pdev);
+	octep_cxl_quirk_unregister_pci(pci_idx);
 	return rc;
+}
+
+static int __init octep_cxl_quirk_init(void)
+{
+	struct pci_dev *pdev = NULL;
+	int pci_idx = 0;
+	int n_success = 0;
+	int rc;
+
+	while ((pdev = pci_get_device(PCI_VENDOR_ID_CAVIUM, PCI_DEVICE_ID_CAVIUM_CXL, pdev))) {
+		if (pci_idx >= OCTEP_MAX_CXL_PCI) {
+			dev_warn(&pdev->dev,
+				 "Reached OCTEP_MAX_CXL_PCI=%d; skipping further CXL devices\n",
+				 OCTEP_MAX_CXL_PCI);
+			pci_dev_put(pdev);
+			break;
+		}
+
+		rc = octep_cxl_quirk_register_pci(pdev, pci_idx);
+		if (rc)
+			dev_warn(&pdev->dev, "Skipping CXL device %d (error %d)\n", pci_idx, rc);
+		else
+			n_success++;
+
+		pci_idx++;
+	}
+
+	if (pci_idx == 0) {
+		pr_err("No CXL PCI device found\n");
+		return -ENODEV;
+	}
+
+	if (!n_success) {
+		pr_err("Found %d CXL PCI device(s) but none could be registered\n", pci_idx);
+		return -ENODEV;
+	}
+
+	pr_info("Registered platform devices for %d/%d CXL PCI device(s)\n", n_success, pci_idx);
+	return 0;
 }
 
 static void __exit octep_cxl_quirk_exit(void)
 {
-	int dev_idx;
+	int pci_idx;
 
-	for (dev_idx = OCTEP_PLAT_MAX_DEVICES - 1; dev_idx >= 0; dev_idx--) {
-		if (!IS_ERR_OR_NULL(octep_plat[dev_idx])) {
-			dev_info(&octep_plat[dev_idx]->dev, "Unregistering %s.%d\n",
-				 OCTEP_VDPA_PLAT_NAME, dev_idx);
-			platform_device_unregister(octep_plat[dev_idx]);
-			octep_plat[dev_idx] = NULL;
-		}
-	}
+	for (pci_idx = OCTEP_MAX_CXL_PCI - 1; pci_idx >= 0; pci_idx--)
+		octep_cxl_quirk_unregister_pci(pci_idx);
 }
 
 module_init(octep_cxl_quirk_init);
