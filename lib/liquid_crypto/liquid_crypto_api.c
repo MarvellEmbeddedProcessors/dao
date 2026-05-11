@@ -960,6 +960,36 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			if (params->sym.hmac_auth_key_len)
 				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.hmac_auth_key_len, 8);
 
+			if (params->sym.custom_string_len > DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN) {
+				dao_err("Invalid customization string length. custom_string_len should be at most %u",
+					DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN);
+				return 0;
+			}
+
+			if (params->sym.function_name_len > DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN) {
+				dao_err("Invalid function name length. function_name_len should be at most %u",
+					DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN);
+				return 0;
+			}
+
+			if (params->sym.output_len > DAO_LC_MAX_DIGEST_LEN) {
+				dao_err("Invalid output-length. output_len should be at most %u.",
+					DAO_LC_MAX_DIGEST_LEN);
+				return 0;
+			}
+
+			/* KMAC/cSHAKE control-word*/
+			sym_seg_sz += ROC_SE_CTRL_WORD_LEN;
+
+			/* KMAC/cSHAKE custom-string */
+			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.custom_string_len, 8);
+
+			/* cSHAKE function-name */
+			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.function_name_len, 8);
+
+			/* KMAC/cSHAKE output-len */
+			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.output_len, 8);
+
 			if (params->sym.key_wrap_len) {
 				if (params->sym.key_wrap_len >
 				    DAO_LC_AES_KEY_WRAP_MAX_KEY_DATA_LEN) {

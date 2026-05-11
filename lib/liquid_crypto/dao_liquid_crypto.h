@@ -46,7 +46,7 @@
 #define DAO_LC_RSA_OAEP_MAX_MOD_LEN 988
 /** Maximum supported customisation-string length for KMAC and cSHAKE operations */
 #define DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN 511
-/** Maximum supported function-name length for KMAC and cSHAKE operations */
+/** Maximum supported function-name length for cSHAKE operations */
 #define DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN 511
 /** Maximum supported authentication key for KMAC operations */
 #define DAO_LC_KMAC_MAX_AUTH_KEY_LEN 511
@@ -792,6 +792,12 @@ struct dao_lc_feature_params {
 		uint16_t key_wrap_len;
 		/** KEK type */
 		enum dao_lc_fc_aes_key_len aes_kek_type;
+		/** Output-Length for KMAC/cSHAKE operations */
+		uint16_t output_len;
+		/** Custom string length for KMAC/cSHAKE operations */
+		uint16_t custom_string_len;
+		/** Function name length for cSHAKE operations */
+		uint16_t function_name_len;
 	} sym;
 	/**
 	 * RSA asymmetric parameters. The parameters are used to calculate the size of the maximum
