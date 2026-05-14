@@ -198,6 +198,9 @@ main(int argc, char **argv)
 		feature_params.sym.digest_len = TEST_LC_MAX_DIGEST_LEN;
 		feature_params.sym.hmac_auth_key_len = TEST_LC_MAX_HMAC_KEY_LEN;
 		feature_params.rsa.mod_len = TEST_LC_MAX_RSA_MOD_LEN;
+		feature_params.sym.custom_string_len = TEST_LC_SHA3_MAX_CUSTOM_STRING_LEN;
+		feature_params.sym.function_name_len = TEST_LC_SHA3_MAX_FUNCTION_NAME_LEN;
+		feature_params.sym.output_len = TEST_LC_MAX_DIGEST_LEN;
 		/* Use CRT format */
 		feature_params.rsa.exp_len = 0;
 		feature_params.rng.rand_len = TEST_LC_MAX_RANDOM_LEN;

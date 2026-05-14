@@ -54,5 +54,9 @@
 #define TEST_LC_RSA_OAEP_MAX_LABEL_LEN 1024
 /* RSA OAEP maximum modulus length in bytes */
 #define TEST_LC_RSA_OAEP_MAX_MOD_LEN 988
+/** Maximum customisation-string length for KMAC and cSHAKE */
+#define TEST_LC_SHA3_MAX_CUSTOM_STRING_LEN 511
+/** Maximum function-name length for cSHAKE */
+#define TEST_LC_SHA3_MAX_FUNCTION_NAME_LEN 511
 
 #endif /* __LC_AUTOTEST_H__ */
