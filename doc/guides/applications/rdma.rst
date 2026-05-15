@@ -31,22 +31,26 @@ platforms. It supports multi-queue (multi-QP) UD and RC transports,
 multi-device scenarios (multiple RDMA interfaces), and validation via
 standard rdma-core utilities (``ibv_*``) and RDMA perftests utilities.
 
-The application configures required RPM/SDP/DPI resources on OCTEON, launches
+The application configures required RPM/DPI resources on OCTEON, launches
 workers to process Ethernet receive nodes feeding RDMA graph nodes, and allows
 users to run verbs test programs (``ibv_ud_pingpong``, ``ibv_rdma_mq_trf``)
-across host <-> OCTEON or multi-device setups.
+across host <-> OCTEON or multi-device setups. Non-RDMA host stack traffic
+(ARP, ICMP, RDMA CM) is handled through a management QP ring-based netdev
+using BAR4 doorbells and DMA passthrough, eliminating the previous SDP
+dependency.
 
 .. figure:: ./img/rdma.png
    :alt: RDMA Application Overview
 
 Features
 --------
- * DPDK based RDMA dataplane orchestration on OCTEON (RPM + SDP + DPI VFs)
+ * DPDK based RDMA dataplane orchestration on OCTEON (RPM + DPI VFs)
+ * Management QP ring-based netdev for non-RDMA host traffic (ARP, ICMP, RDMA CM)
  * Supports UD transport ping/pong validation (``ibv_ud_pingpong``)
  * Supports multi-queue UD and RC tests (``ibv_rdma_mq_trf``)
  * Multi-device RDMA support (multiple RDMA VF devices)
  * Works with host-side ``rdma-core`` utilities for probing & stats
- * VFIO-PCI binding for RPM/SDP/DPI devices
+ * VFIO-PCI binding for RPM/DPI devices
  * Programmable number of Queue Pairs (QPs) per test
  * Command-line options for selecting device masks, number of RDMA devices, etc.
  * Integrates with perftest utilities (``ib_send_lat``, ``ib_send_bw``, ``ib_write_lat``, ``ib_write_bw``, ``ib_read_lat``, ``ib_read_bw``) for latency & bandwidth benchmarking
@@ -59,13 +63,6 @@ Bind RPM device to ``vfio-pci``:
 .. code-block:: bash
 
    dpdk-devbind.py -b vfio-pci 0002:02:00.0
-   dpdk-devbind.py -b vfio-pci 0002:18:00.0
-
-Bind SDP device
-
-.. code-block:: bash
-
-   dpdk-devbind.py -b vfio-pci 0002:01:00.2
 
 .. _rdma-obtain-dao:
 
@@ -191,7 +188,7 @@ Export DPI device list and run application:
    export DPI_DEV="-a 0000:06:00.1 -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 -a 0000:06:00.6 \
    -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5"
    scp dao-rdma_graph root@OCTEON_IP:/root/
-   /root/dao-rdma_graph -c 0xf -a 0002:02:00.0 -a 0002:01:00.2 $DPI_DEV --file-prefix=ep -- -p 0x3 -P --max-pkt-len=9600 -n 1 -r 0x1 --num-mbufs 1048576 --dma-nb-desc 8192
+   /root/dao-rdma_graph -c 0xf -a 0002:02:00.0 $DPI_DEV --file-prefix=ep -- -p 0x1 -P --max-pkt-len=9600 -n 1 -r 0x1 --num-mbufs 1048576 --dma-nb-desc 8192
 
 Sample boot log excerpt:
 
@@ -201,13 +198,9 @@ Sample boot log excerpt:
    EAL: Detected CPU lcores: 24
    ...
    [lcore   0] DAO_INFO: Port 0 Link up at 100 Gbps FDX Fixed
-   [lcore   0] DAO_INFO: Port 1 Link up at 100 Gbps FDX Autoneg
    [lcore   0] DAO_INFO: Setting up 8 VFs for PEM0
-   [lcore   0] DAO_ERR: No rings configured per VF, host interrupts unsupported
    [lcore   0] DAO_INFO: graph node: rdma_eth_rx-0-0
    [lcore   0] DAO_INFO: graph node: rdma_eth_rx-0-1
-   [lcore   0] DAO_INFO: graph node: rdma_eth_rx-1-0
-   [lcore   0] DAO_INFO: graph node: rdma_eth_rx-1-1
    [lcore   0] DAO_INFO: Launching worker loops....
 
 .. note::
@@ -350,19 +343,11 @@ Create RPM VFs and bind to VFIO-PCI:
    dpdk-devbind.py -b vfio-pci 0002:02:00.2
    dpdk-devbind.py -b vfio-pci 0002:02:00.3
 
-Bind SDP VFs:
-
-.. code-block:: bash
-
-   dpdk-devbind.py -b vfio-pci 0002:1f:00.1
-   dpdk-devbind.py -b vfio-pci 0002:1f:00.2
-   dpdk-devbind.py -b vfio-pci 0002:1f:00.3
-
 Start application for 3 devices:
 
 .. code-block:: bash
 
-   dao-rdma_graph -c 0x1f -a 0002:02:00.1 -a 0002:02:00.2 -a 0002:02:00.3 -a 0002:1f:00.2 -a 0002:1f:00.3 -a 0002:1f:00.4 $DPI_DEV --file-prefix=ep -- -p 0x3F -r 0x7 -n 3 -P
+   dao-rdma_graph -c 0x1f -a 0002:02:00.1 -a 0002:02:00.2 -a 0002:02:00.3 $DPI_DEV --file-prefix=ep -- -p 0x7 -r 0x7 -n 3 -P
 
 * ``-n`` Number of RDMA devices
 * ``-r`` RDMA devices mask
