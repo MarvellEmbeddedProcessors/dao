@@ -285,9 +285,9 @@ static int octep_rdma_mgmt_set_mac(struct net_device *ndev, void *p)
 
 static int octep_rdma_mgmt_change_mtu(struct net_device *ndev, int new_mtu)
 {
-	if (new_mtu + ETH_HLEN > OCTEP_RDMA_MGMT_BUF_SIZE) {
-		netdev_err(ndev, "MTU %d exceeds mgmt QP buffer (%u)\n",
-			   new_mtu, OCTEP_RDMA_MGMT_BUF_SIZE - ETH_HLEN);
+	if (new_mtu < OCTEP_MIN_MTU || new_mtu > OCTEP_MAX_MTU) {
+		netdev_err(ndev, "MTU %d out of range [%d, %d]\n",
+			   new_mtu, OCTEP_MIN_MTU, OCTEP_MAX_MTU);
 		return -EINVAL;
 	}
 
@@ -557,9 +557,9 @@ int octep_rdma_mgmt_qp_netdev_init(struct octep_rdma_dev *rdma_dev,
 	}
 
 	ndev->netdev_ops = &octep_rdma_mgmt_netdev_ops;
-	ndev->min_mtu = ETH_MIN_MTU;
-	ndev->max_mtu = OCTEP_RDMA_MGMT_BUF_SIZE - ETH_HLEN;
-	ndev->mtu = ETH_DATA_LEN;
+	ndev->min_mtu = OCTEP_MIN_MTU;
+	ndev->max_mtu = OCTEP_MAX_MTU;
+	ndev->mtu = OCTEP_DEFAULT_MTU;
 
 	ret = register_netdev(ndev);
 	if (ret) {

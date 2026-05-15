@@ -21,8 +21,12 @@ struct octep_caps_region;
 #define OCTEP_RDMA_MGMT_SQ_DEPTH    256
 #define OCTEP_RDMA_MGMT_RQ_DEPTH    256
 #define OCTEP_RDMA_MGMT_CQ_DEPTH    512
-#define OCTEP_RDMA_MGMT_BUF_SIZE    1536
+#define OCTEP_RDMA_MGMT_BUF_SIZE    10000
 #define OCTEP_RDMA_MGMT_RX_POLL_MS  5
+
+#define OCTEP_MIN_MTU     ETH_MIN_MTU
+#define OCTEP_MAX_MTU     (10000 - (ETH_HLEN + ETH_FCS_LEN))
+#define OCTEP_DEFAULT_MTU 1500
 
 struct octep_rdma_mgmt_qp_ctx {
 	struct octep_rdma_qp *qp;
