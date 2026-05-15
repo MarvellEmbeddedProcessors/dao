@@ -5,10 +5,12 @@
 #define __OCTEP_MBOX_PRIV_H__
 
 #include "octep_dev_cap.h"
+#include "octep_mbox.h"
 
 #include <linux/io.h>
 #include <linux/iopoll.h>
 #include <linux/types.h>
+#include <linux/spinlock.h>
 
 #define OCTEP_HW_REGS_BAR 0
 #define OCTEP_HW_MBOX_BAR 4
@@ -91,6 +93,13 @@ struct octep_rdma_dev_pci_vndr_cap {
 	u64 data2;
 };
 
+/*
+ * Timeout for atomic-context mbox polling (AH create/destroy under spinlock).
+ * AH commands are small write-only operations; FW should respond in <100us.
+ * 500K iterations × ~200ns per ioread32 ≈ 100ms worst case.
+ */
+#define OCTEP_MBOX_ATOMIC_TIMEOUT 500000
+
 struct octep_caps_region {
 	struct pci_dev *pdev;
 	u8 __iomem *base[PCI_STD_NUM_BARS];
@@ -98,7 +107,8 @@ struct octep_caps_region {
 	u8 __iomem *mbox_base;
 	void __iomem *notify_base;
 	phys_addr_t notify_base_pa;
-	struct mutex mbox_lock; /* lock for synchronization */
+	struct mutex mbox_lock; /* sleepable mbox serialization */
+	spinlock_t mbox_atomic_lock; /* atomic-context mbox serialization */
 	u32 notify_off_multiplier;
 	u32 notify_sz;
 	int nb_irqs;
@@ -112,56 +122,65 @@ octep_get_mbox(struct octep_caps_region *oct_caps)
 	return (struct octep_mbox __iomem *)(oct_caps->mbox_base);
 }
 
-static inline int
-octep_wait_for_mbox_avail(struct octep_mbox __iomem *mbox)
+/* Sleepable wait — uses readx_poll_timeout (may sleep between polls). */
+static inline int octep_wait_for_mbox_avail(struct octep_mbox __iomem *mbox)
 {
 	u32 val;
 
 	if (!mbox)
 		return -EINVAL;
 
-	if (in_atomic() || in_interrupt()) {
-		int timeout = OCTEP_HW_TIMEOUT;
-
-		while (timeout-- > 0) {
-			val = ioread32(&mbox->sts);
-			if (MBOX_AVAIL(val))
-				return 0;
-			cpu_relax();
-		}
-		return -ETIMEDOUT;
-	} else {
-		return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_AVAIL(val), 10,
-					  OCTEP_HW_TIMEOUT);
-	}
+	return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_AVAIL(val), 10, OCTEP_HW_TIMEOUT);
 }
 
-static inline int
-octep_wait_for_mbox_rsp(struct octep_mbox __iomem *mbox)
+/* Sleepable wait — uses readx_poll_timeout (may sleep between polls). */
+static inline int octep_wait_for_mbox_rsp(struct octep_mbox __iomem *mbox)
 {
 	u32 val;
 
 	if (!mbox)
 		return -EINVAL;
 
-	if (in_atomic() || in_interrupt()) {
-		int timeout = OCTEP_HW_TIMEOUT;
-
-		while (timeout-- > 0) {
-			val = ioread32(&mbox->sts);
-			if (MBOX_RSP(val))
-				return 0;
-			cpu_relax();
-		}
-		return -ETIMEDOUT;
-	} else {
-		return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_RSP(val), 10,
-					  OCTEP_HW_TIMEOUT);
-	}
+	return readx_poll_timeout(ioread32, &mbox->sts, val, MBOX_RSP(val), 10, OCTEP_HW_TIMEOUT);
 }
 
-static inline void
-octep_write_hdr(struct octep_mbox __iomem *mbox, u16 id, u16 sig)
+/* Atomic-safe wait — bounded busy-poll, safe under spinlock. */
+static inline int octep_wait_for_mbox_avail_atomic(struct octep_mbox __iomem *mbox)
+{
+	int timeout = OCTEP_MBOX_ATOMIC_TIMEOUT;
+	u32 val;
+
+	if (!mbox)
+		return -EINVAL;
+
+	while (timeout-- > 0) {
+		val = ioread32(&mbox->sts);
+		if (MBOX_AVAIL(val))
+			return 0;
+		cpu_relax();
+	}
+	return -ETIMEDOUT;
+}
+
+/* Atomic-safe wait — bounded busy-poll, safe under spinlock. */
+static inline int octep_wait_for_mbox_rsp_atomic(struct octep_mbox __iomem *mbox)
+{
+	int timeout = OCTEP_MBOX_ATOMIC_TIMEOUT;
+	u32 val;
+
+	if (!mbox)
+		return -EINVAL;
+
+	while (timeout-- > 0) {
+		val = ioread32(&mbox->sts);
+		if (MBOX_RSP(val))
+			return 0;
+		cpu_relax();
+	}
+	return -ETIMEDOUT;
+}
+
+static inline void octep_write_hdr(struct octep_mbox __iomem *mbox, u16 id, u16 sig)
 {
 	if (!mbox)
 		return;
@@ -267,5 +286,11 @@ int octep_rdma_mbox_mr_register(struct octep_caps_region *oct_caps,
 				struct octep_rdma_mr_register_req *mr_req);
 int octep_rdma_mbox_mr_deregister(struct octep_caps_region *oct_caps,
 				  struct octep_rdma_mr_deregister_req *mr_req);
+int octep_rdma_mbox_ah_create_atomic(struct octep_caps_region *oct_caps,
+				     struct octep_rdma_ah_create_req *req);
+int octep_rdma_mbox_ah_modify_atomic(struct octep_caps_region *oct_caps,
+				     struct octep_rdma_ah_create_req *req);
+int octep_rdma_mbox_ah_destroy_atomic(struct octep_caps_region *oct_caps,
+				      struct octep_rdma_ah_destroy_req *req);
 
 #endif /* __OCTEP_MBOX_PRIV_H__ */

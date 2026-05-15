@@ -24,6 +24,7 @@ void octep_rdma_init_av(struct rdma_ah_attr *attr, struct octep_rdma_av *av);
 void octep_rdma_av_to_attr(struct octep_rdma_av *av, struct rdma_ah_attr *attr);
 int octep_rdma_ah_chk_attr(struct octep_rdma_ah *ah, struct rdma_ah_attr *attr);
 int octep_rdma_prepare_ah_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah,
-			      struct octep_rdma_av *av, enum ah_cmd cmd);
-int octep_rdma_prepare_ah_destroy_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah);
+			      struct octep_rdma_av *av, enum ah_cmd cmd, bool sleepable);
+int octep_rdma_prepare_ah_destroy_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah,
+				      bool sleepable);
 #endif /* __OCTEP_AH_H__ */

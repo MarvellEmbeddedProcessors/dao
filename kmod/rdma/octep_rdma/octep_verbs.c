@@ -1330,6 +1330,7 @@ octep_rdma_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 {
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibah->device);
 	struct octep_rdma_ah *ah = to_octep_rdma_ah(ibah);
+	bool sleepable = !!(init_attr->flags & RDMA_CREATE_AH_SLEEPABLE);
 	struct octep_rdma_create_ah_resp __user *uresp = NULL;
 	u32 ah_num;
 	int err;
@@ -1348,7 +1349,8 @@ octep_rdma_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 		return ah_num;
 
 	ah->ah_num = ah_num;
-	ibdev_info(ibah->device, "[%s:%d] ah_num %d\n", __func__, __LINE__, ah->ah_num);
+	ibdev_info(ibah->device, "[%s:%d] ah_num %d sleepable %d\n", __func__, __LINE__, ah->ah_num,
+		   sleepable);
 	err = octep_rdma_ah_chk_attr(ah, init_attr->ah_attr);
 	if (err) {
 		ibdev_err(ibah->device, "Failed to check attribute, err = %d\n", err);
@@ -1370,8 +1372,8 @@ octep_rdma_create_ah(struct ib_ah *ibah, struct rdma_ah_init_attr *init_attr,
 
 	octep_rdma_init_av(init_attr->ah_attr, &ah->av);
 
-	if (octep_rdma_prepare_ah_cmd(rdma_dev, ah, &ah->av, AH_CREATE)) {
-		err = -ENOMEM;
+	err = octep_rdma_prepare_ah_cmd(rdma_dev, ah, &ah->av, AH_CREATE, sleepable);
+	if (err) {
 		ibdev_err(ibah->device, "Failed to prepare AH command, err = %d\n", err);
 		goto err_cleanup;
 	}
@@ -1398,8 +1400,8 @@ octep_rdma_modify_ah(struct ib_ah *ibah, struct rdma_ah_attr *attr)
 	}
 
 	octep_rdma_init_av(attr, &ah->av);
-	if (octep_rdma_prepare_ah_cmd(rdma_dev, ah, &ah->av, AH_MODIFY)) {
-		err = -ENOMEM;
+	err = octep_rdma_prepare_ah_cmd(rdma_dev, ah, &ah->av, AH_MODIFY, true);
+	if (err) {
 		ibdev_err(ibah->device, "Failed to prepare AH modify command, err = %d\n", err);
 		goto err_out;
 	}
@@ -1427,6 +1429,7 @@ octep_rdma_destroy_ah(struct ib_ah *ibah, u32 flags)
 {
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibah->device);
 	struct octep_rdma_ah *ah = to_octep_rdma_ah(ibah);
+	bool sleepable = !!(flags & RDMA_DESTROY_AH_SLEEPABLE);
 	int ret;
 
 	if (!ah) {
@@ -1434,11 +1437,12 @@ octep_rdma_destroy_ah(struct ib_ah *ibah, u32 flags)
 		return -EINVAL;
 	}
 
-	ret = octep_rdma_prepare_ah_destroy_cmd(rdma_dev, ah);
+	ret = octep_rdma_prepare_ah_destroy_cmd(rdma_dev, ah, sleepable);
 	if (ret)
 		ibdev_err(ibah->device, "Failed to prepare AH destroy command, ret = %d\n", ret);
 
-	ibdev_info(ibah->device, "[%s:%d] ah->ah_num %d\n", __func__, __LINE__, ah->ah_num);
+	ibdev_info(ibah->device, "[%s:%d] ah->ah_num %d sleepable %d\n", __func__, __LINE__,
+		   ah->ah_num, sleepable);
 	octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_AH], ah->ah_num);
 
 	return 0;

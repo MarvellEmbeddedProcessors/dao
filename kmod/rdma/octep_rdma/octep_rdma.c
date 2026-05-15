@@ -444,6 +444,7 @@ octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev)
 	int ret;
 
 	mutex_init(&oct_caps->mbox_lock);
+	spin_lock_init(&oct_caps->mbox_atomic_lock);
 
 	ret = octep_rdma_attrs_init(rdma_dev);
 	if (ret)

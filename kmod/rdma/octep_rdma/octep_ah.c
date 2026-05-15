@@ -151,14 +151,14 @@ octep_rdma_init_av(struct rdma_ah_attr *attr, struct octep_rdma_av *av)
 		&av->dgid_addr._sockaddr_in.sin_addr.s_addr, av->dmac);
 }
 
-int
-octep_rdma_prepare_ah_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah,
-			  struct octep_rdma_av *av, enum ah_cmd cmd)
+int octep_rdma_prepare_ah_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah,
+			      struct octep_rdma_av *av, enum ah_cmd cmd, bool sleepable)
 {
 	struct octep_rdma_ah_create_req *req;
+	gfp_t gfp = sleepable ? GFP_KERNEL : GFP_ATOMIC;
 	int ret = -EINVAL;
 
-	req = kzalloc(sizeof(*req), GFP_ATOMIC);
+	req = kzalloc(sizeof(*req), gfp);
 	if (!req)
 		return -ENOMEM;
 
@@ -179,14 +179,20 @@ octep_rdma_prepare_ah_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah 
 	req->d_addr = av->dgid_addr._sockaddr_in.sin_addr.s_addr;
 
 	if (cmd == AH_CREATE) {
-		ret = octep_rdma_mbox_ah_create(rdma_dev->caps_rgn, req);
+		if (sleepable)
+			ret = octep_rdma_mbox_ah_create(rdma_dev->caps_rgn, req);
+		else
+			ret = octep_rdma_mbox_ah_create_atomic(rdma_dev->caps_rgn, req);
 		if (ret) {
 			ibdev_err(ah->ibah.device, "Failed to create AH id %d, err = %d\n",
 				  ah->ah_num, ret);
 			goto fail;
 		}
 	} else if (cmd == AH_MODIFY) {
-		ret = octep_rdma_mbox_ah_modify(rdma_dev->caps_rgn, req);
+		if (sleepable)
+			ret = octep_rdma_mbox_ah_modify(rdma_dev->caps_rgn, req);
+		else
+			ret = octep_rdma_mbox_ah_modify_atomic(rdma_dev->caps_rgn, req);
 		if (ret) {
 			ibdev_err(ah->ibah.device, "Failed to modify AH id %d, err = %d\n",
 				  ah->ah_num, ret);
@@ -204,20 +210,24 @@ fail:
 	return ret;
 }
 
-int
-octep_rdma_prepare_ah_destroy_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah)
+int octep_rdma_prepare_ah_destroy_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ah *ah,
+				      bool sleepable)
 {
 	struct octep_rdma_ah_destroy_req *req;
+	gfp_t gfp = sleepable ? GFP_KERNEL : GFP_ATOMIC;
 	int ret;
 
-	req = kzalloc(sizeof(*req), GFP_ATOMIC);
+	req = kzalloc(sizeof(*req), gfp);
 	if (!req)
 		return -ENOMEM;
 
 	req->index = ah->ah_num;
 	req->port_num = rdma_dev->port.port_num;
 
-	ret = octep_rdma_mbox_ah_destroy(rdma_dev->caps_rgn, req);
+	if (sleepable)
+		ret = octep_rdma_mbox_ah_destroy(rdma_dev->caps_rgn, req);
+	else
+		ret = octep_rdma_mbox_ah_destroy_atomic(rdma_dev->caps_rgn, req);
 	if (ret)
 		ibdev_err(ah->ibah.device, "Failed to destroy AH id %d, err = %d\n", ah->ah_num,
 			  ret);

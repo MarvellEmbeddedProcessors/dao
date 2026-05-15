@@ -9,11 +9,20 @@
 #include "octep_mbox_priv.h"
 
 #define OCTEP_MBOX_OP_WRITE 0x01
-#define OCTEP_MBOX_OP_READ  0x02
+#define OCTEP_MBOX_OP_READ 0x02
 
-static int
-octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer, u32 buf_size,
-		   uint8_t ops)
+/*
+ * octep_process_mbox - Sleepable mbox command path.
+ *
+ * Uses mutex to serialize among the many sleepable callers (QP/CQ/MR/PD etc.)
+ * so they queue on a sleeping lock instead of busy-spinning.  The mbox
+ * availability wait uses the sleepable readx_poll_timeout (CPU-friendly,
+ * longer timeout).  The spinlock is held only for the MMIO round-trip
+ * (write cmd → poll response → read response) to serialize against
+ * atomic-context AH callers.
+ */
+static int octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer,
+			      u32 buf_size, uint8_t ops)
 {
 	struct octep_mbox __iomem *mbox = octep_get_mbox(oct_caps);
 	struct pci_dev *pdev = oct_caps->pdev;
@@ -21,40 +30,29 @@ octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer, u32
 	u16 data_wds;
 	int ret, i;
 	u32 val;
-	int retries = 10; /* Retry count for atomic context */
 
-	/* Handle atomic context by using trylock with retries */
-	if (in_atomic() || irqs_disabled()) {
-		/* In atomic context - use trylock with retries */
-		while (retries-- > 0) {
-			if (mutex_trylock(&oct_caps->mbox_lock))
-				break;
-			udelay(10); /* Short delay in atomic context */
-		}
-		if (retries < 0) {
-			dev_warn(&pdev->dev, "Failed to acquire mbox lock in atomic context\n");
-			return -EBUSY;
-		}
-	} else {
-		/* Normal context - use blocking mutex */
-		mutex_lock(&oct_caps->mbox_lock);
-	}
+	might_sleep();
 
-	if (!IS_ALIGNED(buf_size, 4)) {
-		ret = -EINVAL;
-		goto out;
-	}
+	if (!IS_ALIGNED(buf_size, 4))
+		return -EINVAL;
 
-	/* Make sure mbox space is available */
+	mutex_lock(&oct_caps->mbox_lock);
+
+	/* Sleepable wait for mbox to be free from a previous command */
 	ret = octep_wait_for_mbox_avail(mbox);
 	if (ret) {
-		dev_warn(&pdev->dev, "Timeout waiting for previous mbox data to be consumed\n");
-		goto out;
+		dev_warn(&pdev->dev, "Timeout waiting for mbox availability (id=%u)\n", id);
+		goto out_mutex;
 	}
 
-	data_wds = buf_size / 4;
+	/*
+	 * Spinlock for the MMIO round-trip: prevents atomic AH callers
+	 * from interleaving between our write and response read.
+	 * FW responds in <100us, so this spin section is brief.
+	 */
+	spin_lock(&oct_caps->mbox_atomic_lock);
 
-	/* Clear mailbox header status and data */
+	data_wds = buf_size / 4;
 	octep_clear_mbox(mbox, data_wds);
 
 	if (ops & OCTEP_MBOX_OP_WRITE) {
@@ -64,48 +62,46 @@ octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer, u32
 		}
 	}
 	octep_write_sts(mbox, 0);
-
 	octep_write_hdr(mbox, id, MBOX_REQ_SIG);
 
-	ret = octep_wait_for_mbox_rsp(mbox);
+	ret = octep_wait_for_mbox_rsp_atomic(mbox);
 	if (ret) {
-		dev_warn(&pdev->dev, "Timeout waiting for mbox : %d response\n", id);
-		goto out;
+		dev_warn(&pdev->dev, "Timeout waiting for mbox response (id=%u)\n", id);
+		goto out_spin;
 	}
 
 	val = octep_read_sig(mbox);
 	if ((val & 0xFFFF) != MBOX_RSP_SIG) {
-		dev_warn(&pdev->dev, "Invalid Signature from mbox : %d response\n", id);
+		dev_warn(&pdev->dev, "Invalid mbox signature (id=%u)\n", id);
 		ret = -EIO;
-		goto out;
+		goto out_spin;
 	}
 
 	val = octep_read_sts(mbox);
 	if (val & MBOX_RC_MASK) {
 		ret = MBOX_RSP_TO_ERR(val);
-		dev_warn(&pdev->dev, "Error while processing mbox : %d, err %d\n", id, ret);
-		/* Error code > 4096 is invalid in linux, hence returning EINVAL */
+		dev_warn(&pdev->dev, "Mbox FW error (id=%u, err=%d)\n", id, ret);
 		ret = -EINVAL;
-		goto out;
+		goto out_spin;
 	}
 
 	if (ops & OCTEP_MBOX_OP_READ) {
 		memset(buffer, 0, buf_size);
-		/* Read the data from mailbox */
 		p = (u32 *)buffer;
 		for (i = 0; i < data_wds; i++)
 			*p++ = octep_read32_word(mbox, i);
 	}
 	ret = 0;
 
-out:
-	mutex_unlock(&oct_caps->mbox_lock); // <-- Unlock
+out_spin:
+	spin_unlock(&oct_caps->mbox_atomic_lock);
+out_mutex:
+	mutex_unlock(&oct_caps->mbox_lock);
 	return ret;
 }
 
-int
-octep_rdma_mbox_cq_create(struct octep_caps_region *oct_caps,
-			  struct octep_rdma_cq_create_req *cq_req)
+int octep_rdma_mbox_cq_create(struct octep_caps_region *oct_caps,
+			      struct octep_rdma_cq_create_req *cq_req)
 {
 	int ret;
 
@@ -379,14 +375,99 @@ octep_rdma_mbox_user_get_port_attr(struct octep_caps_region *oct_caps,
 	return ret;
 }
 
-static void
-octep_mbox_init(struct octep_mbox __iomem *mbox)
+/*
+ * octep_process_mbox_atomic - Atomic-context mbox command path.
+ *
+ * Skips the mutex (cannot sleep) and uses spinlock + atomic busy-poll
+ * wrappers throughout.  Serializes against sleepable callers via the
+ * shared mbox_atomic_lock spinlock.  AH commands are write-only.
+ */
+static int octep_process_mbox_atomic(struct octep_caps_region *oct_caps, u16 id, void *buffer,
+				     u32 buf_size)
+{
+	struct octep_mbox __iomem *mbox = octep_get_mbox(oct_caps);
+	struct pci_dev *pdev = oct_caps->pdev;
+	u32 *p = (u32 *)buffer;
+	u16 data_wds;
+	int ret, i;
+	u32 val;
+
+	if (!IS_ALIGNED(buf_size, 4))
+		return -EINVAL;
+
+	spin_lock(&oct_caps->mbox_atomic_lock);
+
+	ret = octep_wait_for_mbox_avail_atomic(mbox);
+	if (ret) {
+		dev_warn(&pdev->dev, "Atomic mbox: timeout waiting for availability (id=%u)\n", id);
+		goto out;
+	}
+
+	data_wds = buf_size / 4;
+	octep_clear_mbox(mbox, data_wds);
+
+	for (i = 0; i < data_wds; i++) {
+		octep_write32_word(mbox, i, *p);
+		p++;
+	}
+	octep_write_sts(mbox, 0);
+	octep_write_hdr(mbox, id, MBOX_REQ_SIG);
+
+	ret = octep_wait_for_mbox_rsp_atomic(mbox);
+	if (ret) {
+		dev_warn(&pdev->dev, "Atomic mbox: timeout waiting for response (id=%u)\n", id);
+		goto out;
+	}
+
+	val = octep_read_sig(mbox);
+	if ((val & 0xFFFF) != MBOX_RSP_SIG) {
+		dev_warn(&pdev->dev, "Atomic mbox: invalid signature (id=%u)\n", id);
+		ret = -EIO;
+		goto out;
+	}
+
+	val = octep_read_sts(mbox);
+	if (val & MBOX_RC_MASK) {
+		ret = MBOX_RSP_TO_ERR(val);
+		dev_warn(&pdev->dev, "Atomic mbox: FW error (id=%u, err=%d)\n", id, ret);
+		ret = -EINVAL;
+		goto out;
+	}
+	ret = 0;
+
+out:
+	spin_unlock(&oct_caps->mbox_atomic_lock);
+	return ret;
+}
+
+int octep_rdma_mbox_ah_create_atomic(struct octep_caps_region *oct_caps,
+				     struct octep_rdma_ah_create_req *req)
+{
+	return octep_process_mbox_atomic(oct_caps, OCTEP_RDMA_MBOX_MSG_USER_AH_CREATE, req,
+					 sizeof(*req));
+}
+
+int octep_rdma_mbox_ah_modify_atomic(struct octep_caps_region *oct_caps,
+				     struct octep_rdma_ah_create_req *req)
+{
+	return octep_process_mbox_atomic(oct_caps, OCTEP_RDMA_MBOX_MSG_USER_AH_MODIFY, req,
+					 sizeof(*req));
+}
+
+int octep_rdma_mbox_ah_destroy_atomic(struct octep_caps_region *oct_caps,
+				      struct octep_rdma_ah_destroy_req *req)
+{
+	return octep_process_mbox_atomic(oct_caps, OCTEP_RDMA_MBOX_MSG_USER_AH_DESTROY, req,
+					 sizeof(*req));
+}
+
+static void octep_mbox_init(struct octep_mbox __iomem *mbox)
 {
 	iowrite32(1, &mbox->sts);
 }
 
-static void
-octep_pci_caps_read(struct octep_caps_region *oct_caps, void *buf, size_t len, off_t offset)
+static void octep_pci_caps_read(struct octep_caps_region *oct_caps, void *buf, size_t len,
+				off_t offset)
 {
 	u8 __iomem *bar = oct_caps->base[OCTEP_HW_MBOX_BAR];
 	u8 *p = buf;
