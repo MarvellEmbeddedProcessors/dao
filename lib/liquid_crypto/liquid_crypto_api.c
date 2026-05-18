@@ -942,9 +942,8 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			}
 			sym_seg_sz += aligned_payload;
 
-			if ((params->sym.digest_len > DAO_LC_MAX_DIGEST_LEN) ||
-			    (params->sym.digest_len == 0)) {
-				dao_err("Invalid digest length. digest_len should be at most %u or cannot be zero.",
+			if (params->sym.digest_len > DAO_LC_MAX_DIGEST_LEN) {
+				dao_err("Invalid digest length. digest_len should be at most %u.",
 					DAO_LC_MAX_DIGEST_LEN);
 				return 0;
 			}
@@ -957,8 +956,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 			/* HMAC authentication key */
-			if (params->sym.hmac_auth_key_len)
-				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.hmac_auth_key_len, 8);
+			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.hmac_auth_key_len, 8);
 
 			if (params->sym.custom_string_len > DAO_LC_SHA3_MAX_CUSTOM_STRING_LEN) {
 				dao_err("Invalid customization string length. custom_string_len should be at most %u",
