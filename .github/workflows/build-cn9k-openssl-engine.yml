@@ -74,7 +74,7 @@ jobs:
             OPENSSL_PATCH_VERSION=$(ls patches/nginx/deps/openssl/ | head -n 1)
             OPENSSL_VERSION=${OPENSSL_PATCH_VERSION#v}
             echo "OPENSSL_VERSION=${OPENSSL_VERSION}" >> ${PWD}/artifacts/env
-            wget "https://www.openssl.org/source/old/1.1.1/openssl-${OPENSSL_VERSION}.tar.gz"
+            wget "https://github.com/openssl/openssl/releases/download/OpenSSL_1_1_1q/openssl-1.1.1q.tar.gz"
             tar -xzf openssl-${OPENSSL_VERSION}.tar.gz
             cd "${PWD}/openssl-${OPENSSL_VERSION}"
             for patch in ${BASE_DIR}/patches/nginx/deps/openssl/${OPENSSL_PATCH_VERSION}/*.patch; do
