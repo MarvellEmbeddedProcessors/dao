@@ -625,6 +625,12 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 	case DAO_LC_HASH_TYPE_SHA3_CSHAKE256:
 		/* Skip digest length validation for KMAC and cSHAKE */
 		break;
+	case DAO_LC_HASH_TYPE_CMAC:
+		if ((digest_len < 1) || (digest_len > 16)) {
+			dao_err("Invalid digest length for AES-CMAC.");
+			return -EINVAL;
+		}
+		break;
 	default:
 		if ((digest_len == 0) || (digest_len > DAO_LC_MAX_DIGEST_LEN)) {
 			dao_err("Invalid digest length for HMAC.");
@@ -650,6 +656,13 @@ sym_sess_hash_verify(const struct dao_lc_sym_ctx *ctx)
 			if ((hash_ctx->hmac_key_len == 0) ||
 			    (hash_ctx->hmac_key_len > DAO_LC_KMAC_MAX_AUTH_KEY_LEN)) {
 				dao_err("Invalid key length for KMAC operation.");
+				return -EINVAL;
+			}
+			break;
+		case DAO_LC_HASH_TYPE_CMAC:
+			if ((hash_ctx->hmac_key_len != 16) && (hash_ctx->hmac_key_len != 24) &&
+			    (hash_ctx->hmac_key_len != 32)) {
+				dao_err("Invalid AES-CMAC key length.");
 				return -EINVAL;
 			}
 			break;
