@@ -3,6 +3,7 @@
  */
 
 #include "octep_verbs.h"
+#include "octep_plat.h"
 
 static LIST_HEAD(cq_list);
 static DEFINE_MUTEX(cq_list_lock);
@@ -84,9 +85,9 @@ octep_rdma_free_kernel_cq(struct octep_rdma_dev *rdma_dev, struct octep_rdma_cq 
 	if (kcq->qbuf)
 		dma_free_coherent(&rdma_dev->pdev->dev, kcq->size, kcq->qbuf, kcq->qbuf_dma_addr);
 
-	if (kcq->db)
-		iounmap((void __iomem *)((uintptr_t)kcq->db -
-					 ((cq->cqn * 3 + 2) * kcq->notify_off_multiplier)));
+	octep_plat_unmap_doorbell(
+		(void __iomem *)((uintptr_t)kcq->db -
+				 ((cq->cqn * 3 + 2) * kcq->notify_off_multiplier)));
 
 	kcq->qbuf = NULL;
 	kcq->db = NULL;
@@ -117,7 +118,9 @@ octep_rdma_init_kernel_cq(struct octep_rdma_cq *cq)
 	kcq->db_region = rdma_dev->caps_rgn->notify_base_pa;
 	kcq->notify_off_multiplier = rdma_dev->caps_rgn->notify_off_multiplier;
 
-	db_base = ioremap(kcq->db_region, rdma_dev->caps_rgn->notify_sz);
+	db_base = octep_plat_map_doorbell(rdma_dev->caps_rgn, kcq->db_region,
+					  rdma_dev->caps_rgn->notify_base,
+					  rdma_dev->caps_rgn->notify_sz);
 	if (!db_base) {
 		dma_free_coherent(&rdma_dev->pdev->dev, cq_size, kcq->qbuf, kcq->qbuf_dma_addr);
 		return -ENOMEM;

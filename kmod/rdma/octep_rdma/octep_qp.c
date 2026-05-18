@@ -5,6 +5,7 @@
 #include <rdma/uverbs_ioctl.h>
 
 #include "octep_verbs.h"
+#include "octep_plat.h"
 
 static void
 octep_rdma_qp_safe_free(struct kref *ref)
@@ -303,7 +304,10 @@ init_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp,
 	kqp->db_region = rdma_dev->caps_rgn->notify_base_pa;
 	kqp->notify_off_multiplier = rdma_dev->caps_rgn->notify_off_multiplier;
 
-	db_base = ioremap(kqp->db_region, rdma_dev->caps_rgn->notify_sz);
+	db_base = octep_plat_map_doorbell(rdma_dev->caps_rgn,
+					  kqp->db_region,
+					  rdma_dev->caps_rgn->notify_base,
+					  rdma_dev->caps_rgn->notify_sz);
 	if (!db_base)
 		goto err_unmap_iommu;
 
@@ -333,9 +337,9 @@ free_kernel_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp)
 	struct octep_rdma_queue *rq = &kqp->rq;
 
 	/* Unmap doorbell region before clearing pointers */
-	if (sq->db)
-		iounmap((void __iomem *)((uintptr_t)sq->db -
-					 ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier)));
+	octep_plat_unmap_doorbell(
+		(void __iomem *)((uintptr_t)sq->db -
+				 ((qp->ibqp.qp_num * 3) * kqp->notify_off_multiplier)));
 
 	/* Free SQ buffer */
 	if (sq->qbuf)
@@ -377,6 +381,17 @@ octep_rdma_prepare_qp_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp 
 	if (is_user) {
 		qp_req->sq_base = qp->user_qp.sq_mtt.iova[0];
 		qp_req->rq_base = qp->user_qp.rq_mtt.iova[0];
+		/*
+		 * The provider aligns SQ/RQ buffers to 4KB
+		 * (OCTEP_RDMA_PAGE_SIZE) regardless of the kernel page
+		 * size. On ARM64 with 64KB kernel pages, both SQ and RQ
+		 * may fall within the same 64KB IOMMU page. The IOMMU
+		 * mapping for RQ is then skipped as "already mapped",
+		 * leaving rq_mtt.iova[0] == 0. Derive rq_base from
+		 * sq_base + rq_offset in that case.
+		 */
+		if (!qp_req->rq_base && qp->user_qp.rq_offset)
+			qp_req->rq_base = qp_req->sq_base + qp->user_qp.rq_offset;
 	} else {
 		qp_req->sq_base = (u64)qp->kern_qp.sq.qbuf_dma_addr;
 		qp_req->rq_base = (u64)qp->kern_qp.rq.qbuf_dma_addr;

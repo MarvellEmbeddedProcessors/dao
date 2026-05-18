@@ -341,7 +341,8 @@ static void mgmt_destroy_cq(struct octep_rdma_dev *rdma_dev, struct octep_rdma_c
 {
 	if (!cq)
 		return;
-	octep_rdma_prepare_cq_destroy_cmd(rdma_dev, cq);
+	if (octep_rdma_device_ready(rdma_dev))
+		octep_rdma_prepare_cq_destroy_cmd(rdma_dev, cq);
 	octep_rdma_free_kernel_cq(rdma_dev, cq);
 	kfree(cq);
 }
@@ -454,9 +455,11 @@ static void mgmt_destroy_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_q
 	if (!qp)
 		return;
 
-	req.port_num = rdma_dev->port.port_num;
-	req.qp_id = qp->ibqp.qp_num;
-	octep_rdma_mbox_qp_destroy(rdma_dev->caps_rgn, &req);
+	if (octep_rdma_device_ready(rdma_dev)) {
+		req.port_num = rdma_dev->port.port_num;
+		req.qp_id = qp->ibqp.qp_num;
+		octep_rdma_mbox_qp_destroy(rdma_dev->caps_rgn, &req);
+	}
 
 	free_kernel_qp(rdma_dev, qp);
 	kfree(qp);
@@ -469,7 +472,7 @@ int octep_rdma_mgmt_qp_netdev_init(struct octep_rdma_dev *rdma_dev,
 				   struct octep_caps_region *caps_rgn)
 {
 	struct net_device *ndev = octep_dev->netdev;
-	struct device *dma_dev = &octep_dev->pdev->dev;
+	struct device *dma_dev = &rdma_dev->pdev->dev;
 	struct octep_rdma_mgmt_qp_ctx *ctx;
 	u32 mgmt_qpn, mgmt_cqn;
 	size_t tx_pool_sz, rx_pool_sz;
@@ -600,7 +603,7 @@ void octep_rdma_mgmt_qp_netdev_cleanup(struct octep_rdma_dev *rdma_dev)
 	if (!ctx)
 		return;
 
-	dma_dev = &octep_dev->pdev->dev;
+	dma_dev = &rdma_dev->pdev->dev;
 
 	unregister_netdev(ctx->ndev);
 

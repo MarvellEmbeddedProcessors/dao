@@ -18,7 +18,9 @@
 
 #include "octep_mbox.h"
 #include "octep_mbox_priv.h"
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 #include "octep_pfvf_mbox.h"
+#endif
 
 struct octep_rdma_mgmt_qp_ctx;
 
@@ -67,14 +69,19 @@ static inline void octep_invalidate_cache(void *addr, size_t len)
 #endif
 }
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 #define OCTEP_RDMA_DEVID_CN106K_PF 0xb900
 #define OCTEP_RDMA_DEVID_CN106K_VF 0xb903
 #define OCTEP_RDMA_DEVID_CN105K_PF 0xba00
 #define OCTEP_RDMA_DEVID_CN105K_VF 0xba03
 #define OCTEP_RDMA_DEVID_CN103K_PF 0xbd00
 #define OCTEP_RDMA_DEVID_CN103K_VF 0xbd03
+#else
+/* DPI VF device ID for Octeon termination mode */
+#define OCTEP_RDMA_DEVID_DPI_VF 0xa081
+#endif
 
-#define OCTEP_MAX_VF     128
+#define OCTEP_MAX_VF 128
 
 #define OCTEP_MMIO_REGIONS 6
 
@@ -88,6 +95,7 @@ enum octep_dev_status {
 
 extern struct workqueue_struct *octep_wq;
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 /* PCI address space mapping information.
  * Each of the 3 address spaces given by BAR0, BAR2 and BAR4 of
  * Octeon gets mapped to different physical address spaces in
@@ -159,6 +167,7 @@ struct octep_ep_vf_mbox {
 	/* Octeon VF mailbox work handler to process Mbox messages */
 	struct octep_vf_mbox_wk wk;
 };
+#endif /* !CONFIG_OCTEP_RDMA_OCTTERM */
 
 /* Device state */
 enum octep_dev_state {
@@ -170,17 +179,20 @@ struct octep_ep_dev {
 	/** OS dependent PCI device pointer */
 	struct pci_dev *pdev;
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 	/* Octeon Chip type. */
 	u16 chip_id;
 	u16 rev_id;
 	/* memory mapped io range */
 	struct octep_mmio mmio[OCTEP_MMIO_REGIONS];
+#endif /* !CONFIG_OCTEP_RDMA_OCTTERM */
 
 	/* Netdev corresponding to the Octeon device */
 	struct net_device *netdev;
 	/* MAC address */
 	u8 mac_addr[ETH_ALEN];
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 	/* PCI Window registers to access some hardware CSRs */
 	struct octep_pci_win_regs pci_win_regs;
 	/* Hardware operations */
@@ -213,11 +225,13 @@ struct octep_ep_dev {
 	unsigned long state;
 	/* Negotiated Mbox version */
 	u32 mbox_neg_ver;
+#endif /* !CONFIG_OCTEP_RDMA_OCTTERM */
 
 	/* Management QP context for non-RDMA packet path (set by octep_rdma_mgmt_qp_netdev_init) */
 	struct octep_rdma_mgmt_qp_ctx *mgmt_qp_ctx;
 };
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 static inline u16 OCTEP_MAJOR_REV(struct octep_ep_dev *octep_dev)
 {
 	u16 rev = (octep_dev->rev_id & 0xC) >> 2;
@@ -237,18 +251,7 @@ OCTEP_MINOR_REV(struct octep_ep_dev *octep_dev)
 
 #define octep_read_csr64(octep_dev, reg_off) readq((octep_dev)->mmio[0].hw_addr + (reg_off))
 
-/* Write windowed register.
- * @param  oct  -  pointer to the Octeon device.
- * @param  addr -  Address of the register to write
- * @param  val  -  Value to write
- *
- * This routine is called to write to the indirectly accessed
- * Octeon registers that are visible through a PCI BAR0 mapped window
- * register.
- * @return   Nothing.
- */
-static inline void
-OCTEP_PCI_WIN_WRITE(struct octep_ep_dev *octep_dev, u64 addr, u64 val)
+static inline void OCTEP_PCI_WIN_WRITE(struct octep_ep_dev *octep_dev, u64 addr, u64 val)
 {
 	writeq(addr, octep_dev->pci_win_regs.pci_win_wr_addr);
 	writeq(val, octep_dev->pci_win_regs.pci_win_wr_data);
@@ -267,5 +270,6 @@ void octep_device_cleanup(struct octep_ep_dev *octep_dev);
 void octep_intr_poll_task(struct work_struct *work);
 void octep_hb_timeout_task(struct work_struct *work);
 void cancel_all_tasks(struct octep_ep_dev *octep_dev);
+#endif /* !CONFIG_OCTEP_RDMA_OCTTERM */
 
 #endif /* __OCTEP_EP_H__ */

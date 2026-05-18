@@ -12,11 +12,21 @@
 #include "octep_rdma.h"
 #include "octep_rdma_netdev.h"
 #include "octep_verbs.h"
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 #include "octep_ep_regs.h"
 #include "octep_pfvf_mbox.h"
+#endif
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+#include "octterm_cdev.h"
+#endif
 
 #define MAC_OFFSET 9
 #define OCTEP_INTR_POLL_TIME_MSECS 100
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+struct workqueue_struct *octep_wq;
+#endif
+
 static const struct ib_device_ops octep_rdma_device_ops = {
 	.owner = THIS_MODULE,
 	.driver_id = RDMA_DRIVER_OCTEP,
@@ -264,7 +274,7 @@ octep_rdma_attrs_init(struct octep_rdma_dev *rdma_dev)
 	return 0;
 }
 
-static void
+void
 octep_rdma_ib_device_remove(struct octep_rdma_dev *rdma_dev)
 {
 	/*
@@ -436,7 +446,7 @@ octep_rdma_device_register(struct octep_rdma_dev *rdma_dev)
 	return ret;
 }
 
-static int
+int
 octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev)
 {
 	struct octep_caps_region *oct_caps = rdma_dev->caps_rgn;
@@ -513,6 +523,7 @@ octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev)
 	return 0;
 }
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 static void
 octep_rdma_dev_release(struct octep_rdma_dev *rdma_dev)
 {
@@ -937,18 +948,28 @@ octep_rdma_remove_pf(struct pci_dev *pdev)
 
 	octep_rdma_pf_bar_expand(octpf);
 }
+#endif /* !CONFIG_OCTEP_RDMA_OCTTERM */
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+static void octep_rdma_remove_octterm(struct pci_dev *pdev);
+#endif
 
 static void
 octep_rdma_remove(struct pci_dev *pdev)
 {
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	octep_rdma_remove_octterm(pdev);
+#else
 	if (pdev->is_virtfn)
 		octep_rdma_remove_vf(pdev);
 	else
 		octep_rdma_remove_pf(pdev);
+#endif
 
 	octep_rdma_kern_cq_poll_thread_cleanup();
 }
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 static void
 octep_rdma_assign_barspace(struct pci_dev *vf_dev, struct pci_dev *pf_dev, u8 idx)
 {
@@ -1215,40 +1236,164 @@ unmap_region:
 	octep_iounmap_region(pdev, octpf->base, OCTEP_HW_REGS_BAR);
 	return ret;
 }
+#endif /* !CONFIG_OCTEP_RDMA_OCTTERM */
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+static bool octterm_probed;
+static struct octterm_cdev *octterm_odev;
+
+static int
+octep_rdma_probe_octterm(struct pci_dev *pdev)
+{
+	struct octep_rdma_dev *rdma_dev;
+	struct octep_caps_region *caps_rgn;
+	struct octterm_cdev *odev;
+	int ret;
+
+	if (octterm_probed) {
+		dev_dbg(&pdev->dev, "OCTTERM: skipping, already bound to another VF\n");
+		return -ENODEV;
+	}
+
+	ret = pci_enable_device(pdev);
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to enable PCI device\n");
+		return ret;
+	}
+
+	pci_set_master(pdev);
+
+	ret = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	if (ret) {
+		dev_err(&pdev->dev, "Failed to set DMA mask\n");
+		goto err_disable_device;
+	}
+
+	rdma_dev = ib_alloc_device(octep_rdma_dev, ibdev);
+	if (!rdma_dev) {
+		dev_err(&pdev->dev, "ib_alloc_device failed\n");
+		ret = -ENOMEM;
+		goto err_disable_device;
+	}
+
+	pci_set_drvdata(pdev, rdma_dev);
+	rdma_dev->pdev = pdev;
+	rdma_dev->dma_dev = &pdev->dev;
+	rdma_dev->port.port_num = 0;
+
+	caps_rgn = devm_kzalloc(&pdev->dev, sizeof(*caps_rgn), GFP_KERNEL);
+	if (!caps_rgn) {
+		ret = -ENOMEM;
+		goto err_free_device;
+	}
+	rdma_dev->caps_rgn = caps_rgn;
+	caps_rgn->pdev = pdev;
+
+	odev = devm_kzalloc(&pdev->dev, sizeof(*odev), GFP_KERNEL);
+	if (!odev) {
+		ret = -ENOMEM;
+		goto err_free_device;
+	}
+	rdma_dev->octterm = odev;
+
+	ret = octterm_cdev_init(odev, pdev, rdma_dev, caps_rgn);
+	if (ret) {
+		dev_err(&pdev->dev, "octterm_cdev_init failed: %d\n", ret);
+		goto err_free_device;
+	}
+
+	atomic_set(&rdma_dev->status, OCTEP_RDMA_DEV_STATUS_ALLOC);
+	octterm_probed = true;
+	octterm_odev = odev;
+	dev_info(&pdev->dev, "OCTTERM: Phase 1 probe complete, awaiting FW_READY ioctl\n");
+
+	return 0;
+
+err_free_device:
+	ib_dealloc_device(&rdma_dev->ibdev);
+err_disable_device:
+	pci_disable_device(pdev);
+	return ret;
+}
+
+static void
+octep_rdma_remove_octterm(struct pci_dev *pdev)
+{
+	struct octep_rdma_dev *rdma_dev = pci_get_drvdata(pdev);
+	struct net_device *netdev;
+
+	if (rdma_dev) {
+		if (rdma_dev->octterm && rdma_dev->octterm->ibdev_registered) {
+			octep_rdma_ib_device_remove(rdma_dev);
+			rdma_dev->octterm->ibdev_registered = false;
+			octep_rdma_mgmt_qp_netdev_cleanup(rdma_dev);
+		}
+
+		netdev = rdma_dev->netdev;
+		rdma_dev->netdev = NULL;
+		rdma_dev->octep_dev = NULL;
+		if (netdev)
+			free_netdev(netdev);
+
+		ib_dealloc_device(&rdma_dev->ibdev);
+	}
+
+	if (octterm_odev) {
+		octterm_cdev_destroy(octterm_odev);
+		octterm_odev = NULL;
+	}
+
+	pci_disable_device(pdev);
+	octterm_probed = false;
+}
+#endif /* CONFIG_OCTEP_RDMA_OCTTERM */
 
 static int
 octep_rdma_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	int ret;
 
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	ret = octep_rdma_probe_octterm(pdev);
+#else
 	if (pdev->is_virtfn)
 		ret = octep_rdma_probe_vf(pdev);
 	else
 		ret = octep_rdma_probe_pf(pdev);
+#endif
 
 	if (ret) {
-		dev_err(&pdev->dev, "Failed to probe rdma device\n");
+		if (ret != -ENODEV)
+			dev_err(&pdev->dev, "Failed to probe rdma device\n");
 		return ret;
 	}
 
-	return ret;
+	return 0;
 }
 
 static struct pci_device_id octep_pci_rdma_map[] = {
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN106K_PF) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN106K_VF) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN105K_PF) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN105K_VF) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN103K_PF) },
 	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_CN103K_VF) },
+#else
+	{ PCI_DEVICE(PCI_VENDOR_ID_CAVIUM, OCTEP_RDMA_DEVID_DPI_VF) },
+#endif
 	{ 0 },
 };
 
-static struct pci_driver octep_pci_rdma = { .name = OCTEP_RDMA_DRV_NAME,
-					    .id_table = octep_pci_rdma_map,
-					    .probe = octep_rdma_probe,
-					    .remove = octep_rdma_remove,
-					    .sriov_configure = octep_rdma_sriov_configure };
+static struct pci_driver octep_pci_rdma = {
+	.name = OCTEP_RDMA_DRV_NAME,
+	.id_table = octep_pci_rdma_map,
+	.probe = octep_rdma_probe,
+	.remove = octep_rdma_remove,
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
+	.sriov_configure = octep_rdma_sriov_configure,
+#endif
+};
 
 static int __init octep_rdma_init_module(void)
 {
@@ -1258,8 +1403,19 @@ static int __init octep_rdma_init_module(void)
 	if (!octep_wq)
 		return -ENOMEM;
 
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	ret = octterm_class_init();
+	if (ret) {
+		destroy_workqueue(octep_wq);
+		return ret;
+	}
+#endif
+
 	ret = pci_register_driver(&octep_pci_rdma);
 	if (ret) {
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+		octterm_class_exit();
+#endif
 		destroy_workqueue(octep_wq);
 		return ret;
 	}
@@ -1270,6 +1426,9 @@ static int __init octep_rdma_init_module(void)
 static void __exit octep_rdma_exit_module(void)
 {
 	pci_unregister_driver(&octep_pci_rdma);
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	octterm_class_exit();
+#endif
 	destroy_workqueue(octep_wq);
 
 	/* Ensure the kernel thread is completely stopped */

@@ -5,6 +5,7 @@
 #include <linux/iommu.h>
 
 #include "octep_verbs.h"
+#include "octep_plat.h"
 
 #define OCTEP_RDMA_IOVA_AS_VA_MASK 39
 
@@ -37,7 +38,7 @@ octep_rdma_mmap_entry_insert(struct octep_rdma_ucontext *uctx, u64 address, size
 static void
 octep_iommu_unmapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 {
-	struct device *dev = &rdma_dev->octep_dev->pdev->dev;
+	struct device *dev = &rdma_dev->pdev->dev;
 	struct iommu_domain *domain;
 	size_t page_size = mem->page_size;
 	size_t size = 0, unmap_len;
@@ -86,7 +87,7 @@ octep_iommu_unmapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *me
 static int
 octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 {
-	struct device *dev = &rdma_dev->octep_dev->pdev->dev;
+	struct device *dev = &rdma_dev->pdev->dev;
 	struct sg_page_iter sg_iter;
 	struct sg_table *sgt = &mem->umem->sgt_append.sgt;
 	struct iommu_domain *domain;
@@ -98,7 +99,8 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 	u64 iova = ALIGN_DOWN(mem->va, page_size) & mask;
 	size_t offset = mem->va & (page_size - 1);
 	size_t expected_size = PAGE_ALIGN(mem->len + offset);
-	size_t size = 0;
+	size_t total_size = 0;
+	size_t mapped_size = 0;
 	int mapped_cnt = 0;
 	int j;
 
@@ -128,11 +130,11 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 		phys_addr_t existing_phys = iommu_iova_to_phys(domain, iova);
 
 		if (existing_phys) {
-			ibdev_warn(&rdma_dev->ibdev,
-				   "IOVA 0x%llx already mapped to phys 0x%llx, skipping\n", iova,
-				   existing_phys);
+			ibdev_dbg(&rdma_dev->ibdev,
+				  "IOVA 0x%llx already mapped to phys 0x%llx, skipping iommu_map\n",
+				  iova, existing_phys);
 			iova += page_size;
-			size += page_size;
+			total_size += page_size;
 			continue;
 		}
 
@@ -143,7 +145,6 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 				  "iommu_map failed at iova 0x%llx, phys 0x%llx, ret %d\n", iova,
 				  phys, ret);
 
-			/* Only unmap valid (non-zero) IOVA addresses that we successfully mapped */
 			for (j = 0; j < mapped_cnt; j++) {
 				if (mem->iova[j])
 					iommu_unmap(domain, mem->iova[j], page_size);
@@ -159,18 +160,19 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 			  mapped_cnt, iova, phys, page_size);
 
 		iova += page_size;
-		size += page_size;
+		total_size += page_size;
+		mapped_size += page_size;
 		mapped_cnt++;
 	} while (__sg_page_iter_next(&sg_iter));
 
-	if (expected_size != size) {
-		ibdev_err(&rdma_dev->ibdev, "iommu_map size mismatch %lx != %lx\n", size,
+	if (expected_size != total_size) {
+		ibdev_err(&rdma_dev->ibdev, "iommu_map size mismatch %lx != %lx\n", total_size,
 			  expected_size);
 		octep_iommu_unmapping(rdma_dev, mem);
 		return -EINVAL;
 	}
 
-	mem->size = size;
+	mem->size = mapped_size;
 	mem->iommu_mapped_cnt = mapped_cnt;
 
 	return 0;

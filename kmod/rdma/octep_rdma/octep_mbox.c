@@ -7,6 +7,9 @@
 
 #include "octep_mbox.h"
 #include "octep_mbox_priv.h"
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+#include "octterm_cdev.h" /* OCTTERM_DDR_REGION_SIZE for cap bounds */
+#endif
 
 #define OCTEP_MBOX_OP_WRITE 0x01
 #define OCTEP_MBOX_OP_READ 0x02
@@ -17,9 +20,21 @@
  * Uses mutex to serialize among the many sleepable callers (QP/CQ/MR/PD etc.)
  * so they queue on a sleeping lock instead of busy-spinning.  The mbox
  * availability wait uses the sleepable readx_poll_timeout (CPU-friendly,
- * longer timeout).  The spinlock is held only for the MMIO round-trip
- * (write cmd → poll response → read response) to serialize against
- * atomic-context AH callers.
+ * longer timeout).
+ *
+ * EP mode: the spinlock is held for the entire MMIO round-trip (write cmd →
+ * poll response → read response) to serialize against atomic-context AH
+ * callers.  FW responds in <100us so this spin section is brief.
+ *
+ * Termination mode: DDR round-trip through the PEM polling thread takes
+ * 200us+, and the mbox memory is dma_alloc_coherent DDR (non-cacheable on
+ * kmod side, cacheable on FW side).  Holding a spinlock during the wait
+ * forces atomic busy-poll which can miss FW writes due to the cache-attribute
+ * mismatch.  Instead, hold the spinlock only around the write and read phases
+ * and use the sleepable readx_poll_timeout for the response wait.  The mutex
+ * prevents other sleepable callers from interleaving, and the mbox availability
+ * flag (rsp=0 while in-flight) causes any concurrent AH atomic caller to
+ * wait/timeout rather than overwrite the in-flight command.
  */
 static int octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *buffer,
 			      u32 buf_size, uint8_t ops)
@@ -45,11 +60,6 @@ static int octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *
 		goto out_mutex;
 	}
 
-	/*
-	 * Spinlock for the MMIO round-trip: prevents atomic AH callers
-	 * from interleaving between our write and response read.
-	 * FW responds in <100us, so this spin section is brief.
-	 */
 	spin_lock(&oct_caps->mbox_atomic_lock);
 
 	data_wds = buf_size / 4;
@@ -64,11 +74,23 @@ static int octep_process_mbox(struct octep_caps_region *oct_caps, u16 id, void *
 	octep_write_sts(mbox, 0);
 	octep_write_hdr(mbox, id, MBOX_REQ_SIG);
 
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	spin_unlock(&oct_caps->mbox_atomic_lock);
+
+	ret = octep_wait_for_mbox_rsp(mbox);
+	if (ret) {
+		dev_warn(&pdev->dev, "Timeout waiting for mbox response (id=%u)\n", id);
+		goto out_mutex;
+	}
+
+	spin_lock(&oct_caps->mbox_atomic_lock);
+#else
 	ret = octep_wait_for_mbox_rsp_atomic(mbox);
 	if (ret) {
 		dev_warn(&pdev->dev, "Timeout waiting for mbox response (id=%u)\n", id);
 		goto out_spin;
 	}
+#endif
 
 	val = octep_read_sig(mbox);
 	if ((val & 0xFFFF) != MBOX_RSP_SIG) {
@@ -463,7 +485,7 @@ int octep_rdma_mbox_ah_destroy_atomic(struct octep_caps_region *oct_caps,
 
 static void octep_mbox_init(struct octep_mbox __iomem *mbox)
 {
-	iowrite32(1, &mbox->sts);
+	octep_plat_write32(1, (void __iomem *)&mbox->sts);
 }
 
 static void octep_pci_caps_read(struct octep_caps_region *oct_caps, void *buf, size_t len,
@@ -474,7 +496,7 @@ static void octep_pci_caps_read(struct octep_caps_region *oct_caps, void *buf, s
 	size_t i;
 
 	for (i = 0; i < len; i++)
-		*p++ = ioread8(bar + offset + i);
+		*p++ = octep_plat_read8(bar + offset + i);
 }
 
 static int
@@ -483,6 +505,9 @@ octep_pci_signature_verify(struct octep_caps_region *oct_caps)
 	u32 signature[2];
 
 	octep_pci_caps_read(oct_caps, &signature, sizeof(signature), 0);
+
+	dev_info(&oct_caps->pdev->dev, "Signature: [0]=0x%08x [1]=0x%08x\n",
+		 signature[0], signature[1]);
 
 	if (signature[0] != OCTEP_FW_READY_SIGNATURE0) {
 		dev_err(&oct_caps->pdev->dev, "Invalid signature[0]: %x expected %x\n",
@@ -514,7 +539,11 @@ octep_get_cap_addr(struct octep_caps_region *oct_caps, struct octep_rdma_dev_pci
 		dev_err(dev, "offset(%u) + length(%u) overflows\n", offset, length);
 		return NULL;
 	}
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	len = OCTTERM_DDR_REGION_SIZE;
+#else
 	len = pci_resource_len(oct_caps->pdev, bar);
+#endif
 	if (offset + length > len) {
 		dev_err(dev, "invalid cap: overflows bar space: %u > %u\n", offset + length, len);
 		return NULL;
@@ -557,8 +586,25 @@ octep_device_caps_read(struct octep_caps_region *oct_caps, struct pci_dev *pdev)
 		case OCTEP_RDMA_DEV_PCI_CAP_NOTIFY_CFG:
 			oct_caps->notify_base = octep_get_cap_addr(oct_caps, &cap);
 			oct_caps->notify_bar = cap.bar;
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+			{
+				u32 cap_off = le32_to_cpu(cap.offset);
+				u8 __iomem *notify_kva = oct_caps->base[cap.bar] + cap_off;
+				unsigned long delta;
+
+				if (!oct_caps->ddr_coherent_va) {
+					dev_err(dev, "OCTTERM: notify cap before DDR coherent base set\n");
+					return -EIO;
+				}
+				delta = (unsigned long)((void __force *)notify_kva -
+						       (void *)oct_caps->ddr_coherent_va);
+				oct_caps->notify_base_pa =
+					(phys_addr_t)(oct_caps->ddr_coherent_dma + delta);
+			}
+#else
 			oct_caps->notify_base_pa =
 				pci_resource_start(pdev, cap.bar) + le32_to_cpu(cap.offset);
+#endif
 			oct_caps->notify_off_multiplier = cap.data2;
 			oct_caps->notify_sz = cap.length;
 			break;

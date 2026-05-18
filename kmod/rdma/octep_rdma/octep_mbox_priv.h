@@ -12,6 +12,8 @@
 #include <linux/types.h>
 #include <linux/spinlock.h>
 
+#include "octep_plat.h"
+
 #define OCTEP_HW_REGS_BAR 0
 #define OCTEP_HW_MBOX_BAR 4
 
@@ -93,11 +95,6 @@ struct octep_rdma_dev_pci_vndr_cap {
 	u64 data2;
 };
 
-/*
- * Timeout for atomic-context mbox polling (AH create/destroy under spinlock).
- * AH commands are small write-only operations; FW should respond in <100us.
- * 500K iterations × ~200ns per ioread32 ≈ 100ms worst case.
- */
 #define OCTEP_MBOX_ATOMIC_TIMEOUT 500000
 
 struct octep_caps_region {
@@ -106,6 +103,15 @@ struct octep_caps_region {
 	u8 __iomem *dev_cfg;
 	u8 __iomem *mbox_base;
 	void __iomem *notify_base;
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	/*
+	 * OCTTERM: mbox/notify live in dma_alloc_coherent DDR.  Doorbell
+	 * cookies and notify_base_pa use the device DMA address plus byte
+	 * offset from ddr_coherent_va — never virt_to_phys on the VA.
+	 */
+	void *ddr_coherent_va;
+	dma_addr_t ddr_coherent_dma;
+#endif
 	phys_addr_t notify_base_pa;
 	struct mutex mbox_lock; /* sleepable mbox serialization */
 	spinlock_t mbox_atomic_lock; /* atomic-context mbox serialization */
@@ -154,7 +160,8 @@ static inline int octep_wait_for_mbox_avail_atomic(struct octep_mbox __iomem *mb
 		return -EINVAL;
 
 	while (timeout-- > 0) {
-		val = ioread32(&mbox->sts);
+		val = octep_plat_read32((void __iomem *)&mbox->sts);
+		rmb();
 		if (MBOX_AVAIL(val))
 			return 0;
 		cpu_relax();
@@ -172,7 +179,8 @@ static inline int octep_wait_for_mbox_rsp_atomic(struct octep_mbox __iomem *mbox
 		return -EINVAL;
 
 	while (timeout-- > 0) {
-		val = ioread32(&mbox->sts);
+		val = octep_plat_read32((void __iomem *)&mbox->sts);
+		rmb();
 		if (MBOX_RSP(val))
 			return 0;
 		cpu_relax();
@@ -185,8 +193,8 @@ static inline void octep_write_hdr(struct octep_mbox __iomem *mbox, u16 id, u16 
 	if (!mbox)
 		return;
 
-	iowrite16(id, &mbox->hdr.id);
-	iowrite16(sig, &mbox->hdr.sig);
+	octep_plat_write16(id, (void __iomem *)&mbox->hdr.id);
+	octep_plat_write16(sig, (void __iomem *)&mbox->hdr.sig);
 }
 
 static inline u32
@@ -195,7 +203,7 @@ octep_read_sig(struct octep_mbox __iomem *mbox)
 	if (!mbox)
 		return 0;
 
-	return ioread16(&mbox->hdr.sig);
+	return octep_plat_read16((void __iomem *)&mbox->hdr.sig);
 }
 
 static inline void
@@ -204,7 +212,7 @@ octep_write_sts(struct octep_mbox __iomem *mbox, u32 sts)
 	if (!mbox)
 		return;
 
-	iowrite32(sts, &mbox->sts);
+	octep_plat_write32(sts, (void __iomem *)&mbox->sts);
 }
 
 static inline u32
@@ -213,7 +221,7 @@ octep_read_sts(struct octep_mbox __iomem *mbox)
 	if (!mbox)
 		return 0;
 
-	return ioread32(&mbox->sts);
+	return octep_plat_read32((void __iomem *)&mbox->sts);
 }
 
 static inline u32
@@ -222,7 +230,7 @@ octep_read32_word(struct octep_mbox __iomem *mbox, u16 word_idx)
 	if (!mbox)
 		return 0;
 
-	return ioread32(&mbox->data[word_idx]);
+	return octep_plat_read32((void __iomem *)&mbox->data[word_idx]);
 }
 
 static inline void
@@ -231,7 +239,7 @@ octep_write32_word(struct octep_mbox __iomem *mbox, u16 word_idx, u32 word)
 	if (!mbox)
 		return;
 
-	iowrite32(word, &mbox->data[word_idx]);
+	octep_plat_write32(word, (void __iomem *)&mbox->data[word_idx]);
 }
 
 static inline void
@@ -242,13 +250,11 @@ octep_clear_mbox(struct octep_mbox __iomem *mbox, u16 data_wds)
 	if (!mbox)
 		return;
 
-	/* Clear mailbox header and status */
-	memset_io(&mbox->hdr, 0, sizeof(struct octep_mbox_hdr));
-	memset_io(&mbox->sts, 0, sizeof(struct octep_mbox_sts));
+	octep_plat_memset((void __iomem *)&mbox->hdr, 0, sizeof(struct octep_mbox_hdr));
+	octep_plat_memset((void __iomem *)&mbox->sts, 0, sizeof(struct octep_mbox_sts));
 
-	/* Clear data words */
 	for (i = 0; i < data_wds; i++)
-		iowrite32(0, &mbox->data[i]);
+		octep_plat_write32(0, (void __iomem *)&mbox->data[i]);
 }
 
 int octep_device_caps_read(struct octep_caps_region *oct_caps, struct pci_dev *pdev);

@@ -46,6 +46,7 @@ struct octep_rdma_ucontext {
 
 enum {
 	OCTEP_RDMA_MMAP_IO_NC = 0, /* no cache */
+	OCTEP_RDMA_MMAP_IO_CACHED, /* cached (coherent) */
 };
 
 static inline struct octep_rdma_ucontext *

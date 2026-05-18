@@ -6,17 +6,6 @@
 
 #include "octep_verbs.h"
 
-/* Helper function to check if device is ready for mailbox communication */
-static inline bool
-octep_rdma_device_ready(struct octep_rdma_dev *rdma_dev)
-{
-	int status = atomic_read(&rdma_dev->status);
-
-	return ((status >= OCTEP_RDMA_DEV_STATUS_INIT &&
-		 status <= OCTEP_RDMA_DEV_STATUS_NETDEV_REG) ||
-		status == OCTEP_RDMA_DEV_STATUS_UNINIT);
-}
-
 static int
 octep_rdma_alloc_idx(struct octep_rdma_resource_cb *res_cb)
 {
@@ -112,8 +101,34 @@ octep_rdma_mmap(struct ib_ucontext *ibucontext, struct vm_area_struct *vma)
 			ibdev_err(ibucontext->device, "rdma_user_mmap_io failed\n");
 			goto put_entry;
 		}
-		err = 0;
 		break;
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	/*
+	 * Octeon Termination: doorbell region is DDR allocated via
+	 * dma_alloc_coherent.  Use dma_mmap_coherent with the original
+	 * allocation base so the userspace mapping inherits the same
+	 * cache attributes as the kernel VA, avoiding cache-attribute
+	 * aliasing that can cause stale doorbell reads.
+	 */
+	case OCTEP_RDMA_MMAP_IO_CACHED: {
+		struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibucontext->device);
+		struct octterm_cdev *odev = rdma_dev->octterm;
+		unsigned long notify_offset =
+			(unsigned long)(entry->address - (u64)odev->ddr_dma_addr);
+
+		vma->vm_pgoff = notify_offset >> PAGE_SHIFT;
+		err = dma_mmap_coherent(&odev->pdev->dev, vma,
+					odev->ddr_region, odev->ddr_dma_addr,
+					OCTTERM_DDR_REGION_SIZE);
+		if (err) {
+			ibdev_err(ibucontext->device,
+				  "dma_mmap_coherent (doorbell) failed\n");
+			goto put_entry;
+		}
+		vm_flags_clear(vma, VM_IO);
+		break;
+	}
+#endif
 	default:
 		err = -EINVAL;
 		goto put_entry;
@@ -161,8 +176,14 @@ setup_db_region(struct octep_rdma_dev *rdma_dev, struct octep_rdma_ucontext *ctx
 
 	uresp->db_region_sz = rdma_dev->caps_rgn->notify_sz;
 
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	ctx->db_mmap_entry = octep_rdma_mmap_entry_insert(ctx, ctx->db_region, uresp->db_region_sz,
+							  OCTEP_RDMA_MMAP_IO_CACHED,
+							  &uresp->db_region);
+#else
 	ctx->db_mmap_entry = octep_rdma_mmap_entry_insert(ctx, ctx->db_region, uresp->db_region_sz,
 							  OCTEP_RDMA_MMAP_IO_NC, &uresp->db_region);
+#endif
 	if (!ctx->db_mmap_entry) {
 		ibdev_err(&rdma_dev->ibdev, "DB mmap entry insert failed\n");
 		ret = -ENOMEM;
@@ -646,6 +667,16 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 		goto err_free_res;
 	}
 
+	/* Zero the CQ doorbell slots (pi + ci) to clear stale DDR values */
+	{
+		void __iomem *notify = rdma_dev->caps_rgn->notify_base;
+		u32 mul = rdma_dev->caps_rgn->notify_off_multiplier;
+		void __iomem *cq_db = notify + ((cq->cqn * 3 + 2) * mul);
+
+		octep_plat_write32(0, cq_db);
+		octep_plat_write32(0, cq_db + 4);
+	}
+
 	if (is_user == false) {
 		ret = octep_rdma_kern_cq_poll_insert(cq);
 		if (ret < 0) {
@@ -851,6 +882,24 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	if (ret) {
 		ibdev_err(ibqp->device, "octep_rdma_prepare_qp_cmd failed\n");
 		goto err_out_cmd;
+	}
+
+	/*
+	 * Zero the doorbell slots (pi + ci) for SQ and RQ of this QP.
+	 * The DDR doorbell region may hold stale values from prior QP
+	 * lifecycles; the firmware does not clear them on qp_create.
+	 */
+	{
+		void __iomem *notify = rdma_dev->caps_rgn->notify_base;
+		u32 mul = rdma_dev->caps_rgn->notify_off_multiplier;
+		u32 qpn = qp->ibqp.qp_num;
+		void __iomem *sq_db = notify + ((qpn * 3)     * mul);
+		void __iomem *rq_db = notify + ((qpn * 3 + 1) * mul);
+
+		octep_plat_write32(0, sq_db);
+		octep_plat_write32(0, sq_db + 4);
+		octep_plat_write32(0, rq_db);
+		octep_plat_write32(0, rq_db + 4);
 	}
 
 	spin_lock_init(&qp->lock);

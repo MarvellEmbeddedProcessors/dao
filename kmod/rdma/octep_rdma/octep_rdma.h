@@ -18,6 +18,9 @@
 #include <rdma/ib_verbs.h>
 
 #include "octep_ep.h"
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+#include "octterm_cdev.h"
+#endif
 
 #define OCTEP_RDMA_DRV_NAME  "octep_rdma"
 #define OCTEP_DRV_STRING     "Marvell Octeon EndPoint RDMA Adaptor Driver"
@@ -64,6 +67,7 @@ enum {
 	OCTEP_RDMA_RES_CNT,
 };
 
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 struct octep_pf {
 	u8 __iomem *base[PCI_STD_NUM_BARS];
 	struct pci_dev *pdev;
@@ -74,6 +78,7 @@ struct octep_pf {
 	u16 vf_devid;
 	struct octep_ep_dev *octep_dev;
 };
+#endif
 
 struct octep_rdma_dev {
 	struct ib_device ibdev;
@@ -87,7 +92,6 @@ struct octep_rdma_dev {
 	struct pci_dev *pdev;
 	/** device status */
 	atomic_t status;
-	/* physical port state (only one port per device) */
 
 	u32 mtu;
 	/* Work entry to handle device setup */
@@ -95,7 +99,25 @@ struct octep_rdma_dev {
 	atomic_t num_ctx;
 	struct octep_rdma_resource_cb res_cb[OCTEP_RDMA_RES_CNT];
 	struct octep_caps_region *caps_rgn;
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	struct octterm_cdev *octterm;
+	struct device *dma_dev;
+#endif
 };
+
+int octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev);
+void octep_rdma_ib_device_remove(struct octep_rdma_dev *rdma_dev);
+
+static inline bool
+octep_rdma_device_ready(struct octep_rdma_dev *rdma_dev)
+{
+	int status = atomic_read(&rdma_dev->status);
+
+	return ((status >= OCTEP_RDMA_DEV_STATUS_INIT &&
+		 status <= OCTEP_RDMA_DEV_STATUS_NETDEV_REG) ||
+		status == OCTEP_RDMA_DEV_STATUS_UNINIT);
+}
 
 /* Queue utility functions */
 static inline bool
