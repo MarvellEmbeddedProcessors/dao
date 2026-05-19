@@ -19,7 +19,7 @@
 /*
  * Configurable number of RX/TX ring descriptors
  */
-#define RDMA_RX_DESC_DEFAULT 1024
+#define RDMA_RX_DESC_DEFAULT 16384
 #define RDMA_TX_DESC_DEFAULT 16384
 
 #define RDMA_NB_SOCKETS 1

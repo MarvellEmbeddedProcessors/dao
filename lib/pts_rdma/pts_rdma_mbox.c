@@ -63,7 +63,8 @@ static void
 pts_rdma_qp_read_ring_flush(struct pts_rdma_qp *qp)
 {
 	uint16_t mbuf_dma_off, last_off, q_sz, off, end;
-	uint32_t nb_avail;
+	struct rte_mbuf *seg;
+	uint32_t nb_avail, k;
 
 	if (!qp)
 		return;
@@ -79,6 +80,15 @@ pts_rdma_qp_read_ring_flush(struct pts_rdma_qp *qp)
 	off = last_off;
 	do {
 		end = (off + nb_avail > q_sz) ? (uint32_t)(q_sz - off) : nb_avail;
+		/* Release extra refcnt taken by rdma_read_prep_for_pts()
+		 * so the subsequent free brings each segment to zero.
+		 */
+		for (k = 0; k < end; k++) {
+			for (seg = qp->r_mbuf_arr[off + k]; seg; seg = seg->next) {
+				if (rte_mbuf_refcnt_read(seg) > 1)
+					rte_mbuf_refcnt_update(seg, -1);
+			}
+		}
 		rte_pktmbuf_free_bulk(&qp->r_mbuf_arr[off], end);
 		off = (off + end) & (q_sz - 1);
 		nb_avail -= end;

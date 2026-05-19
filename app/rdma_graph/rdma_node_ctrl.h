@@ -30,7 +30,7 @@ extern "C" {
 #include <rte_mempool.h>
 
 #define RDMA_MAX_RX_QUEUE_PER_PORT 128
-#define APP_RDMA_ETH_DEQ_BURST_MAX 16
+#define APP_RDMA_ETH_DEQ_BURST_MAX 64
 
 /**
  * Node mbuf private area 2.

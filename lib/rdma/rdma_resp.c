@@ -460,16 +460,21 @@ static inline void
 rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
 {
 	struct rdma_mbufs *rmbuf, *next_rmbuf;
+	struct rte_mbuf *seg;
+	bool first = true;
 
-	/* Skip the first mbuf - it is owned by the caller who will free it */
 	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
-	if (rmbuf)
-		rmbuf = STAILQ_NEXT(rmbuf, next);
-
 	while (rmbuf) {
 		next_rmbuf = STAILQ_NEXT(rmbuf, next);
-		if (rmbuf->mbuf)
+
+		/* Release extra refcnt taken in rdma_read_prep_for_pts() */
+		for (seg = rmbuf->mbuf; seg; seg = seg->next)
+			rte_mbuf_refcnt_update(seg, -1);
+
+		/* Skip the first mbuf - it is owned by the caller */
+		if (!first && rmbuf->mbuf)
 			rte_pktmbuf_free(rmbuf->mbuf);
+		first = false;
 		rmbuf = next_rmbuf;
 	}
 	/* memset zeros everything including mbuf_list head pointers */
@@ -528,10 +533,17 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	/* Process all packets */
 	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
 	while (rmbuf) {
+		struct rte_mbuf *seg;
+
 		m_segs = wqe->n_rdma_segs > 1 ? true : false;
 		next_rmbuf = STAILQ_NEXT(rmbuf, next);
 		opcode = rdma_prep_read_ack(qp, rmbuf->mbuf, ack, m_segs, opcode);
 		wqe->n_rdma_segs--;
+
+		/* Release extra refcnt taken in rdma_read_prep_for_pts() */
+		for (seg = rmbuf->mbuf; seg; seg = seg->next)
+			rte_mbuf_refcnt_update(seg, -1);
+
 		mbufs[*n_mbufs] = rmbuf->mbuf;
 		(*n_mbufs)++;
 		rmbuf = next_rmbuf;
@@ -700,6 +712,12 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 	pinfo->mbuf->l2_len = 1;
 	rdma_update_mbuf(pinfo->mbuf, dma_len, &mtu, &offset);
 
+	/* Bump refcnt: the chain is also referenced via ack_pending_list;
+	 * the extra reference prevents use-after-free when PTS enqueue
+	 * fails and the drop path frees the chain.
+	 */
+	rte_mbuf_refcnt_update(pinfo->mbuf, 1);
+
 	/* Build chain with a local tail pointer to avoid repeated scans */
 	struct rte_mbuf *tail = pinfo->mbuf;
 
@@ -710,12 +728,22 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 		}
 		mbuf = rte_pktmbuf_alloc(pinfo->mbuf->pool);
 		if (!mbuf) {
+			struct rte_mbuf *m = pinfo->mbuf;
+
+			/* Undo refcnt bumps on the partial chain so the
+			 * caller's free brings each segment back to 0.
+			 */
+			while (m) {
+				rte_mbuf_refcnt_update(m, -1);
+				m = m->next;
+			}
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR);
 			return -1;
 		}
 		rte_pktmbuf_reset_headroom(mbuf);
 		rdma_update_mbuf(mbuf, dma_len, &mtu, &offset);
+		rte_mbuf_refcnt_update(mbuf, 1);
 		tail->next = mbuf;
 		tail = mbuf;
 		tail->next = NULL;
@@ -908,6 +936,21 @@ rdma_ack_pending_list_find(struct rdma_qp *qp, uint32_t psn)
 	return 0;
 }
 
+static inline struct rte_mbuf *
+rdma_ack_pending_list_find_mbuf_by_psn(struct rdma_qp *qp, uint32_t psn)
+{
+	struct rdma_ack *ack;
+
+	/* clang-format off */
+	STAILQ_FOREACH(ack, &qp->resp.ack_pending_list, next) {
+		/* clang-format on */
+		if (ack->psn == psn)
+			return ack->mbuf;
+	}
+
+	return NULL;
+}
+
 /*
  * Find and remove an ack entry by PSN from ack_pending_list.
  * Returns the mbuf that was associated with this ack, or NULL if not found.
@@ -991,10 +1034,28 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 		bool requeue_dma = false;
 
 		/* Check if request is in ack pending list */
-		old_mbuf = rdma_ack_pending_list_remove_by_psn(qp, pkt->rinfo.psn);
+		old_mbuf = rdma_ack_pending_list_find_mbuf_by_psn(qp, pkt->rinfo.psn);
 		if (old_mbuf) {
-			qp->resp.resp_read_rq_bal++;
-			requeue_dma = true;
+			if (rte_mbuf_refcnt_read(old_mbuf) <= 1) {
+				struct rte_mbuf *m;
+
+				/* PTS enqueue had failed: the chain is still
+				 * intact (refcnt=1). Restore refcnt and D2M
+				 * tag, then resubmit the same chain. Keep the
+				 * ack entry in place to preserve ordering.
+				 */
+				for (m = old_mbuf; m; m = m->next)
+					rte_mbuf_refcnt_update(m, 1);
+				old_mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS;
+
+				rte_pktmbuf_free(pkt->mbuf);
+				pkt->mbuf = old_mbuf;
+				pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
+			}
+			/* else: DMA in-flight (refcnt=2), do nothing.
+			 * The in-flight DMA will complete in-order and
+			 * be processed normally.
+			 */
 		} else if (rdma_is_last_acked_request(qp, pkt->rinfo.psn, pkt) &&
 			   rdma_read_rkey_validate(qp, pkt)) {
 			/* Last read reply lost - reread and retransmit */
