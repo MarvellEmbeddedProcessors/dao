@@ -345,6 +345,12 @@ cryptographic operations:
 			 /* Handle segment size calculation error */
 		}
 
+.. note::
+
+    * dao_liquid_crypto_seg_size_calc() is a function with limited validations and
+      applications are expected to use it with valid feature and parameter combinations
+      rather than relying on it to reject any invalid combinations.
+
 
 4. **Configure Queue Pair**:
 	Configure the queue pair for cryptographic operations using
