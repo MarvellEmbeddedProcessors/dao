@@ -924,13 +924,15 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				sym_seg_sz += params->sym.iv_len;
 			}
 
+			if (params->sym.aad_len > DAO_LC_MAX_AAD_LEN) {
+				dao_err("Invalid AAD length. aad_len should be at most %u.",
+					DAO_LC_MAX_AAD_LEN);
+				return 0;
+			}
+
 			/* AAD */
 			sym_seg_sz += params->sym.aad_len;
 
-			if (params->sym.cipher_auth_payload_len == 0) {
-				dao_err("Invalid cipher/auth payload length. It cannot be zero.");
-				return 0;
-			}
 			/* Payload */
 			aligned_payload =
 				RTE_ALIGN((uint32_t)params->sym.cipher_auth_payload_len, 16);

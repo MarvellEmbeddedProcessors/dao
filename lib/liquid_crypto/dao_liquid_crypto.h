@@ -56,6 +56,8 @@
 #define DAO_LC_COMPRESS_MAX_COMP_LEVEL 9
 /** Compress device maximum segment size */
 #define DAO_LC_COMPRESS_MAX_SEG_SIZE 16384
+/** Maximum AAD length */
+#define DAO_LC_MAX_AAD_LEN 1024
 
 /**
  * The params required for KMAC operations.
