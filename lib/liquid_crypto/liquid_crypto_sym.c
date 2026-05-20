@@ -282,10 +282,7 @@ liquid_crypto_sym_sess_meta_alloc(const struct dao_lc_sym_ctx *ctx)
 		if ((ctx->hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE128) ||
 		    (ctx->hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE256)) {
 			sess_meta->op_type = LC_SYM_OP_HMAC_AUTH_ONLY;
-			if (ctx->hash.hmac_key_len != 0) {
-				dao_err("Unsupported auth-key-len for cSHAKE operations.");
-				goto sess_meta_free;
-			}
+			sess_meta->auth_key_len = 0;
 		} else {
 			sess_meta->op_type = LC_SYM_OP_AUTH_ONLY;
 		}
@@ -803,11 +800,6 @@ lc_sym_op_auth_only_validate(const struct dao_lc_sym_op *op,
 		if (op->cshake_params.function_name_len > DAO_LC_SHA3_MAX_FUNCTION_NAME_LEN) {
 			dao_err("Invalid function-name length for cSHAKE operation. function_name_len: %d.",
 				op->cshake_params.function_name_len);
-			return -EINVAL;
-		}
-		if (sess_meta->auth_key_len > 0) {
-			dao_err("Invalid key length for cSHAKE operation. auth_key_len: %d.",
-				sess_meta->auth_key_len);
 			return -EINVAL;
 		}
 		break;
