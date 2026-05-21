@@ -27,8 +27,8 @@ There are some challenges which flow library can meet:
   This TCAM limit can be mitigated via Flow library that manages these flows, making
   decisions on when to install and age out a flow from the hardware.
 
-* This flow library could be instrumental in fulfilling the requirement of managing
-  up to 1 million flows through software ACL tables or EM(exact match) hash tables.
+* This flow library can be used to manage millions of flows using hardware-accelerated
+  exact match tables via CPT engines, or through software ACL tables.
 
 
 Flow Rule

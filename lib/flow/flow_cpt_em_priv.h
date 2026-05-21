@@ -84,7 +84,6 @@ struct cpt_em_rule_data {
 	bool is_hw_offloaded;
 	uint16_t port_id;
 	uint16_t tbl_id;
-	/* Contiguous match string */
 	uint64_t parsed_flow_data[FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS];
 	uint64_t parsed_flow_data_mask[FLOW_PARSER_MAX_MCAM_WIDTH_DWORDS];
 	uint64_t rule_idx;
@@ -122,7 +121,6 @@ struct cpt_em_lcore_ctx {
 	bool templates_ready;
 } __rte_cache_aligned;
 
-/* Single CPT-EM table instance for a port */
 struct dao_cpt_em_table {
 	uint16_t port_id;
 	uint16_t tbl_id;
@@ -144,19 +142,16 @@ struct dao_cpt_em_table {
 	uint8_t egrp;
 	bool enable_ctx_cache;
 	bool ctx_cache_active;
-	/* Spinlock */
 	rte_spinlock_t ctx_lock;
 
 	TAILQ_HEAD(cpt_em_rule_list, cpt_em_rule_data) flow_list;
 };
 
-/* Per port CPT-EM tables */
 struct cpt_em_config_per_port {
 	struct dao_cpt_em_table dao_cpt_em_tbl;
 	uint32_t num_rules_per_prt;
 };
 
-/* Global CPT-EM configuration - across all ports */
 struct cpt_em_global_config {
 	struct cpt_em_config_per_port cpt_em_cfg_prt[RTE_MAX_ETHPORTS];
 };

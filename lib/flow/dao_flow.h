@@ -295,10 +295,6 @@ int dao_flow_count(uint16_t port_id, struct dao_flow_count *count, struct rte_fl
 /**
  * Warm the CPT EM context cache for a port.
  *
- * Converts the EM table to big-endian format and sets ctx_val=1 in
- * instruction templates so subsequent lookups use on-chip SRAM cache.
- * Requires enable_ctx_cache=true at init. Only supported with CPT-EM flow ops.
- *
  * @param[in] port_id
  *    Port identifier of Ethernet device.
  * @return
