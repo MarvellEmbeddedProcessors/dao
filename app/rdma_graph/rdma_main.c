@@ -521,6 +521,9 @@ main(int argc, char *argv[])
 			rte_eal_remote_launch(rdma_launch_one_lcore, NULL, lcore_id);
 	}
 
+	if (dao_pem_fw_ready_notify(rdma_main_cfg->pem_prm->pem_id) < 0)
+		dao_warn("FW_READY notification failed");
+
 	/* Launch on main lcore if needed */
 	qconf = &rdma_main_cfg->lcore_prm->lcore_conf[rte_get_main_lcore()];
 	if (qconf->service_lcore)
@@ -544,6 +547,9 @@ main(int argc, char *argv[])
 		rte_thread_join(rdma_main_cfg->graph_prm->graph_stats_thread, NULL);
 
 close_pem:
+	if (rdma_main_cfg->cfg_prm->termination_enabled)
+		dao_rdma_octterm_cleanup(rdma_main_cfg->cfg_prm->enabled_dev_mask,
+					 rdma_main_cfg->pem_prm->pem_id);
 	rdma_heartbeat_cleanup();
 	rdma_link_status_cleanup();
 	dao_rdma_lib_close();

@@ -453,8 +453,12 @@ rdma_handle_heartbeat_alarm(void)
 int
 rdma_heartbeat_init(void)
 {
-	/* Initialize device status */
 	rdma_dev_status = RDMA_DEV_STATUS_READY;
+
+	if (rdma_main_cfg->cfg_prm->termination_enabled) {
+		dao_info("Heartbeat disabled in termination mode");
+		return 0;
+	}
 
 	rdma_start_heartbeat_eal_alarm(100);
 	dao_info("Heartbeat system initialized and EAL alarm started with 100ms interval");
@@ -520,7 +524,6 @@ heartbeat_alarm_cb(void *arg)
 {
 	RTE_SET_USED(arg);
 
-	/* Call the heartbeat alarm handler */
 	rdma_handle_heartbeat_alarm();
 }
 
