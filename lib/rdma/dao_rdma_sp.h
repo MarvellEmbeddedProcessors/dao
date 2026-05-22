@@ -46,4 +46,7 @@ int dao_rdma_pd_delete(void *req);
 int dao_rdma_mr_register(void *req);
 int dao_rdma_mr_deregister(void *req);
 
+/* Octeon Termination cleanup */
+int dao_rdma_octterm_cleanup(uint32_t dev_mask, uint16_t pem_id);
+
 #endif /* __RDMA_SP_H__ */

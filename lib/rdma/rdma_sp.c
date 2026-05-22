@@ -2,7 +2,12 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <dao_log.h>
+
 #include "dao_rdma_sp.h"
+#include "dao_pts_rdma_dev.h"
+#include "pts_rdma_dev_priv.h"
+#include "dao_pem.h"
 #include "rdma_av.h"
 #include "rdma_cq.h"
 #include "rdma_dev_cap_priv.h"
@@ -112,4 +117,42 @@ int
 dao_rdma_mr_deregister(void *req)
 {
 	return mr_dereg(req);
+}
+
+int
+dao_rdma_octterm_cleanup(uint32_t dev_mask, uint16_t pem_id)
+{
+	struct dao_pts_rdma_dev *dao_dev;
+	struct pts_rdma_dev *dev;
+	uint16_t devid;
+	int rc;
+
+	dao_info("Octeon Termination cleanup: dev_mask=0x%x pem_id=%u", dev_mask, pem_id);
+
+	/*
+	 * Send the cleanup ioctl to kmod FIRST, before tearing down
+	 * local state.  This ensures the kmod can tear down IB resources
+	 * and reset to FW_READY-waiting state even if local cleanup
+	 * encounters issues.
+	 */
+	rc = dao_pem_fw_cleanup_notify(pem_id);
+	if (rc < 0)
+		dao_err("FW_CLEANUP ioctl failed: %d", rc);
+
+	for (devid = 0; devid < DAO_PTS_RDMA_MAX_DEVS; devid++) {
+		if (!(dev_mask & (1 << devid)))
+			continue;
+		dao_rdma_cleanup_resources(devid);
+	}
+
+	for (devid = 0; devid < DAO_PTS_RDMA_MAX_DEVS; devid++) {
+		if (!(dev_mask & (1 << devid)))
+			continue;
+		dao_dev = &dao_pts_rdma_devs[devid];
+		dev = pts_rdma_dev_priv(dao_dev);
+		pts_rdma_clear_qp_info(dev);
+	}
+
+	dao_info("Octeon Termination cleanup complete");
+	return rc;
 }
