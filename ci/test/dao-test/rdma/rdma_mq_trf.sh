@@ -92,67 +92,89 @@ function run_mq_test()
 
 	# Build server and client commands
 	local log_path="${EP_LOG_PATH:-/tmp}"
-	local server_log="$log_path/ibv_rdma_mq_trf_server_${test_name}.log"
 
+	local modes=()
 	if [[ -n "$loop_count" ]]; then
-		# Loop mode: server accepts multiple sequential connections
-		server_cmd="bash -c \"${server_env} setsid ibv_rdma_mq_trf -d $server_dev -g $server_gid -q $num_qp -t $num_threads -c $server_max_conn $sge_arg >$server_log 2>&1 &\""
+		modes+=("cm")
+	else
+		modes+=("tcp")
+	fi
 
-		# Include --size only for RC in loop mode
-		local size_arg=""
-		if [[ "$qp_type" == "RC" ]]; then
-			size_arg="--size $msg_size"
+	local overall_status=0
+	local mode
+	for mode in "${modes[@]}"; do
+		local mode_arg=""
+		local mode_label="TCP"
+		if [[ "$mode" == "cm" ]]; then
+			mode_arg="--rdma-cm"
+			mode_label="CM"
 		fi
 
-		# Client loops, each iteration creates a fresh connection
-		client_cmd="bash -c '${client_env} count=1; while [ \$count -le $loop_count ]; do ibv_rdma_mq_trf -g $client_gid -q $num_qp -t $num_threads -d $client_dev --qp-type $qp_type --op-type $op_type -n $num_iterations $size_arg $sge_arg $server_ip || exit 1; ((count++)); done'"
-	else
-		# Normal mode: single client invocation with multiple QPs
-		server_cmd="bash -c \"${server_env} setsid ibv_rdma_mq_trf -d $server_dev -g $server_gid -q $num_qp -t $num_threads $sge_arg >$server_log 2>&1 &\""
-		client_cmd="bash -c \"${client_env} ibv_rdma_mq_trf -d $client_dev -g $client_gid -q $num_qp -t $num_threads --qp-type $qp_type --op-type $op_type -n $num_iterations --size $msg_size $sge_arg $server_ip\""
-	fi
+		local server_log="$log_path/ibv_rdma_mq_trf_server_${test_name}_${mode_label}.log"
 
-	# Execute test
-	$server_cmd_func "$server_cmd"
+		echo "  --- Mode: $mode_label ---"
 
-	# Server initialization wait
-	local server_wait=3
-	if [[ -n "$loop_count" ]]; then
-		server_wait=5
-	else
-		# Scale wait time based on QP count for both UD and RC
-		server_wait=$(( 5 + num_qp / 10 ))
-	fi
-	echo "  Waiting ${server_wait}s for server to initialize..."
-	sleep $server_wait
+		if [[ -n "$loop_count" ]]; then
+			# Loop mode: server accepts multiple sequential connections
+			server_cmd="bash -c \"${server_env} setsid ibv_rdma_mq_trf -d $server_dev -g $server_gid -q $num_qp -t $num_threads --qp-type $qp_type --op-type $op_type -c $server_max_conn $mode_arg $sge_arg >$server_log 2>&1 &\""
 
-	local timeout_duration=120
-	echo "  Running client (timeout: ${timeout_duration}s)..."
+			# Include --size only for RC in loop mode
+			local size_arg=""
+			if [[ "$qp_type" == "RC" ]]; then
+				size_arg="--size $msg_size"
+			fi
 
-	set +e  # Don't exit on timeout failure
-	$client_cmd_func "timeout ${timeout_duration} $client_cmd"
-	status=$?
-	set -e
+			# Client loops, each iteration creates a fresh connection
+			client_cmd="bash -c '${client_env} count=1; while [ \$count -le $loop_count ]; do ibv_rdma_mq_trf -g $client_gid -q $num_qp -t $num_threads -d $client_dev --qp-type $qp_type --op-type $op_type -n $num_iterations $size_arg $mode_arg $sge_arg $server_ip || exit 1; ((count++)); done'"
+		else
+			# Normal mode: single client invocation with multiple QPs
+			server_cmd="bash -c \"${server_env} setsid ibv_rdma_mq_trf -d $server_dev -g $server_gid -q $num_qp -t $num_threads --qp-type $qp_type --op-type $op_type $mode_arg $sge_arg >$server_log 2>&1 &\""
+			client_cmd="bash -c \"${client_env} ibv_rdma_mq_trf -d $client_dev -g $client_gid -q $num_qp -t $num_threads --qp-type $qp_type --op-type $op_type -n $num_iterations --size $msg_size $mode_arg $sge_arg $server_ip\""
+		fi
 
-	# Check status
-	if [[ $status -eq 124 ]]; then
-		# Exit code 124 means timeout was triggered
-		echo "$test_name FAILED (TIMEOUT - client hung for >${timeout_duration}s)"
-		echo "  Server log ($server_log):"
-		$server_cmd_func "tail -30 $server_log 2>/dev/null" || true
+		# Execute test
+		$server_cmd_func "$server_cmd"
+
+		# Server initialization wait
+		local server_wait=3
+		if [[ -n "$loop_count" ]]; then
+			server_wait=5
+		else
+			# Scale wait time based on QP count for both UD and RC
+			server_wait=$(( 5 + num_qp / 10 ))
+		fi
+		echo "  Waiting ${server_wait}s for server to initialize..."
+		sleep $server_wait
+
+		local timeout_duration=120
+		echo "  Running client (timeout: ${timeout_duration}s)..."
+
+		set +e  # Don't exit on timeout failure
+		$client_cmd_func "timeout ${timeout_duration} $client_cmd"
+		status=$?
+		set -e
+
+		# Check status
+		if [[ $status -eq 124 ]]; then
+			# Exit code 124 means timeout was triggered
+			echo "$test_name [$mode_label] FAILED" \
+				"(TIMEOUT - client hung for >${timeout_duration}s)"
+			echo "  Server log ($server_log):"
+			$server_cmd_func "tail -30 $server_log 2>/dev/null" || true
+			overall_status=1
+		elif [[ $status -ne 0 ]]; then
+			echo "$test_name [$mode_label] FAILED (exit code: $status)"
+			echo "  Server log ($server_log):"
+			$server_cmd_func "tail -30 $server_log 2>/dev/null" || true
+			overall_status=1
+		else
+			echo "$test_name [$mode_label] PASSED"
+		fi
+
 		cleanup_stuck_processes
-		return 1
-	elif [[ $status -ne 0 ]]; then
-		echo "$test_name FAILED (exit code: $status)"
-		echo "  Server log ($server_log):"
-		$server_cmd_func "tail -30 $server_log 2>/dev/null" || true
-		cleanup_stuck_processes
-		return 1
-	else
-		echo "$test_name PASSED"
-		cleanup_stuck_processes
-		return 0
-	fi
+	done
+
+	return $overall_status
 }
 
 # Main test function
