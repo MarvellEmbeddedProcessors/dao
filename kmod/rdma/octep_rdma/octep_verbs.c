@@ -833,6 +833,20 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	qp->attrs.qp_type = attrs->qp_type;
 	qp->attrs.sq_sig_type = attrs->sq_sig_type;
 
+	qp->attrs.qp_mod_attr = kzalloc(sizeof(*qp->attrs.qp_mod_attr), GFP_KERNEL);
+	if (!qp->attrs.qp_mod_attr) {
+		ret = -ENOMEM;
+		goto err_out_cmd;
+	}
+
+	/* Set RC defaults from device capabilities so query_qp returns
+	 * usable values before the first modify_qp(RTR/RTS). */
+	if (attrs->qp_type == IB_QPT_RC) {
+		qp->attrs.qp_mod_attr->max_rd_atomic = min_t(int, rdma_dev->attr.max_qp_rd_atom, 2);
+		qp->attrs.qp_mod_attr->max_dest_rd_atomic =
+			min_t(int, rdma_dev->attr.max_res_rd_atom, 2);
+	}
+
 	ret = octep_rdma_prepare_qp_cmd(rdma_dev, qp, pd->pdn, is_user);
 	if (ret) {
 		ibdev_err(ibqp->device, "octep_rdma_prepare_qp_cmd failed\n");
@@ -878,12 +892,6 @@ octep_rdma_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr
 	if (udata && udata->inlen && !ib_is_udata_cleared(udata, 0, udata->inlen)) {
 		ibdev_err(ibqp->device, "Incompatible ABI params, udata not cleared\n");
 		return -EINVAL;
-	}
-
-	if (!qp->attrs.qp_mod_attr) {
-		qp->attrs.qp_mod_attr = kzalloc(sizeof(*qp->attrs.qp_mod_attr), GFP_KERNEL);
-		if (!qp->attrs.qp_mod_attr)
-			return -ENOMEM;
 	}
 
 	ret = octep_rdma_modify_qp_validate(qp, qp_attr, qp_attr_mask);
@@ -952,45 +960,36 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 	qp_attr->cap.max_recv_sge = qp->attrs.max_recv_sge;
 
 	qp_attr->path_mtu = ib_mtu_int_to_enum(dev->netdev->mtu);
-	qp_attr->max_rd_atomic = qp->attrs.irq_size;
-	qp_attr->max_dest_rd_atomic = qp->attrs.orq_size;
 
 	qp_attr->qp_access_flags = IB_ACCESS_LOCAL_WRITE | IB_ACCESS_REMOTE_WRITE |
 				   IB_ACCESS_REMOTE_READ;
 
-	/* Connection parameters from last modify_qp */
+	/* Connection parameters from qp_mod_attr (allocated at create_qp with
+	 * device-capability defaults, updated by each modify_qp call). */
 	qp_attr->dest_qp_num = qp->attrs.dest_qpn;
-	if (mod) {
-		qp_attr->sq_psn = mod->sq_psn;
-		qp_attr->rq_psn = mod->rq_psn;
-		qp_attr->timeout = mod->timeout;
-		qp_attr->retry_cnt = mod->retry_cnt;
-		qp_attr->rnr_retry = mod->rnr_retry_cnt;
-		qp_attr->min_rnr_timer = mod->min_rnr_timer;
-		qp_attr->pkey_index = mod->pkey_index;
-		qp_attr->port_num = mod->port_num;
-		if (qp_attr->max_rd_atomic == 0)
-			qp_attr->max_rd_atomic = mod->max_rd_atomic;
-		if (qp_attr->max_dest_rd_atomic == 0)
-			qp_attr->max_dest_rd_atomic = mod->max_dest_rd_atomic;
-	}
+	qp_attr->sq_psn = mod->sq_psn;
+	qp_attr->rq_psn = mod->rq_psn;
+	qp_attr->timeout = mod->timeout;
+	qp_attr->retry_cnt = mod->retry_cnt;
+	qp_attr->rnr_retry = mod->rnr_retry_cnt;
+	qp_attr->min_rnr_timer = mod->min_rnr_timer;
+	qp_attr->pkey_index = mod->pkey_index;
+	qp_attr->port_num = mod->port_num;
+	qp_attr->max_rd_atomic = mod->max_rd_atomic;
+	qp_attr->max_dest_rd_atomic = mod->max_dest_rd_atomic;
+
+	/* Return the address vector stored during modify_qp(Init→RTR, IB_QP_AV).
+	 * ucma_modify_qp_rts() reads ah_attr from query_qp to pass to RTR→RTS. */
+	if (qp->attrs.ah_attr_valid)
+		octep_rdma_av_to_attr(&qp->attrs.cur_av, &qp_attr->ah_attr);
+
 	qp_init_attr->sq_sig_type = qp->attrs.sq_sig_type;
 
 	up_read(&qp->state_lock);
-	/*
-	 * Ensure non-zero defaults for RDMA READ atomic counts.
-	 * ucma_modify_qp_rtr() queries these BEFORE the first modify_qp(RTR),
-	 * so both irq_size/orq_size and mod values are still 0.
-	 * A zero max_dest_rd_atomic causes firmware to reject inbound READs.
-	 */
-	if (qp_attr->max_rd_atomic == 0)
-		qp_attr->max_rd_atomic = 1;
-	if (qp_attr->max_dest_rd_atomic == 0)
-		qp_attr->max_dest_rd_atomic = 1;
 
 	/* Fallback port_num from device if not set via modify */
 	if (!qp_attr->port_num)
-		qp_attr->port_num = 1;
+		qp_attr->port_num = dev->port.port_num;
 
 	qp_init_attr->cap = qp_attr->cap;
 	qp_init_attr->qp_type = ibqp->qp_type;
@@ -1391,6 +1390,11 @@ octep_rdma_modify_ah(struct ib_ah *ibah, struct rdma_ah_attr *attr)
 {
 	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibah->device);
 	struct octep_rdma_ah *ah = to_octep_rdma_ah(ibah);
+	/* The IB CM and MAD layer never call rdma_modify_ah — they only
+	 * create/destroy AHs.  No uverbs MODIFY_AH command exists either.
+	 * Use is_user to match create_ah/destroy_ah sleepable routing:
+	 * user AHs always run in process context; kernel AHs use atomic path. */
+	bool sleepable = ah->is_user;
 	int err;
 
 	err = octep_rdma_ah_chk_attr(ah, attr);
@@ -1400,7 +1404,7 @@ octep_rdma_modify_ah(struct ib_ah *ibah, struct rdma_ah_attr *attr)
 	}
 
 	octep_rdma_init_av(attr, &ah->av);
-	err = octep_rdma_prepare_ah_cmd(rdma_dev, ah, &ah->av, AH_MODIFY, true);
+	err = octep_rdma_prepare_ah_cmd(rdma_dev, ah, &ah->av, AH_MODIFY, sleepable);
 	if (err) {
 		ibdev_err(ibah->device, "Failed to prepare AH modify command, err = %d\n", err);
 		goto err_out;

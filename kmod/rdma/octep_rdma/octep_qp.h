@@ -111,8 +111,6 @@ struct octep_rdma_qp_attrs {
 	enum octep_rdma_qp_state state;
 	u32 sq_size;
 	u32 rq_size;
-	u32 orq_size;
-	u32 irq_size;
 	u32 max_send_sge;
 	u32 max_recv_sge;
 	u8 qp_type;
@@ -121,6 +119,7 @@ struct octep_rdma_qp_attrs {
 	u32 qkey;
 	int mtu;
 	struct octep_rdma_av cur_av;
+	bool ah_attr_valid;
 	struct octep_rdma_qp_mod_attrs *qp_mod_attr;
 };
 

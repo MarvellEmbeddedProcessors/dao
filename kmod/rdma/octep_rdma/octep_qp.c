@@ -764,7 +764,6 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask, OCTEP_RDMA_QP_MOD_MAX_QP_RD_ATOMIC,
 				     1);
 		qp_mod_attr->max_rd_atomic = qp_attr->max_rd_atomic;
-		qp->attrs.irq_size = qp_attr->max_rd_atomic;
 	}
 
 	if (qp_attr_mask & IB_QP_MIN_RNR_TIMER) {
@@ -784,7 +783,6 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask,
 				     OCTEP_RDMA_QP_MOD_MAX_DEST_RD_ATOMIC, 1);
 		qp_mod_attr->max_dest_rd_atomic = qp_attr->max_dest_rd_atomic;
-		qp->attrs.orq_size = qp_attr->max_dest_rd_atomic;
 	}
 
 	if (qp_attr_mask & IB_QP_DEST_QPN) {
@@ -814,6 +812,7 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 
 	if (qp_attr_mask & IB_QP_AV) {
 		octep_rdma_init_av(&qp_attr->ah_attr, &qp->attrs.cur_av);
+		qp->attrs.ah_attr_valid = true;
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask, OCTEP_RDMA_QP_MOD_AV, 1);
 		memcpy(&qp_mod_attr->mod_av, &qp->attrs.cur_av, sizeof(struct octep_rdma_av));
 	}
