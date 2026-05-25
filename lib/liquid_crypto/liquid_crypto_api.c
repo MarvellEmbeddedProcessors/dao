@@ -886,7 +886,6 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
 	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0, pqc_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
-	uint16_t compdev_seg_sz = 0;
 	/* Number of ECC components:
 	 * public key X, public key Y, private key, nonce,
 	 * signature r, signature s, prime, order, constant A, constant B.
@@ -894,6 +893,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 	uint8_t ecc_num_components = 10;
 	uint16_t req_resp_hdr_sz = 0;
 	uint32_t aligned_payload = 0;
+	uint16_t compdev_seg_sz = 0;
 	uint16_t aligned_prime_len;
 	int kek_len, rc;
 
@@ -5139,6 +5139,11 @@ dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
 		return -EINVAL;
 	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
 #endif
 
 	qp = dev->qp[qp_id];
@@ -5243,6 +5248,11 @@ dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
 		return -EINVAL;
 	}
 #endif
