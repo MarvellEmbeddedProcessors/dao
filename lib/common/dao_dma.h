@@ -35,6 +35,9 @@
 /** DMA inflight event meta data */
 #define DAO_DMA_MAX_INFLIGHT_MDATA 4096
 
+/** DMA doorbell threshold */
+#define DAO_DMA_DOORBELL_THRESHOLD 1024
+
 /** DMA inflight event completion meta data */
 struct dao_dma_cmpl_mdata {
 	/** Pending counter address */
@@ -400,6 +403,9 @@ dao_dma_flush(struct dao_dma_vchan_state *vchan, const uint8_t avail)
 		   (dst_avail >= (int)avail || !vchan->dst_i)))
 		goto exit;
 
+	if (vchan->pend_ops >= DAO_DMA_DOORBELL_THRESHOLD)
+		flags |= RTE_DMA_OP_FLAG_SUBMIT;
+
 	rc = rte_dma_copy_sg(vchan->devid, vchan->vchan, vchan->src, vchan->dst, vchan->src_i,
 			     vchan->dst_i, flags);
 	if (unlikely(rc < 0)) {
@@ -409,6 +415,10 @@ dao_dma_flush(struct dao_dma_vchan_state *vchan, const uint8_t avail)
 	}
 	vchan->tail++;
 	vchan->pend_ops++;
+
+	if (flags & RTE_DMA_OP_FLAG_SUBMIT)
+		vchan->pend_ops = 0;
+
 	if (dao_dma_has_stats_feature()) {
 		vchan->ptrs += vchan->src_i;
 		vchan->ops++;
