@@ -44,8 +44,10 @@ ca_cpt_post_process_asym(struct cpt_inflight_req *infl_req, union dao_cpt_res_s 
 	rptr = resp->rptr;
 	switch (infl_req->op_type) {
 	case LC_ASYM_RSA_ENCRYPT:
-		/* For RSA operations, the length of the modulus is used as the length of
-		 * the output data.
+	case LC_ASYM_MODEX_EXP:
+	case LC_ASYM_MODEX_CRT:
+		/* For RSA/Modex EXP/CRT operations, the length of the modulus is used as the length
+		 * of the output data.
 		 */
 		rlen = infl_req->rsa_mod_len;
 		/* Set the length of the response buffer */
