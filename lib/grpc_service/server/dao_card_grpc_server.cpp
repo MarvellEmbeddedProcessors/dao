@@ -260,6 +260,10 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		for (int i = 0; i < CA_MAX_WORKER_CORES; ++i) {
 			response->add_rx_packets(stats.rx_packets[i]);
 			response->add_tx_packets(stats.tx_packets[i]);
+			response->add_comp_enq(stats.comp_enq[i]);
+			response->add_comp_deq(stats.comp_deq[i]);
+			response->add_comp_req_ring_enq(stats.comp_req_ring_enq[i]);
+			response->add_comp_resp_ring_deq(stats.comp_resp_ring_deq[i]);
 		}
 
 		return Status::OK;

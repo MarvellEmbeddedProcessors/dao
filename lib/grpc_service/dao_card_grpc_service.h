@@ -64,6 +64,14 @@ struct dao_card_stats {
 	uint64_t rx_packets[CA_MAX_WORKER_CORES];
 	/** Number of packets sent by each core */
 	uint64_t tx_packets[CA_MAX_WORKER_CORES];
+	/** Number of packets enqueued to compress device on each core */
+	uint64_t comp_enq[CA_MAX_WORKER_CORES];
+	/** Number of packets dequeued from compress device to each core */
+	uint64_t comp_deq[CA_MAX_WORKER_CORES];
+	/** Number of packets enqueued from core to ring for compress device enqueue */
+	uint64_t comp_req_ring_enq[CA_MAX_WORKER_CORES];
+	/** Number of packets dequeued from compress device to core specific ring */
+	uint64_t comp_resp_ring_deq[CA_MAX_WORKER_CORES];
 };
 
 /**

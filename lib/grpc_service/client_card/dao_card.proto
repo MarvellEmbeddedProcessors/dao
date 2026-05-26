@@ -64,6 +64,10 @@ message FileUpdateReq {
 message CardStats {
 	repeated uint64 rx_packets = 1;
 	repeated uint64 tx_packets = 2;
+	repeated uint64 comp_enq = 3;
+	repeated uint64 comp_deq = 4;
+	repeated uint64 comp_req_ring_enq = 5;
+	repeated uint64 comp_resp_ring_deq = 6;
 }
 
 message DmesgLogs {
