@@ -810,6 +810,141 @@ test_rsa_oaep_enc_dec_crt(const void *data)
 	return TEST_SUCCESS;
 }
 
+static int
+test_rsa_modex_enc_dec_exp(const void *data)
+{
+	const struct test_modex_params *params = data;
+	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(output, 0, sizeof(output));
+	memset(decrypt, 0, sizeof(decrypt));
+
+	/* Modex EXP Encrypt */
+	ret = dao_liquid_crypto_enq_op_modex_exp(
+		dev_id, qp_id, params->n.len, params->e.len, params->plaintext.len, params->n.data,
+		params->e.data, params->plaintext.data, output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue Modex EXP encrypt operation");
+		return TEST_FAILED;
+	}
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue Modex EXP encrypt operation");
+		return TEST_FAILED;
+	}
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+		    "Modex EXP crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Modex EXP operation failed");
+
+	if (memcmp(output, params->result.data, params->result.len) != 0) {
+		TEST_LC_ERR("Modex EXP encryption result mismatch");
+		return TEST_FAILED;
+	}
+
+	/* Modex EXP Decrypt */
+	ret = dao_liquid_crypto_enq_op_modex_exp(dev_id, qp_id, params->n.len, params->d.len,
+						 params->result.len, params->n.data, params->d.data,
+						 output, decrypt, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue Modex EXP decrypt operation");
+		return TEST_FAILED;
+	}
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue Modex EXP decrypt operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+		    "Modex EXP crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Modex EXP operation failed");
+
+	if (memcmp(decrypt + (params->n.len - params->plaintext.len), params->plaintext.data,
+		   params->plaintext.len) != 0) {
+		TEST_LC_ERR("Modex EXP decryption result mismatch");
+		return TEST_FAILED;
+	}
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_modex_enc_exp_dec_crt(const void *data)
+{
+	const struct test_modex_params *params = data;
+	uint8_t decrypt[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t output[TEST_LC_MAX_OUTPUT_LEN];
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(output, 0, sizeof(output));
+	memset(decrypt, 0, sizeof(decrypt));
+
+	/* Modex EXP Encrypt */
+	ret = dao_liquid_crypto_enq_op_modex_exp(
+		dev_id, qp_id, params->n.len, params->e.len, params->plaintext.len, params->n.data,
+		params->e.data, params->plaintext.data, output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue Modex EXP encrypt operation");
+		return TEST_FAILED;
+	}
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue Modex EXP encrypt operation");
+		return TEST_FAILED;
+	}
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+		    "Modex EXP crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Modex EXP operation failed");
+
+	if (memcmp(output, params->result.data, params->result.len) != 0) {
+		TEST_LC_ERR("Modex EXP encryption result mismatch");
+		return TEST_FAILED;
+	}
+
+	/* Modex CRT Decrypt */
+	ret = dao_liquid_crypto_enq_op_modex_crt(dev_id, qp_id, params->n.len,
+						 params->n.len, params->q.data,
+						 params->dQ.data, params->p.data, params->dP.data,
+						 params->qInv.data, output, decrypt, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue Modex CRT decrypt operation");
+		return TEST_FAILED;
+	}
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue Modex CRT decrypt operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+		    "Modex CRT crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "Modex CRT operation failed");
+
+	if (memcmp(decrypt + (params->n.len - params->plaintext.len), params->plaintext.data,
+		   params->plaintext.len) != 0) {
+		TEST_LC_ERR("Modex CRT decryption result mismatch");
+		return TEST_FAILED;
+	}
+
+	return TEST_SUCCESS;
+}
+
 struct unit_test_suite lc_testsuite_asym = {
 	.suite_name = "Liquid Crypto Asymmetric Test Suite",
 	.setup = testsuite_setup,
@@ -937,6 +1072,17 @@ struct unit_test_suite lc_testsuite_asym = {
 			"RSA OAEP Encrypt/Decrypt with pvt CRT and label, zero message length (2048 bits)",
 			ut_setup, ut_teardown, test_rsa_oaep_enc_dec_crt,
 			&rsa_oaep_params_1K_label_2k_mod_empty_string),
+		TEST_CASE_NAMED_WITH_DATA("Modex encrypt/decrypt with exponent(1024 bits)",
+					  ut_setup, ut_teardown, test_rsa_modex_enc_dec_exp,
+					  &rsa_modex_params),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Modex encrypt with public exponent and decrypt with prv CRT params (1024 bits)",
+			ut_setup, ut_teardown, test_rsa_modex_enc_exp_dec_crt,
+			&rsa_modex_params),
+		TEST_CASE_NAMED_WITH_DATA(
+			"Modex encrypt with public exponent and decrypt with prv CRT params (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_modex_enc_exp_dec_crt,
+			&rsa_modex_2048_params),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
