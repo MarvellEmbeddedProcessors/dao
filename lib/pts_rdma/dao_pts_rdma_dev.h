@@ -345,10 +345,10 @@ int dao_pts_rdma_desc_manage(uint16_t devid);
  *   bit 0-7 indicates packets to dequeue from host
  *   bit 8-15 indicates read reply packets count
  * @return
- *   Number of packets received
+ *   Number of packets dequeued, 0 on error or no packets available.
  */
-int dao_pts_rdma_dequeue_burst(uint16_t devid, int qp_id, struct rte_mbuf **rx_pkts,
-			       uint16_t nb_pkts);
+uint16_t dao_pts_rdma_dequeue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **rx_pkts,
+				    uint16_t nb_pkts);
 
 /**
  * Get the management QP ID for a device.
@@ -387,9 +387,11 @@ int32_t dao_pts_rdma_mgmt_qp_id_get(uint16_t devid);
  *   Array of packets to enqueue
  * @param nb_pkts
  *   Number of packets to enqueue
+ * @return
+ *   Number of packets successfully enqueued, 0 on error or no space.
  */
-int dao_pts_rdma_enqueue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **tx_pkts,
-			       uint16_t nb_pkts);
+uint16_t dao_pts_rdma_enqueue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **tx_pkts,
+				    uint16_t nb_pkts);
 
 /**
  * Enqueue burst of CQE to a CQ of a RDMA PTS device.

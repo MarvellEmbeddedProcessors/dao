@@ -123,6 +123,10 @@ read_response_process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, struct rte
 	struct dao_pts_rdma_sge *sges;
 
 	sges = DAO_PTS_RDMA_MBUF_TO_SGES(mbuf);
+
+	if (unlikely(!dao_dma_desc_avail_get(mem2dev, nb_mbuf_segs, nb_enq_sges)))
+		return -1;
+
 	while (n_mbufs_left > 0 && sge_idx < nb_enq_sges) {
 		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
@@ -195,6 +199,10 @@ read_response_process_multi_sge(struct dao_dma_vchan_state *mem2dev, struct rte_
 
 	RTE_SET_USED(nb_mbuf_segs);
 	sges = DAO_PTS_RDMA_MBUF_TO_SGES(mbuf);
+
+	if (unlikely(!dao_dma_desc_avail_get(mem2dev, mbuf->nb_segs, nb_dst_sges)))
+		return -1;
+
 	while (likely(dst_sge_index < nb_dst_sges && tot_len > 0)) {
 		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
 			return -1;
@@ -365,6 +373,9 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 	if (unlikely(mbuf->pkt_len != sges[0].length))
 		return -1;
 
+	if (unlikely(!dao_dma_desc_avail_get(mem2dev, nb_segs, 1)))
+		return -1;
+
 	if (likely(nb_segs == 1)) {
 		dao_dma_enq_dst_x1(mem2dev, sges[0].addr & PTS_RDMA_DEV_IOVA_MASK, sges[0].length);
 		dao_dma_enq_src_x1(mem2dev, (uintptr_t)rte_pktmbuf_mtod(mbuf, uint64_t *),
@@ -507,6 +518,9 @@ process_rdma_read_req(uint16_t dev_id, struct pts_rdma_qp *qp, struct dao_dma_vc
 		return 0;
 	}
 
+	if (unlikely(!dao_dma_desc_avail_get(dev2mem, 1, nb_segs)))
+		return -1;
+
 	/* Read request has single remote address */
 	n_segs_left = nb_segs;
 	sge_off = sges[0].addr;
@@ -556,6 +570,9 @@ process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uin
 	uint64_t src_offset = 0, dst_offset = 0;
 	uint8_t flush_thr = mem2dev->flush_thr;
 	struct rte_mbuf *m = mbuf, *mbuf_next;
+
+	if (unlikely(!dao_dma_desc_avail_get(mem2dev, n_mbufs_left, nb_enq_sges)))
+		return -1;
 
 	while (n_mbufs_left > 0 && sge_idx < nb_enq_sges) {
 		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
@@ -619,6 +636,9 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 	uint64_t src_offset = 0, dst_offset = 0, tot_len = mbuf->pkt_len;
 	struct rte_mbuf *m = mbuf, *mbuf_next, *mbuf2;
 	uint8_t flush_thr = mem2dev->flush_thr;
+
+	if (unlikely(!dao_dma_desc_avail_get(mem2dev, mbuf->nb_segs, nb_dst_sges)))
+		return -1;
 
 	while (likely(dst_sge_index < nb_dst_sges && tot_len > 0)) {
 		if (unlikely(!m || !dao_dma_flush(mem2dev, flush_thr)))
@@ -937,14 +957,16 @@ pts_rdma_enq_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbu
 	return nb_used;
 }
 
-int
+uint16_t
 dao_pts_rdma_enqueue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
 			   uint16_t nb_mbufs)
 {
 	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
 
-	if (unlikely(!qp))
-		return -EINVAL;
+	if (unlikely(!qp)) {
+		dao_err("Invalid QP %u", qp_id);
+		return 0;
+	}
 
 	return pts_rdma_enq_burst(devid, qp, mbufs, nb_mbufs);
 }

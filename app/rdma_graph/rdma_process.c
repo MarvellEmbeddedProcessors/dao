@@ -97,12 +97,12 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 				int32_t mgmt_qp = dao_pts_rdma_mgmt_qp_id_get(devid);
 
 				if (mgmt_qp >= 0) {
-					int enq_ret;
+					uint16_t enq_ret;
 
 					mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE << 60;
-					enq_ret = dao_pts_rdma_enqueue_burst(devid, mgmt_qp,
-									     &mbuf, 1);
-					if (enq_ret < 1)
+					enq_ret = dao_pts_rdma_enqueue_burst(devid, mgmt_qp, &mbuf,
+									     1);
+					if (enq_ret == 0)
 						rte_pktmbuf_free(mbuf);
 				} else {
 					rte_pktmbuf_free(mbuf);

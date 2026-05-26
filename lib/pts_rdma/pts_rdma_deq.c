@@ -173,6 +173,13 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 	n_sge_idx = 0;
 	n_mbuf_idx = 0;
 
+	if (unlikely(!dao_dma_desc_avail_get(dev2mem, nb_src_segs, n_dst_mbufs))) {
+		free_mbuf_seg_chain(mbuf->next);
+		mbuf->next = NULL;
+		mbuf->nb_segs = 1;
+		return -1;
+	}
+
 	while (n_sge_idx < nb_src_segs && max_src_len > 0) {
 		if (unlikely(!dao_dma_flush(dev2mem, flush_thr)))
 			return -1;
@@ -445,13 +452,16 @@ exit:
 	return nb_read + nb_deq_pkts;
 }
 
-int
-dao_pts_rdma_dequeue_burst(uint16_t devid, int qp_id, struct rte_mbuf **mbufs, uint16_t nb_mbufs)
+uint16_t
+dao_pts_rdma_dequeue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
+			   uint16_t nb_mbufs)
 {
 	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
 
-	if (unlikely(!qp))
-		return -EINVAL;
+	if (unlikely(!qp)) {
+		dao_err("Invalid QP %u", qp_id);
+		return 0;
+	}
 
 	return pts_rdma_dequeue_burst(devid, qp, mbufs, nb_mbufs, 0);
 }
