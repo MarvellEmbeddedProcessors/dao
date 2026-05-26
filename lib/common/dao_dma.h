@@ -303,6 +303,59 @@ dao_dma_has_stats_feature(void)
 }
 
 /**
+ * Query DMA descriptor capacity for a vchan.
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @return
+ *    Number of DMA instructions that can be submitted.
+ */
+static __rte_always_inline uint16_t
+dao_dma_burst_capacity(struct dao_dma_vchan_state *vchan)
+{
+	return rte_dma_burst_capacity(vchan->devid, vchan->vchan);
+}
+
+/**
+ * Check if the DMA vchan has enough descriptor capacity for a multi segment enqueue
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @param nb_src
+ *    Total source segments to enqueue.
+ * @param nb_dst
+ *    Total destination segments to enqueue.
+ * @return
+ *    True if space is available, false otherwise.
+ */
+static __rte_always_inline bool
+dao_dma_desc_avail_get(struct dao_dma_vchan_state *vchan, uint32_t nb_src, uint32_t nb_dst)
+{
+	int src_avail = vchan->flush_thr - vchan->src_i;
+	int dst_avail = vchan->flush_thr - vchan->dst_i;
+	uint16_t inflight = vchan->tail - vchan->head;
+	uint32_t n_src, n_dst, nb_desc;
+	uint8_t flush_thr;
+
+	if (likely((src_avail >= (int)nb_src || !vchan->src_i) &&
+		   (dst_avail >= (int)nb_dst || !vchan->dst_i)))
+		return true;
+
+	flush_thr = vchan->flush_thr;
+	n_src = (nb_src + flush_thr - 1) / flush_thr;
+	n_dst = (nb_dst + flush_thr - 1) / flush_thr;
+	nb_desc = RTE_MAX(n_src, n_dst);
+
+	/* increment by 1 to consider current enqueued pointers
+	 */
+	nb_desc++;
+	if (inflight + nb_desc > DAO_DMA_MAX_INFLIGHT_MDATA)
+		return false;
+
+	return dao_dma_burst_capacity(vchan) >= nb_desc;
+}
+
+/**
  * Get DMA operation status
  *
  * @param vchan
@@ -821,7 +874,7 @@ dao_dma_check_meta_compl_v2(struct dao_dma_vchan_state *vchan, const int mem_ord
 		for (j = 0; j < vchan->mdata[idx].cnt; j++) {
 			if (mem_order)
 				__atomic_store_n(vchan->mdata[idx].ptr[j], vchan->mdata[idx].val[j],
-						 __ATOMIC_RELAXED);
+						 __ATOMIC_RELEASE);
 			else
 				*vchan->mdata[idx].ptr[j] = vchan->mdata[idx].val[j];
 		}
