@@ -19,6 +19,8 @@
 #include "card_mgr_client.h"
 #include "utils/logging.h"
 
+static uint8_t client_compdev_enabled;
+
 /* Receive exactly len bytes (blocking) unless peer closes or a fatal error occurs.
  * Returns 0 on success, -ECONNRESET if peer closed, or -errno on failure.
  */
@@ -132,6 +134,11 @@ dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
 				spec->name, spec->name, spec->usage, spec->desc);
 			free(tmp);
 			return false;
+		}
+		client_compdev_enabled = 0;
+		if ((int)argc == spec->max_args) {
+			if (strcmp(argv_local[1], "enable-compress-dev") == 0)
+				client_compdev_enabled = 1;
 		}
 	}
 
@@ -289,6 +296,8 @@ dao_card_mgr_recv_card_info(int cli_fd)
 static void
 dao_card_mgr_recv_card_stats(int cli_fd)
 {
+	uint64_t total_rx_rng_enq = 0, total_tx_rng_deq = 0;
+	uint64_t total_comp_enq = 0, total_comp_deq = 0;
 	uint64_t total_rx_pkts = 0, total_tx_pkts = 0;
 	struct dao_card_stats card_stats;
 	int i;
@@ -314,6 +323,31 @@ dao_card_mgr_recv_card_stats(int cli_fd)
 	dao_info("--------------------------------------------------");
 	dao_info("| Total| %20lu | %20lu |", total_rx_pkts, total_tx_pkts);
 	dao_info("--------------------------------------------------");
+
+	if (client_compdev_enabled) {
+		dao_info("LC Compress stats:");
+		dao_info(
+			"---------------------------------------------------------------------------------------------------");
+		dao_info(
+			"| Core |       Compress Enq   |      Comp Req Enq    |       Compress Deq   |     Comp Resp Deq    |");
+		dao_info(
+			"---------------------------------------------------------------------------------------------------");
+		for (i = 0; i < CA_MAX_WORKER_CORES; i++) {
+			dao_info("| %4u | %20lu | %20lu | %20lu | %20lu |", i + 1,
+				 card_stats.comp_enq[i], card_stats.comp_req_ring_enq[i],
+				 card_stats.comp_deq[i], card_stats.comp_resp_ring_deq[i]);
+			total_rx_rng_enq += card_stats.comp_req_ring_enq[i];
+			total_tx_rng_deq += card_stats.comp_resp_ring_deq[i];
+			total_comp_enq += card_stats.comp_enq[i];
+			total_comp_deq += card_stats.comp_deq[i];
+		}
+		dao_info(
+			"---------------------------------------------------------------------------------------------------");
+		dao_info("| Total| %20lu | %20lu | %20lu | %20lu |", total_comp_enq,
+			 total_rx_rng_enq, total_comp_deq, total_tx_rng_deq);
+		dao_info(
+			"---------------------------------------------------------------------------------------------------");
+	}
 }
 
 static void
