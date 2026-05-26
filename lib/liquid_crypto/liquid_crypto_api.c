@@ -2009,6 +2009,350 @@ idx_put:
 	RTE_SET_USED(rc);
 }
 
+int
+dao_liquid_crypto_enq_op_modex_exp(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+				   uint16_t exp_len, uint16_t msg_len, const uint8_t *mod,
+				   const uint8_t *exp, const uint8_t *msg, uint8_t *result,
+				   uint64_t op_cookie)
+{
+	uint32_t dlen = mod_len + exp_len + msg_len;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (mod == NULL) {
+		dao_err("Invalid argument. mod cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (exp == NULL) {
+		dao_err("Invalid argument. exp cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (result == NULL) {
+		dao_err("Invalid argument. result cannot be NULL.");
+		return -EINVAL;
+	}
+
+	rc = cpt_ae_rsa_mod_len_check(mod_len, false);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_exp_len_check(mod_len, exp_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_msw_check(mod_len, mod);
+	if (rc != 0) {
+		dao_err("Invalid argument. MSW of modulus must be non-zero.");
+		return -EINVAL;
+	}
+
+	rc = cpt_ae_modex_msg_len_check(mod_len, msg_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_modex_input_validate(msg, msg_len, mod, mod_len);
+	if (rc != 0)
+		return rc;
+#endif
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = result;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_MODEX_EXP;
+
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Mod Exp input data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
+		dao_err("Mod Exp input data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
+	rte_pktmbuf_append(mbuf, buf_len);
+
+	/* Append payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_MODEX_EXP;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_MODEX_EXP;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = exp_len;
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+
+	/* Add data */
+	dptr = req->dptr;
+	memcpy(dptr, mod, mod_len);
+	dptr += mod_len;
+	memcpy(dptr, exp, exp_len);
+	dptr += exp_len;
+	memcpy(dptr, msg, msg_len);
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
+int
+dao_liquid_crypto_enq_op_modex_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+				   uint16_t msg_len, const uint8_t *q, const uint8_t *dQ,
+				   const uint8_t *p, const uint8_t *dP, const uint8_t *qInv,
+				   const uint8_t *msg, uint8_t *result, uint64_t op_cookie)
+{
+	uint32_t dlen = (mod_len / 2) * 5 + msg_len;
+	uint16_t comp_len = mod_len / 2;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (result == NULL) {
+		dao_err("Invalid argument. result cannot be NULL.");
+		return -EINVAL;
+	}
+
+	rc = cpt_ae_rsa_mod_len_check(mod_len, true);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_crt_params_check(mod_len, q, dQ, p, dP, qInv);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_modex_msg_len_check(mod_len, msg_len);
+	if (rc != 0)
+		return rc;
+#endif
+
+	if (cpt_ae_rsa_msw_check(mod_len / 2, q) != 0) {
+		dao_err("Invalid CRT parameter. MSW of q must be non-zero.");
+		return -EINVAL;
+	}
+
+	if (cpt_ae_rsa_msw_check(mod_len / 2, p) != 0) {
+		dao_err("Invalid CRT parameter. MSW of p must be non-zero.");
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = result;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_MODEX_CRT;
+
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("Input data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_MAX_SEG_SIZE) {
+		dao_err("Input data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
+	rte_pktmbuf_append(mbuf, buf_len);
+
+	/* Append payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_ASYM;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_MODEX_CRT;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_MODEX_EXP_CRT;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = 0;
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+
+	/* Add data */
+	dptr = req->dptr;
+	memcpy(dptr, q, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dQ, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, p, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dP, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, qInv, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, msg, msg_len);
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+	return rc;
+#endif
+	RTE_SET_USED(rc);
+}
+
 static inline int
 lc_pqc_key_validate(const uint8_t *key, uint16_t len, const char *name)
 {
@@ -2378,6 +2722,8 @@ dao_lc_post_process_asym(struct liquid_crypto_cpt_inflight_req *req, struct dao_
 		break;
 	case LC_ASYM_ECDSA_VERIFY:
 		break;
+	case LC_ASYM_MODEX_CRT:
+	case LC_ASYM_MODEX_EXP:
 	case LC_ASYM_RSA_DECRYPT:
 	case LC_ASYM_RSA_ENCRYPT:
 	case LC_ASYM_RSA_OAEP_ENCRYPT:

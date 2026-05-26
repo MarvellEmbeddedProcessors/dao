@@ -58,6 +58,8 @@
 #define DAO_LC_COMPRESS_MAX_SEG_SIZE 16384
 /** Maximum AAD length */
 #define DAO_LC_MAX_AAD_LEN 1024
+/** Maximum supported modulus length */
+#define DAO_LC_MAX_MOD_LEN 1024
 
 /**
  * The params required for KMAC operations.
@@ -1527,6 +1529,109 @@ int dao_liquid_crypto_enq_op_pkcs1v15dec_crt(uint8_t dev_id, uint16_t qp_id, uin
 					     const uint8_t *q, const uint8_t *dQ, const uint8_t *p,
 					     const uint8_t *dP, const uint8_t *qInv,
 					     const uint8_t *em, uint8_t *msg, uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform modular exponentiation operation on the crypto device.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param mod_len
+ *  The length of the modulus in bytes. Value should be at least 17 bytes
+ *  and at most ``DAO_LC_MAX_MOD_LEN`` bytes.
+ * @param exp_len
+ * The length of the exponent in bytes.
+ * @param msg_len
+ * The length of the message in bytes. msg length must be less than or equal
+ * to modulus length (mod_len) and at least 1 byte.
+ * @param mod
+ * The address of the buffer containing the modulus. Length of this buffer
+ * must be *mod_len* bytes. Modulus must be odd.
+ * @param exp
+ * The address of the buffer containing the exponent. Length of this buffer
+ * must be *exp_len* bytes.
+ * @param msg
+ * The address of the buffer containing the message. Length of this buffer must
+ * be *msg_len* bytes.
+ *
+ * Note:
+ *   The input value must satisfy: 0 <= msg < n.
+ *   If msg >= n, the operation is undefined and may result in
+ *   incorrect or non-recoverable output.
+ *
+ * @param result
+ * The address of the buffer where the result of the modular exponentiation operation is to be
+ * stored. Length of this buffer must be equal to *mod_len* bytes.
+ * @param op_cookie
+ * The cookie to be associated with the operation. This cookie is returned
+ * in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ * - 0 on success, negative value on failure.
+ * -  -EINVAL, indicating an invalid argument.
+ * -  -ENOMEM, indicating an out of memory error.
+ * -  -ENOSPC, indicating that there is no space left in the queue.
+ * -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_modex_exp(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+				       uint16_t exp_len, uint16_t msg_len, const uint8_t *mod,
+				       const uint8_t *exp, const uint8_t *msg, uint8_t *result,
+				       uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform modular exponentiation operation using CRT parameters on the crypto
+ * device.
+ *
+ * @param dev_id
+ * The identifier of the device.
+ * @param qp_id
+ * The index of the queue pair on which the operation is to be enqueued.
+ * @param mod_len
+ * The length of the modulus in bytes. Value should be at least 34 bytes
+ * and at most ``DAO_LC_MAX_MOD_LEN`` bytes. mod_len must be even.
+ * @param msg_len
+ * The length of the message in bytes. msg length must be less than or equal
+ * to modulus length (mod_len) and at least 1 byte.
+ * @param q
+ * The address of the buffer containing the second factor. Length of this buffer
+ * must be mod_len/2 bytes and the value must be odd.
+ * @param dQ
+ * The address of the buffer containing the second factor's CRT exponent. Length of this buffer
+ * must be mod_len/2 bytes.
+ * @param p
+ * The address of the buffer containing the first factor. Length of this buffer
+ * must be mod_len/2 bytes and the value must be odd.
+ * @param dP
+ * The address of the buffer containing the first factor's CRT exponent. Length of this buffer
+ * must be mod_len/2 bytes.
+ * @param qInv
+ * The address of the buffer containing the CRT coefficient. Length of this buffer must be mod_len/2
+ * bytes.
+ * @param msg
+ * The address of the buffer containing the message. Length of this buffer must be *msg_len* bytes.
+ *
+ * Note:
+ *   The input value must satisfy: 0 <= msg < n.
+ *   If msg >= n, the operation is undefined and may result in
+ *   incorrect or non-recoverable output.
+ *
+ * @param result
+ * The address of the buffer where the result of the modular exponentiation operation is to be
+ * stored. Length of this buffer must be equal to *mod_len* bytes.
+ * @param op_cookie
+ * The cookie to be associated with the operation. This cookie is returned
+ * in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ * - 0 on success, negative value on failure.
+ * -  -EINVAL, indicating an invalid argument.
+ * -  -ENOMEM, indicating an out of memory error.
+ * -  -ENOSPC, indicating that there is no space left in the queue.
+ * -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_modex_crt(uint8_t dev_id, uint16_t qp_id, uint16_t mod_len,
+				       uint16_t msg_len, const uint8_t *q, const uint8_t *dQ,
+				       const uint8_t *p, const uint8_t *dP, const uint8_t *qInv,
+				       const uint8_t *msg, uint8_t *result, uint64_t op_cookie);
 
 /**
  * The liquid crypto PQC algorithm.

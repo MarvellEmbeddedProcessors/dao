@@ -539,3 +539,56 @@ cpt_ae_ecdsa_pubkey_validate(uint16_t pubkey_x_len, const uint8_t *pubkey_x, uin
 
 	return 0;
 }
+
+int
+cpt_ae_modex_msg_len_check(uint16_t mod_len, uint16_t msg_len)
+{
+	if ((msg_len == 0) || (msg_len > mod_len)) {
+		dao_err("Invalid message length (%u). msg_len must be between 1 to %u bytes.",
+			msg_len, mod_len);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int
+cpt_ae_modex_input_validate(const uint8_t *in, uint16_t in_len, const uint8_t *mod,
+			    uint16_t mod_len)
+{
+	int cmp = -1;
+	int i;
+
+	if (!in || !mod || in_len == 0 || mod_len == 0) {
+		dao_err("Invalid Modex input. NULL or zero length.");
+		return -EINVAL;
+	}
+
+	if (in_len > mod_len) {
+		dao_err("Invalid Modex input. Input length > modulus.");
+		return -EINVAL;
+	}
+
+	if (in_len == mod_len) {
+		for (i = 0; i < in_len; i++) {
+			if (in[i] < mod[i]) {
+				cmp = -1;
+				break;
+			} else if (in[i] > mod[i]) {
+				cmp = 1;
+				break;
+			}
+		}
+
+		/* exactly equal */
+		if (i == in_len)
+			cmp = 0;
+	}
+
+	if (cmp >= 0) {
+		dao_err("Invalid Modex input. Input must be less than modulus.");
+		return -EINVAL;
+	}
+
+	return 0;
+}

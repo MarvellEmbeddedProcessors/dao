@@ -88,4 +88,9 @@ int cpt_ae_rsa_oaep_msg_len_max(uint16_t mod_len, enum dao_lc_hash_type hash_typ
 
 int cpt_ae_rsa_oaep_mod_len_check(uint16_t mod_len, bool is_crt);
 
+int cpt_ae_modex_msg_len_check(uint16_t mod_len, uint16_t msg_len);
+
+int cpt_ae_modex_input_validate(const uint8_t *in, uint16_t in_len, const uint8_t *mod,
+				uint16_t mod_len);
+
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */
