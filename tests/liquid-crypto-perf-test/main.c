@@ -30,6 +30,8 @@ const char *lcperf_op_type_strs[] = {
 	[LCPERF_OP_ASYM_RSA] = "rsa",
 	[LCPERF_OP_PASSTHROUGH] = "passthrough",
 	[LCPERF_OP_SYM] = "symmetric",
+	[LCPERF_OP_COMPRESS] = "compress",
+	[LCPERF_OP_DECOMPRESS] = "decompress",
 };
 
 const char *lcperf_crypto_asym_op_type_strs[] = {
@@ -152,6 +154,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_qp_conf qp_conf;
 	bool is_cmd_qp_reqd = false;
+	bool is_compdev_op = false;
 	struct dao_lc_info info;
 	unsigned int j;
 	int ret;
@@ -189,6 +192,10 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 
 	if (opts->op_type == LCPERF_OP_SYM)
 		is_cmd_qp_reqd = true;
+	if (opts->op_type == LCPERF_OP_COMPRESS || opts->op_type == LCPERF_OP_DECOMPRESS) {
+		is_cmd_qp_reqd = false; /* comp uses data QPs only */
+		is_compdev_op = true;
+	}
 
 	/* Determine the number of 'qp's required per device */
 	while (required_qp_cnt > 0 && required_cdev_cnt <= info.nb_dev) {
@@ -302,6 +309,8 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		feature_params.ecc.is_ecc_enabled = true;
 		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
 		feature_params.ecc.digest_len = TEST_LC_MAX_ECC_DIGEST_LEN;
+		if (is_compdev_op)
+			feature_params.compdev.is_compdev_enabled = true;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {

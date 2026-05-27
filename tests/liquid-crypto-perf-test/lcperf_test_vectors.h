@@ -15,6 +15,10 @@
 #define TEST_LC_MAX_PLAINTEXT_LEN 32256
 /* Maximum length of output buffer */
 #define TEST_LC_MAX_OUTPUT_LEN 32256
+/* Compress: Max input size: 2048 */
+#define TEST_LC_COMP_MAX_PLAINTEXT_LEN 2048
+/* Compress: max output size (worst case > input) */
+#define TEST_LC_COMP_MAX_OUTPUT_LEN (TEST_LC_COMP_MAX_PLAINTEXT_LEN * 2)
 /* Maximum burst size */
 #define TEST_LC_MAX_BURST_SIZE 8192
 /* Maximum length of RSA modulus */
@@ -74,6 +78,15 @@ struct lcperf_test_data {
 		uint8_t data[DAO_LC_MAX_DIGEST_LEN];
 		uint16_t len;
 	} digest;
+
+	/** Compress device: plain data and length */
+	uint8_t comp_plain_data[TEST_LC_COMP_MAX_PLAINTEXT_LEN];
+	uint32_t comp_plain_len;
+	/** Compress device: output buffer base (stride TEST_LC_COMP_MAX_OUTPUT_LEN per op) */
+	uint8_t *comp_out_base;
+	/** Compress device: precomputed compressed data for decompress test */
+	uint8_t *comp_compressed_data;
+	uint32_t comp_compressed_len;
 };
 
 struct lcperf_rsa_test_data {
@@ -169,5 +182,6 @@ extern struct lcperf_ecdsa_test_data secp521r1_test_vector;
 struct lcperf_test_data *lcperf_test_vector_get_dummy(const struct lcperf_options *options);
 
 void lcperf_test_vector_free(struct lcperf_test_data *vector);
+void random_text_generate(uint8_t *buf, size_t len);
 
 #endif /* _LCPERF_TEST_VECTORS_H_ */

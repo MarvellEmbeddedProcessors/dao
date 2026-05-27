@@ -36,6 +36,8 @@ struct lcperf_latency_ctx {
 	const struct lcperf_options *options;
 	const struct lcperf_op_fns *op_fns;
 	struct lcperf_op_result *result;
+	/** For compress/decompress: test data from get_dummy; NULL otherwise */
+	struct lcperf_test_data *tdata;
 };
 
 static void
@@ -43,6 +45,11 @@ lcperf_latency_test_free(struct lcperf_latency_ctx *ctx)
 {
 	if (ctx == NULL)
 		return;
+
+	if (ctx->tdata != NULL) {
+		lcperf_test_vector_free(ctx->tdata);
+		ctx->tdata = NULL;
+	}
 
 	if (ctx->result != NULL)
 		rte_free(ctx->result);
@@ -74,7 +81,18 @@ lcperf_latency_test_constructor(uint8_t dev_id, uint16_t qp_id,
 	if (ctx->result == NULL)
 		goto ctx_free;
 
+	if (options->op_type == LCPERF_OP_COMPRESS || options->op_type == LCPERF_OP_DECOMPRESS) {
+		ctx->tdata = lcperf_test_vector_get_dummy(options);
+		if (ctx->tdata == NULL) {
+			RTE_LOG(ERR, USER1, "Failed to get compress test data\n");
+			goto ctx_res_free;
+		}
+	}
+
 	return ctx;
+
+ctx_res_free:
+	rte_free(ctx->result);
 ctx_free:
 	rte_free(ctx);
 	return NULL;
@@ -132,6 +150,7 @@ lcperf_latency_test_runner(void *test_ctx)
 	uint64_t enqd_max = 0, enqd_min = ~0UL;
 	uint64_t deqd_max = 0, deqd_min = ~0UL;
 	uint64_t tsc_val, tsc_end, tsc_start;
+	struct lcperf_test_data *test_data;
 	uint32_t burst_size, curr_burst_sz;
 	uint32_t lcore = rte_lcore_id();
 	uint64_t op_cookie = rte_rand();
@@ -144,10 +163,16 @@ lcperf_latency_test_runner(void *test_ctx)
 	uint16_t qp_id;
 	int ret;
 
-	ctx->lcore_id = lcore;
-	tdata.op_cookie = op_cookie;
+	if (ctx->options->op_type == LCPERF_OP_COMPRESS ||
+	    ctx->options->op_type == LCPERF_OP_DECOMPRESS)
+		test_data = ctx->tdata;
+	else
+		test_data = &tdata;
 
-	if (lcperf_check_single_op(ctx, &tdata) < 0) {
+	ctx->lcore_id = lcore;
+	test_data->op_cookie = op_cookie;
+
+	if (lcperf_check_single_op(ctx, test_data) < 0) {
 		RTE_LOG(ERR, USER1, "Single operation check failed\n");
 		goto ctx_cleanup;
 	}
@@ -165,12 +190,12 @@ lcperf_latency_test_runner(void *test_ctx)
 		ops_deqd = 0;
 
 		tsc_start = rte_rdtsc_precise();
-		tdata.op_cookie = tsc_start;
-		tdata.nb_ops = curr_burst_sz;
+		test_data->op_cookie = tsc_start;
+		test_data->nb_ops = curr_burst_sz;
 
-		ret = ctx->populate_ops(ctx->sess_id, ctx->options, &tdata);
+		ret = ctx->populate_ops(ctx->sess_id, ctx->options, test_data);
 		if (ret == 0) {
-			ret = ctx->enqueue_ops(dev_id, qp_id, &tdata, ctx->options);
+			ret = ctx->enqueue_ops(dev_id, qp_id, test_data, ctx->options);
 			ops_enqd += ret;
 		}
 

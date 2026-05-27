@@ -110,6 +110,16 @@ static int
 lcperf_validate_single_op(struct lcperf_throughput_ctx *ctx, struct dao_lc_res *res,
 			  struct lcperf_test_data *tdata, bool update_test_vect)
 {
+	if (ctx->options->op_type == LCPERF_OP_COMPRESS ||
+	    ctx->options->op_type == LCPERF_OP_DECOMPRESS) {
+		if (res->compdev_res.status != DAO_LC_COMP_OP_STATUS_SUCCESS) {
+			RTE_LOG(ERR, USER1, "Compdev op failed with status: %d\n",
+				res->compdev_res.status);
+			return -1;
+		}
+		return 0;
+	}
+
 	if (ctx->options->op_type == LCPERF_OP_SYM) {
 		struct lcperf_test_buf_mem *buf_mem = NULL;
 		int diff = 0;
@@ -224,7 +234,7 @@ lcperf_check_single_op(struct lcperf_throughput_ctx *ctx, struct lcperf_test_dat
 	}
 
 op_buf_free:
-	if (tdata->ops[0].op_cookie != 0) {
+	if (ctx->buf_pool != NULL && tdata->ops[0].op_cookie != 0) {
 		/* Free op buf memory. */
 		rte_mempool_put(ctx->buf_pool, (void *)(tdata->ops[0].op_cookie));
 		tdata->ops[0].op_cookie = 0;
@@ -238,6 +248,10 @@ lcperf_check_update_test_vec_single_op(struct lcperf_throughput_ctx *ctx,
 				       struct lcperf_test_data *tdata)
 {
 	int rc = 0;
+
+	if (ctx->options->op_type == LCPERF_OP_COMPRESS ||
+	    ctx->options->op_type == LCPERF_OP_DECOMPRESS)
+		goto check_single_op;
 
 	if (tdata->sym_params.plaintext.len != ctx->options->test_buffer_size) {
 		tdata->plaintext.len = ctx->options->test_buffer_size;
@@ -260,6 +274,7 @@ lcperf_check_update_test_vec_single_op(struct lcperf_throughput_ctx *ctx,
 		tdata->cipher_op = ctx->options->cipher_op;
 	}
 
+check_single_op:
 	rc = lcperf_check_single_op(ctx, tdata, false);
 
 	return rc;
