@@ -176,6 +176,73 @@ lcperf_populate_ops_ecdsa(uint64_t sess_id, const struct lcperf_options *options
 }
 
 static int
+lcperf_enqueue_ops_compress(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
+			    const struct lcperf_options *options)
+{
+	struct dao_lc_comp_req_params req = {0};
+	uint64_t ops_enqd = 0, cookie;
+	uint8_t *out_buf;
+	uint32_t i;
+	int ret;
+
+	req.huff_enc_type = DAO_LC_COMP_HUFFMAN_DYNAMIC;
+	req.level = options->comp_level;
+	req.in_data = tdata->comp_plain_data;
+	req.in_data_len = tdata->comp_plain_len;
+
+	for (i = 0; i < tdata->nb_ops; i++) {
+		out_buf = tdata->comp_out_base + (i * TEST_LC_COMP_MAX_OUTPUT_LEN);
+		cookie = tdata->op_cookie;
+
+		req.out_data = out_buf;
+		req.out_data_len = TEST_LC_COMP_MAX_OUTPUT_LEN;
+		ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, cookie);
+		if (ret == 0)
+			ops_enqd++;
+	}
+
+	return (int)ops_enqd;
+}
+
+static int
+lcperf_enqueue_ops_decompress(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
+			      const struct lcperf_options *options)
+{
+	struct dao_lc_decomp_req_params req = {0};
+	uint64_t ops_enqd = 0;
+	uint8_t *out_buf;
+	uint32_t i;
+	int ret;
+
+	RTE_SET_USED(options);
+
+	for (i = 0; i < tdata->nb_ops; i++) {
+		out_buf = tdata->comp_out_base + (i * TEST_LC_COMP_MAX_PLAINTEXT_LEN);
+		req.in_data = tdata->comp_compressed_data;
+		req.in_data_len = tdata->comp_compressed_len;
+		req.out_data = out_buf;
+		req.out_data_len = TEST_LC_COMP_MAX_PLAINTEXT_LEN;
+
+		ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp_id, &req,
+							      tdata->op_cookie);
+		if (ret == 0)
+			ops_enqd++;
+	}
+
+	return (int)ops_enqd;
+}
+
+static int
+lcperf_populate_ops_comp(uint64_t sess_id, const struct lcperf_options *options,
+			 struct lcperf_test_data *test_data)
+{
+	RTE_SET_USED(sess_id);
+	RTE_SET_USED(options);
+	RTE_SET_USED(test_data);
+	return 0;
+}
+
+static int
 lcperf_enqueue_ops_sym(uint8_t dev_id, uint16_t qp_id, struct lcperf_test_data *tdata,
 		       const struct lcperf_options *options __rte_unused)
 {
@@ -403,6 +470,18 @@ lcperf_get_op_functions(const struct lcperf_options *options, struct lcperf_op_f
 	case LCPERF_OP_ASYM_ECDSA:
 		op_fns->enqueue_ops = lcperf_set_ops_asym_ecdsa;
 		op_fns->populate_ops = lcperf_populate_ops_ecdsa;
+		op_fns->sess_create = NULL;
+		op_fns->sess_destroy = NULL;
+		break;
+	case LCPERF_OP_COMPRESS:
+		op_fns->enqueue_ops = lcperf_enqueue_ops_compress;
+		op_fns->populate_ops = lcperf_populate_ops_comp;
+		op_fns->sess_create = NULL;
+		op_fns->sess_destroy = NULL;
+		break;
+	case LCPERF_OP_DECOMPRESS:
+		op_fns->enqueue_ops = lcperf_enqueue_ops_decompress;
+		op_fns->populate_ops = lcperf_populate_ops_comp;
 		op_fns->sess_create = NULL;
 		op_fns->sess_destroy = NULL;
 		break;

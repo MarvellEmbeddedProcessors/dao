@@ -13,6 +13,9 @@
 
 #define AES_BLOCK_SIZE 16
 
+#define MIN_COMPRESSION_LEVEL 1
+#define MAX_COMPRESSION_LEVEL 9
+
 struct name_id_map {
 	const char *name;
 	uint32_t id;
@@ -26,7 +29,7 @@ usage(char *progname)
 	       " set test type\n"
 	       " --total-ops N: set the number of total operations performed\n"
 	       " --desc-nb N: set number of descriptors for each liquid crypto device\n"
-	       " --optype passthrough / rsa / symmetric / ecdsa : set operation type\n"
+	       " --optype passthrough / rsa / symmetric / ecdsa / compress / decompress: set operation type\n"
 	       " --asym-op pub-encrypt / pub-decrypt / prv-encrypt / prv-decrypt :"
 	       " set asym operation type\n"
 	       " --rsa-priv-keytype exp / qt : set rsa private key type\n"
@@ -48,6 +51,7 @@ usage(char *progname)
 	       " --enq-timeout N : set enqueue timeout in minutes (default %d minutes)\n"
 	       " --drain-timeout N : set drain timeout in minutes (default %d minutes)\n"
 	       " --throughput-limit N : limit total throughput to N Gbps, divided among workers (0 = unlimited)\n"
+	       " --comp-level N: set compression level [1|9] for compress operations\n"
 	       " -h: prints this help\n"
 	       "\n"
 	       "Example: %s --enable-ooo --total-ops 1000000 --ptest throughput\n",
@@ -165,6 +169,14 @@ parse_op_type(struct lcperf_options *opts, const char *arg)
 		{
 			lcperf_op_type_strs[LCPERF_OP_ASYM_ECDSA],
 			LCPERF_OP_ASYM_ECDSA,
+		},
+		{
+			lcperf_op_type_strs[LCPERF_OP_COMPRESS],
+			LCPERF_OP_COMPRESS,
+		},
+		{
+			lcperf_op_type_strs[LCPERF_OP_DECOMPRESS],
+			LCPERF_OP_DECOMPRESS,
 		},
 	};
 
@@ -414,6 +426,27 @@ parse_enable_ooo(struct lcperf_options *opts, const char *arg __rte_unused)
 }
 
 static int
+parse_comp_level(struct lcperf_options *opts, const char *arg)
+{
+	uint32_t comp_level;
+	int ret;
+
+	ret = parse_uint32_t(&comp_level, arg);
+
+	if (ret)
+		return ret;
+
+	if (comp_level != DAO_LC_COMPRESS_MIN_COMP_LEVEL &&
+	    comp_level != DAO_LC_COMPRESS_MAX_COMP_LEVEL) {
+		RTE_LOG(ERR, USER1, "Compress level must be %d|%d (default %d)\n",
+			MIN_COMPRESSION_LEVEL, MAX_COMPRESSION_LEVEL, MIN_COMPRESSION_LEVEL);
+		return -1;
+	}
+	opts->comp_level = comp_level;
+	return 0;
+}
+
+static int
 parse_ecc_curve(struct lcperf_options *opts, const char *arg)
 {
 	struct name_id_map ecc_curve_namemap[] = {
@@ -537,6 +570,8 @@ lcperf_options_default(struct lcperf_options *opts)
 	opts->enq_timeout = ENQ_TIMEOUT;
 	opts->drain_timeout = DRAIN_TIMEOUT;
 
+	opts->comp_level = MIN_COMPRESSION_LEVEL;
+
 	opts->throughput_limit_gbps = 0.0; /* 0 = unlimited */
 }
 
@@ -567,6 +602,7 @@ static struct option lgopts[] = {{LCPERF_PTEST_TYPE, required_argument, 0, 0},
 				 {LCPERF_ENQ_TIMEOUT, required_argument, 0, 0},
 				 {LCPERF_DRAIN_TIMEOUT, required_argument, 0, 0},
 				 {LCPERF_THROUGHPUT_LIMIT, required_argument, 0, 0},
+				 {LCPERF_COMP_LEVEL, required_argument, 0, 0},
 				 {NULL, 0, 0, 0}};
 
 static int
@@ -593,6 +629,7 @@ lcperf_opts_parse_long(int opt_idx, struct lcperf_options *opts)
 		{LCPERF_ENQ_TIMEOUT, parse_enq_timeout},
 		{LCPERF_DRAIN_TIMEOUT, parse_drain_timeout},
 		{LCPERF_THROUGHPUT_LIMIT, parse_throughput_limit},
+		{LCPERF_COMP_LEVEL, parse_comp_level},
 	};
 	unsigned int i;
 
@@ -674,6 +711,12 @@ lcperf_options_dump(struct lcperf_options *opts)
 		printf("#\n");
 		printf("# Asymmetric operation type: %s\n",
 		       lcperf_crypto_asym_op_type_strs[opts->asym_op_type]);
+	} else if (opts->op_type == LCPERF_OP_COMPRESS || opts->op_type == LCPERF_OP_DECOMPRESS) {
+		printf("# Testing compress device %s operation\n",
+		       lcperf_op_type_strs[opts->op_type]);
+		if (opts->op_type == LCPERF_OP_COMPRESS)
+			printf("# Compression level : %d\n", opts->comp_level);
+		printf("#\n");
 	} else if (opts->op_type == LCPERF_OP_SYM) {
 		printf("# Symmetric operation type: %s\n",
 		       lcperf_crypto_sym_op_type_strs[opts->sym_op]);
@@ -753,6 +796,16 @@ lcperf_options_check(struct lcperf_options *options)
 		default:
 			RTE_LOG(ERR, USER1, "Invalid %d RSA modulus length specified\n",
 				options->rsa_modlen);
+			return -EINVAL;
+		}
+	}
+
+	if (options->op_type == LCPERF_OP_COMPRESS) {
+		if (options->comp_level != DAO_LC_COMPRESS_MIN_COMP_LEVEL &&
+		    options->comp_level != DAO_LC_COMPRESS_MAX_COMP_LEVEL) {
+			RTE_LOG(ERR, USER1, "Compress level must be %d|%d (got %d)\n",
+				DAO_LC_COMPRESS_MIN_COMP_LEVEL, DAO_LC_COMPRESS_MAX_COMP_LEVEL,
+				options->comp_level);
 			return -EINVAL;
 		}
 	}

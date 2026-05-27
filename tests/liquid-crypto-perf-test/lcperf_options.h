@@ -32,6 +32,7 @@
 #define LCPERF_ENQ_TIMEOUT       ("enq-timeout")
 #define LCPERF_DRAIN_TIMEOUT     ("drain-timeout")
 #define LCPERF_THROUGHPUT_LIMIT  ("throughput-limit")
+#define LCPERF_COMP_LEVEL        ("comp-level")
 
 #define MAX_LIST 1
 
@@ -50,6 +51,8 @@ enum lcperf_op_type {
 	LCPERF_OP_ASYM_RSA = 1,
 	LCPERF_OP_PASSTHROUGH,
 	LCPERF_OP_SYM,
+	LCPERF_OP_COMPRESS,
+	LCPERF_OP_DECOMPRESS,
 };
 
 enum lcperf_crypto_asym_op_type {
@@ -120,6 +123,7 @@ struct lcperf_options {
 	struct lcperf_ecdsa_test_data *ecdsa_test_data;
 	enum dao_liquid_crypto_ec_curve_type ecc_curve;
 
+	int comp_level;
 	/** Enqueue timeout in minutes */
 	uint32_t enq_timeout;
 	/** Drain timeout in minutes */

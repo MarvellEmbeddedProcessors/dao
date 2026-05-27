@@ -2,11 +2,25 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <stdlib.h>
+
 #include <rte_malloc.h>
 
 #include <dao_liquid_crypto.h>
 
 #include "lcperf_test_vectors.h"
+
+static const uint8_t comp_plain_text[] = {0x4D, 0x41, 0x52, 0x56, 0x45, 0x4C, 0x4C, 0x20, 0x4C,
+					  0x43, 0x3A, 0x20, 0x54, 0x45, 0x53, 0x54, 0x20, 0x43,
+					  0x4F, 0x4D, 0x50, 0x52, 0x45, 0x53, 0x53, 0x20, 0x44,
+					  0x45, 0x56, 0x49, 0x43, 0x45, 0x0A};
+
+/* Compressed text for comp_plain_text with deflate algo */
+static const uint8_t comp_compressed_text[] = {
+	0xED, 0xFD, 0x47, 0x8E, 0x24, 0x49, 0xD2, 0xBC, 0xFF, 0xEF, 0xED, 0x14, 0x72,
+	0x0E, 0xDB, 0x19, 0xD4, 0x64, 0x61, 0x80, 0x2A, 0xCC, 0xA0, 0xA2, 0xD0, 0xFB,
+	0x1F, 0xC5, 0x4E, 0xF2, 0xC1, 0xE7, 0x20, 0xB1, 0xB2, 0xE9, 0x0E, 0xB7, 0x89,
+	0xA2, 0x0A, 0x76, 0xE3, 0x25, 0x25, 0x6C, 0xF6, 0x31, 0x8E, 0x0F};
 
 uint8_t rsa_plaintext[] = {0xf8, 0xba, 0x1a, 0x55, 0xd0, 0x2f, 0x85, 0xae, 0x96, 0x7b,
 			   0xb6, 0x2f, 0xb6, 0xcd, 0xa8, 0xeb, 0x7e, 0x78, 0xa0, 0x50};
@@ -1915,10 +1929,27 @@ struct lcperf_ecdsa_test_data secp521r1_test_vector = {
 	},
 };
 
+void
+random_text_generate(uint8_t *buf, size_t len)
+{
+	static const char charset[] =
+		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ";
+	size_t charset_size = sizeof(charset) - 1;
+
+	if (len == 0 || buf == NULL)
+		return;
+
+	for (size_t i = 0; i < len - 1; i++)
+		buf[i] = charset[rand() % charset_size];
+
+	buf[len - 1] = '\0';
+}
+
 struct lcperf_test_data *
 lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 {
 	struct lcperf_test_data *test_data = NULL;
+	uint32_t plain_len;
 
 	test_data = rte_malloc(NULL, sizeof(struct lcperf_test_data), 0);
 	if (test_data == NULL)
@@ -1977,6 +2008,48 @@ lcperf_test_vector_get_dummy(const struct lcperf_options *options)
 				options->sym_op);
 			goto free_test_data;
 		}
+	} else if (options->op_type == LCPERF_OP_COMPRESS) {
+		if (options->test_buffer_size > 0) {
+			if (options->test_buffer_size > TEST_LC_COMP_MAX_PLAINTEXT_LEN) {
+				RTE_LOG(ERR, USER1,
+					"Compression buffer size %u exceeds maximum supported size %u\n",
+					options->test_buffer_size, TEST_LC_COMP_MAX_PLAINTEXT_LEN);
+				goto free_test_data;
+			}
+			random_text_generate(test_data->comp_plain_data,
+					     (size_t)options->test_buffer_size);
+			plain_len = options->test_buffer_size;
+		} else {
+			plain_len = sizeof(comp_plain_text);
+			memcpy(test_data->comp_plain_data, comp_plain_text, plain_len);
+		}
+
+		test_data->comp_plain_len = plain_len;
+		test_data->comp_out_base =
+			rte_zmalloc(NULL, options->burst_size * TEST_LC_COMP_MAX_OUTPUT_LEN, 0);
+		if (test_data->comp_out_base == NULL) {
+			RTE_LOG(ERR, USER1, "Failed to allocate comp output buffer\n");
+			goto free_test_data;
+		}
+		test_data->comp_compressed_data = NULL;
+		test_data->comp_compressed_len = 0;
+	} else if (options->op_type == LCPERF_OP_DECOMPRESS) {
+		test_data->comp_plain_len = sizeof(comp_plain_text);
+		test_data->comp_out_base =
+			rte_zmalloc(NULL, options->burst_size * TEST_LC_COMP_MAX_OUTPUT_LEN, 0);
+		if (test_data->comp_out_base == NULL) {
+			RTE_LOG(ERR, USER1, "Failed to allocate decomp output buffer\n");
+			goto free_test_data;
+		}
+		test_data->comp_compressed_data = rte_malloc(NULL, sizeof(comp_compressed_text), 0);
+		if (test_data->comp_compressed_data == NULL) {
+			RTE_LOG(ERR, USER1, "Failed to allocate decomp input buffer\n");
+			rte_free(test_data->comp_out_base);
+			goto free_test_data;
+		}
+		memcpy(test_data->comp_compressed_data, comp_compressed_text,
+		       sizeof(comp_compressed_text));
+		test_data->comp_compressed_len = sizeof(comp_compressed_text);
 	}
 
 	return test_data;
@@ -1992,5 +2065,13 @@ lcperf_test_vector_free(struct lcperf_test_data *test_data)
 	if (test_data == NULL)
 		return;
 
+	if (test_data->comp_out_base != NULL) {
+		rte_free(test_data->comp_out_base);
+		test_data->comp_out_base = NULL;
+	}
+	if (test_data->comp_compressed_data != NULL) {
+		rte_free(test_data->comp_compressed_data);
+		test_data->comp_compressed_data = NULL;
+	}
 	rte_free(test_data);
 }
