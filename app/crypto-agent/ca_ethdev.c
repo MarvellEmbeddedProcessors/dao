@@ -566,11 +566,6 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 	else
 		eth_ctx->cpt_pq[conf->qp_id].cpt_deq_fn = ca_cpt_deq;
 
-	if (is_compdev_enabled)
-		eth_ctx->compdev_pq[conf->qp_id].compdev_deq_fn = ca_compdev_deq;
-	else
-		eth_ctx->compdev_pq[conf->qp_id].compdev_deq_fn = ca_compdev_deq_noop;
-
 	ret = ca_eth_lcore_map_pq_save(conf->dev_id, conf->qp_id, &eth_ctx->cpt_pq[conf->qp_id],
 				       &eth_ctx->compdev_pq[conf->qp_id]);
 	if (ret) {

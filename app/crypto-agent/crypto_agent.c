@@ -20,6 +20,7 @@
 #include <dao_version.h>
 
 #include "ca_admin.h"
+#include "ca_compress_dev.h"
 #include "ca_cpt_deq.h"
 #include "ca_crypto_queue.h"
 #include "ca_eth_rx.h"
@@ -44,6 +45,8 @@ bool is_compdev_enabled;
 
 static int host_dev_init(void);
 static int host_dev_fini(void);
+
+struct comp_dev_ring_map compdev_ring_map[CA_MAX_LCORE];
 
 static void
 signal_handler(int signum)
@@ -388,13 +391,33 @@ eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_
 	    struct lcore_conf *lconf, uint16_t cpt_allowed, uint16_t compdev_allowed,
 	    const bool compdev_enabled)
 {
+	uint8_t ring_count = 0, rings[MAX_RINGS_PER_CORE];
 	struct ca_cryptodev_ctx *cdev_ctx;
+	struct dev_desc_cnt desc_cnt = {0};
+	compdev_enq_fn enq_to_comp_dev;
 	uint16_t nb_pkts, nb_tx_pkts;
-	struct dev_desc_cnt desc_cnt;
 	int i;
 
 	desc_cnt.cpt = cpt_allowed;
-	desc_cnt.compdev = compdev_allowed;
+
+	if (compdev_enabled) {
+		/**
+		 * Compress device ring flow:
+		 * Cores 1..23: enqueue requests to their comp_req_ring (in process_pkts).
+		 * Cores 1..nb_compdevs: drain req rings, dequeue from compress device, enqueue
+		 * completions to compdev_resp_ring by ring_id from infl_req.
+		 * Cores 1..23: dequeue from their resp ring and send to host.
+		 */
+		desc_cnt.compdev = compdev_allowed;
+		desc_cnt.comp_req_ring_enq_cnt = 0;
+		desc_cnt.compdev_deq_cnt = 0;
+		ring_count = get_rings_for_core(lcore_id, rings);
+		if (lcore_id >= CA_COMP_DEV_CONSUMER_CORE_START &&
+		    lcore_id <= CA_COMP_DEV_CONSUMER_CORE_END)
+			enq_to_comp_dev = ca_enq_comp_req_ring_to_compdev;
+		else
+			enq_to_comp_dev = ca_comp_dev_enq_noop;
+	}
 
 	while (!force_quit) {
 		/* Update quiet state */
@@ -420,10 +443,20 @@ eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_
 			desc_cnt.cpt += nb_tx_pkts;
 
 			if (compdev_enabled) {
+				nb_pkts = enq_to_comp_dev(lconf->compdev_pq[i], ring_count, rings,
+							  &desc_cnt);
+				lconf->comp_enq += nb_pkts;
+				lconf->comp_deq += desc_cnt.compdev_deq_cnt;
+				desc_cnt.compdev =
+					desc_cnt.compdev + desc_cnt.compdev_deq_cnt - nb_pkts;
+				desc_cnt.compdev_deq_cnt = 0;
+
 				nb_tx_pkts =
-					lconf->compdev_pq[i]->compdev_deq_fn(lconf->compdev_pq[i]);
+					ca_deq_comp_resp_ring_send_to_host(lconf->compdev_pq[i]);
 				lconf->tx_packets += nb_tx_pkts;
-				desc_cnt.compdev += nb_tx_pkts;
+				lconf->comp_resp_ring_deq += nb_tx_pkts;
+				lconf->comp_req_ring_enq += desc_cnt.comp_req_ring_enq_cnt;
+				desc_cnt.comp_req_ring_enq_cnt = 0;
 			}
 		}
 	}
@@ -894,9 +927,17 @@ card_stats(struct dao_card_stats *stats)
 		if (!rte_lcore_is_enabled(i)) {
 			stats->rx_packets[i - 1] = 0;
 			stats->tx_packets[i - 1] = 0;
+			stats->comp_enq[i - 1] = 0;
+			stats->comp_deq[i - 1] = 0;
+			stats->comp_req_ring_enq[i - 1] = 0;
+			stats->comp_resp_ring_deq[i - 1] = 0;
 		} else {
 			stats->rx_packets[i - 1] = lcore_conf[i].rx_packets;
 			stats->tx_packets[i - 1] = lcore_conf[i].tx_packets;
+			stats->comp_enq[i - 1] = lcore_conf[i].comp_enq;
+			stats->comp_deq[i - 1] = lcore_conf[i].comp_deq;
+			stats->comp_req_ring_enq[i - 1] = lcore_conf[i].comp_req_ring_enq;
+			stats->comp_resp_ring_deq[i - 1] = lcore_conf[i].comp_resp_ring_deq;
 		}
 	}
 
@@ -997,6 +1038,7 @@ host_dev_init(void)
 				compress_priv_xforms_fini();
 				return ret;
 			}
+			build_comp_dev_ring_map(compdev_ring_map, ca_glb_ctx.nb_compdevs);
 		}
 
 		ca_glb_ctx.nb_host_dev++;

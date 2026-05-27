@@ -15,26 +15,44 @@ static uint8_t ca_compression_level[COMP_DEV_COMPRESSION_LEVELS] = {RTE_COMP_LEV
 static enum rte_comp_huffman huffs[COMP_DEV_HUFFMAN_TYPES] = {RTE_COMP_HUFFMAN_FIXED,
 							      RTE_COMP_HUFFMAN_DYNAMIC};
 
-struct rte_mempool *
-ca_host_comp_op_mempool_get(uint8_t dev_id)
-{
-	if (dev_id >= ca_glb_ctx.nb_host_dev) {
-		CA_ERR("Invalid host dev id: %u", dev_id);
-		return NULL;
-	}
+/**
+ * For 8-VFs case: Below are cores and ring index mapping used by each core
+ * for different compress devices.
+ * --------------------------------------------------------
+ * Compress Device ID	Cores/ Ring Indexes	Worker Core
+ * --------------------------------------------------------
+ * 0			1, 9, 17		1
+ * 1			2, 10, 18		2
+ * 2			3, 11, 19		3
+ * 3			4, 12, 20		4
+ * 4			5, 13, 21		5
+ * 5			6, 14, 22		6
+ * 6			7, 15, 23		7
+ * 7			8, 16			8
+ * --------------------------------------------------------
+ * Here ring index 1,9, 17 are served by compress device 0.
+ * Core 1 enqueues compress requests from rings-1,9, 17 to compress device 0.
+ * Similarly above table shows the mapping for remaining devices and rings-core
+ * mapping.
+ * Core: 0 is main core does not have access to any compress device.
+ */
+uint8_t comp_dev_core_map[CA_MAX_LCORE] = {9, /* Main core, should never access */
+					   0, 1, 2, 3, 4, 5, 6, 7, /* Core 1 to 8 */
+					   0, 1, 2, 3, 4, 5, 6, 7, /* Core 9 to 16 */
+					   0, 1, 2, 3, 4, 5, 6};   /* Core 17 to 23*/
 
-	return ca_glb_ctx.host_ctx[dev_id].comp_op_mempool;
+extern struct comp_dev_ring_map compdev_ring_map[CA_MAX_LCORE];
+
+struct rte_mempool *
+ca_host_comp_op_mempool_get(void)
+{
+	return ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].comp_op_mempool;
 }
 
 struct rte_mempool *
-ca_host_comp_dst_bufpool_get(uint8_t dev_id)
+ca_host_comp_dst_bufpool_get(void)
 {
-	if (dev_id >= ca_glb_ctx.nb_host_dev) {
-		CA_ERR("Invalid host dev id: %u", dev_id);
-		return NULL;
-	}
-
-	return ca_glb_ctx.host_ctx[dev_id].comp_dst_mbuf_pool;
+	return ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].comp_dst_mbuf_pool;
 }
 
 int
@@ -59,7 +77,6 @@ compress_devs_validate(void)
 	/* Update compress_device ids in ca_global_ctx */
 	for (i = 0; i < enabled_comp_devs; i++) {
 		ca_glb_ctx.compdev_ids[i] = enabled_cdevs[i];
-		CA_INFO("Compress devices id : %d ", enabled_cdevs[i]);
 		nb_valid_devs++;
 	}
 
@@ -73,8 +90,6 @@ compress_devs_validate(void)
 	for (i = 0; i < nb_valid_devs; i++) {
 		memset(&comp_dev_info, 0, sizeof(comp_dev_info));
 		rte_compressdev_info_get(ca_glb_ctx.compdev_ids[i], &comp_dev_info);
-		CA_INFO("Compress device: %d ==> max queue pairs: %d", ca_glb_ctx.compdev_ids[i],
-			comp_dev_info.max_nb_queue_pairs);
 
 		if (comp_dev_info.max_nb_queue_pairs > rte_lcore_count()) {
 			orig_max_qp = comp_dev_info.max_nb_queue_pairs;
@@ -83,15 +98,10 @@ compress_devs_validate(void)
 				ca_glb_ctx.compdev_ids[i], orig_max_qp, rte_lcore_count(),
 				rte_lcore_count());
 		}
-		if (qp == 0) {
+		if (qp == 0)
 			qp = comp_dev_info.max_nb_queue_pairs;
-			CA_INFO("Init QP[Core: %d] for device: %d with QP: %d", rte_lcore_id(),
-				ca_glb_ctx.compdev_ids[i], qp);
-		} else {
+		else
 			qp = RTE_MIN(qp, comp_dev_info.max_nb_queue_pairs);
-			CA_INFO("QP update[Core: %d] for device: %d with QP: %d", rte_lcore_id(),
-				ca_glb_ctx.compdev_ids[i], qp);
-		}
 	}
 
 	ca_glb_ctx.nb_compdev_qp = qp;
@@ -100,14 +110,26 @@ compress_devs_validate(void)
 	return 0;
 }
 
-int
-get_compdev_id(unsigned int core_id)
+void
+build_comp_dev_ring_map(struct comp_dev_ring_map *map, uint8_t comp_dev_count)
 {
-	/* core 0 is main core */
-	if (core_id == 0)
-		return -1;
+	uint8_t ring, core;
+	unsigned int i;
 
-	return (core_id - 1) & 7;
+	if (comp_dev_count == 0)
+		return;
+
+	/* Cores 1..nb_compdevs drain req rings; round-robin by comp_dev_count, max 24 per core.
+	 * Rings 1..(CA_MAX_LCORE-1): 1 VF -> all 23 on core 1; 2 VFs -> 12 on core 1, 11 on core 2.
+	 */
+	for (i = 0; i < CA_MAX_LCORE; i++)
+		map[i].nb_rings = 0;
+
+	for (ring = CA_COMP_DEV_CONSUMER_CORE_START; ring <= CA_MAX_LCORE - 1; ring++) {
+		core = ((ring - 1) % comp_dev_count) + CA_COMP_DEV_CONSUMER_CORE_START;
+		if (map[core].nb_rings < MAX_RINGS_PER_CORE)
+			map[core].ring_id[map[core].nb_rings++] = ring;
+	}
 }
 
 /* nb_desc will be taken from dao_card_config.crypto_nb_desc */
@@ -127,7 +149,7 @@ compress_devs_init(uint32_t nb_desc)
 
 	if (nb_desc < CA_CPT_MIN_QUEUE_DEPTH) {
 		nb_desc = CA_CPT_MIN_QUEUE_DEPTH;
-		CA_INFO("Using minimum queue depth: %d", nb_desc);
+		CA_INFO("Using minimum queue depth: %u for compress device", nb_desc);
 	}
 
 	for (i = 0; i < ca_glb_ctx.nb_compdevs; i++) {
@@ -156,7 +178,6 @@ compress_devs_init(uint32_t nb_desc)
 				       comp_dev_id, j);
 				return ret;
 			}
-			CA_INFO("Comp_dev_id: %d, qp: %d setup done", comp_dev_id, j);
 		}
 
 		ret = rte_compressdev_start(comp_dev_id);
@@ -168,11 +189,19 @@ compress_devs_init(uint32_t nb_desc)
 		CA_INFO("Compress Device[%d] started successfully", i);
 	}
 
-	/* As compress device supports single queue pair, using qp_id as 0 here. */
+	/**
+	 * As compress device supports single queue pair, using qp_id as 0 here.
+	 * All cores 1..(CA_MAX_LCORE-1) get a compdev mapping using comp_dev_core_map
+	 */
 	qp_id = 0;
 	for (i = 0; i < CA_MAX_LCORE; i++) {
+		int dev_id;
+
 		if (rte_lcore_is_enabled(i) == 0 || i == main_lcore)
 			continue;
+		if (i < CA_COMP_DEV_CONSUMER_CORE_START)
+			continue;
+		dev_id = comp_dev_core_map[i];
 		/**
 		 * Maximum 8 VFs are supported.
 		 * Cores 1-8 will serve the compress devices 0 to 7.
@@ -180,13 +209,12 @@ compress_devs_init(uint32_t nb_desc)
 		 * Cores 17-23 will use compress devices 0 to 6.
 		 * Core 0 is main core, so subtracting 1 to use from core 1 onwards.
 		 */
-		comp_dev_id = get_compdev_id(i);
-		ca_glb_ctx.compdev_ctx[i].dev_id = ca_glb_ctx.compdev_ids[comp_dev_id];
+		ca_glb_ctx.compdev_ctx[i].dev_id = ca_glb_ctx.compdev_ids[dev_id];
 		ca_glb_ctx.compdev_ctx[i].qp_id = qp_id;
 		ca_glb_ctx.compdev_ctx[i].nb_allowed = nb_desc;
 	}
 
-	return 0;
+	return compress_devs_rings_init();
 }
 
 void
@@ -194,6 +222,8 @@ compress_devs_fini(void)
 {
 	uint8_t comp_dev_id;
 	int ret, i;
+
+	compress_devs_rings_fini();
 
 	for (i = 0; i < ca_glb_ctx.nb_compdevs; i++) {
 		comp_dev_id = ca_glb_ctx.compdev_ids[i];
@@ -326,7 +356,8 @@ host_dev_compressdev_pool_init(uint8_t dev_id, uint32_t comp_op)
 	char op_pool_name[RTE_MEMZONE_NAMESIZE] = "\0";
 	struct rte_mempool *mp;
 
-	CA_INFO("Initializing Pools for Compress Dev: %d", dev_id);
+	CA_INFO("Initializing Pools for Host Device : %d", dev_id);
+	CA_INFO("Total compress devices: %u", ca_glb_ctx.nb_compdevs);
 	CA_INFO("Compress Operations: %u, Mempool Element Size: %u, Comp Buf Size: %u, Decomp Buf Size: %u",
 		comp_op, n_elements, comp_mbuf_size, decomp_mbuf_size);
 
@@ -358,72 +389,91 @@ cleanup:
 	return -ENOMEM;
 }
 
-/**
- * When compress device is disabled, compdev_pkt_handler_t is initialized
- * with this noop function.
- */
 uint16_t
-ca_compdev_deq_noop(struct pending_queue *pq)
+ca_deq_comp_resp_ring_send_to_host(struct pending_queue *pq)
 {
-	RTE_SET_USED(pq);
-	return 0;
+	struct rte_mbuf *mbufs[CA_ETHDEV_RX_BURST];
+	uint16_t nb_deq, nb_tx = 0, i;
+	uint8_t lcore_id;
+
+	lcore_id = rte_lcore_id();
+
+	nb_deq = rte_ring_dequeue_burst(ca_glb_ctx.compdev_ctx[lcore_id].comp_resp_ring[lcore_id],
+					(void **)mbufs, CA_ETHDEV_RX_BURST, NULL);
+	if (nb_deq == 0)
+		return 0;
+	nb_tx = rte_eth_tx_burst(pq->eth_port_id, pq->eth_queue_id, mbufs, nb_deq);
+
+	if (unlikely(nb_tx < nb_deq)) {
+		CA_ERR("Could not transmit all packets from compdev resp ring on core: %u",
+		       lcore_id);
+		for (i = nb_tx; i < nb_deq; i++)
+			rte_pktmbuf_free(mbufs[i]);
+	}
+	return nb_tx;
 }
 
 uint16_t
-ca_compdev_deq(struct pending_queue *pq)
+ca_compdev_deq(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings)
 {
 	struct rte_comp_op *deq_ops[CA_ETHDEV_TX_BURST];
-	struct rte_mbuf *dst_mbufs[CA_ETHDEV_TX_BURST];
+	uint16_t nb_pending, nb_deq, i, tot_deq = 0;
 	struct comp_dev_inflight_req *infl_req;
 	struct __dao_lc_resp_compdev_op *resp;
-	uint16_t nb_pending, nb_tx, nb_deq, i;
 	const uint64_t mask = pq->pq_mask;
 	uint8_t lcore_id, comp_dev_id;
+	uint64_t head, tail, pq_tail;
 	struct dao_eth_trs_pkt *trs;
-	uint64_t head, tail;
-	uint16_t free_idx;
+	uint16_t remaining;
+	int rc;
 
 	if (unlikely(pq == NULL)) {
 		CA_ERR("Compress device pending queue is NULL!!");
 		return 0;
 	}
 
-	head = pq->head;
-	tail = pq->tail;
+	RTE_SET_USED(ring_count);
+	RTE_SET_USED(rings);
 
 	lcore_id = rte_lcore_id();
-	comp_dev_id = get_compdev_id(lcore_id);
+
+	head = pq->head;
+	tail = pq->tail;
 
 	nb_pending = pending_queue_infl_cnt(head, tail, mask);
 	if (nb_pending == 0)
 		return 0;
+	remaining = nb_pending;
 
-	nb_pending = RTE_MIN(nb_pending, CA_ETHDEV_TX_BURST);
+	comp_dev_id = comp_dev_core_map[lcore_id];
 
-	nb_deq = rte_compressdev_dequeue_burst(ca_glb_ctx.compdev_ctx[comp_dev_id].dev_id,
-					       ca_glb_ctx.compdev_ctx[comp_dev_id].qp_id, deq_ops,
-					       nb_pending);
-	if (nb_deq < nb_pending) {
-		CA_WARN("All compress operations are not completed. Remaining: %d",
-			nb_pending - nb_deq);
-	}
+	do {
+		pq_tail = tail;
+		nb_pending = RTE_MIN(nb_pending, CA_ETHDEV_RX_BURST);
+		nb_deq = rte_compressdev_dequeue_burst(ca_glb_ctx.compdev_ctx[comp_dev_id].dev_id,
+						       ca_glb_ctx.compdev_ctx[comp_dev_id].qp_id,
+						       deq_ops, nb_pending);
+		if (nb_deq == 0)
+			break;
 
-	for (i = 0; i < nb_deq; i++) {
-		infl_req = &pq->compdev_req_queue[tail & mask];
-		trs = rte_pktmbuf_mtod(infl_req->mbuf, struct dao_eth_trs_pkt *);
+		if (nb_deq < nb_pending) {
+			CA_WARN("All compress operations are not completed. Remaining: %d",
+				nb_pending - nb_deq);
+		}
 
-		switch (trs->hdr.op_type) {
-		case DAO_ETH_TRS_OP_TYPE_COMPRESS:
-		case DAO_ETH_TRS_OP_TYPE_DECOMPRESS: {
-			dst_mbufs[i] = infl_req->mbuf;
+		for (i = 0; i < nb_deq; i++) {
+			infl_req = &pq->compdev_req_queue[(pq_tail + i) & mask];
+			/**
+			 * infl_req.mbuf is same as rte_comp_op.m_dst mbuf  to send response
+			 * back to host. Ethernet transport headers are appended to this mbuf
+			 * before sending response to host. Worker core can directly send this
+			 * mbuf to host.
+			 */
+			trs = rte_pktmbuf_mtod(infl_req->mbuf, struct dao_eth_trs_pkt *);
+			trs->hdr.op_len = deq_ops[i]->produced + comp_dev_resp_hdr_sz;
+
 			resp = rte_pktmbuf_mtod(infl_req->mbuf, struct __dao_lc_resp_compdev_op *);
 			resp->res.status = deq_ops[i]->status;
-
-			if (deq_ops[i]->status != DAO_LC_COMP_OP_STATUS_SUCCESS) {
-				CA_ERR("Compress operation status is failed: %u", resp->res.status);
-				break;
-			}
-
 			resp->op_len = deq_ops[i]->produced;
 			resp->res.consumed = deq_ops[i]->consumed;
 			resp->res.produced = deq_ops[i]->produced;
@@ -431,55 +481,27 @@ ca_compdev_deq(struct pending_queue *pq)
 			if (infl_req->op_buf_len < deq_ops[i]->produced) {
 				resp->res.status = DAO_LC_COMP_OP_STATUS_RESP_BUF_SPACE_ISSUE;
 				resp->res.required = deq_ops[i]->produced;
-#ifdef CA_DEBUG_ENABLE
-				CA_INFO(">>>>> destination buffer is not sufficient required: %u bytes provided: %u <<<<",
-					resp->res.required, infl_req->op_buf_len);
-#endif
 			}
-#ifdef CA_DEBUG_ENABLE
-			if (deq_ops[i]->m_dst->nb_segs > 1) {
-				CA_INFO("<===== Destination Segments: %u ====>",
-					deq_ops[i]->m_dst->nb_segs);
-				CA_INFO("<===== Destination Consumed: %u ====>",
-					deq_ops[i]->consumed);
-				CA_INFO("<===== Destination Produced: %u ====>",
-					deq_ops[i]->produced);
-				rte_pktmbuf_dump(stdout, deq_ops[i]->m_dst,
-						 deq_ops[i]->m_dst->pkt_len);
+			rc = rte_ring_enqueue(ca_glb_ctx.compdev_ctx[infl_req->ring_id]
+						      .comp_resp_ring[infl_req->ring_id],
+					      infl_req->mbuf);
+			if (rc < 0) {
+				CA_ERR("Failed to enq to compdev resp ring: %u from Core: %u",
+				       infl_req->ring_id, lcore_id);
+				rte_pktmbuf_free(infl_req->mbuf);
 			}
-			if (deq_ops[i]->m_src->nb_segs > 1) {
-				CA_INFO("<=============== Source mbuf exceeding MAX size =============>");
-				rte_pktmbuf_dump(stdout, deq_ops[i]->m_src,
-						 deq_ops[i]->m_src->pkt_len);
-			}
-#endif
-			break;
+			pending_queue_advance(&tail, mask);
+
+			rte_pktmbuf_free(deq_ops[i]->m_src);
+			rte_comp_op_free(deq_ops[i]);
 		}
-		default:
-			CA_ERR("Invalid operation type: %d", trs->hdr.op_type);
-			dst_mbufs[i] = infl_req->mbuf;
-			break;
-		}
-		rte_pktmbuf_free(deq_ops[i]->m_src);
-		rte_comp_op_free(deq_ops[i]);
-		pending_queue_advance(&tail, mask);
-	}
+		tot_deq += nb_deq;
+		pq->tail = tail;
+		remaining -= nb_deq;
+		nb_pending = remaining;
+	} while (remaining > 0);
 
-	if (unlikely(i == 0))
-		return 0;
-
-	nb_tx = rte_eth_tx_burst(pq->eth_port_id, pq->eth_queue_id, dst_mbufs, i);
-
-	if (unlikely(nb_tx < i)) {
-#ifdef CA_DEBUG_ENABLE
-		CA_ERR("Could not transmit all packets");
-#endif
-		for (free_idx = nb_tx; free_idx < i; free_idx++)
-			rte_pktmbuf_free(dst_mbufs[free_idx]);
-	}
-	pq->tail = tail;
-
-	return nb_tx;
+	return tot_deq;
 }
 
 static inline int
@@ -514,7 +536,7 @@ prepare_compress_resp_mbuf(struct rte_mbuf *rx_pkts, struct comp_dev_inflight_re
 	uint32_t remaining;
 	uint32_t to_append;
 
-	dst_pool = ca_host_comp_dst_bufpool_get(CA_LC_COMPRESS_DEV_ID);
+	dst_pool = ca_host_comp_dst_bufpool_get();
 	if (dst_pool == NULL)
 		return NULL;
 
@@ -587,6 +609,7 @@ prepare_compress_resp_mbuf(struct rte_mbuf *rx_pkts, struct comp_dev_inflight_re
 	infl_req->op_buf_len = op_buf_len;
 	infl_req->src_len = src_len;
 	infl_req->priv_xform = priv_xform;
+	/* Uses resp_mb to send response back to host */
 	infl_req->mbuf = resp_mb;
 
 	return resp_mb;
@@ -620,20 +643,22 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 	uint16_t offset;
 	int level;
 
-	mem_pool = ca_host_comp_op_mempool_get(CA_LC_COMPRESS_DEV_ID);
-	if (mem_pool == NULL) {
+	lcore_id = rte_lcore_id();
+	comp_dev_id = comp_dev_core_map[lcore_id];
+
+	mem_pool = ca_host_comp_op_mempool_get();
+	if (unlikely(mem_pool == NULL)) {
+		rte_pktmbuf_free(rx_pkts);
 		CA_ERR("Could not get compress op mempool.");
 		return 0;
 	}
 
 	comp_op = rte_comp_op_alloc(mem_pool);
-	if (!comp_op) {
+	if (unlikely(!comp_op)) {
+		rte_pktmbuf_free(rx_pkts);
 		CA_ERR("%s: Could not get comp ops.", __func__);
 		return 0;
 	}
-
-	lcore_id = rte_lcore_id();
-	comp_dev_id = get_compdev_id(lcore_id);
 
 	switch (req->hdr.op_type) {
 	case DAO_ETH_TRS_OP_TYPE_COMPRESS:
@@ -710,4 +735,169 @@ cleanup:
 	rte_comp_op_free(comp_op);
 	rte_pktmbuf_free(rx_pkts);
 	return 0;
+}
+
+int
+compress_devs_rings_init(void)
+{
+	unsigned int ring_size = CA_COMP_DEV_REQ_RING_SIZE;
+	uint8_t main_lcore = rte_get_main_lcore();
+	char name[RTE_RING_NAMESIZE];
+	uint8_t i;
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		if (i == main_lcore) {
+			ca_glb_ctx.compdev_ctx[i].comp_req_ring[i] = NULL;
+			ca_glb_ctx.compdev_ctx[i].comp_resp_ring[i] = NULL;
+			continue;
+		}
+
+		snprintf(name, sizeof(name), "ca_cdev_req_%u", i);
+		ca_glb_ctx.compdev_ctx[i].comp_req_ring[i] = rte_ring_create(
+			name, ring_size, SOCKET_ID_ANY, RING_F_SP_ENQ | RING_F_SC_DEQ);
+		if (ca_glb_ctx.compdev_ctx[i].comp_req_ring[i] == NULL) {
+			CA_ERR("Could not create compdev req ring for lcore %u", i);
+			compress_devs_rings_fini();
+			return -ENOMEM;
+		}
+		snprintf(name, sizeof(name), "ca_cdev_resp_%u", i);
+		ca_glb_ctx.compdev_ctx[i].comp_resp_ring[i] = rte_ring_create(
+			name, ring_size, SOCKET_ID_ANY, RING_F_SP_ENQ | RING_F_SC_DEQ);
+		if (ca_glb_ctx.compdev_ctx[i].comp_resp_ring[i] == NULL) {
+			CA_ERR("Could not create compdev resp ring for lcore %u", i);
+			compress_devs_rings_fini();
+			return -ENOMEM;
+		}
+	}
+	CA_INFO("Compdev req/resp rings created for all lcores");
+	return 0;
+}
+
+void
+compress_devs_rings_fini(void)
+{
+	uint8_t main_lcore = rte_get_main_lcore();
+	uint8_t i;
+
+	for (i = 0; i < CA_MAX_LCORE; i++) {
+		if (i == main_lcore)
+			continue;
+		if (ca_glb_ctx.compdev_ctx[i].comp_req_ring[i] != NULL) {
+			rte_ring_free(ca_glb_ctx.compdev_ctx[i].comp_req_ring[i]);
+			ca_glb_ctx.compdev_ctx[i].comp_req_ring[i] = NULL;
+		}
+		if (ca_glb_ctx.compdev_ctx[i].comp_resp_ring[i] != NULL) {
+			rte_ring_free(ca_glb_ctx.compdev_ctx[i].comp_resp_ring[i]);
+			ca_glb_ctx.compdev_ctx[i].comp_resp_ring[i] = NULL;
+		}
+	}
+}
+
+uint16_t
+get_rings_for_core(uint16_t core_id, uint8_t *rings)
+{
+	uint8_t n, i;
+
+	if (core_id >= CA_MAX_LCORE)
+		return 0;
+	n = compdev_ring_map[core_id].nb_rings;
+	for (i = 0; i < n; i++)
+		rings[i] = compdev_ring_map[core_id].ring_id[i];
+	return n;
+}
+
+uint16_t
+ca_comp_dev_enq_noop(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings,
+		     struct dev_desc_cnt *desc_cnt)
+{
+	RTE_SET_USED(pq);
+	RTE_SET_USED(ring_count);
+	RTE_SET_USED(rings);
+	RTE_SET_USED(desc_cnt);
+	return 0;
+}
+
+/**
+ * Dequeue compress requests from core specific compress request ring,
+ * prepare compress operation and finally enqueue to compress device.
+ * Returns no.of successfully enqueued requests to compress device.
+ */
+static inline uint16_t
+enq_to_compress_dev_from_comp_req_ring(struct pending_queue *pq, struct rte_ring *req_ring,
+				       uint8_t ring_idx)
+{
+	struct rte_comp_op *comp_op[CA_ETHDEV_RX_BURST];
+	struct rte_mbuf *mbufs[CA_ETHDEV_RX_BURST];
+	struct comp_dev_inflight_req *infl_req;
+	uint16_t nb_deq, nb_comp_req = 0, i;
+	const uint64_t mask = pq->pq_mask;
+	uint8_t lcore_id, dev_id, idx;
+	uint16_t tot_enq = 0, burst;
+	struct dao_eth_trs_pkt *req;
+	uint64_t head;
+
+	lcore_id = rte_lcore_id();
+	head = pq->head;
+	nb_deq = rte_ring_dequeue_burst(req_ring, (void **)mbufs, CA_ETHDEV_RX_BURST, NULL);
+
+	if (nb_deq) {
+		for (i = 0; i < nb_deq; i++) {
+			req = rte_pktmbuf_mtod(mbufs[i], struct dao_eth_trs_pkt *);
+			infl_req = &pq->compdev_req_queue[head];
+			infl_req->ring_id = ring_idx;
+			/* Returns 0 if comp_op preparation fails */
+			if (ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].compress_dev_pkt_hdlr(
+				    req, mbufs[i], infl_req, &comp_op[nb_comp_req]) == 0) {
+				CA_ERR("Core: %u Compress op prep failed: Ring: %u Packet Index: %u",
+				       lcore_id, ring_idx, i);
+				continue;
+			}
+			pending_queue_advance(&head, mask);
+			nb_comp_req++;
+		}
+		pq->head = head;
+	}
+
+	if (nb_comp_req > 0) {
+		dev_id = comp_dev_core_map[lcore_id];
+		pq->time_out =
+			rte_get_timer_cycles() + DEFAULT_COMMAND_TIMEOUT * rte_get_timer_hz();
+		burst = nb_comp_req;
+
+		tot_enq = rte_compressdev_enqueue_burst(ca_glb_ctx.compdev_ctx[dev_id].dev_id,
+							ca_glb_ctx.compdev_ctx[dev_id].qp_id,
+							comp_op, burst);
+
+		if (unlikely(tot_enq < burst)) {
+			CA_ERR("All compress ops were not enqueued (%u/%u)", tot_enq, burst);
+
+			for (idx = tot_enq; idx < burst; idx++) {
+				rte_pktmbuf_free(comp_op[idx]->m_dst);
+				rte_pktmbuf_free(comp_op[idx]->m_src);
+				rte_comp_op_free(comp_op[idx]);
+			}
+		}
+		/* Roll back PQ head for operations that were never enqueued. */
+		pq->head = (pq->head - (burst - tot_enq)) & mask;
+	}
+	return tot_enq;
+}
+
+uint16_t
+ca_enq_comp_req_ring_to_compdev(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings,
+				struct dev_desc_cnt *desc_cnt)
+{
+	uint16_t tot_enq = 0, tot_deq = 0;
+	uint8_t ring_idx, nb_rings;
+	struct rte_ring *req_ring;
+
+	for (nb_rings = 0; nb_rings < ring_count; nb_rings++) {
+		ring_idx = rings[nb_rings];
+		req_ring = ca_glb_ctx.compdev_ctx[ring_idx].comp_req_ring[ring_idx];
+		tot_enq += enq_to_compress_dev_from_comp_req_ring(pq, req_ring, ring_idx);
+		tot_deq += ca_compdev_deq(pq, ring_count, rings);
+	}
+
+	desc_cnt->compdev_deq_cnt = tot_deq;
+	return tot_enq;
 }

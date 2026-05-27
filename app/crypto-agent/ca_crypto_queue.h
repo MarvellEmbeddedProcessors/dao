@@ -51,6 +51,7 @@ struct __rte_aligned(ROC_ALIGN) _comp_dev_inflight_req
 	uint32_t src_len;
 	uint32_t op_buf_len;
 	void *priv_xform;
+	uint8_t ring_id;
 };
 
 struct __rte_aligned(ROC_ALIGN) comp_dev_inflight_req
@@ -59,6 +60,7 @@ struct __rte_aligned(ROC_ALIGN) comp_dev_inflight_req
 	uint32_t src_len;
 	uint32_t op_buf_len;
 	void *priv_xform;
+	uint8_t ring_id;
 	/* Add padding bytes */
 	DAO_PAD_BYTES_TO_MATCH(struct cpt_inflight_req, struct _comp_dev_inflight_req);
 };
@@ -86,12 +88,8 @@ struct pending_queue {
 	uint16_t eth_queue_id;
 	/** Enable out of order delivery */
 	bool out_of_order_delivery_en;
-	union {
-		/** Dequeue function pointer - set at configuration time */
-		uint16_t (*cpt_deq_fn)(struct pending_queue *pq,
-				       struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
-		uint16_t (*compdev_deq_fn)(struct pending_queue *pq);
-	};
+	/** CPT dequeue function pointer - set at configuration time */
+	uint16_t (*cpt_deq_fn)(struct pending_queue *pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr);
 };
 
 /* Function declarations for dequeue function pointers */

@@ -103,6 +103,9 @@ struct ca_compdev_ctx {
 	 * algorithm.
 	 */
 	void *decomp_priv_xform;
+	/** Per-lcore compress request / response rings (indexed by lcore id). */
+	struct rte_ring *comp_req_ring[CA_MAX_LCORE];
+	struct rte_ring *comp_resp_ring[CA_MAX_LCORE];
 };
 
 struct ca_global_ctx {
@@ -133,12 +136,18 @@ struct lcore_conf {
 	struct pending_queue *compdev_pq[CA_MAX_QUEUE_PER_CORE];
 	uint64_t rx_packets;
 	uint64_t tx_packets;
+	uint64_t comp_enq;
+	uint64_t comp_deq;
+	uint64_t comp_req_ring_enq;
+	uint64_t comp_resp_ring_deq;
 } __rte_cache_aligned;
 
 /* Maintains available descriptors count */
 struct dev_desc_cnt {
 	uint16_t cpt;
 	uint16_t compdev;
+	uint16_t comp_req_ring_enq_cnt;
+	uint16_t compdev_deq_cnt;
 };
 
 struct ca_eth_dev_ctx *ca_eth_dev_ctx_get(uint16_t port_id);
