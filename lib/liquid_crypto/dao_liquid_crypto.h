@@ -949,6 +949,25 @@ struct dao_lc_feature_params {
 		/** Exponent length */
 		uint16_t exp_len;
 	} rsa;
+
+	/**
+	 * Modex asymmetric parameters. The parameters are used to calculate the size of the maximum
+	 * segment size for Modex operations.
+	 *
+	 * The segment size calculation reserves space based on mod_len to accommodate Modex
+	 * operations. Message length constraints are enforced at the API level based on mod_len.
+	 *
+	 * For using following APIs the corresponding parameters must be set:
+	 * - `dao_liquid_crypto_enq_op_modex_exp()`
+	 * - `dao_liquid_crypto_enq_op_modex_crt()`
+	 */
+	struct {
+		/** Modulus length */
+		uint16_t mod_len;
+		/** Exponent length */
+		uint16_t exp_len;
+	} modex;
+
 	/**
 	 * Random number generation parameters.
 	 * The parameters are used to calculate the size of the maximum segment size for random

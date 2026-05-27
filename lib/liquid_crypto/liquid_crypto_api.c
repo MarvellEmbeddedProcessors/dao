@@ -884,7 +884,8 @@ uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
-	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0, pqc_seg_sz = 0;
+	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0;
+	uint16_t pqc_seg_sz = 0, modex_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
 	/* Number of ECC components:
 	 * public key X, public key Y, private key, nonce,
@@ -1052,6 +1053,44 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			rsa_seg_sz += params->rsa.mod_len;
 		}
 
+		if (params->modex.mod_len) {
+			bool is_crt = false;
+
+			if (params->modex.exp_len == 0)
+				is_crt = true;
+
+			/* DAO LC ASYM header */
+			modex_seg_sz += sizeof(struct __dao_lc_req_asym);
+
+			rc = cpt_ae_rsa_mod_len_check(params->modex.mod_len, is_crt);
+			if (rc != 0) {
+				dao_err("Invalid %u-byte modular exponentiation modulus length.",
+					params->modex.mod_len);
+				return 0;
+			}
+			if (is_crt) {
+				/* CRT private key requires: p, q, dP, dQ, qInv each of size
+				 * mod_len/2 */
+				modex_seg_sz += (5 * (params->modex.mod_len / 2));
+			} else {
+				rc = cpt_ae_rsa_exp_len_check(params->modex.mod_len,
+							      params->modex.exp_len);
+				if (rc != 0) {
+					dao_err("Invalid %u-byte modular exponentiation exponent length.",
+						params->modex.exp_len);
+					return 0;
+				}
+
+				modex_seg_sz += params->modex.mod_len + params->modex.exp_len;
+			}
+
+			/* For encryption: max message length is modulus length (mod_len bytes)
+			 * For decryption: encrypted message length must equal mod_len bytes
+			 * Reserve space for mod_len bytes to accommodate the result
+			 */
+			modex_seg_sz += params->modex.mod_len;
+		}
+
 		if (params->ecc.is_ecc_enabled) {
 			uint16_t prime_len;
 
@@ -1165,6 +1204,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 		}
 
 		asym_seg_sz = RTE_MAX(rsa_seg_sz, ecc_seg_sz);
+		asym_seg_sz = RTE_MAX(asym_seg_sz, modex_seg_sz);
 		asym_seg_sz = RTE_MAX(asym_seg_sz, rsa_oaep_seg_sz);
 
 		if (params->rng.rand_len) {
