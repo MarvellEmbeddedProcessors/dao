@@ -38,6 +38,8 @@
 #define TEST_LC_MIN_RSA_ENC_MOD_LEN 17
 /* Maximum length of RSA modulus */
 #define TEST_LC_MAX_RSA_MOD_LEN 1024
+/* Maximum length of Modex modulus */
+#define TEST_LC_MAX_MODEX_MOD_LEN 1024
 /* Maximum Random Data Length */
 #define TEST_LC_MAX_RANDOM_LEN 1024
 /* Maximum iteration for random test */
