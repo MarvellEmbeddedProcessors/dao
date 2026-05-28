@@ -16,7 +16,7 @@ if [ "$#" -lt 1 ]; then
 fi
 
 # gRPC variables
-GRPC_SRC_TAG=v1.66.0
+GRPC_SRC_TAG=v1.71.0
 GRPC_SRC_URL=https://github.com/grpc/grpc
 GRPC_CXX_ABI_STANDARD=17
 
