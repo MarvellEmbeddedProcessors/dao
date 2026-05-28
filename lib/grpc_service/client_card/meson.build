@@ -14,6 +14,13 @@ endif
 lib_deps += DAO_EXT_DEPS_GRPC
 lib_deps += DAO_EXT_DEPS_OPENSSL
 
+cpp = meson.get_compiler('cpp')
+
+lib_cxxflags += cpp.get_supported_arguments([
+    '-Wno-error=deprecated-declarations',
+    '-Wno-error=unused-parameter'
+])
+
 protoc=find_program('protoc')
 grpc_cpp_plugin_path = find_program('grpc_cpp_plugin').full_path()
 out_dir = meson.current_build_dir()

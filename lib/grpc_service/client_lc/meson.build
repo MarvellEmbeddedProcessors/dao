@@ -11,6 +11,13 @@ if not host_build
 	subdir_done()
 endif
 
+cpp = meson.get_compiler('cpp')
+
+lib_cxxflags += cpp.get_supported_arguments([
+    '-Wno-error=deprecated-declarations',
+    '-Wno-error=unused-parameter'
+])
+
 lib_deps += DAO_EXT_DEPS_GRPC
 
 protoc=find_program('protoc')
