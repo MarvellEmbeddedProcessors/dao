@@ -118,6 +118,8 @@ rdma_pem_init(struct rdma_main_cfg_data *rdma_main_cfg)
 	/* Setup pem0 */
 	memset(&pem_dev_conf, 0, sizeof(pem_dev_conf));
 	pem_dev_conf.sdp_inuse = true;
+	if (cfg_prm->termination_enabled)
+		pem_dev_conf.cdev_inuse = 1;
 	/* Get Max number of VFs per PEM*/
 	pem_prm->pem_id = 0;
 	max_vfs = dao_pem_max_vfs_get(pem_prm->pem_id);

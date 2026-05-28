@@ -19,6 +19,50 @@ static uint16_t dev2mem_cnt;
 static uint16_t mem2dev_cnt;
 uint8_t rdma_dma_vchans[RDMA_MAX_DEVS];
 
+static void
+setup_dma_vchan_conf_dev2mem(struct rte_dma_vchan_conf *dma_qconf, bool termination_mode,
+			     uint16_t nb_desc, uint16_t rdma_devid, uint8_t sec_strm_id)
+{
+	memset(dma_qconf, 0, sizeof(*dma_qconf));
+	dma_qconf->nb_desc = nb_desc;
+
+	if (termination_mode) {
+		dma_qconf->direction = RTE_DMA_DIR_MEM_TO_MEM;
+		dma_qconf->domain.type = RTE_DMA_INTER_PROCESS_DOMAIN;
+		dma_qconf->domain.src_handler = sec_strm_id; /* Read */
+	} else {
+		dma_qconf->direction = RTE_DMA_DIR_DEV_TO_MEM;
+		dma_qconf->src_port.pcie.coreid = 0;
+		dma_qconf->src_port.pcie.vfen = 1;
+		dma_qconf->src_port.pcie.vfid = rdma_devid + 1;
+		dma_qconf->src_port.port_type = RTE_DMA_PORT_PCIE;
+	}
+}
+
+static void
+setup_dma_vchan_conf_mem2dev(struct rte_dma_vchan_conf *dma_qconf, bool termination_mode,
+			     uint16_t nb_desc, uint16_t rdma_devid, struct rte_mempool *pool,
+			     uint8_t sec_strm_id)
+{
+	memset(dma_qconf, 0, sizeof(*dma_qconf));
+	dma_qconf->nb_desc = nb_desc;
+
+	if (termination_mode) {
+		dma_qconf->direction = RTE_DMA_DIR_MEM_TO_MEM;
+		dma_qconf->domain.type = RTE_DMA_INTER_PROCESS_DOMAIN;
+		dma_qconf->domain.dst_handler = sec_strm_id; /* write */
+	} else {
+		dma_qconf->direction = RTE_DMA_DIR_MEM_TO_DEV;
+		dma_qconf->dst_port.pcie.coreid = 0;
+		dma_qconf->dst_port.pcie.vfen = 1;
+		dma_qconf->dst_port.pcie.vfid = rdma_devid + 1;
+		dma_qconf->dst_port.port_type = RTE_DMA_PORT_PCIE;
+	}
+
+	if (pool)
+		dma_qconf->auto_free.m2d.pool = pool;
+}
+
 /* XXX - DAO_DMA
  * Currently facing an issue where DMA is not working and there is kernel
  * error log getting printed.
@@ -78,13 +122,10 @@ rdma_dma_init(struct rdma_main_cfg_data *rdma_main_cfg)
 			rdma_devid -= 1;
 			rdma_dma_vchans[rdma_devid] = vchan;
 
-			memset(&dma_qconf, 0, sizeof(dma_qconf));
-			dma_qconf.direction = RTE_DMA_DIR_DEV_TO_MEM;
-			dma_qconf.nb_desc = cfg_prm->dma_nb_desc ? cfg_prm->dma_nb_desc : 2048;
-			dma_qconf.src_port.pcie.coreid = 0; /* TODO PEM id */
-			dma_qconf.src_port.pcie.vfen = 1;
-			dma_qconf.src_port.pcie.vfid = rdma_devid + 1;
-			dma_qconf.src_port.port_type = RTE_DMA_PORT_PCIE;
+			setup_dma_vchan_conf_dev2mem(&dma_qconf, cfg_prm->termination_enabled,
+						     cfg_prm->dma_nb_desc ? cfg_prm->dma_nb_desc :
+									    2048,
+						     rdma_devid, cfg_prm->sec_strm_id);
 
 			dao_dbg("Devid: %u, vchan: %u vfid %u", dma_devid, vchan,
 				dma_qconf.src_port.pcie.vfid);
@@ -123,20 +164,17 @@ rdma_dma_init(struct rdma_main_cfg_data *rdma_main_cfg)
 				dao_err("No rdma device found for vchan %u", vchan);
 			rdma_devid -= 1;
 			rdma_dma_vchans[rdma_devid] = vchan;
-			memset(&dma_qconf, 0, sizeof(dma_qconf));
-			dma_qconf.direction = RTE_DMA_DIR_MEM_TO_DEV;
-			dma_qconf.nb_desc = cfg_prm->dma_nb_desc ? cfg_prm->dma_nb_desc : 2048;
-			dma_qconf.dst_port.pcie.coreid = 0; /* TODO PEM id */
-			dma_qconf.dst_port.pcie.vfen = 1;
-			dma_qconf.dst_port.pcie.vfid = rdma_devid + 1;
-			dma_qconf.dst_port.port_type = RTE_DMA_PORT_PCIE;
 
-			/* Provide mempool for auto free after mem2dev */
-			/* TODO: Support per port pool. */
-			dma_qconf.auto_free.m2d.pool = rdma_main_cfg->eth_prm->pktmbuf_pool[1][0];
-			if (dma_qconf.auto_free.m2d.pool == NULL)
-				dma_qconf.auto_free.m2d.pool =
-					rdma_main_cfg->eth_prm->pktmbuf_pool[0][0];
+			/* Get pool for auto free */
+			struct rte_mempool *pool = rdma_main_cfg->eth_prm->pktmbuf_pool[1][0];
+
+			if (pool == NULL)
+				pool = rdma_main_cfg->eth_prm->pktmbuf_pool[0][0];
+
+			setup_dma_vchan_conf_mem2dev(&dma_qconf, cfg_prm->termination_enabled,
+						     cfg_prm->dma_nb_desc ? cfg_prm->dma_nb_desc :
+									    2048,
+						     rdma_devid, pool, cfg_prm->sec_strm_id);
 			if (rte_dma_vchan_setup(dma_devid, vchan, &dma_qconf) != 0)
 				DAO_ERR_GOTO(-EINVAL, fail, "Error with outbound chan config\n");
 

@@ -460,6 +460,12 @@ main(int argc, char *argv[])
 		dao_warn("Failed to initialize link status monitoring: %d", rc);
 
 	/* Setting up DMA devices */
+	if (rdma_main_cfg->cfg_prm->termination_enabled) {
+		rc = dao_pem_get_sec_strm_id(&rdma_main_cfg->cfg_prm->sec_strm_id);
+		if (rc != 0)
+			DAO_ERR_GOTO(rc, close_eth, "Failed to get secondary stream id");
+	}
+	dao_dbg("Sec stream id %u", rdma_main_cfg->cfg_prm->sec_strm_id);
 	rc = rdma_dma_init(rdma_main_cfg);
 	if (rc)
 		DAO_ERR_GOTO(rc, close_eth, "Failed to initialize DMA devices");

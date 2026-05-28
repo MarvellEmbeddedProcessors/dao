@@ -54,6 +54,10 @@ typedef struct rdma_config_param {
 	uint16_t dma_nb_desc;
 	/* Disable congestion control globally (baseline CC). 0=enabled(default),1=disabled */
 	bool disable_cc;
+	/* Enable termination mode */
+	bool termination_enabled;
+	/* secondary stream id */
+	uint8_t sec_strm_id;
 } rdma_config_param_t;
 
 /* display usage */

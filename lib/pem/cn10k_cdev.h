@@ -17,7 +17,7 @@ struct cn10k_cdev_device {
 	size_t size;         /* Total size */
 	size_t size_per_dev; /* size per device */
 	uint8_t sec_strm_id; /* Secondary stream ID */
-	uint16_t max_vfs;    /* Number of virtual functions */
+	uint8_t max_vfs;     /* Number of virtual functions */
 };
 
 /**

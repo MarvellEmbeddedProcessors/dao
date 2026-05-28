@@ -26,6 +26,7 @@
 #define CMD_LINE_OPT_DMA_FLUSH_THR      "dma-flush-thr"
 #define CMD_LINE_OPT_DMA_NB_DESC        "dma-nb-desc"
 #define CMD_LINE_OPT_DISABLE_CC         "disable-cc"
+#define CMD_LINE_OPT_ENABLE_TERMINATION "enable-termination"
 
 static const char short_options[] = "p:" /* portmask */
 				    "P"  /* promiscuous */
@@ -50,6 +51,7 @@ enum {
 	CMD_LINE_OPT_PARSE_DMA_FLUSH_THR,
 	CMD_LINE_OPT_PARSE_DMA_NB_DESC,
 	CMD_LINE_OPT_PARSE_DISABLE_CC,
+	CMD_LINE_OPT_PARSE_ENABLE_TERMINATION,
 };
 
 enum fld_type {
@@ -71,6 +73,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_DMA_FLUSH_THR, 1, 0, CMD_LINE_OPT_PARSE_DMA_FLUSH_THR},
 	{CMD_LINE_OPT_DMA_NB_DESC, 1, 0, CMD_LINE_OPT_PARSE_DMA_NB_DESC},
 	{CMD_LINE_OPT_DISABLE_CC, 0, 0, CMD_LINE_OPT_PARSE_DISABLE_CC},
+	{CMD_LINE_OPT_ENABLE_TERMINATION, 0, 0, CMD_LINE_OPT_PARSE_ENABLE_TERMINATION},
 	{NULL, 0, 0, 0}};
 
 /* display usage */
@@ -100,7 +103,8 @@ rdma_print_usage(const char *prgname)
 		"  --enable-graph-stats: Enable graph statistics\n\n"
 		"  --dma-flush-thr N : DMA flush threshold per vchan (1-15, default from library)\n"
 		"  --dma-nb-desc N   : DMA vchan ring descriptors (default 2048)\n\n"
-		"  --disable-cc      : Disable RDMA congestion control (ECN/CNP)\n\n",
+		"  --disable-cc      : Disable RDMA congestion control (ECN/CNP)\n\n"
+		"  --enable-termination : Enable termination mode\n\n",
 		prgname);
 }
 
@@ -279,6 +283,7 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 	cfg_prm->dma_flush_thr = 0;
 	cfg_prm->dma_nb_desc = 2048; /* default */
 	cfg_prm->disable_cc = false;
+	cfg_prm->termination_enabled = false;
 	while ((opt = getopt_long(argc, argvopt, short_options, lgopts, &option_index)) != EOF) {
 		switch (opt) {
 		/* portmask */
@@ -403,6 +408,9 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 		case CMD_LINE_OPT_PARSE_DISABLE_CC:
 			cfg_prm->disable_cc = true;
 			dao_info("Congestion control disabled by CLI");
+			break;
+		case CMD_LINE_OPT_PARSE_ENABLE_TERMINATION:
+			cfg_prm->termination_enabled = true;
 			break;
 		default:
 			rdma_print_usage(prgname);
