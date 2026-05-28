@@ -143,9 +143,9 @@ jobs:
           sudo apt-get install -y liblzma-dev libxml2-dev libzstd-dev nettle-dev wget lsb-release
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu gh
           python3 -m pip install --upgrade pip
-          python3 -m pip install "sphinx>=7.0.0" \
+          python3 -m pip install "sphinx>=7.0.0,<8.2" \
                                 "pydata-sphinx-theme>=0.16" \
-                                "sphinx-multiversion>=0.2.4" \
+                                "sphinx-multiversion==0.2.4" \
                                 "sphinx-copybutton" \
                                 "sphinx-design"
           DISTRO=ubuntu-`lsb_release -rs`
