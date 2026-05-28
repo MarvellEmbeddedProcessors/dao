@@ -12,6 +12,7 @@
 #include <dao_util.h>
 #include <dao_vfio.h>
 
+#include "cn10k_cdev.h"
 #include "iliad.h"
 
 #define PEM_BAR4_NUM_INDEX         16
@@ -51,10 +52,21 @@ struct pem_region {
 	uint64_t shadow[];
 };
 
+enum cn10k_device_type {
+	CN10K_DEVICE_TYPE_CDEV, /* Character device */
+	CN10K_DEVICE_TYPE_PLAT, /* Platform device */
+};
+
 /* CN10K device structure */
 struct cn10k_device {
-	struct dao_vfio_device sdp_pdev;  /**< SDP device */
-	struct dao_vfio_device bar4_pdev; /**< BAR4 device */
+	enum cn10k_device_type device_type;
+	union {
+		struct {
+			struct dao_vfio_device sdp_pdev;  /**< SDP device */
+			struct dao_vfio_device bar4_pdev; /**< BAR4 device */
+		} plat;
+		struct cn10k_cdev_device cdev;
+	};
 };
 
 struct pem {
@@ -66,6 +78,7 @@ struct pem {
 	uint16_t max_vfs;
 	uint16_t rpvf;
 	bool sdp_inuse;
+	bool cdev_inuse;
 
 	rte_thread_t ctrl_thread;
 	bool ctrl_done;
@@ -76,7 +89,7 @@ struct pem {
 
 	/* Platform-specific device structures */
 	union {
-		struct cn10k_device cn10k; /**< CN10K device (SDP + BAR4) */
+		struct cn10k_device cn10k; /**< CN10K device (SDP + BAR4  or character device)  */
 		struct iliad_device ili;   /**< Iliad device (VFIO or character device) */
 	};
 };

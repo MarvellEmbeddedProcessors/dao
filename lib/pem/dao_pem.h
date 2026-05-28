@@ -35,6 +35,8 @@ struct dao_pem_dev_conf {
 	bool sdp_inuse;
 	/** Number of virtio devices in use. */
 	uint16_t virtio_dev_count;
+	/** Use character device */
+	bool cdev_inuse;
 };
 
 /* End of structure dao_pem_dev_conf. */
@@ -241,5 +243,38 @@ int dao_pem_sdp_reg_write(uint16_t pem_devid, uint64_t offset, uint64_t value);
  *    Zero on success.
  */
 int dao_pem_sdp_reg_read(uint16_t pem_devid, uint64_t offset, uint64_t *value);
+
+/**
+ * PEM firmware ready notify.
+ * Notify the host that firmware is ready
+ *
+ * @param pem_devid
+ *    PEM device id
+ * @return
+ *    Zero on success.
+ */
+int dao_pem_fw_ready_notify(uint16_t pem_devid);
+
+/**
+ * PEM firmware cleanup notify.
+ * Notify the host that firmware is about to cleanup
+ *
+ * @param pem_devid
+ *    PEM device id
+ * @return
+ *    Zero on success.
+ */
+int dao_pem_fw_cleanup_notify(uint16_t pem_devid);
+
+/**
+ * PEM firmware get secondary stream id.
+ * Get the secondary stream id
+ *
+ * @param sec_strm_id
+ *    Pointer to address to write to
+ * @return
+ *    Zero on success.
+ */
+int dao_pem_get_sec_strm_id(uint8_t *sec_strm_id);
 
 #endif /* __INCLUDE_DAO_PEM_H__ */

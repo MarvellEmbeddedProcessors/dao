@@ -5,6 +5,7 @@
 
 #include <dirent.h>
 
+#include "cn10k_cdev.h"
 #include "dao_pem.h"
 #include "dao_platform.h"
 #include "dao_vfio.h"
@@ -15,8 +16,8 @@
 #define DT_PATH            "/proc/device-tree/soc@0"
 #define RVU_SDP_NUM_VF_FMT "/proc/device-tree/soc@0/%s/rvu-sdp@%u/num-sdp-vfs"
 
-#define PEM_DT_PFX_FMT "pem%u-bar4-mem"
-#define PEM_DT_PFX_LEN 13
+#define PEM_DT_PFX_FMT         "pem%u-bar4-mem"
+#define PEM_DT_PFX_LEN         13
 #define PEM_CTRL_POLL_DELAY_US 100
 
 struct pem pem_devices[DAO_PEM_DEV_ID_MAX];
@@ -70,11 +71,43 @@ dt_max_vfs_get(void)
 }
 
 static void *
+cn10k_dev_bar4_base_get(struct cn10k_device *cn10k_dev)
+{
+	if (!cn10k_dev)
+		return NULL;
+
+	switch (cn10k_dev->device_type) {
+	case CN10K_DEVICE_TYPE_PLAT:
+		return cn10k_dev->plat.bar4_pdev.mem[cn10k_dev->plat.bar4_pdev.mbar].addr;
+	case CN10K_DEVICE_TYPE_CDEV:
+		return cn10k_cdev_base_get(&cn10k_dev->cdev);
+	default:
+		return NULL;
+	}
+}
+
+static size_t
+cn10k_dev_bar4_size_get(struct cn10k_device *cn10k_dev)
+{
+	if (!cn10k_dev)
+		return 0;
+
+	switch (cn10k_dev->device_type) {
+	case CN10K_DEVICE_TYPE_PLAT:
+		return cn10k_dev->plat.bar4_pdev.mem[cn10k_dev->plat.bar4_pdev.mbar].len;
+	case CN10K_DEVICE_TYPE_CDEV:
+		return cn10k_cdev_size_get(&cn10k_dev->cdev);
+	default:
+		return 0;
+	}
+}
+
+static void *
 pem_bar4_base_get(struct pem *pem)
 {
 	switch (pem->platform) {
 	case DAO_PLATFORM_CN10K:
-		return pem->cn10k.bar4_pdev.mem[pem->cn10k.bar4_pdev.mbar].addr;
+		return cn10k_dev_bar4_base_get(&pem->cn10k);
 	case DAO_PLATFORM_ILIAD:
 		return iliad_dev_bar4_base_get(&pem->ili);
 	default:
@@ -149,11 +182,21 @@ pem_update_bar4_info(struct pem *pem)
 static void
 cn10k_dev_fini(struct pem *pem)
 {
-	sdp_fini(&pem->cn10k.sdp_pdev);
-	if (pem->cn10k.bar4_pdev.type == DAO_VFIO_DEV_PLATFORM)
-		dao_vfio_device_free(&pem->cn10k.bar4_pdev);
+	struct cn10k_device *cn10k_dev = &pem->cn10k;
 
-	dao_vfio_fini();
+	switch (cn10k_dev->device_type) {
+	case CN10K_DEVICE_TYPE_PLAT:
+		sdp_fini(&pem->cn10k.plat.sdp_pdev);
+		if (pem->cn10k.plat.bar4_pdev.type == DAO_VFIO_DEV_PLATFORM)
+			dao_vfio_device_free(&pem->cn10k.plat.bar4_pdev);
+		dao_vfio_fini();
+		break;
+	case CN10K_DEVICE_TYPE_CDEV:
+		cn10k_cdev_fini(&cn10k_dev->cdev);
+		break;
+	default:
+		break;
+	}
 }
 
 static void
@@ -206,8 +249,9 @@ pem_bar4_pdev_name_get(struct pem *pem, char *pdev_name)
 }
 
 static int
-cn10k_dev_init(struct pem *pem)
+cn10k_plat_dev_init(struct pem *pem)
 {
+	struct cn10k_device *cn10k_dev = &pem->cn10k;
 	char bar4_pdev_name[VFIO_DEV_NAME_MAX_LEN];
 	int rc;
 
@@ -218,17 +262,19 @@ cn10k_dev_init(struct pem *pem)
 	}
 
 	if (pem->pem_id == 0)
-		pem->cn10k.sdp_pdev.prime = 1;
+		cn10k_dev->plat.sdp_pdev.prime = 1;
 
-	rc = sdp_init(&pem->cn10k.sdp_pdev, pem->sdp_inuse);
+	rc = sdp_init(&cn10k_dev->plat.sdp_pdev, pem->sdp_inuse);
 	if (rc < 0) {
 		dao_err("Failed to initialize SDP device");
 		return -1;
 	}
 
 	/* If SDP is exposed as PCIe device, BAR4 is part of it */
-	if (pem->cn10k.sdp_pdev.type == DAO_VFIO_DEV_PCIE) {
-		memcpy(&pem->cn10k.bar4_pdev, &pem->cn10k.sdp_pdev, sizeof(struct dao_vfio_device));
+	if (cn10k_dev->plat.sdp_pdev.type == DAO_VFIO_DEV_PCIE) {
+		memcpy(&cn10k_dev->plat.bar4_pdev, &cn10k_dev->plat.sdp_pdev,
+		       sizeof(struct dao_vfio_device));
+		cn10k_dev->device_type = CN10K_DEVICE_TYPE_PLAT;
 		return 0;
 	}
 
@@ -239,16 +285,42 @@ cn10k_dev_init(struct pem *pem)
 		return -1;
 	}
 
-	rc = dao_vfio_device_setup(bar4_pdev_name, &pem->cn10k.bar4_pdev);
+	rc = dao_vfio_device_setup(bar4_pdev_name, &cn10k_dev->plat.bar4_pdev);
 	if (rc < 0) {
 		dao_err("Failed to initialize PEM BAR4 device");
 		return -1;
 	}
 
-	pem->cn10k.bar4_pdev.mbar = DAO_VFIO_DEV_BAR0;
-	pem->cn10k.bar4_pdev.type = DAO_VFIO_DEV_PLATFORM;
+	cn10k_dev->plat.bar4_pdev.mbar = DAO_VFIO_DEV_BAR0;
+	cn10k_dev->plat.bar4_pdev.type = DAO_VFIO_DEV_PLATFORM;
+	cn10k_dev->device_type = CN10K_DEVICE_TYPE_PLAT;
 
 	return 0;
+}
+
+static int
+cn10k_cdev_dev_init(struct pem *pem)
+{
+	struct cn10k_device *cn10k_dev = &pem->cn10k;
+	int rc;
+
+	rc = cn10k_cdev_init(&cn10k_dev->cdev);
+	if (rc < 0) {
+		dao_err("Failed to initialize CN10K character device");
+		return -1;
+	}
+
+	cn10k_dev->device_type = CN10K_DEVICE_TYPE_CDEV;
+	return 0;
+}
+
+static int
+cn10k_dev_init(struct pem *pem)
+{
+	if (pem->cdev_inuse)
+		return cn10k_cdev_dev_init(pem);
+	else
+		return cn10k_plat_dev_init(pem);
 }
 
 static int
@@ -268,12 +340,12 @@ int
 dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 {
 	struct pem *pem = &pem_devices[pem_devid];
-	uint8_t mbar;
 	size_t sz;
 	void *bar4;
 	int rc;
 
 	pem->pem_id = pem_devid;
+	pem->cdev_inuse = conf->cdev_inuse;
 	pem->platform = dao_platform_detect();
 	if (pem->platform == DAO_PLATFORM_INVALID) {
 		dao_err("Failed to detect platform");
@@ -294,8 +366,7 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 	if (pem->platform == DAO_PLATFORM_ILIAD) {
 		sz = iliad_dev_bar4_size_get();
 	} else {
-		mbar = pem->cn10k.bar4_pdev.mbar;
-		sz = pem->cn10k.bar4_pdev.mem[mbar].len;
+		sz = cn10k_dev_bar4_size_get(&pem->cn10k);
 	}
 
 	/* Clear bar 4 */
@@ -319,8 +390,13 @@ dao_pem_dev_init(uint16_t pem_devid, struct dao_pem_dev_conf *conf)
 		pem->host_pages_per_dev =
 			(sz / pem->host_page_sz) / ILIAD_RESOURCE_DIVISOR(pem->max_vfs);
 	} else {
-		pem->max_vfs = dao_pem_max_vfs_get(pem_devid);
-		pem->host_pages_per_dev = (sz / pem->host_page_sz) / pem->max_vfs;
+		if (pem->cn10k.device_type == CN10K_DEVICE_TYPE_CDEV) {
+			pem->max_vfs = cn10k_cdev_max_vfs_get(&pem->cn10k.cdev);
+			pem->host_pages_per_dev = (sz / pem->host_page_sz) / pem->max_vfs;
+		} else {
+			pem->max_vfs = dao_pem_max_vfs_get(pem_devid);
+			pem->host_pages_per_dev = (sz / pem->host_page_sz) / pem->max_vfs;
+		}
 	}
 	if (!pem->max_vfs)
 		goto err;
@@ -478,10 +554,13 @@ dao_pem_host_page_sz(uint16_t pem_devid)
 static uint8_t
 cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr, uint64_t **ack_addr)
 {
-	struct dao_vfio_device *sdp_pdev = &pem->cn10k.sdp_pdev;
+	struct dao_vfio_device *sdp_pdev = &pem->cn10k.plat.sdp_pdev;
 	int idx, ring_idx;
 	uint64_t reg_val;
 	uint8_t rpvf;
+
+	if (pem->cdev_inuse)
+		return 0;
 
 	reg_val = sdp_reg_read(sdp_pdev, SDP_VF_MBOX_DATA(0));
 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
@@ -515,7 +594,7 @@ static void
 pem_get_host_dev_addrs(struct pem *pem, int vfid, uint64_t **intr_addr, uint64_t **event_addr,
 		       uint64_t **event_state_addr)
 {
-	struct dao_vfio_device *sdp_pdev = &pem->cn10k.sdp_pdev;
+	struct dao_vfio_device *sdp_pdev = &pem->cn10k.plat.sdp_pdev;
 	uint16_t rpvf = pem->rpvf;
 
 	*intr_addr = sdp_reg_addr(sdp_pdev, SDP_RX_OUT_CNTS(vfid * rpvf));
@@ -620,10 +699,15 @@ uint16_t
 dao_pem_max_vfs_get(uint16_t pem_devid)
 {
 	enum dao_platform platform;
+	struct pem *pem;
 	uint16_t max_vfs;
 
 	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
 		return 0;
+
+	pem = &pem_devices[pem_devid];
+	if (pem->max_vfs)
+		return pem->max_vfs;
 
 	platform = dao_platform_detect();
 	if (platform == DAO_PLATFORM_INVALID)
@@ -634,6 +718,12 @@ dao_pem_max_vfs_get(uint16_t pem_devid)
 		return pem_devices[pem_devid].max_vfs ? pem_devices[pem_devid].max_vfs :
 							ILIAD_MAX_DEVS;
 
+	/* If using character device, use IOCTL to get number of vfs */
+	if (platform == DAO_PLATFORM_CN10K && pem->cdev_inuse) {
+		if (cn10k_cdev_max_vfs_get_early(&max_vfs) == 0 && max_vfs > 0)
+			return max_vfs;
+		return 1;
+	}
 	max_vfs = dt_max_vfs_get();
 	if (max_vfs != 1)
 		max_vfs >>= 1;
@@ -657,9 +747,10 @@ dao_pem_sdp_reg_write(uint16_t pem_devid, uint64_t offset, uint64_t value)
 		return -ENODEV;
 	}
 
-	/* Write to SDP register via the PEM's SDP device */
-	dao_dbg("Writing to SDP register: offset=0x%lx, value=0x%lx", offset, value);
-	sdp_reg_write(&pem->cn10k.sdp_pdev, offset, value);
+	if (pem->cdev_inuse)
+		return 0;
+
+	sdp_reg_write(&pem->cn10k.plat.sdp_pdev, offset, value);
 
 	return 0;
 }
@@ -685,9 +776,84 @@ dao_pem_sdp_reg_read(uint16_t pem_devid, uint64_t offset, uint64_t *value)
 		return -ENODEV;
 	}
 
-	/* Read from SDP register via the PEM's SDP device */
-	*value = sdp_reg_read(&pem->cn10k.sdp_pdev, offset);
-	dao_dbg("Reading from SDP register: offset=0x%lx, value=0x%lx", offset, *value);
+	if (pem->cdev_inuse)
+		return -EINVAL;
+
+	*value = sdp_reg_read(&pem->cn10k.plat.sdp_pdev, offset);
 
 	return 0;
+}
+
+uint8_t dao_pem_sec_strm_id_get(uint16_t pem_devid);
+void dao_pem_cdev_mode_set(uint16_t pem_devid, bool is_cdev_pem);
+
+uint8_t
+dao_pem_sec_strm_id_get(uint16_t pem_devid)
+{
+	struct pem *pem;
+
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
+		return 0;
+
+	pem = &pem_devices[pem_devid];
+	if (pem->platform != DAO_PLATFORM_CN10K || pem->cn10k.device_type != CN10K_DEVICE_TYPE_CDEV)
+		return 0;
+
+	return cn10k_cdev_sec_strm_id_get(&pem->cn10k.cdev);
+}
+
+void
+dao_pem_cdev_mode_set(uint16_t pem_devid, bool is_cdev_pem)
+{
+	if (pem_devid < DAO_PEM_DEV_ID_MAX)
+		pem_devices[pem_devid].cdev_inuse = is_cdev_pem;
+}
+
+int
+dao_pem_fw_ready_notify(uint16_t pem_devid)
+{
+	struct pem *pem;
+
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
+		return -EINVAL;
+
+	pem = &pem_devices[pem_devid];
+	if (pem->platform != DAO_PLATFORM_CN10K || !pem->cdev_inuse)
+		return 0;
+	if (pem->cn10k.device_type != CN10K_DEVICE_TYPE_CDEV)
+		return 0;
+
+	if (pem->cn10k.cdev.fd < 0)
+		return -ENODEV;
+
+	return cn10k_cdev_fw_ready_notify(&pem->cn10k.cdev);
+}
+
+int
+dao_pem_fw_cleanup_notify(uint16_t pem_devid)
+{
+	struct pem *pem;
+
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
+		return -EINVAL;
+
+	pem = &pem_devices[pem_devid];
+	if (pem->platform != DAO_PLATFORM_CN10K || !pem->cdev_inuse)
+		return 0;
+	if (pem->cn10k.device_type != CN10K_DEVICE_TYPE_CDEV)
+		return 0;
+
+	if (pem->cn10k.cdev.fd < 0)
+		return -ENODEV;
+
+	return cn10k_cdev_fw_cleanup_notify(&pem->cn10k.cdev);
+}
+
+int
+dao_pem_get_sec_strm_id(uint8_t *sec_strm_id)
+{
+	if (!sec_strm_id)
+		return -EINVAL;
+
+	return cn10k_cdev_sec_strm_id_get_early(sec_strm_id);
 }

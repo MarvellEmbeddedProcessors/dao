@@ -82,7 +82,7 @@ pts_rdma_dev_caps_populate(struct pts_rdma_dev *dev, volatile uint8_t *base)
 	cap_end = PTS_RDMA_DEV_PCI_CAP_CFG_OFFSET;
 
 	/* Populate notify cap */
-	dao_dbg("[dev %u] virtio_notify_base@%p, offset %u", dev->dev_id, (void *)dev->notify_base,
+	dao_dbg("[dev %u] rdma_notify_base@%p, offset %u", dev->dev_id, (void *)dev->notify_base,
 		notify_base);
 	off = dev->notify_off_mltpr;
 	dao_dev_memset((volatile void *)dev->notify_base, 0, dev->max_queues * off);

@@ -9,7 +9,8 @@ sources = files(
 	'pem.c',
 	'sdp.c',
 	'iliad.c',
-	'iliad_cdev.c'
+	'iliad_cdev.c',
+	'cn10k_cdev.c'
 )
 
 headers = files(
