@@ -60,6 +60,14 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
+| Modex EXP      | 17 - 1024 bytes  |
+|                +------------------+
+|                | Encrypt, decrypt |
++----------------+------------------+
+| Modex CRT      | 34 - 1024 bytes  |
+|                +------------------+
+|                | Encrypt, decrypt |
++----------------+------------------+
 | ECDSA          | P-192, P-224,    |
 |                | P-256, P-384,    |
 |                | P-521 curves     |
@@ -462,6 +470,8 @@ The following APIs are used to enqueue asymmetric cryptographic operations:
 
 #. ``dao_liquid_crypto_enq_op_pkcs1v15enc`` : Enqueue PKCS1v15 encryption operation.
 #. ``dao_liquid_crypto_enq_op_pkcs1v15dec`` : Enqueue PKCS1v15 decryption operation.
+#. ``dao_liquid_crypto_enq_op_modex_exp`` : Enqueue modular exponentiation operation.
+#. ``dao_liquid_crypto_enq_op_modex_crt`` : Enqueue modular exponentiation CRT operation.
 #. ``dao_liquid_crypto_enq_op_pkcs1v15enc_crt`` : Enqueue PKCS1v15 CRT encryption operation.
 #. ``dao_liquid_crypto_enq_op_pkcs1v15dec_crt`` : Enqueue PKCS1v15 CRT decryption operation.
 #. ``dao_liquid_crypto_enq_op_ecdsa_sign`` : Enqueue ECDSA signing operation.
