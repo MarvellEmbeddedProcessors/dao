@@ -5,7 +5,7 @@
 # marvell-dpdk
 ################################################################################
 
-MARVELL_DPDK_VERSION = dpdk-24.11-sdk-release
+MARVELL_DPDK_VERSION = dpdk-25.11-release
 MARVELL_DPDK_SITE = https://github.com/MarvellEmbeddedProcessors/marvell-dpdk.git
 MARVELL_DPDK_SITE_METHOD=git
 MARVELL_DPDK_LICENSE = \
