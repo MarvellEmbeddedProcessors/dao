@@ -75,7 +75,7 @@ struct ca_hostdev_ctx {
 	/* Function pointer to compress device packet handler */
 	int (*compress_dev_pkt_hdlr)(struct dao_eth_trs_pkt *pkt, struct rte_mbuf *mb,
 				     struct comp_dev_inflight_req *infl_req,
-				     struct rte_comp_op **op);
+				     struct rte_comp_op *comp_op);
 };
 
 DAO_STATIC_ASSERT(CA_MAX_ETH_QUEUE <= 64);
