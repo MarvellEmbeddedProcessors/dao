@@ -12,9 +12,9 @@ FIRMWARE_CONFIG = $(call qstrip,$(BR2_PACKAGE_FIRMWARE_CONFIG))
 
 define FIRMWARE_INSTALL_TARGET_CMDS
 	mkdir -p $(TARGET_DIR)/root/lib/firmware/mrvl/cpt
-	rsync -a $(@D)/cpt $(TARGET_DIR)/root/lib/firmware/mrvl/cpt
+	rsync -a $(@D)/cpt/ $(TARGET_DIR)/root/lib/firmware/mrvl/cpt/
 	mkdir -p $(TARGET_DIR)/root/lib/firmware/mrvl/gpio
-	rsync -a $(@D)/gpio $(TARGET_DIR)/root/lib/firmware/mrvl/gpio
+	rsync -a $(@D)/gpio/ $(TARGET_DIR)/root/lib/firmware/mrvl/gpio/
 endef
 
 $(eval $(generic-package))

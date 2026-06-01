@@ -29,7 +29,7 @@ define CP_AGENT_BUILD_CMDS
 endef
 
 define CP_AGENT_INSTALL_TARGET_CMDS
-	$(INSTALL) $(@D)/target/apps/octep_cp_agent/bin/bin/* $(TARGET_DIR)/usr/bin/
+	$(INSTALL) $(@D)/target/apps/octep_cp_agent/bin/* $(TARGET_DIR)/usr/bin/
 	$(INSTALL) $(@D)/target/libs/octep_cp_lib/bin/lib/* $(TARGET_DIR)/usr/lib/
 	$(INSTALL) $(@D)/target/apps/octep_cp_agent/*.cfg $(TARGET_DIR)/etc/
 endef
