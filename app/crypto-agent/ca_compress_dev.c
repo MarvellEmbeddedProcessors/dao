@@ -414,7 +414,7 @@ ca_deq_comp_resp_ring_send_to_host(struct pending_queue *pq)
 }
 
 uint16_t
-ca_compdev_deq(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings)
+ca_compdev_deq(struct pending_queue *pq)
 {
 	struct rte_comp_op *deq_ops[CA_ETHDEV_TX_BURST];
 	uint16_t nb_pending, nb_deq, i, tot_deq = 0;
@@ -431,9 +431,6 @@ ca_compdev_deq(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings)
 		CA_ERR("Compress device pending queue is NULL!!");
 		return 0;
 	}
-
-	RTE_SET_USED(ring_count);
-	RTE_SET_USED(rings);
 
 	lcore_id = rte_lcore_id();
 
@@ -628,7 +625,7 @@ cleanup_chain:
 
 uint8_t
 prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_req,
-		struct rte_comp_op **op, struct rte_mbuf *rx_pkts)
+		struct rte_comp_op *comp_op, struct rte_mbuf *rx_pkts)
 {
 	struct __dao_lc_req_decomp_op *decomp_req_mbuf = NULL;
 	struct __dao_lc_req_comp_op *comp_req_mbuf = NULL;
@@ -636,8 +633,6 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 	struct __dao_lc_req_comp_op *comp_req = NULL;
 	struct rte_mbuf *new_resp_mb = NULL;
 	uint8_t comp_dev_id, lcore_id;
-	struct rte_mempool *mem_pool;
-	struct rte_comp_op *comp_op;
 	void *priv_xform = NULL;
 	uint8_t *ext_buf;
 	uint16_t offset;
@@ -645,20 +640,6 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 
 	lcore_id = rte_lcore_id();
 	comp_dev_id = comp_dev_core_map[lcore_id];
-
-	mem_pool = ca_host_comp_op_mempool_get();
-	if (unlikely(mem_pool == NULL)) {
-		rte_pktmbuf_free(rx_pkts);
-		CA_ERR("Could not get compress op mempool.");
-		return 0;
-	}
-
-	comp_op = rte_comp_op_alloc(mem_pool);
-	if (unlikely(!comp_op)) {
-		rte_pktmbuf_free(rx_pkts);
-		CA_ERR("%s: Could not get comp ops.", __func__);
-		return 0;
-	}
 
 	switch (req->hdr.op_type) {
 	case DAO_ETH_TRS_OP_TYPE_COMPRESS:
@@ -699,7 +680,6 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 		/* Use response mbuf as comp dev destination to avoid copy in deq */
 		comp_op->m_dst = new_resp_mb;
 		comp_op->dst.offset = comp_dev_resp_hdr_sz;
-		*op = comp_op;
 		return 1;
 
 	case DAO_ETH_TRS_OP_TYPE_DECOMPRESS:
@@ -724,7 +704,6 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 		comp_op->src.length = decomp_req->src_len;
 		comp_op->m_dst = new_resp_mb;
 		comp_op->dst.offset = comp_dev_resp_hdr_sz;
-		*op = comp_op;
 		return 1;
 	default:
 		CA_INFO("Invalid DAO ETH opcode %d", req->hdr.op_type);
@@ -829,29 +808,59 @@ enq_to_compress_dev_from_comp_req_ring(struct pending_queue *pq, struct rte_ring
 	struct rte_comp_op *comp_op[CA_ETHDEV_RX_BURST];
 	struct rte_mbuf *mbufs[CA_ETHDEV_RX_BURST];
 	struct comp_dev_inflight_req *infl_req;
+	uint16_t tot_enq = 0, burst, req_count;
 	uint16_t nb_deq, nb_comp_req = 0, i;
 	const uint64_t mask = pq->pq_mask;
 	uint8_t lcore_id, dev_id, idx;
-	uint16_t tot_enq = 0, burst;
+	struct rte_mempool *mem_pool;
 	struct dao_eth_trs_pkt *req;
 	uint64_t head;
+	int nb_ops;
 
 	lcore_id = rte_lcore_id();
 	head = pq->head;
-	nb_deq = rte_ring_dequeue_burst(req_ring, (void **)mbufs, CA_ETHDEV_RX_BURST, NULL);
+	mem_pool = ca_host_comp_op_mempool_get();
+	if (unlikely(mem_pool == NULL)) {
+		CA_ERR("Could not get compress op mempool.");
+		return 0;
+	}
 
+	req_count = rte_ring_count(req_ring);
+	if (unlikely(req_count == 0))
+		return 0;
+
+	/**
+	 * Cap per-iteration work: even if the ring contains more elements,
+	 * dequeue at most CA_ETHDEV_RX_BURST at a time.
+	 */
+	req_count = RTE_MIN(CA_ETHDEV_RX_BURST, req_count);
+	/**
+	 * Allocate rte_comp_op in bulk based on req_count and prepare for
+	 * compress device submission.
+	 * rte_comp_op_bulk_alloc returns 0 if it cant allocate req_count.
+	 * Returns req_count if allocation is success.
+	 */
+	nb_ops = rte_comp_op_bulk_alloc(mem_pool, comp_op, req_count);
+	if (unlikely(nb_ops == 0)) {
+		CA_ERR("Could not bulk alloc %u comp ops.", req_count);
+		return 0;
+	}
+
+	nb_deq = rte_ring_dequeue_burst(req_ring, (void **)mbufs, req_count, NULL);
 	if (nb_deq) {
 		for (i = 0; i < nb_deq; i++) {
 			req = rte_pktmbuf_mtod(mbufs[i], struct dao_eth_trs_pkt *);
 			infl_req = &pq->compdev_req_queue[head];
 			infl_req->ring_id = ring_idx;
-			/* Returns 0 if comp_op preparation fails */
+			/* Returns 0 if comp_op preparation fails (frees comp_op[i]) */
 			if (ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].compress_dev_pkt_hdlr(
-				    req, mbufs[i], infl_req, &comp_op[nb_comp_req]) == 0) {
+				    req, mbufs[i], infl_req, comp_op[i]) == 0) {
 				CA_ERR("Core: %u Compress op prep failed: Ring: %u Packet Index: %u",
 				       lcore_id, ring_idx, i);
 				continue;
 			}
+			if (unlikely(nb_comp_req != i))
+				comp_op[nb_comp_req] = comp_op[i];
 			pending_queue_advance(&head, mask);
 			nb_comp_req++;
 		}
@@ -895,7 +904,7 @@ ca_enq_comp_req_ring_to_compdev(struct pending_queue *pq, uint8_t ring_count, ui
 		ring_idx = rings[nb_rings];
 		req_ring = ca_glb_ctx.compdev_ctx[ring_idx].comp_req_ring[ring_idx];
 		tot_enq += enq_to_compress_dev_from_comp_req_ring(pq, req_ring, ring_idx);
-		tot_deq += ca_compdev_deq(pq, ring_count, rings);
+		tot_deq += ca_compdev_deq(pq);
 	}
 
 	desc_cnt->compdev_deq_cnt = tot_deq;

@@ -52,12 +52,12 @@ uint16_t ca_comp_dev_enq_noop(struct pending_queue *pq, uint8_t ring_count, uint
 typedef uint16_t (*compdev_enq_fn)(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings,
 				   struct dev_desc_cnt *desc_cnt);
 uint8_t prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_req,
-			struct rte_comp_op **op, struct rte_mbuf *rx_pkts);
+			struct rte_comp_op *comp_op, struct rte_mbuf *rx_pkts);
 int host_dev_compressdev_pool_init(uint8_t dev_id, uint32_t comp_op);
 struct rte_mempool *ca_host_comp_dst_bufpool_get(void);
 struct rte_mempool *ca_host_comp_op_mempool_get(void);
 void host_dev_compress_pools_fini(uint8_t dev_id);
-uint16_t ca_compdev_deq(struct pending_queue *pq, uint8_t ring_count, uint8_t *rings);
+uint16_t ca_compdev_deq(struct pending_queue *pq);
 int compress_devs_init(uint32_t nb_desc);
 int decompression_priv_xform_init(void);
 int compression_priv_xforms_init(void);

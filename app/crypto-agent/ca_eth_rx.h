@@ -342,19 +342,18 @@ periodic_print(void)
  */
 static inline int
 process_compdev_pkt(struct dao_eth_trs_pkt *req, struct rte_mbuf *mbuf,
-		    struct comp_dev_inflight_req *infl_req, struct rte_comp_op **comp_op_slot)
+		    struct comp_dev_inflight_req *infl_req, struct rte_comp_op *comp_op)
 {
-	return prepare_comp_op(req, infl_req, comp_op_slot, mbuf);
+	return prepare_comp_op(req, infl_req, comp_op, mbuf);
 }
 
 static inline int
 process_compdev_pkt_noop(struct dao_eth_trs_pkt *req, struct rte_mbuf *mbuf,
-			 struct comp_dev_inflight_req *infl_req, struct rte_comp_op **comp_op_slot)
+			 struct comp_dev_inflight_req *infl_req, struct rte_comp_op *comp_op)
 {
 	RTE_SET_USED(req);
-	RTE_SET_USED(mbuf);
 	RTE_SET_USED(infl_req);
-	RTE_SET_USED(comp_op_slot);
+	rte_comp_op_free(comp_op);
 	rte_pktmbuf_free(mbuf);
 	return 0;
 }
