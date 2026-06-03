@@ -354,6 +354,11 @@ enum dao_lc_comp_op_status {
 	 * Resubmit the operation with larger response buffer.
 	 */
 	DAO_LC_COMP_OP_STATUS_RESP_BUF_SPACE_ISSUE,
+	/**
+	 * Status code to indicate compress device is not enabled during card_init.
+	 * Compress requests will not be processed in this state.
+	 */
+	DAO_LC_COMP_OP_STATUS_DEV_DISABLED,
 };
 
 /**
