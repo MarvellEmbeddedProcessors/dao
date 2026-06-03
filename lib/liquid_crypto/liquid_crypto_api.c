@@ -3817,8 +3817,11 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 			comp_req = &qp->req_queue[lc_hdr->req_idx].compdev;
 			dao_lc_post_process_compdev_resp(comp_req, &res[i], mbuf);
 			break;
-		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
 		case DAO_ETH_TRS_OP_TYPE_COMPRESS_END:
+			memset(&res[i].compdev_res, 0, sizeof(res[i].compdev_res));
+			res[i].compdev_res.status = DAO_LC_COMP_OP_STATUS_DEV_DISABLED;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_END:
 		default:
 			dao_err("Invalid op_type.");
 			break;
