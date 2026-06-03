@@ -250,8 +250,9 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 				cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
 				infl_req->res.cn9k.compcode = DAO_CPT_COMP_GOOD;
 				nb_cpt_bypass++;
-				CA_INFO("Invalid DAO ETH opcode %d", req->hdr.op_type);
-				req->hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_END;
+				CA_INFO("Compress device not enabled. Invalid DAO ETH opcode %d",
+					req->hdr.op_type);
+				req->hdr.op_type = DAO_ETH_TRS_OP_TYPE_COMPRESS_END;
 				pending_queue_advance(&head, pq_mask);
 			}
 			break;
