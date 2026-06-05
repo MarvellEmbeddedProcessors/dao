@@ -1,0 +1,58 @@
+From b3e1f2a4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0 Mon Sep 17 00:00:00 2001
+From: Amit Prakash Shukla <amitprakashs@marvell.com>
+Date: Thu, 5 Jun 2026 14:14:44 +0530
+Subject: [PATCH 3/3] build: add cross-compilation support for rdma-core
+
+Detect cross-build and propagate CC, CMAKE_C_COMPILER,
+CMAKE_SYSTEM_NAME, CMAKE_SYSTEM_PROCESSOR and related flags to
+the underlying CMake build so that rdma-core can be cross-compiled
+for aarch64 from an x86 host.
+
+Signed-off-by: Amit Prakash Shukla <amitprakashs@marvell.com>
+---
+ meson.build | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/meson.build b/meson.build
+index 8798ced6..a1b2c3d4 100644
+--- a/meson.build
++++ b/meson.build
+@@ -48,18 +48,36 @@ if build_host_dir != ''
+     message('Installing rdma-core to: ' + rdma_prefix)
+ endif
+ 
++# Set up cross-compilation environment if needed
++build_env = environment()
++if meson.is_cross_build()
++    cc = meson.get_compiler('c')
++    cc_cmd = cc.cmd_array()
++    cc_exe = cc_cmd[cc_cmd.length() - 1]
++    build_env.set('CC', cc_exe)
++    cmake_cross_flags = '-DCMAKE_C_COMPILER=' + cc_exe
++    cmake_cross_flags += ' -DCMAKE_SYSTEM_NAME=Linux'
++    cmake_cross_flags += ' -DCMAKE_SYSTEM_PROCESSOR=' + host_machine.cpu_family()
++    cmake_cross_flags += ' -DNO_PYVERBS=1'
++    cmake_cross_flags += ' -DENABLE_RESOLVE_NEIGH=0'
++    build_env.set('EXTRA_CMAKE_FLAGS', cmake_cross_flags)
++    message('Cross-compiling rdma-core with CC=' + cc_exe)
++endif
++
+ # Build rdma-core with prefix if provided
+ if rdma_prefix != ''
+     run_command(
+         'bash',
+         build_script,
+         rdma_prefix,
++        env: build_env,
+         check: true
+     )
+ else
+     run_command(
+         'bash',
+         build_script,
++        env: build_env,
+         check: true
+     )
+ endif
+-- 
+2.43.0

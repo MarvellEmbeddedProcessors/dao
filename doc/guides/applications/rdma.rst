@@ -361,9 +361,18 @@ Required versions:
 Steps to Compile DAO
 ~~~~~~~~~~~~~~~~~~~~
 Build on an x86 host and copy the resulting binaries to the OCTEON DUT. The
-``octep_rdma`` kernel module must be built with ``-DCONFIG_OCTEP_RDMA_OCTTERM``,
-which selects termination mode. ``<linux-6.6-kernel-path>`` must point to the
-OCTEON Linux 6.6 kernel source tree.
+``-Drdma_build=true`` option enables a unified cross-compilation that builds
+``rdma-core`` (libibverbs, librdmacm, octep_rdma provider), the ``octep_rdma``
+kernel module (with ``-DCONFIG_OCTEP_RDMA_OCTTERM`` for termination mode), and
+``dao-rdma_graph`` in a single step. ``<linux-6.6-kernel-path>`` must point to
+the OCTEON Linux 6.6 kernel source tree.
+
+.. note::
+   Meson version 1.8.0 or higher is required for the RDMA cross-compilation.
+
+   .. code-block:: bash
+
+      pip3 install meson==1.8.0
 
 .. code-block:: bash
 
@@ -375,17 +384,18 @@ OCTEON Linux 6.6 kernel source tree.
    cd dao
    git checkout dao-devel
 
-   # Cross-compile DAO (firmware / dao-rdma_graph)
+   # Cross-compile DAO with rdma-core, octep_rdma kmod and dao-rdma_graph
    meson setup build --buildtype=debug --cross=config/arm64_cn10k_linux_gcc \
-     -Denable_docs=false -Dc_args='-ggdb3' --prefer-static --werror
+     -Denable_docs=false -Dc_args='-ggdb3' --prefer-static --werror \
+     -Drdma_build=true -Dkernel_dir=<linux-6.6-kernel-path>
    ninja -C build
 
-   # Cross-compile the octep_rdma kmod in termination mode
-   make -C <linux-6.6-kernel-path> M=$PWD/kmod/rdma/octep_rdma \
-     ARCH=arm64 CROSS_COMPILE=aarch64-marvell-linux-gnu- \
-     MODULE_CFLAGS="-DCONFIG_OCTEP_RDMA_OCTTERM" modules
+   # Build artifacts:
+   #   Firmware:      build/app/dao-rdma_graph
+   #   Kernel module: build/kmod/rdma/octep_rdma/octep-rdma.ko
+   #   rdma-core:     subprojects/rdma-core/build/lib/ (libibverbs, librdmacm, provider)
 
-   # Copy the firmware (dao-rdma_graph) and octep-rdma.ko to the DUT
+   # Copy firmware, kmod and rdma-core libraries to the DUT
 
 The following steps are performed on the OCTEON DUT.
 

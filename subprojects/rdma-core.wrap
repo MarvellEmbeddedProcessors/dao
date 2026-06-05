@@ -2,4 +2,4 @@
 url = https://github.com/MarvellEmbeddedProcessors/marvell-rdma-core.git
 revision = rdma-core-57.0-devel
 depth = 1
-diff_files = rdma-core-patches/0001-build-add-prefix-installation-support-to-build.patch, rdma-core-patches/0002-build-add-basic-meson-support-for-rdma-core.patch
+diff_files = rdma-core-patches/0001-build-add-prefix-installation-support-to-build.patch, rdma-core-patches/0002-build-add-basic-meson-support-for-rdma-core.patch, rdma-core-patches/0003-build-add-cross-compilation-support-for-rdma-core.patch

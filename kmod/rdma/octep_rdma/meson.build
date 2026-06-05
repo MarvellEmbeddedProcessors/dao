@@ -23,7 +23,7 @@ octep_rdma_sources = files(
 octep_rdma_extra_args = []
 if host_machine.cpu_family() == 'aarch64'
   octep_rdma_sources += files('octterm_cdev.c')
-  octep_rdma_extra_args += ['MODULE_CFLAGS=-DCONFIG_OCTEP_RDMA_OCTTERM']
+  octep_rdma_extra_args += ['MODULE_CFLAGS=-DCONFIG_OCTEP_RDMA_OCTTERM -I' + kernel_build_dir + '/include/uapi']
 else
   octep_rdma_sources += files(
 		'octep_ep.c',
