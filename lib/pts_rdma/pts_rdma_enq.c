@@ -756,7 +756,6 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	struct pts_rdma_qp_rq *rq = &qp->rq;
 	uintptr_t desc_base = (uintptr_t)rq->sd_desc_base;
 	struct pts_rdma_cq_data *cq_data;
-	struct dao_pts_rdma_cqe stack_cqe;
 	struct dao_pts_rdma_cqe *cqe;
 	uint16_t ci, pi, q_sz;
 	uint16_t rqe_slots;
@@ -794,18 +793,8 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
 #endif
 
-	if (unlikely(qp->is_mgmt)) {
-		memset(&stack_cqe, 0, sizeof(stack_cqe));
-		cqe = &stack_cqe;
-		cqe->opcode = *RQ_DESC_PTR_OFF(desc_base, ci, 4);
-	} else {
-		cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
-		if (unlikely(qp->qp_id == 1))
-			cqe->opcode = *RQ_DESC_PTR_OFF(desc_base, ci, 4);
-	}
+	cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
 	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);
-	cqe->byte_len = len;
-	cqe->ibqp = qp->ibqp;
 
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
 	ci = desc_off_add(ci, rqe_slots, q_sz);
