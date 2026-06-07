@@ -18,6 +18,11 @@
 #define RDMA_REQUESTER_POSTPONED_RC   1
 #define RDMA_MAX_ENQ_BURST            64
 
+/* RC emitted nothing (parked/dummy): input mbuf must not be forwarded. Unlike a
+ * 0 return (MGMT/UD) where n_segs==0 means forward the input in place.
+ */
+#define RDMA_TX_PROC_CONSUMED 2
+
 enum rdm_resp_ret {
 	RDMA_RESPONDER_DONE = 1,
 	RDMA_RESPONDER_MBUF_DROP,
@@ -85,7 +90,7 @@ typedef struct rdma_cb {
 
 int dao_rdma_rx_process(struct rte_mbuf **mbuf, uint16_t rx_queue, uint32_t *qpn, int devid);
 int dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
-			uint16_t *n_mbufs);
+			uint16_t *n_mbufs, uint16_t burst_limit);
 int dao_rdma_get_pvt_len(void);
 /* Initialize RDMA library; disable_cc=1 disables baseline congestion control for all new QPs */
 int dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport);

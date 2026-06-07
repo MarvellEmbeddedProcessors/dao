@@ -230,7 +230,8 @@ rdma_requester_error2(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 }
 
 static inline int
-dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t *n_mbufs)
+dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t *n_mbufs,
+				uint16_t burst_limit)
 {
 	int ret;
 	bool m_segs;
@@ -271,7 +272,7 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 		rmbuf = next_r;
 		qp->req.cur_mbuf = rmbuf;
 		(*n_mbufs)++;
-		if (RDMA_MAX_ENQ_BURST <= *n_mbufs)
+		if (burst_limit <= *n_mbufs)
 			break;
 	}
 
@@ -280,7 +281,7 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 
 static inline int
 rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mbuf **mbufs,
-			uint16_t *n_mbufs)
+			uint16_t *n_mbufs, uint16_t burst_limit)
 {
 	int ret;
 	int nb = 1;
@@ -292,8 +293,19 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
+	/*
+	 * A burst-limited READ reply in progress takes priority. Resume on its
+	 * dummy trigger; on a new D2M completion in the same run, flush it first
+	 * since the preprocess below memsets the read_reply WQE.
+	 */
+	if (qp->resp.resp_cur_rmbuf) {
+		if (mbuf == qp->resp.resp_dummy_mbuf)
+			return rdma_process_read_reply_remaining(qp, mbufs, n_mbufs, burst_limit);
+		rdma_read_reply_flush_all(qp, mbufs, n_mbufs);
+	}
+
 	if (wqe && wqe->state == wqe_state_processing)
-		return dao_rdma_process_remaining_segs(qp, mbufs, n_mbufs);
+		return dao_rdma_process_remaining_segs(qp, mbufs, n_mbufs, burst_limit);
 
 	/* Handle scheduled trigger for remaining requester segments */
 	if (mbuf == qp->req.dummy_mbuf)
@@ -307,7 +319,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		return -1;
 	}
 	if (qp->resp.read_reply.n_rdma_segs) {
-		ret = rdma_process_read_reply(qp, mbuf, mbufs, n_mbufs);
+		ret = rdma_process_read_reply(qp, mbuf, mbufs, n_mbufs, burst_limit);
 		if (ret < 0) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL);
@@ -347,7 +359,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		mbufs[*n_mbufs] = rmbuf->mbuf;
 		(*n_mbufs)++;
 		qp->req.cur_mbuf = next_r;
-		if (RDMA_MAX_ENQ_BURST <= *n_mbufs)
+		if (burst_limit <= *n_mbufs)
 			break;
 		rmbuf = next_r;
 	}
@@ -358,7 +370,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 
 int
 dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
-		    uint16_t *n_mbufs)
+		    uint16_t *n_mbufs, uint16_t burst_limit)
 {
 	int ret;
 	bool flag = false;
@@ -382,13 +394,20 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 	if (qp->type == RDMA_QPT_RC) {
 		if (!qp->req.dummy_mbuf)
 			qp->req.dummy_mbuf = rte_pktmbuf_alloc(mbuf->pool);
-		ret = rdma_process_rc_packets(qp, mbuf, mbufs, n_mbufs);
+		if (!qp->resp.resp_dummy_mbuf)
+			qp->resp.resp_dummy_mbuf = rte_pktmbuf_alloc(mbuf->pool);
+		if (unlikely(!qp->req.dummy_mbuf || !qp->resp.resp_dummy_mbuf))
+			goto error;
+		ret = rdma_process_rc_packets(qp, mbuf, mbufs, n_mbufs, burst_limit);
 		if (ret < 0) {
 			RDMA_INC_QP_COUNTER(lcore_id, devid, qp_id,
 					    RDMA_TX_QP_TX_PROC_RC_PKT_PROCESS_FAIL);
 			goto error;
 		}
 		qp->req.dummy_mbuf->port = RTE_MAX_ETHPORTS + devid;
+		qp->resp.resp_dummy_mbuf->port = RTE_MAX_ETHPORTS + devid;
+		if (*n_mbufs == 0)
+			return RDMA_TX_PROC_CONSUMED;
 	} else if (unlikely(qp->type == RDMA_QPT_MGMT)) {
 		wqe.wr = rdma_tx_priv_wr(mbuf);
 		wqe.status = RDMA_WC_SUCCESS;
@@ -664,6 +683,10 @@ dao_is_qp_stalled(uint32_t qp_id, int devid)
 	if (qp && (qp->req.cur_wqe == STAILQ_FIRST(&qp->req.wqe_head)))
 		qp->attr.sq_draining = 0;
 
+	/* Always let an in-progress READ reply drain to free its WQE/DMA credit. */
+	if (qp && qp->resp.resp_cur_rmbuf)
+		return 1;
+
 	if (unlikely(!qp || qp->attr.sq_draining || !qp->req.read_rq_bal ||
 		     qp->req.in_retransmission || (qp->req.unacked_window <= 0)))
 		return 0;
@@ -687,7 +710,11 @@ dao_rdma_need_qp_schedule(uint32_t qp_id, int devid)
 	if (qp->type != RDMA_QPT_RC)
 		return NULL;
 
-	/* Check if we have pending segments to send */
+	/* Responder READ reply has priority; finish it before the requester. */
+	if (qp->resp.resp_cur_rmbuf)
+		return qp->resp.resp_dummy_mbuf;
+
+	/* Check if we have pending requester segments to send */
 	if (qp->req.cur_wqe && qp->req.cur_wqe->n_rdma_segs && qp->req.cur_mbuf)
 		return qp->req.dummy_mbuf;
 

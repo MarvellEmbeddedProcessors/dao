@@ -420,7 +420,6 @@ prepare_ack_packet(struct rdma_qp *qp, int opcode, int payload, uint32_t psn, ui
 	return mbuf;
 }
 
-/* Removed obsolete #if 0 rdma_recheck_mr block per style warning */
 static inline int
 read_next_opcode(uint32_t opcode, bool m_segs)
 {
@@ -442,20 +441,17 @@ read_next_opcode(uint32_t opcode, bool m_segs)
 
 static inline int
 rdma_prep_read_ack(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rdma_ack *ack, bool m_segs,
-		   int opcode)
+		   int opcode, uint32_t *psn)
 {
 	opcode = read_next_opcode(opcode, m_segs);
-	prepare_ack_packet_with_mbuf(qp, opcode, mbuf->data_len, ack->psn, ack->aeth_syndrome, mbuf,
+	prepare_ack_packet_with_mbuf(qp, opcode, mbuf->data_len, *psn, ack->aeth_syndrome, mbuf,
 				     ack->msn, true);
-	ack->psn++;
+	(*psn)++;
 
 	return opcode;
 }
 
-/*
- * Free all mbufs in wqe->mbuf_list EXCEPT the first one (which is owned by caller).
- * This handles cleanup when dropping a read reply to prevent memory leaks.
- */
+/* Free all mbufs in wqe->mbuf_list except the first (owned by the caller). */
 static inline void
 rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
 {
@@ -471,34 +467,131 @@ rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
 		for (seg = rmbuf->mbuf; seg; seg = seg->next)
 			rte_mbuf_refcnt_update(seg, -1);
 
-		/* Skip the first mbuf - it is owned by the caller */
 		if (!first && rmbuf->mbuf)
 			rte_pktmbuf_free(rmbuf->mbuf);
 		first = false;
 		rmbuf = next_rmbuf;
 	}
-	/* memset zeros everything including mbuf_list head pointers */
 	memset(wqe, 0, sizeof(*wqe));
+}
+
+/*
+ * Complete an in-progress READ reply: drop the READ ack, drain non-READ acks
+ * queued behind it, release the head, and restore the responder credit.
+ */
+static inline void
+rdma_read_reply_finish(struct rdma_qp *qp)
+{
+	struct rdma_ack *ack;
+	struct rte_mbuf *head = qp->resp.read_reply.read_mbuf;
+
+	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
+	if (likely(ack))
+		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
+
+	/* Drop the emit pin and free the last ref so the head (and any chained
+	 * ICRC tail) returns to the pool; refcnt_update alone never frees it.
+	 */
+	if (likely(head)) {
+		rte_mbuf_refcnt_update(head, -1);
+		rte_pktmbuf_free(head);
+	}
+
+	qp->resp.resp_cur_rmbuf = NULL;
+	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
+	STAILQ_INIT(&qp->resp.read_reply.mbuf_list);
+	qp->resp.resp_read_rq_bal++;
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RSP_COMPLETE);
+}
+
+/*
+ * Emit READ reply segments from @rmbuf. With @burst_limited, stop after
+ * @burst_limit packets and save the resume cursor/opcode/psn; otherwise emit
+ * all. Finishes the reply once its last segment is emitted.
+ */
+static inline void
+rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_mbufs *rmbuf, struct rte_mbuf **mbufs,
+		     uint16_t *n_mbufs, bool burst_limited, uint16_t burst_limit)
+{
+	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
+	struct rdma_ack *ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
+	int opcode = qp->resp.read_reply_opcode;
+	uint32_t psn = qp->resp.read_reply_psn;
+	uint16_t read_pkt_start = *n_mbufs;
+	bool m_segs;
+
+	while (rmbuf) {
+		struct rdma_mbufs *next_rmbuf = STAILQ_NEXT(rmbuf, next);
+
+		if (burst_limited && burst_limit <= (*n_mbufs - read_pkt_start)) {
+			qp->resp.resp_cur_rmbuf = rmbuf;
+			qp->resp.read_reply_opcode = opcode;
+			qp->resp.read_reply_psn = psn;
+			RDMA_DBG_ADD_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						RDMA_TX_QP_READ_RSP_PKT_SENT,
+						*n_mbufs - read_pkt_start);
+			return;
+		}
+
+		/* DCQCN RP pacing for READ replies; flush_all bypasses so the
+		 * read_reply WQE slot can always free. On postpone, park the cursor
+		 * and let the dummy reschedule resume once the TSC gate opens.
+		 */
+		if (burst_limited && qp->cc.enabled &&
+		    dcqcn_rp_pacing_check(&qp->cc,
+					  rmbuf->mbuf->pkt_len + DCQCN_ROCEV2_HDR_OVERHEAD)) {
+			qp->resp.resp_cur_rmbuf = rmbuf;
+			qp->resp.read_reply_opcode = opcode;
+			qp->resp.read_reply_psn = psn;
+			RDMA_DBG_ADD_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						RDMA_TX_QP_READ_RSP_PKT_SENT,
+						*n_mbufs - read_pkt_start);
+			return;
+		}
+
+		m_segs = wqe->n_rdma_segs > 1 ? true : false;
+		opcode = rdma_prep_read_ack(qp, rmbuf->mbuf, ack, m_segs, opcode, &psn);
+		wqe->n_rdma_segs--;
+
+		if (rmbuf->mbuf == ack->mbuf) {
+			/* Head: pin to refcnt >= 2 so duplicate_request() sees
+			 * "DMA in flight"; released in finish.
+			 */
+			rte_mbuf_refcnt_update(rmbuf->mbuf, 1);
+			wqe->read_mbuf = rmbuf->mbuf;
+		} else {
+			/* Drop the prep ref so the NIC frees the segment on TX. */
+			struct rte_mbuf *seg = rmbuf->mbuf;
+
+			while (seg) {
+				struct rte_mbuf *next_seg = seg->next;
+
+				rte_mbuf_refcnt_update(seg, -1);
+				seg = next_seg;
+			}
+		}
+
+		mbufs[*n_mbufs] = rmbuf->mbuf;
+		(*n_mbufs)++;
+		rmbuf = next_rmbuf;
+	}
+
+	RDMA_DBG_ADD_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RSP_PKT_SENT,
+				*n_mbufs - read_pkt_start);
+	rdma_read_reply_finish(qp);
 }
 
 int
 rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mbuf **mbufs,
-			uint16_t *n_mbufs)
+			uint16_t *n_mbufs, uint16_t burst_limit)
 {
-	bool m_segs;
-	int opcode = -1;
-	struct rdma_ack *ack = NULL, *tmp_ack = NULL;
-	struct rdma_mbufs *rmbuf = NULL, *next_rmbuf = NULL;
+	struct rdma_ack *ack;
 	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
-	/*
-	 * Get the first ACK entry.
-	 * ACK list is maintained in receive order, and replies MUST
-	 * be sent in order.
-	 */
+	/* ACK list is in receive order; replies must be sent in order. */
 	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
 	if (!ack || !ack->is_read) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
@@ -507,74 +600,49 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		return -1;
 	}
 
-	/*
-	 * If mbuf doesn't match but this is a valid READ ack entry,
-	 * check if PSN matches. This handles the case where a duplicate
-	 * READ replaced the original entry, and the old DMA completes.
-	 * The old mbuf has valid DMA data, so we can process it.
-	 */
-	if (ack->mbuf != mbuf) {
-		/* Get PSN from incoming mbuf's private data */
-		uint32_t mbuf_psn = rdma_rx_priv_ack(mbuf)->psn;
-
-		if (ack->psn == mbuf_psn) {
-			/* Update ack entry to use current mbuf */
-			ack->mbuf = mbuf;
-		} else {
-			rdma_read_reply_cleanup(wqe);
-			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-					    RDMA_TX_QP_PROC_READ_REPLY_MBUF_PSN_MISMATCH);
-			return -1;
-		}
-	}
-
 	mbuf->ol_flags &= ~(DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS);
 
-	/* Process all packets */
-	uint16_t read_pkt_start __rte_unused = *n_mbufs;
-
-	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
-	while (rmbuf) {
-		struct rte_mbuf *seg;
-
-		m_segs = wqe->n_rdma_segs > 1 ? true : false;
-		next_rmbuf = STAILQ_NEXT(rmbuf, next);
-		opcode = rdma_prep_read_ack(qp, rmbuf->mbuf, ack, m_segs, opcode);
-		wqe->n_rdma_segs--;
-
-		/* Release extra refcnt taken in rdma_read_prep_for_pts() */
-		for (seg = rmbuf->mbuf; seg; seg = seg->next)
-			rte_mbuf_refcnt_update(seg, -1);
-
-		mbufs[*n_mbufs] = rmbuf->mbuf;
-		(*n_mbufs)++;
-		rmbuf = next_rmbuf;
-	}
-
-	RDMA_DBG_ADD_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_RSP_PKT_SENT,
-				*n_mbufs - read_pkt_start);
-
-	/* All packets processed, cleanup */
-	STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
-
-	/* Drain any non-READ acks that were waiting behind this one */
-	ack = NULL;
-	STAILQ_FOREACH_SAFE(ack, &qp->resp.ack_pending_list, next, tmp_ack)
-	{
-		if (ack->is_read)
-			break;
-
-		mbufs[*n_mbufs] = ack->mbuf;
-		(*n_mbufs)++;
-		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
-	}
-
-	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
-	STAILQ_INIT(&qp->resp.read_reply.mbuf_list);
-	qp->resp.resp_read_rq_bal++;
-	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_RSP_COMPLETE);
+	/* Fresh reply: first response packet carries the request's first PSN */
+	qp->resp.read_reply_opcode = -1;
+	qp->resp.read_reply_psn = ack->psn;
+	rdma_read_reply_emit(qp, STAILQ_FIRST(&wqe->mbuf_list), mbufs, n_mbufs, true, burst_limit);
 
 	return 0;
+}
+
+/* Resume a burst-limited READ reply from the saved cursor (dummy trigger). */
+int
+rdma_process_read_reply_remaining(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t *n_mbufs,
+				  uint16_t burst_limit)
+{
+	struct rdma_mbufs *rmbuf = qp->resp.resp_cur_rmbuf;
+
+	if (unlikely(!rmbuf)) {
+		rdma_read_reply_finish(qp);
+		return 0;
+	}
+
+	rdma_read_reply_emit(qp, rmbuf, mbufs, n_mbufs, true, burst_limit);
+
+	return 0;
+}
+
+/*
+ * Flush all remaining segments of the in-progress reply without a burst limit,
+ * to free the single read_reply WQE slot before a new D2M completion fetched in
+ * the same dequeue run can be processed.
+ */
+void
+rdma_read_reply_flush_all(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t *n_mbufs)
+{
+	struct rdma_mbufs *rmbuf = qp->resp.resp_cur_rmbuf;
+
+	if (unlikely(!rmbuf)) {
+		rdma_read_reply_finish(qp);
+		return;
+	}
+
+	rdma_read_reply_emit(qp, rmbuf, mbufs, n_mbufs, false, 0);
 }
 
 static inline void
@@ -1048,40 +1116,62 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 	} else if (pkt->rinfo.mask & RDMA_READ_MASK) {
 		struct rte_mbuf *old_mbuf;
 		bool requeue_dma = false;
+		bool enq_requeue = false;
 
 		/* Check if request is in ack pending list */
 		old_mbuf = rdma_ack_pending_list_find_mbuf_by_psn(qp, pkt->rinfo.psn);
 		if (old_mbuf) {
-			if (rte_mbuf_refcnt_read(old_mbuf) <= 1) {
+			/* refcnt == 1: enqueue failed, chain parked intact by the
+			 * prep ref - the only state safe to resubmit. refcnt 0
+			 * (freed) or >= 2 (DMA in flight) must not be resubmitted.
+			 */
+			if (rte_mbuf_refcnt_read(old_mbuf) == 1) {
 				struct rte_mbuf *m;
+				uint16_t linked = 0;
 
-				/* PTS enqueue had failed: the chain is still
-				 * intact (refcnt=1). Restore refcnt and D2M
-				 * tag, then resubmit the same chain. Keep the
-				 * ack entry in place to preserve ordering.
+				/* Resubmit only if still fully linked; the enqueuer
+				 * walks exactly nb_segs via ->next.
 				 */
 				for (m = old_mbuf; m; m = m->next)
-					rte_mbuf_refcnt_update(m, 1);
-				old_mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS;
+					linked++;
 
-				rte_pktmbuf_free(pkt->mbuf);
-				pkt->mbuf = old_mbuf;
-				pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
+				/* A chain already DMA-completed (packet_type set by
+				 * process_rdma_read_req) must never be resubmitted:
+				 * its segments are owned by the reply path and may be
+				 * freed/recycled, so re-enqueuing corrupts the chain.
+				 */
+				if (likely(linked == old_mbuf->nb_segs &&
+					   old_mbuf->packet_type != DAO_PTS_RDMA_D2M_COMPL)) {
+					for (m = old_mbuf; m; m = m->next)
+						rte_mbuf_refcnt_update(m, 1);
+					old_mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_D2M
+							      << OFFLD_UPPER_BITS;
+
+					rte_pktmbuf_free(pkt->mbuf);
+					pkt->mbuf = old_mbuf;
+					pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
+					enq_requeue = true;
+				}
 			}
-			/* else: DMA in-flight (refcnt=2), do nothing.
-			 * The in-flight DMA will complete in-order and
-			 * be processed normally.
-			 */
+			/* else: DMA in-flight or unsafe - remote retransmits. */
 		} else if (rdma_is_last_acked_request(qp, pkt->rinfo.psn, pkt) &&
 			   rdma_read_rkey_validate(qp, pkt)) {
 			/* Last read reply lost - reread and retransmit */
 			requeue_dma = true;
 		}
 
+		/* A previously enqueued chain was lost; re-enqueued to PTS. */
+		if (enq_requeue)
+			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					    RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE);
+
 		if (requeue_dma) {
 			rdma_read_prep_for_pts(qp, pkt, &npkts);
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,
 						     AETH_ACK_UNLIMITED, true);
+			/* Last read reply lost on the wire; re-read and re-enqueue. */
+			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					    RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE);
 			RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						RDMA_RX_QP_READ_DUP_REQ);
 		}

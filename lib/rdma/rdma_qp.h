@@ -294,6 +294,13 @@ struct rdma_resp_info {
 	enum rdma_wc_status status;
 	struct rdma_recv_wqe wqe;
 	rdma_send_wqe_t read_reply;
+	/* Burst-controlled READ reply state: resp_cur_rmbuf is the next segment
+	 * to emit (non-NULL only mid-burst); resp_dummy_mbuf is its resume trigger.
+	 */
+	struct rdma_mbufs *resp_cur_rmbuf;
+	struct rte_mbuf *resp_dummy_mbuf;
+	int read_reply_opcode;
+	uint32_t read_reply_psn;
 	uint32_t psn;
 	uint32_t ack_psn;
 	uint32_t msn;

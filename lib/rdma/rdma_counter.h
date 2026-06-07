@@ -335,6 +335,10 @@ rdma_counter_update_lcore(void)
 	X(RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL)                                                       \
 	/** PTS enqueue failed after retries exhausted; packets dropped. */                        \
 	X(RDMA_TX_QP_PTS_ENQ_FAIL)                                                                 \
+	/** Duplicate READ: a previously enqueued (but lost) chain is re-enqueued to PTS. */       \
+	X(RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE)                                            \
+	/** Duplicate READ: last read reply lost on the wire; re-read and re-enqueue to PTS. */    \
+	X(RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE)                                           \
 	RDMA_QP_DBG_COUNTER_LIST
 
 enum rdma_port_counters {

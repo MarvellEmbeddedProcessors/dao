@@ -69,6 +69,10 @@ rdma_qp_create(void *data)
 	qp->resp.msn = 0;
 	/* Ensure READ reply tracking fields are clean */
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
+	qp->resp.resp_cur_rmbuf = NULL;
+	qp->resp.resp_dummy_mbuf = NULL;
+	qp->resp.read_reply_opcode = -1;
+	qp->resp.read_reply_psn = 0;
 	qp->state = QP_STATE_RESET;
 	qp->valid = 1;
 	qp->lcore = 0;
@@ -143,6 +147,10 @@ rdma_qp_destroy(uint8_t portid, uint32_t qid)
 		rte_pktmbuf_free(qp->req.dummy_mbuf);
 		qp->req.dummy_mbuf = NULL;
 	}
+	if (qp->resp.resp_dummy_mbuf) {
+		rte_pktmbuf_free(qp->resp.resp_dummy_mbuf);
+		qp->resp.resp_dummy_mbuf = NULL;
+	}
 
 	rte_free(qp);
 	port->num_active_qp--;
@@ -173,6 +181,13 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 		rte_pktmbuf_free(qp->req.dummy_mbuf);
 		qp->req.dummy_mbuf = NULL;
 	}
+	if (qp->resp.resp_dummy_mbuf) {
+		rte_pktmbuf_free(qp->resp.resp_dummy_mbuf);
+		qp->resp.resp_dummy_mbuf = NULL;
+	}
+	qp->resp.resp_cur_rmbuf = NULL;
+	qp->resp.read_reply_opcode = -1;
+	qp->resp.read_reply_psn = 0;
 
 	/* Reinitialize DCQCN state so stale rate/alpha/timers from the
 	 * previous flow do not carry over into the next use of this QP.

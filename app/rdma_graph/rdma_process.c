@@ -183,6 +183,7 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 	void *tx_next[nb_objs];
 	struct rte_mbuf *mbuf;
 	uint16_t held = 0;
+	uint16_t num_qps = 0, remaining_budget, remaining_qps;
 	int i, ret;
 
 	if (unlikely(nb_objs == 0 || node == NULL || graph == NULL))
@@ -197,11 +198,28 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 							   RDMA_NEXT_PKT_DROP;
 	}
 
+	/*
+	 * Per-invocation soft output-frame budget: split RDMA_MAX_ENQ_BURST
+	 * fairly across the QP-runs present (one run per QP) and redistribute
+	 * unused share to the remaining runs. Each QP-run is still guaranteed a
+	 * minimum of 1 to ensure forward progress, so once the budget is
+	 * exhausted the aggregate can exceed RDMA_MAX_ENQ_BURST by up to one
+	 * frame per remaining input. The distinct-QP-run count is stamped on the
+	 * first mbuf by the PTS dequeue node.
+	 */
+	num_qps = node_mbuf_priv1((struct rte_mbuf *)objs[0], dyn)->num_qps;
+	if (unlikely(!num_qps))
+		num_qps = 1;
+	remaining_budget = RDMA_MAX_ENQ_BURST;
+	remaining_qps = num_qps;
+
 	to_next = tx_next;
 	for (i = 0; i < nb_objs;) {
 		/* Consume a run produced by PTS dequeue: metadata on first mbuf */
 		struct rte_mbuf *first = (struct rte_mbuf *)objs[i];
 		uint16_t run = node_mbuf_priv1(first, dyn)->nb_pkts;
+		uint16_t qp_emitted = 0;
+		uint16_t x;
 
 		if (unlikely(run == 0))
 			run = 1;
@@ -209,7 +227,13 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 		uint16_t queue = node_mbuf_priv1(first, dyn)->queue;
 		uint16_t devid = node_mbuf_priv1(first, dyn)->devid;
 
+		/* ceil division so each QP gets at least 1 when budget < num_qps */
+		x = remaining_qps ? ((remaining_budget + remaining_qps - 1) / remaining_qps) :
+				    remaining_budget;
+
 		for (uint16_t j = 0; j < run; j++) {
+			uint16_t cap = (x > qp_emitted) ? (uint16_t)(x - qp_emitted) : 1;
+
 			n_segs = 0;
 			mbuf = (struct rte_mbuf *)objs[i + j];
 			{
@@ -222,14 +246,32 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 					       RDMA_NEXT_PKT_DROP;
 			}
 
-			ret = dao_rdma_tx_process(mbuf, qp_id, devid, mbufs, &n_segs);
+			ret = dao_rdma_tx_process(mbuf, qp_id, devid, mbufs, &n_segs, cap);
 			if (ret < 0)
 				next = RDMA_NEXT_PKT_DROP;
+			qp_emitted += n_segs;
 			node_mbuf_priv1(mbuf, dyn)->queue = queue;
-			if (n_segs > 1) {
+			/*
+			 * Forward from mbufs[] for multiple packets, or a single
+			 * packet that differs from the input (dummy-triggered).
+			 * The in-place case (mbufs[0] == mbuf) uses the home-run.
+			 */
+			if (n_segs > 1 || (n_segs == 1 && mbufs[0] != mbuf)) {
 				if (unlikely(last_spec))
 					flush_speculated(&to_next, &from, &last_spec, &held);
 				rte_node_enqueue(graph, node, next, (void **)mbufs, n_segs);
+				from += 1;
+				continue;
+			}
+
+			/* RC parked (DCQCN/burst postpone or dummy trigger): input
+			 * is owned elsewhere, skip without forwarding or freeing.
+			 * MGMT/UD (ret 0, n_segs 0) fall to the home-run and forward
+			 * in place; errors (ret < 0) fall to the drop path.
+			 */
+			if (n_segs == 0 && ret == RDMA_TX_PROC_CONSUMED) {
+				if (unlikely(last_spec))
+					flush_speculated(&to_next, &from, &last_spec, &held);
 				from += 1;
 				continue;
 			}
@@ -245,6 +287,10 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 				last_spec += 1;
 			}
 		}
+		remaining_budget -=
+			(qp_emitted <= remaining_budget) ? qp_emitted : remaining_budget;
+		if (remaining_qps)
+			remaining_qps--;
 		i += run;
 	}
 

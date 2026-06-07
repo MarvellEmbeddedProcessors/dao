@@ -54,6 +54,8 @@ struct node_mbuf_priv1 {
 	uint16_t devid;
 	/* Number of packets in a grouped operation (e.g., segmentation or ACK batch) */
 	uint16_t nb_pkts;
+	/* Distinct QP runs in this PTS-dequeue batch; valid only on the first mbuf */
+	uint16_t num_qps;
 	/* RDMA Queue Pair identifier */
 	uint32_t qp_id;
 };

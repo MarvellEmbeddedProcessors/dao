@@ -41,6 +41,7 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 	uint16_t nb_pkts = 0, next_index, count;
 	rte_edge_t tx_edge = ctx->tx_node_idx;
 	uint16_t retr_nb_pkts = 0, nb = 0;
+	uint16_t nb_qp_runs = 0;
 	uint16_t qp_count = 0, can_fetch;
 	uint32_t max_qp = 0, min_qp = 0;
 	uint16_t max_pkts, drained;
@@ -130,6 +131,7 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 				node_mbuf_priv1(mbuf, dyn)->port = mbuf->port;
 				node_mbuf_priv1(mbuf, dyn)->devid = devid;
 				node_mbuf_priv1(mbuf, dyn)->nb_pkts = 1;
+				nb_qp_runs++;
 				goto next_qp;
 			}
 		}
@@ -153,6 +155,7 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 				node_mbuf_priv1(mbuf, dyn)->queue = ctx->queue_id;
 				node_mbuf_priv1(mbuf, dyn)->devid = devid;
 				node_mbuf_priv1(mbuf, dyn)->nb_pkts = count;
+				nb_qp_runs++;
 				if (count > 1) {
 					rte_prefetch0(mbufs[nb_pkts + 1]);
 					if (count > 2)
@@ -173,6 +176,11 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 
 	if (!nb_pkts)
 		return retr_nb_pkts;
+
+	/* Stamp the distinct-QP-run count on the first mbuf so rdma_pts_process
+	 * can split its per-invocation burst budget without a second pass.
+	 */
+	node_mbuf_priv1(mbufs[0], dyn)->num_qps = nb_qp_runs;
 
 	rte_node_enqueue(graph, node, next_index, (void **)mbufs, nb_pkts);
 
