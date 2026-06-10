@@ -48,7 +48,7 @@ DAO_STATIC_ASSERT(CA_MAX_LCORE <= RTE_MAX_LCORE);
 #define CA_ERR(fmt, args...)     RTE_LOG(ERR, AGENT, fmt "\n", ##args)
 #define CA_DEBUG(fmt, args...)   RTE_LOG(DEBUG, AGENT, fmt "\n", ##args)
 
-#define COMP_DEV_HUFFMAN_TYPES      2
+#define COMP_DEV_HUFFMAN_TYPES      3
 #define COMP_DEV_COMPRESSION_LEVELS 2 /* MIN and MAX only */
 
 extern struct ca_global_ctx ca_glb_ctx;
