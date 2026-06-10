@@ -259,6 +259,10 @@ following commands are available for diagnostics:
    other operational metrics. It helps users monitor the card's performance and diagnose issues
    such as packet drops or uneven load distribution.
 
+   When the card is initialized with compression device support (``card_init enable-compress-dev``),
+   the LC Compress section reports per-core statistics for requests enqueued to and dequeued from
+   the compression device, along with per-core compression request and response ring statistics.
+
 * ``card_dmesg``
 
    Retrieves a truncated tail (recent portion) of the card kernel dmesg log through the gRPC
