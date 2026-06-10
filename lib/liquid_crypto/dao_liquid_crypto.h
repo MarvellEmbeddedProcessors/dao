@@ -313,12 +313,14 @@ enum dao_lc_comp_algo {
 	DAO_LC_COMP_ALGO_MAX,
 };
 
-/** Compression Huffman Type - used by DEFLATE algorithm */
+/**
+ * Compression Huffman Type - used by DEFLATE algorithm
+ * Use Fixed & Dynamic Huffman codes only.
+ * Skipping device default Huffman type (0).
+ */
 enum dao_lc_comp_huffman {
-	/**
-	 * Use Fixed Huffman codes. Skipping PMD Default type.
-	 */
-	DAO_LC_COMP_HUFFMAN_FIXED,
+	/** Use fixed Huffman codes */
+	DAO_LC_COMP_HUFFMAN_FIXED = 1,
 	/** Use Dynamic Huffman codes */
 	DAO_LC_COMP_HUFFMAN_DYNAMIC,
 	/** Max Huffman Type */
