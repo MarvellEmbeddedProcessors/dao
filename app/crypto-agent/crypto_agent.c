@@ -914,6 +914,13 @@ card_info(struct dao_card_info *info)
 		info->max_sessions = CA_MAX_SYM_SESSIONS;
 
 	CA_INFO("nb_devs: %u, max_sessions: %u", info->nb_devs, info->max_sessions);
+	if (ca_glb_ctx.nb_compdevs > 0) {
+		info->comp_dev_enabled = 1;
+		CA_INFO("Compress device : Enabled");
+	} else {
+		info->comp_dev_enabled = 0;
+		CA_INFO("Compress device : Disabled");
+	}
 
 	return 0;
 }
