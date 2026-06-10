@@ -26,6 +26,13 @@
 #define COMP_TEST_DEFAULT_DECOMPRESS_OPS 10
 #define COMP_TEST_DEFAULT_ITERATIONS     10
 
+#define VALID_INPUT_DATA_LENGTH        16364
+#define VALID_OUTPUT_DATA_LENGTH       16356
+#define INVALID_INPUT_DATA_LENGTH_MAX  16365
+#define INVALID_OUTPUT_DATA_LENGTH_MAX 16357
+#define MIN_INPUT_DATA_LENGTH          1
+#define INVALID_DATA_LENGTH_MIN        0
+
 struct comp_test_config {
 	uint32_t num_compress_ops;
 	uint32_t num_decompress_ops;
@@ -43,12 +50,14 @@ static uint8_t *g_comp_data;
 
 extern struct global_params glb_params;
 static int comp_test_cfg_loaded;
+static enum dao_lc_comp_huffman huf_type = DAO_LC_COMP_HUFFMAN_DYNAMIC;
 
 static const uint8_t plain_text[] = {0x4D, 0x41, 0x52, 0x56, 0x45, 0x4C, 0x4C, 0x20, 0x4C,
 				     0x43, 0x3A, 0x20, 0x54, 0x45, 0x53, 0x54, 0x20, 0x43,
 				     0x4F, 0x4D, 0x50, 0x52, 0x45, 0x53, 0x53, 0x20, 0x44,
 				     0x45, 0x56, 0x49, 0x43, 0x45, 0x0A};
 
+/* Below compressed output is using dynamic huffman encoding type */
 static const uint8_t compressed_text[] = {
 	0xED, 0xFD, 0x47, 0x8E, 0x24, 0x49, 0xD2, 0xBC, 0xFF, 0xEF, 0xED, 0x14, 0x72,
 	0x0E, 0xDB, 0x19, 0xD4, 0x64, 0x61, 0x80, 0x2A, 0xCC, 0xA0, 0xA2, 0xD0, 0xFB,
@@ -139,7 +148,7 @@ fill_compress_req_param(struct dao_lc_comp_req_params *req, const uint8_t *in_da
 		return;
 	}
 
-	req->huff_enc_type = DAO_LC_COMP_HUFFMAN_DYNAMIC;
+	req->huff_enc_type = huf_type;
 	req->level = COMP_LEVEL_1;
 	req->in_data = (uint8_t *)in_data;
 	req->in_data_len = in_data_len;
@@ -160,6 +169,22 @@ fill_decompress_req_param(struct dao_lc_decomp_req_params *req, const uint8_t *i
 	req->in_data_len = in_data_len;
 	req->out_data = out_data;
 	req->out_data_len = out_data_len;
+}
+
+static void
+generate_random_text(char *buf, size_t len)
+{
+	static const char charset[] = {"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"};
+
+	if (len == 0 || buf == NULL)
+		return;
+
+	size_t charset_size = sizeof(charset) - 1;
+
+	for (size_t i = 0; i < len - 1; i++)
+		buf[i] = charset[rand() % charset_size];
+
+	buf[len - 1] = '\0';
 }
 
 int
@@ -596,6 +621,7 @@ ut_compdev_compress_op_with_large_text(void)
 		return TEST_FAILED;
 	}
 
+	huf_type = DAO_LC_COMP_HUFFMAN_FIXED;
 	fill_compress_req_param(&req, test_buf, g_plain_data_len, data_out, op_len);
 
 	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
@@ -1000,6 +1026,229 @@ cleanup:
 	return rc;
 }
 
+static int
+ut_compdev_compress_decompress_minimal_input(void)
+{
+	struct dao_lc_decomp_req_params decomp_req = {0};
+	static char in_buf[MIN_INPUT_DATA_LENGTH];
+	uint8_t *comp_data_out, *decomp_data_out;
+	struct dao_lc_comp_req_params req = {0};
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res *decomp_res;
+	struct dao_lc_res *res;
+	uint32_t comp_data_len;
+	int ret;
+
+	generate_random_text(in_buf, MIN_INPUT_DATA_LENGTH);
+	comp_data_out = malloc(100);
+	if (comp_data_out == NULL) {
+		TEST_LC_ERR("Could not allocate memory for data_out");
+		return TEST_FAILED;
+	}
+
+	comp_data_len = sizeof(in_buf);
+	res = malloc(sizeof(struct dao_lc_res) + comp_data_len);
+	if (res == NULL) {
+		TEST_LC_ERR("Could not allocate memory for res");
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+
+	huf_type = 0; /* Device default huffman encoding */
+	/* Enqueue deflate compress operation */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, comp_data_len, comp_data_out, 100);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid huffman encoding (device default)");
+
+	huf_type = DAO_LC_COMP_HUFFMAN_FIXED;
+	/* Enqueue deflate compress operation */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, comp_data_len, comp_data_out, 100);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue deflate operation");
+		free(res);
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+
+	/* Dequeue result */
+	ret = op_dequeue(dev_id, qp_id, res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue deflate operation");
+		free(res);
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+
+	/* Validate operation cookie */
+	TEST_ASSERT(res->op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res->compdev_res.status == DAO_LC_COMP_OP_STATUS_SUCCESS,
+		    "Expected status did not match");
+
+	op_cookie = rte_rand();
+
+	decomp_res = malloc(sizeof(struct dao_lc_res) + comp_data_len);
+	if (decomp_res == NULL) {
+		TEST_LC_ERR("Could not allocate memory for res");
+		free(res);
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+	decomp_data_out = malloc(MIN_INPUT_DATA_LENGTH);
+	if (decomp_data_out == NULL) {
+		TEST_LC_ERR("Could not allocate memory for data");
+		free(res);
+		free(decomp_res);
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+
+	fill_decompress_req_param(&decomp_req, (const uint8_t *)comp_data_out,
+				  res->compdev_res.produced, decomp_data_out, comp_data_len);
+	ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp_id, &decomp_req, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue deflate decomp operation");
+		free(res);
+		free(decomp_res);
+		free(decomp_data_out);
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+
+	/* Dequeue result */
+	ret = op_dequeue(dev_id, qp_id, decomp_res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue deflate operation");
+		free(res);
+		free(decomp_res);
+		free(decomp_data_out);
+		free(comp_data_out);
+		return TEST_FAILED;
+	}
+
+	/* Validate operation cookie */
+	TEST_ASSERT(decomp_res->op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(decomp_res->compdev_res.status == DAO_LC_COMP_OP_STATUS_SUCCESS,
+		    "Expected status did not match");
+	TEST_ASSERT(decomp_res->compdev_res.produced == comp_data_len,
+		    "Decompressed output size did not match the expected size");
+	ret = memcmp(decomp_data_out, in_buf, decomp_res->compdev_res.produced);
+	TEST_ASSERT(ret == 0, "Plain text did not match with the expected");
+
+	free(res);
+	free(decomp_res);
+	free(decomp_data_out);
+	free(comp_data_out);
+
+	return TEST_SUCCESS;
+}
+
+static int
+ut_compdev_compress_invalid_datalen(void)
+{
+	struct dao_lc_decomp_req_params decomp_req = {0};
+	static char in_buf[INVALID_INPUT_DATA_LENGTH_MAX];
+	struct dao_lc_comp_req_params req = {0};
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res *res;
+	uint8_t *data_out;
+	int ret;
+
+	generate_random_text(in_buf, INVALID_INPUT_DATA_LENGTH_MAX);
+	data_out = malloc(INVALID_OUTPUT_DATA_LENGTH_MAX);
+	if (data_out == NULL) {
+		TEST_LC_ERR("Could not allocate memory for data_out");
+		return TEST_FAILED;
+	}
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	/* Enqueue deflate compress operation with zero input & output data lengths */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, INVALID_DATA_LENGTH_MIN, data_out,
+				INVALID_DATA_LENGTH_MIN);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid input/output datalength(0) for compress");
+#endif
+
+	/* Enqueue deflate compress operation with invalid input & output data lengths */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, INVALID_INPUT_DATA_LENGTH_MAX,
+				data_out, INVALID_OUTPUT_DATA_LENGTH_MAX);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid input/output datalength for compress");
+
+	/* Enqueue deflate compress operation with valid input & invalid output data lengths */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, VALID_INPUT_DATA_LENGTH, data_out,
+				INVALID_OUTPUT_DATA_LENGTH_MAX);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid output datalength");
+
+	/* Enqueue deflate compress operation with invalid input & valid output data lengths */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, INVALID_INPUT_DATA_LENGTH_MAX,
+				data_out, VALID_OUTPUT_DATA_LENGTH);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid input datalength");
+
+	memset(in_buf, 'A', VALID_INPUT_DATA_LENGTH);
+	op_cookie = rte_rand();
+	res = malloc(sizeof(struct dao_lc_res) + VALID_OUTPUT_DATA_LENGTH);
+	if (res == NULL) {
+		free(data_out);
+		TEST_LC_ERR("Could not allocate memory for res");
+		return TEST_FAILED;
+	}
+	/* Enqueue deflate compress operation with valid input & output data lengths */
+	fill_compress_req_param(&req, (const uint8_t *)in_buf, VALID_INPUT_DATA_LENGTH, data_out,
+				VALID_OUTPUT_DATA_LENGTH);
+	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
+	if (ret < 0) {
+		free(res);
+		free(data_out);
+		TEST_LC_ERR("Could not enqueue deflate operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue deflate operation");
+		free(res);
+		free(data_out);
+		return TEST_FAILED;
+	}
+	TEST_ASSERT(res->op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res->compdev_res.status == DAO_LC_COMP_OP_STATUS_SUCCESS,
+		    "Expected status did not match");
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	/* Enqueue deflate decompress operation with zero input & output data lengths */
+	fill_decompress_req_param(&decomp_req, (const uint8_t *)in_buf, INVALID_DATA_LENGTH_MIN,
+				  data_out, INVALID_DATA_LENGTH_MIN);
+	ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp_id, &decomp_req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid input/output datalength(0) for decompress");
+#endif
+
+	/* Enqueue deflate decompress operation with invalid input & output data lengths */
+	fill_decompress_req_param(&decomp_req, (const uint8_t *)in_buf,
+				  INVALID_INPUT_DATA_LENGTH_MAX, data_out,
+				  VALID_OUTPUT_DATA_LENGTH);
+	ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp_id, &decomp_req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid input datalength for decompress");
+
+	/* Enqueue deflate decompress operation with valid input & invalid output data lengths */
+	fill_decompress_req_param(&decomp_req, (const uint8_t *)in_buf, VALID_INPUT_DATA_LENGTH,
+				  data_out, INVALID_OUTPUT_DATA_LENGTH_MAX);
+	ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp_id, &decomp_req, op_cookie);
+	TEST_ASSERT(ret == -EINVAL, "Invalid output datalength for decompress");
+
+	free(res);
+	free(data_out);
+
+	return TEST_SUCCESS;
+}
+
 /**
  * Unit test cases for compress device
  */
@@ -1008,25 +1257,31 @@ struct unit_test_suite lc_testsuite_comp = {
 	.setup = compdev_testsuite_setup,
 	.teardown = testsuite_teardown,
 	.unit_test_cases = {
-		TEST_CASE_NAMED_ST("Compress Basic", ut_setup, ut_teardown, ut_compdev_compress_op),
-		TEST_CASE_NAMED_ST("Decompress Basic", ut_setup, ut_teardown,
+		TEST_CASE_NAMED_ST("Compress Basic (Huffman: Dynamic)", ut_setup, ut_teardown,
+				   ut_compdev_compress_op),
+		TEST_CASE_NAMED_ST("Decompress Basic (Huffman: Dynamic)", ut_setup, ut_teardown,
 				   ut_compdev_decompress_op),
-		TEST_CASE_NAMED_ST("Compress Repeated Text", ut_setup, ut_teardown,
-				   ut_compdev_compress_repeated_text),
-		TEST_CASE_NAMED_ST("Decompress Repeated Text", ut_setup, ut_teardown,
-				   ut_compdev_decompress_repeated_text),
-		TEST_CASE_NAMED_ST("Compress With Less Output Buffer", ut_setup, ut_teardown,
-				   ut_compdev_compress_op_with_less_output_buf),
-		TEST_CASE_NAMED_ST("Compress With Large Input Text", ut_setup, ut_teardown,
-				   ut_compdev_compress_op_with_large_text),
-		TEST_CASE_NAMED_ST("Decompress With Large Text", ut_setup, ut_teardown,
-				   ut_compdev_decompress_with_large_text),
-		TEST_CASE_NAMED_ST("Multiple Compress Operations (In-Order)", ut_setup, ut_teardown,
-				   ut_compdev_multi_compress_ops_in_order),
-		TEST_CASE_NAMED_ST("Multiple Decompress Operations (In-Order)", ut_setup,
-				   ut_teardown, ut_compdev_multi_decompress_ops_in_order),
-		TEST_CASE_NAMED_ST("Multiple Compress & Decompress Operations (In-Order)", ut_setup,
-				   ut_teardown, ut_compdev_multi_compress_decompress_ops_in_order),
+		TEST_CASE_NAMED_ST("Compress Repeated Text (Huffman: Dynamic)", ut_setup,
+				   ut_teardown, ut_compdev_compress_repeated_text),
+		TEST_CASE_NAMED_ST("Decompress Repeated Text (Huffman: Dynamic)", ut_setup,
+				   ut_teardown, ut_compdev_decompress_repeated_text),
+		TEST_CASE_NAMED_ST("Compress With Less Output Buffer (Huffman: Dynamic)", ut_setup,
+				   ut_teardown, ut_compdev_compress_op_with_less_output_buf),
+		TEST_CASE_NAMED_ST("Multiple Compress Operations (In-Order - Huffman: Dynamic)",
+				   ut_setup, ut_teardown, ut_compdev_multi_compress_ops_in_order),
+		TEST_CASE_NAMED_ST("Multiple Decompress Operations (In-Order - Huffman: Dynamic)",
+				   ut_setup, ut_teardown, ut_compdev_multi_decompress_ops_in_order),
+		TEST_CASE_NAMED_ST(
+			"Multiple Compress & Decompress Operations (In-Order - Huffman: Dynamic)",
+			ut_setup, ut_teardown, ut_compdev_multi_compress_decompress_ops_in_order),
+		TEST_CASE_NAMED_ST("Compress With Large Input Text (Huffman: Fixed)", ut_setup,
+				   ut_teardown, ut_compdev_compress_op_with_large_text),
+		TEST_CASE_NAMED_ST("Decompress With Large Text (Huffman: Fixed)", ut_setup,
+				   ut_teardown, ut_compdev_decompress_with_large_text),
+		TEST_CASE_NAMED_ST("Compress & Decompress with small buffer (Huffman: Fixed)",
+				   ut_setup, ut_teardown,
+				   ut_compdev_compress_decompress_minimal_input),
+		TEST_CASE_NAMED_ST("Compress Invalid data length (Huffman: Fixed)", ut_setup,
+				   ut_teardown, ut_compdev_compress_invalid_datalen),
 		TEST_CASES_END() /**< NULL terminate unit test array */
-	}
-};
+	}};
