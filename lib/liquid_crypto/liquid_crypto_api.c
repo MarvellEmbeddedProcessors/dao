@@ -5526,22 +5526,14 @@ dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
-	buf_len = sizeof(struct __dao_lc_req_comp_op) + req->in_data_len;
-	op_buf_len = sizeof(struct __dao_lc_resp_compdev_op) + req->out_data_len;
-
-	/* Validate input/output lengths */
-	if (buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE ||
-	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
-		dao_err("Compress i/o payload (%u|%u) exceeds maximum supported packet size (%u|%u).",
-			req->in_data_len, req->out_data_len, LIQUID_CRYPTO_COMP_MAX_INPUT_DATA_SIZE,
-			LIQUID_CRYPTO_COMP_MAX_OUTPUT_DATA_SIZE);
-		return -EINVAL;
-	}
-
-	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 	dev = &liquid_crypto_devs[dev_id];
 
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
 	if (qp_id >= dev->nb_qp) {
 		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
 		return -EINVAL;
@@ -5553,6 +5545,18 @@ dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	buf_len = sizeof(struct __dao_lc_req_comp_op) + req->in_data_len;
+	op_buf_len = sizeof(struct __dao_lc_resp_compdev_op) + req->out_data_len;
+	/* Validate input/output lengths */
+	if (buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE ||
+	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
+		dao_err("Compress i/o payload (%u|%u) exceeds maximum supported packet size (%u|%u).",
+			req->in_data_len, req->out_data_len, LIQUID_CRYPTO_COMP_MAX_INPUT_DATA_SIZE,
+			LIQUID_CRYPTO_COMP_MAX_OUTPUT_DATA_SIZE);
+		return -EINVAL;
+	}
+
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 	qp = dev->qp[qp_id];
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -5653,9 +5657,27 @@ dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 
 #endif
 
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+#endif
+
 	buf_len = sizeof(struct __dao_lc_req_decomp_op) + req->in_data_len;
 	op_buf_len = sizeof(struct __dao_lc_resp_compdev_op) + req->out_data_len;
-
 	/* Validate input/output lengths */
 	if (buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE ||
 	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
@@ -5667,19 +5689,6 @@ dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
-	dev = &liquid_crypto_devs[dev_id];
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (qp_id >= dev->nb_qp) {
-		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
-		return -EINVAL;
-	}
-
-	if (qp_id == dev->cmd_qp_idx) {
-		dao_err("Invalid argument. qp_id cannot be the command queue index.");
-		return -EINVAL;
-	}
-#endif
 	qp = dev->qp[qp_id];
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
