@@ -481,6 +481,7 @@ ca_compdev_deq(struct pending_queue *pq)
 			resp->op_len = deq_ops[i]->produced;
 			resp->res.consumed = deq_ops[i]->consumed;
 			resp->res.produced = deq_ops[i]->produced;
+			resp->res.required = 0;
 
 			if (infl_req->op_buf_len < deq_ops[i]->produced) {
 				resp->res.status = DAO_LC_COMP_OP_STATUS_RESP_BUF_SPACE_ISSUE;
