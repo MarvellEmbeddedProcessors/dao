@@ -12,8 +12,11 @@ static const size_t dao_lc_hdr_sz = sizeof(struct __dao_lc_hdr);
 static uint8_t ca_compression_level[COMP_DEV_COMPRESSION_LEVELS] = {RTE_COMP_LEVEL_MIN,
 								    RTE_COMP_LEVEL_MAX};
 
-static enum rte_comp_huffman huffs[COMP_DEV_HUFFMAN_TYPES] = {RTE_COMP_HUFFMAN_FIXED,
-							      RTE_COMP_HUFFMAN_DYNAMIC};
+/**
+ * Created shared xforms considering for huffman type fixed and dynamic only.
+ */
+static enum rte_comp_huffman huffs[COMP_DEV_HUFFMAN_TYPES] = {
+	RTE_COMP_HUFFMAN_DEFAULT, RTE_COMP_HUFFMAN_FIXED, RTE_COMP_HUFFMAN_DYNAMIC};
 
 /**
  * For 8-VFs case: Below are cores and ring index mapping used by each core
@@ -247,6 +250,8 @@ compress_priv_xforms_fini(void)
 		dev_id = ca_glb_ctx.compdev_ids[i];
 		for (l = 0; l < COMP_DEV_COMPRESSION_LEVELS; l++) {
 			for (h = 0; h < COMP_DEV_HUFFMAN_TYPES; h++) {
+				if (huffs[h] == RTE_COMP_HUFFMAN_DEFAULT)
+					continue;
 				xform = ca_glb_ctx.compdev_ctx[dev_id].comp_priv_xform[l][h];
 				if (xform) {
 					ret = rte_compressdev_private_xform_free(dev_id, xform);
@@ -272,6 +277,8 @@ compression_priv_xforms_init(void)
 		dev_id = ca_glb_ctx.compdev_ids[i];
 		for (l = 0; l < COMP_DEV_COMPRESSION_LEVELS; l++) {
 			for (h = 0; h < COMP_DEV_HUFFMAN_TYPES; h++) {
+				if (huffs[h] == RTE_COMP_HUFFMAN_DEFAULT)
+					continue;
 				memset(&xform, 0, sizeof(xform));
 				xform.type = RTE_COMP_COMPRESS;
 				xform.compress.algo = RTE_COMP_ALGO_DEFLATE;
@@ -526,12 +533,8 @@ prepare_compress_resp_mbuf(struct rte_mbuf *rx_pkts, struct comp_dev_inflight_re
 {
 	uint16_t total_len = 0, op_buf_size;
 	struct rte_mempool *dst_pool;
-	struct rte_mbuf *prev_mb;
 	struct rte_mbuf *resp_mb;
 	struct rte_mbuf *mbuf;
-	uint16_t nb_segs = 1;
-	uint32_t remaining;
-	uint32_t to_append;
 
 	dst_pool = ca_host_comp_dst_bufpool_get();
 	if (dst_pool == NULL)
@@ -539,61 +542,20 @@ prepare_compress_resp_mbuf(struct rte_mbuf *rx_pkts, struct comp_dev_inflight_re
 
 	op_buf_size = CA_COMP_DEV_MBUF_SIZE - comp_dev_resp_hdr_sz;
 
-	if (op_buf_len <= op_buf_size) {
-		/* Single segment: fits in one mbuf */
-		resp_mb = rte_pktmbuf_alloc(dst_pool);
-		if (unlikely(resp_mb == NULL)) {
-			CA_ERR("Response buffer alloc failure");
-			return NULL;
-		}
-
-		rte_memcpy(rte_pktmbuf_mtod(resp_mb, void *), rte_pktmbuf_mtod(rx_pkts, void *),
-			   dao_lc_hdr_sz);
-	} else {
-		/* Multi-segment: create and add segments to initial mbuf */
-		remaining = op_buf_len;
-		if (remaining > (uint32_t)(op_buf_size +
-					   (CA_COMP_DEV_MAX_NUM_SEG - 1) * CA_COMP_DEV_MBUF_SIZE)) {
-			CA_ERR("op_buf_len %u exceeds max %u segments (max %u bytes)", op_buf_len,
-			       CA_COMP_DEV_MAX_NUM_SEG,
-			       (op_buf_size +
-				(CA_COMP_DEV_MAX_NUM_SEG - 1) * CA_COMP_DEV_MBUF_SIZE));
-			return NULL;
-		}
-
-		resp_mb = rte_pktmbuf_alloc(dst_pool);
-		if (unlikely(resp_mb == NULL)) {
-			CA_ERR("Response buffer alloc failure");
-			return NULL;
-		}
-
-		rte_memcpy(rte_pktmbuf_mtod(resp_mb, void *), rte_pktmbuf_mtod(rx_pkts, void *),
-			   dao_lc_hdr_sz);
-
-		remaining = remaining - op_buf_size;
-		prev_mb = resp_mb;
-
-		while (remaining > 0 && nb_segs < CA_COMP_DEV_MAX_NUM_SEG) {
-			mbuf = rte_pktmbuf_alloc(dst_pool);
-			if (unlikely(mbuf == NULL)) {
-				CA_ERR("<========= Multi segment response buffer alloc failure =====>");
-				goto cleanup_chain;
-			}
-
-			to_append = RTE_MIN(remaining, (uint32_t)CA_COMP_DEV_MBUF_SIZE);
-
-			prev_mb->next = mbuf;
-			prev_mb = mbuf;
-			remaining -= to_append;
-			nb_segs++;
-		}
-
-		if (remaining > 0) {
-			CA_ERR("op_buf_len %u exceeds max segments %u", op_buf_len,
-			       CA_COMP_DEV_MAX_NUM_SEG);
-			goto cleanup_chain;
-		}
+	resp_mb = rte_pktmbuf_alloc(dst_pool);
+	if (unlikely(resp_mb == NULL)) {
+		CA_ERR("Response buffer alloc failure");
+		return NULL;
 	}
+
+	if (op_buf_len > op_buf_size) {
+		CA_ERR("op_buf_len %u exceeds max supported %u bytes", op_buf_len, op_buf_size);
+		/* Limiting to supported size */
+		op_buf_len = op_buf_size;
+	}
+
+	rte_memcpy(rte_pktmbuf_mtod(resp_mb, void *), rte_pktmbuf_mtod(rx_pkts, void *),
+		   dao_lc_hdr_sz);
 	mbuf = resp_mb;
 	while (mbuf) {
 		mbuf->data_len = mbuf->buf_len - mbuf->data_off;
@@ -601,7 +563,7 @@ prepare_compress_resp_mbuf(struct rte_mbuf *rx_pkts, struct comp_dev_inflight_re
 		mbuf = mbuf->next;
 	}
 	resp_mb->pkt_len = total_len;
-	resp_mb->nb_segs = nb_segs;
+	resp_mb->nb_segs = 1;
 
 	infl_req->op_buf_len = op_buf_len;
 	infl_req->src_len = src_len;
@@ -610,17 +572,6 @@ prepare_compress_resp_mbuf(struct rte_mbuf *rx_pkts, struct comp_dev_inflight_re
 	infl_req->mbuf = resp_mb;
 
 	return resp_mb;
-
-cleanup_chain:
-	mbuf = resp_mb->next;
-	while (mbuf) {
-		prev_mb = mbuf->next;
-		rte_pktmbuf_free(mbuf);
-		mbuf = prev_mb;
-	}
-	resp_mb->next = NULL;
-	rte_pktmbuf_free(resp_mb);
-	return NULL;
 }
 
 uint8_t
@@ -634,6 +585,7 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 	struct rte_mbuf *new_resp_mb = NULL;
 	uint8_t comp_dev_id, lcore_id;
 	void *priv_xform = NULL;
+	uint8_t huff_type;
 	uint8_t *ext_buf;
 	uint16_t offset;
 	int level;
@@ -649,14 +601,14 @@ prepare_comp_op(struct dao_eth_trs_pkt *req, struct comp_dev_inflight_req *infl_
 			CA_ERR("%s: Invalid compression level %d", __func__, comp_req->level);
 			goto cleanup;
 		}
-		if (unlikely(comp_req->huff_enc_type != RTE_COMP_HUFFMAN_FIXED &&
-			     comp_req->huff_enc_type != RTE_COMP_HUFFMAN_DYNAMIC)) {
+		if (unlikely(comp_req->huff_enc_type < RTE_COMP_HUFFMAN_FIXED ||
+			     comp_req->huff_enc_type > RTE_COMP_HUFFMAN_DYNAMIC)) {
 			CA_ERR("%s: Invalid Huffman encoding type %d", __func__,
 			       comp_req->huff_enc_type);
 			goto cleanup;
 		}
-		priv_xform = ca_glb_ctx.compdev_ctx[comp_dev_id]
-				     .comp_priv_xform[level][comp_req->huff_enc_type];
+		huff_type = huffs[comp_req->huff_enc_type];
+		priv_xform = ca_glb_ctx.compdev_ctx[comp_dev_id].comp_priv_xform[level][huff_type];
 
 		/* Allocate & copy the LC header to new mbuf for sending the response */
 		new_resp_mb = prepare_compress_resp_mbuf(rx_pkts, infl_req, comp_req->src_len,
