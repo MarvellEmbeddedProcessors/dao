@@ -88,7 +88,7 @@ static const uint8_t rsa_plaintext[RSA_PLAINTEXT_LEN] = {0xf8, 0xba, 0x1a, 0x55,
 /* Mixed test: CPT + compress device op types (sym, asym, rng, comp, decomp). */
 enum mixed_op_type { OP_SYM = 0, OP_ASYM, OP_RNG, OP_COMP, OP_DECOMP, OP_TYPE_MAX };
 
-/* One repeating unit: 2×(SYM|RNG|ASYM), (COMP|DECOMP), (SYM|RNG|ASYM), (COMP|DECOMP). */
+/* One repeating unit: (SYM|RNG|ASYM), (COMP|DECOMP), (SYM|RNG|ASYM), (COMP|DECOMP). */
 #define MIXED_FIXED_PATTERN_LEN 5u
 
 static uint32_t num_mixed_ops_cfg = 10;
