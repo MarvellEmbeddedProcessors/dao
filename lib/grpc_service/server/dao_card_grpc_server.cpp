@@ -223,6 +223,10 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 		response->set_version(DAO_CARD_VERSION);
 		response->set_nb_devs(info.nb_devs);
 		response->set_max_sessions(info.max_sessions);
+		if (info.comp_dev_enabled)
+			response->set_comp_dev_enabled(true);
+		else
+			response->set_comp_dev_enabled(false);
 
 		std::string command = std::string(". ") + script_full_path(BOOT_SRC_GET_SCRIPT, false);
 		status = system(command.c_str());
@@ -246,6 +250,11 @@ class DaoCardServiceImpl final : public DaoCardService::Service
 			  << ", max_sessions: " << response->max_sessions()
 			  << ", boot source: " << boot_source_to_string(response->boot_source())
 			  << std::endl;
+
+		if (response->comp_dev_enabled())
+			std::cout << "Compress Device Status: Enabled" << std::endl;
+		else
+			std::cout << "Compress Device Status: Disabled" << std::endl;
 
 		return Status::OK; /* info RPC always succeeds; script errors mapped to boot_source */
 	}
