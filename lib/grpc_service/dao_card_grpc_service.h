@@ -42,6 +42,8 @@ struct dao_card_info {
 	uint32_t max_sessions;
 	/** Card boot source */
 	enum dao_card_boot_source boot_source;
+	/** Flag for compress device status */
+	uint8_t comp_dev_enabled;
 };
 
 /**

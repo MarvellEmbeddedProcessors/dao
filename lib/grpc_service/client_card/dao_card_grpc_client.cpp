@@ -193,6 +193,10 @@ dao_card_info_get(struct dao_card_grpc_ctx *ctx, struct dao_card_info *info)
 	info->version[sizeof(info->version) - 1] = '\0';
 	info->nb_devs = resp.nb_devs();
 	info->max_sessions = resp.max_sessions();
+	if (resp.comp_dev_enabled())
+		info->comp_dev_enabled = 1;
+	else
+		info->comp_dev_enabled = 0;
 
 	switch (resp.boot_source()) {
 	case BootSource::BOOT_SOURCE_SPI:

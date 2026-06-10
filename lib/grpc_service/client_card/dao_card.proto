@@ -45,6 +45,7 @@ message CardInfo {
 	uint32 nb_devs = 2;
 	uint32 max_sessions = 3;
 	BootSource boot_source = 4;
+	bool comp_dev_enabled = 5;
 }
 
 message CardResponse {
