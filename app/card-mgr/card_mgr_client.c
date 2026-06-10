@@ -298,6 +298,12 @@ dao_card_mgr_recv_card_info(int cli_fd)
 		dao_info("Card boot source: SCRIPT FAILURE (missing or failed script)");
 	else if (card_info.boot_source == DAO_CARD_BOOT_SOURCE_UNSUPPORTED)
 		dao_info("Card boot source: UNSUPPORTED by dao-crypto-agent");
+
+	/* Dump compress device */
+	if (card_info.comp_dev_enabled)
+		dao_info("Compress Device Status: Enabled");
+	else
+		dao_info("Compress Device Status: Disabled");
 }
 
 static void
