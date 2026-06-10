@@ -137,8 +137,15 @@ dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
 		}
 		client_compdev_enabled = 0;
 		if ((int)argc == spec->max_args) {
-			if (strcmp(argv_local[1], "enable-compress-dev") == 0)
+			if (strcmp(argv_local[1], "enable-compress-dev") == 0) {
 				client_compdev_enabled = 1;
+			} else {
+				fprintf(stderr,
+					"Error: '%s' Invalid argument.\n Usage: %s %s -> %s\n",
+					spec->name, spec->name, spec->usage, spec->desc);
+				free(tmp);
+				return false;
+			}
 		}
 	}
 
