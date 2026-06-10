@@ -131,6 +131,8 @@ Configure APT to use this header for all Marvell repository operations:
 
  # sudo tee /etc/apt/apt.conf.d/80-marvell-user-agent >/dev/null <<'EOF'
  Acquire::https::www.marvell.com::User-Agent "marvell http client";
+ Acquire::http::User-Agent-Non-Interactive "false";
+ Acquire::https::User-Agent-Non-Interactive "false";
  EOF
 
 This configuration applies only to requests to www.marvell.com and does not affect
