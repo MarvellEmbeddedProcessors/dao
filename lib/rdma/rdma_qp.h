@@ -359,6 +359,7 @@ typedef struct rdma_qp {
 	enum rdma_qp_state state;
 	enum rdma_sig_type sq_sig_type;
 	uint32_t qid;
+	uint64_t ibqp;
 	uint32_t pd_id;
 	uint32_t dev_id;
 	uint32_t port_id;

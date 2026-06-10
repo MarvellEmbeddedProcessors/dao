@@ -131,6 +131,7 @@ mbox_msg_qp_create_handle(volatile void *data)
 		req->sq_base, req->type);
 
 	qp.qid = req->qp_id;
+	qp.ibqp = req->ibqp;
 	qp.pd_id = req->pd_id;
 	qp.type = req->type;
 	qp.port_id = req->port_num;

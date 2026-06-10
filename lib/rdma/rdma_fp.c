@@ -495,7 +495,7 @@ rdma_free_mbuf_generate_cqe(struct rdma_qp *qp, struct rdma_send_wr *wr, uint32_
 
 	cqe.wr_id = wr->wr_id;
 	cqe.status = status;
-	cqe.opcode = wr->opcode;
+	cqe.opcode = rdma_wr_to_wc_opcode(wr->opcode);
 	cqe.byte_len = 0;
 	cqe.qp_id = qp->dest_qp_num;
 

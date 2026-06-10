@@ -231,7 +231,7 @@ static inline void
 populate_cqe(struct dao_pts_rdma_cqe *cqe, struct rdma_qp *qp, rdma_send_wr_t *wr)
 {
 	memset(cqe, 0, sizeof(*cqe));
-	cqe->opcode = wr->opcode;
+	cqe->opcode = rdma_wr_to_wc_opcode(wr->opcode);
 	cqe->status = RDMA_WC_SUCCESS;
 	cqe->wr_id = wr->wr_id;
 	cqe->qp_id = qp->qid;

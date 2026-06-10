@@ -97,7 +97,22 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 				int32_t mgmt_qp = dao_pts_rdma_mgmt_qp_id_get(devid);
 
 				if (mgmt_qp >= 0) {
+					struct dao_pts_rdma_cqe *cqe;
 					uint16_t enq_ret;
+
+					/* Synthesized mgmt RX CQE: ibqp=0 so host
+					 * resolves the QP via qp_table[qp_id].
+					 * pts fills wr_id from its RQ ring.
+					 * l2_len is used by DAO_PTS_RDMA_MBUF_TO_CQE
+					 * as the SGE count; clear it so the CQE
+					 * lands at offset 0 within the SGE area.
+					 */
+					mbuf->l2_len = 0;
+					cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
+					memset(cqe, 0, sizeof(*cqe));
+					cqe->opcode = (1 << 7); /* IBV_WC_RECV */
+					cqe->byte_len = mbuf->pkt_len;
+					cqe->qp_id = mgmt_qp;
 
 					mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE << 60;
 					enq_ret = dao_pts_rdma_enqueue_burst(devid, mgmt_qp, &mbuf,

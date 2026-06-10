@@ -44,12 +44,30 @@ rdma_print_mbuf(struct rte_mbuf *mbuf)
 	rte_pktmbuf_dump(stdout, mbuf, mbuf->pkt_len);
 }
 
+/* WR-opcode to WC-opcode lookup: nibble N of RDMA_WR_WC_MAP holds the
+ * WC completion opcode for WR opcode N (opcodes 0-15).
+ *   WR 0/1 (RDMA_WRITE, WRITE_WITH_IMM) -> WC 1 (RDMA_WRITE)
+ *   WR 2/3 (SEND, SEND_WITH_IMM)        -> WC 0 (SEND)
+ *   WR 4   (RDMA_READ)                  -> WC 2 (RDMA_READ)
+ *   WR 5-15 pass through unchanged.
+ * Opcodes > 15 are returned as-is.
+ */
+#define RDMA_WR_WC_MAP UINT64_C(0xfedcba9876520011)
+
+static inline uint8_t
+rdma_wr_to_wc_opcode(uint8_t wr_opcode)
+{
+	if (unlikely(wr_opcode > 15))
+		return wr_opcode;
+	return (RDMA_WR_WC_MAP >> ((uint32_t)wr_opcode << 2)) & 0xFU;
+}
+
 static inline void
 rdma_make_send_cqe(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct dao_pts_rdma_cqe *cqe)
 {
 	cqe->wr_id = wqe->wr->wr_id;
 	cqe->status = wqe->status;
-	cqe->opcode = wqe->wr->opcode;
+	cqe->opcode = rdma_wr_to_wc_opcode(wqe->wr->opcode);
 	cqe->byte_len = 0;
 	cqe->qp_id = qp->qid;
 }

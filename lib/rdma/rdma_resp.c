@@ -656,11 +656,25 @@ populate_sge(struct dao_pts_rdma_sge *sge, struct rdma_pkt_info *rinfo)
 static inline void
 populate_cqe(struct dao_pts_rdma_cqe *cqe, struct rdma_qp *qp, struct rdma_pkt_info *rinfo)
 {
+	uint8_t op = rinfo->opcode & 0x1f;
+
 	memset(cqe, 0, sizeof(*cqe));
-	cqe->opcode = rinfo->opcode;
+	/* Receive completions use the WC opcode domain, not the wire opcode. */
+	switch (op) {
+	case RDMA_OPCODE_SEND_LAST_WITH_IMMEDIATE:
+	case RDMA_OPCODE_SEND_ONLY_WITH_IMMEDIATE:
+	case RDMA_OPCODE_RDMA_WRITE_LAST_WITH_IMMEDIATE:
+	case RDMA_OPCODE_RDMA_WRITE_ONLY_WITH_IMMEDIATE:
+		cqe->opcode = RDMA_WC_RECV | 1;
+		break;
+	default:
+		cqe->opcode = RDMA_WC_RECV;
+		break;
+	}
 	cqe->status = RDMA_WC_SUCCESS;
 	cqe->imm_data = rinfo->imm_data;
 	cqe->qp_id = qp->qid;
+	cqe->ibqp = qp->ibqp;
 }
 
 static inline void
@@ -680,6 +694,8 @@ rdma_populate_cqe(struct rdma_qp *qp, struct pkt_info *pinfo)
 	struct dao_pts_rdma_cqe *cqe = rdma_rx_priv_cqe(pinfo->mbuf);
 
 	populate_cqe(cqe, qp, &pinfo->rinfo);
+	/* RECV byte count equals the payload PTS scatters into the RQ. */
+	cqe->byte_len = pinfo->mbuf->pkt_len;
 
 	pinfo->mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE << OFFLD_UPPER_BITS;
 }
@@ -692,6 +708,8 @@ rdma_populate_dma_and_cqe(struct rdma_qp *qp, struct pkt_info *pinfo)
 
 	populate_sge(sge, &pinfo->rinfo);
 	populate_cqe(cqe, qp, &pinfo->rinfo);
+	/* WRITE_WITH_IMM byte count is the length written to the remote region. */
+	cqe->byte_len = sge->length;
 
 	pinfo->mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D_WITH_CQE << OFFLD_UPPER_BITS;
 }
