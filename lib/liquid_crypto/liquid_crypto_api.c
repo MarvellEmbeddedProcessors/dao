@@ -3710,16 +3710,10 @@ dao_lc_post_process_compdev_resp(struct liquid_crypto_compdev_inflight_req *comp
 
 	if (resp->res.status != DAO_LC_COMP_OP_STATUS_SUCCESS) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Status: %d Required: %u bytes in output buffer", resp->res.status,
-			resp->res.required);
-#endif
-		return;
-	}
-
-	if (comp_req->out_data_len < res->compdev_res.produced) {
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-		dao_err("Output buffer too small: provided=%u, required=%u bytes",
-			comp_req->out_data_len, res->compdev_res.produced);
+		dao_err("Compress device request failed with status: %d", resp->res.status);
+		if (comp_req->out_data_len < res->compdev_res.produced)
+			dao_err("Output buffer too small: provided=%u, required=%u bytes",
+				comp_req->out_data_len, res->compdev_res.produced);
 #endif
 		return;
 	}
