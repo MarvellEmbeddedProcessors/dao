@@ -11,9 +11,11 @@ the card's data processing capabilities under various configurations.
 
 The tool is capable of performing different types of operations, including
 asymmetric cryptographic operations such as RSA encryption and decryption,
-as well as passthrough operations that allow data to be sent through the card without modification.
-The application is built on the DAO framework and leverages the Liquid Crypto
-library to interact with the LiquidCrypto hardware.
+symmetric and ECDSA workloads, hardware-offloaded DEFLATE compression and
+decompression, as well as passthrough operations that allow data to be sent
+through the card without modification. The application is built on the DAO
+framework and leverages the Liquid Crypto library to interact with the
+LiquidCrypto hardware.
 
 Running the Application
 -----------------------
@@ -74,6 +76,19 @@ The following are the application-specific command-line options:
 
 	   ecdsa
 	      Perform ECDSA cryptographic operations, including private key encryption (signing) and public key decryption (verification).
+
+	   compress
+              Perform DEFLATE compression operations.
+              Use ``--comp-level`` to select compression level (default: ``1``; see below).
+
+	   decompress
+	      Perform DEFLATE decompress operations.
+	      It uses a fixed internal compressed test vector; ``--buffer-size`` does not alter the decompress input.
+
+	For ``compress`` and ``decompress``, the crypto agent and card must expose compress
+	offload (initialize the agent with compress devices enabled; see
+	:doc:`card_mgr` and the optional ``enable-compress-dev`` argument to ``card_init``, and
+	:doc:`../applications/crypto-agent`).
 
 * ``--desc-nb <n>``
 
@@ -181,6 +196,17 @@ The following are the application-specific command-line options:
 
 	The default buffer size is ``64`` bytes.
 
+	For ``--optype compress``, this value sets the plaintext length per operation. It must
+	be between 1 and 2048 bytes inclusive (the performance test's maximum compress plaintext size).
+
+* ``--comp-level <n>``
+
+	Select the DEFLATE compression level for ``--optype compress`` only. The performance
+	application accepts the same levels as the Liquid Crypto API: ``1`` (fastest / least
+	compression) or ``9`` (slowest / most compression). Values between 2 and 8 are not accepted.
+
+	The default compression level is ``1``.
+
 * ``--enable-ooo``
 
 	Enable out-of-order completion of crypto operations.
@@ -265,6 +291,26 @@ The following are examples of how to use the ``dao-liquid-crypto-perf-test`` app
 	Perform a throughput test for ECDSA public key decryption using the secp384r1 curve, with 10,000 total operations and 2048 descriptors::
 
 		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 10000 --desc-nb 2048 --optype ecdsa --asym-op pub-decrypt --ecc-curve secp384r1 --ptest throughput
+
+9. **Throughput Test for DEFLATE Compression**
+	Perform a throughput test for hardware DEFLATE compression with one million operations, 1024-byte plaintext per op, maximum compression level, and 2048 descriptors::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 1000000 --desc-nb 2048 --optype compress --comp-level 9 --buffer-size 1024 --ptest throughput
+
+10. **Throughput Test for DEFLATE Decompression**
+	Perform a throughput test for hardware DEFLATE decompression with one million operations and 2048 descriptors::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 1000000 --desc-nb 2048 --optype decompress --ptest throughput
+
+11. **Latency Test for DEFLATE Compression**
+	Perform a latency test for hardware DEFLATE compression with one million operations, 1024-byte plaintext per op, maximum compression level, and 2048 descriptors::
+
+		dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 1000000 --desc-nb 2048 --optype compress --comp-level 9 --buffer-size 1024 --ptest latency
+
+12. **Latency Test for DEFLATE Decompression**
+        Perform a latency test for hardware DEFLATE decompression with one million operations and 2048 descriptors::
+
+                dao-liquid-crypto-perf-test -c 0x3 -- --total-ops 1000000 --desc-nb 2048 --optype decompress --ptest latency
 
 Optional Command-Line Options
 -----------------------------
