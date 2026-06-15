@@ -1,0 +1,127 @@
+From adedf7d542dd4ae8c3c917b711df3ff006612424 Mon Sep 17 00:00:00 2001
+From: Harman Kalra <hkalra@marvell.com>
+Date: Mon, 15 Jun 2026 14:18:00 +0530
+Subject: [PATCH] build: add meson and build script for perftest
+
+Add a thin meson wrapper plus a build.sh helper so that perftest can be
+driven as a DAO subproject. The build links against the libibverbs /
+librdmacm libraries produced by the rdma-core subproject, which must be
+compiled first.
+
+Signed-off-by: Harman Kalra <hkalra@marvell.com>
+---
+ build.sh      | 38 +++++++++++++++++++++++++++++++++++++
+ meson.build   | 38 ++++++++++++++++++++++++++++++++++++++
+ meson.options | 13 +++++++++++++
+ 3 files changed, 89 insertions(+)
+ create mode 100755 build.sh
+ create mode 100644 meson.build
+ create mode 100644 meson.options
+
+diff --git a/build.sh b/build.sh
+new file mode 100755
+--- /dev/null
++++ b/build.sh
+@@ -0,0 +1,40 @@
++#!/bin/bash
++set -e
++
++SRCDIR=`dirname $0`
++cd "$SRCDIR"
++
++BUILDDIR="$PWD/build"
++PREFIX="${1:-$BUILDDIR}"
++RDMA_CORE_BUILD="${2:-}"
++
++# Point the build at the rdma-core subproject's compiled output so that
++# perftest configure/link finds libibverbs/librdmacm built by rdma-core.
++if [ -n "$RDMA_CORE_BUILD" ]; then
++    export LD_LIBRARY_PATH="$RDMA_CORE_BUILD/lib:${LD_LIBRARY_PATH:-}"
++    export CPPFLAGS="-I$RDMA_CORE_BUILD/include ${CPPFLAGS:-}"
++    export LDFLAGS="-L$RDMA_CORE_BUILD/lib ${LDFLAGS:-}"
++fi
++
++# perftest's configure unconditionally requires pciutils (pci/pci.h, libpci),
++# but pci is only used for the optional Relaxed Ordering (HAVE_RO) feature and
++# every pci reference in the sources is guarded by #ifdef HAVE_RO. The CI build
++# node ships no pciutils-dev, so make the probe non-fatal: Relaxed Ordering is
++# left disabled when pci is absent instead of failing the whole build.
++sed -i \
++    -e 's#AC_CHECK_HEADERS(\[pci/pci\.h\],,\[AC_MSG_ERROR(\[pciutils header files not found, consider installing pciutils-devel\])\])#AC_CHECK_HEADERS([pci/pci.h],[CPU_IS_RO_COMPLIANT=yes],[AC_MSG_WARN([pciutils headers not found, Relaxed Ordering disabled])])#' \
++    -e 's#AC_CHECK_LIB(\[pci\], \[pci_init\], \[LIBPCI=-lpci\], AC_MSG_ERROR(\[libpci not found\]))#AC_CHECK_LIB([pci], [pci_init], [LIBPCI=-lpci], [CPU_IS_RO_COMPLIANT=no])#' \
++    -e '/CPU_IS_RO_COMPLIANT=yes$/d' \
++    configure.ac
++
++./autogen.sh
++# In-tree build from the source root, with the install prefix pointing at
++# build/. The build directory (source root) is distinct from the install
++# prefix (build/), so 'make install' reliably stages the benchmark binaries
++# into $PREFIX/bin (build/bin) - mirroring a manual
++# './configure --prefix=$PWD/build && make && make install'.
++# --disable-dependency-tracking avoids the automake .deps/*.Tpo parallel-make
++# race on a fresh tree and speeds up this one-shot build.
++./configure --prefix="$PREFIX" --disable-dependency-tracking
++make -j"$(nproc)"
++make install
+diff --git a/meson.build b/meson.build
+new file mode 100644
+--- /dev/null
++++ b/meson.build
+@@ -0,0 +1,38 @@
++project(
++    'perftest',
++    'c',
++    meson_version: '>= 1.8.0',
++    default_options: ['warning_level=0'],
++)
++
++src_dir = meson.current_source_dir() + '/'
++build_script = src_dir + 'build.sh'
++
++rdma_core_build = get_option('rdma_core_build')
++perftest_prefix = get_option('perftest_prefix')
++if perftest_prefix == ''
++    perftest_prefix = src_dir + 'build'
++endif
++
++# perftest links against the libraries produced by the rdma-core subproject.
++# rdma-core MUST be compiled first; fail fast if its build output is missing.
++fs = import('fs')
++if rdma_core_build == '' or not fs.is_dir(rdma_core_build / 'lib')
++    error('rdma-core must be compiled before perftest. Missing rdma-core build libs at: ' + rdma_core_build)
++endif
++
++message('Using rdma-core build directory: ' + rdma_core_build)
++message('Installing perftest to: ' + perftest_prefix)
++
++# autogen.sh + configure + make, with CPPFLAGS/LDFLAGS/LD_LIBRARY_PATH
++# pointed at the rdma-core build outputs (see build.sh).
++run_command(
++    'bash',
++    build_script,
++    perftest_prefix,
++    rdma_core_build,
++    check: true,
++)
++
++perftest_dep = declare_dependency()
++meson.override_dependency('perftest', perftest_dep)
+diff --git a/meson.options b/meson.options
+new file mode 100644
+--- /dev/null
++++ b/meson.options
+@@ -0,0 +1,13 @@
++option(
++  'rdma_core_build',
++  type: 'string',
++  value: '',
++  description: 'Path to the compiled rdma-core build directory (provides libibverbs/librdmacm).',
++)
++
++option(
++  'perftest_prefix',
++  type: 'string',
++  value: '',
++  description: 'Install prefix for perftest (defaults to <perftest>/build).',
++)
+2.43.0

@@ -1,0 +1,5 @@
+[wrap-git]
+url = https://github.com/linux-rdma/perftest.git
+revision = master
+depth = 1
+diff_files = perftest-patches/0001-build-add-meson-and-build-script-for-perftest.patch
