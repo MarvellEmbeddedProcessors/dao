@@ -873,9 +873,10 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	/* Set RC defaults from device capabilities so query_qp returns
 	 * usable values before the first modify_qp(RTR/RTS). */
 	if (attrs->qp_type == IB_QPT_RC) {
-		qp->attrs.qp_mod_attr->max_rd_atomic = min_t(int, rdma_dev->attr.max_qp_rd_atom, 2);
+		qp->attrs.qp_mod_attr->max_rd_atomic =
+			min_t(int, rdma_dev->attr.max_qp_rd_atom, OCTEP_RDMA_DEFAULT_RD_ATOMIC);
 		qp->attrs.qp_mod_attr->max_dest_rd_atomic =
-			min_t(int, rdma_dev->attr.max_res_rd_atom, 2);
+			min_t(int, rdma_dev->attr.max_res_rd_atom, OCTEP_RDMA_DEFAULT_RD_ATOMIC);
 	}
 
 	ret = octep_rdma_prepare_qp_cmd(rdma_dev, qp, pd->pdn, is_user);

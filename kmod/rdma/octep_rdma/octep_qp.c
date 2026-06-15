@@ -778,7 +778,22 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask, OCTEP_RDMA_QP_MOD_MAX_QP_RD_ATOMIC,
 				     1);
-		qp_mod_attr->max_rd_atomic = qp_attr->max_rd_atomic;
+		/*
+		 * Clamp the requester read-atomic depth to a minimum of 2.
+		 *
+		 * The EP firmware seeds the requester send credit
+		 * (qp->req.read_rq_bal) directly from max_rd_atomic, and its
+		 * transmit scheduler (dao_is_qp_stalled) refuses to service a QP
+		 * whose read_rq_bal is 0 - even for plain SEND/RDMA-WRITE work
+		 * that needs no read-atomic resources. rdma_cm-driven
+		 * transitions (e.g. ib_send_bw -R, which issues no RDMA READs)
+		 * program max_rd_atomic = 0, which otherwise wedges the send
+		 * queue and the QP never transmits. A value of 2 matches the
+		 * default seeded by create_qp and is harmless when no reads
+		 * are issued.
+		 */
+		qp_mod_attr->max_rd_atomic = qp_attr->max_rd_atomic ? qp_attr->max_rd_atomic :
+								      OCTEP_RDMA_DEFAULT_RD_ATOMIC;
 	}
 
 	if (qp_attr_mask & IB_QP_MIN_RNR_TIMER) {

@@ -10,6 +10,17 @@
 
 #define QP_ID(qp) ((qp)->ibqp.qp_num)
 
+/*
+ * Default requester/responder read-atomic depth for RC QPs.
+ *
+ * The EP firmware seeds the requester send credit (qp->req.read_rq_bal)
+ * from max_rd_atomic and its transmit scheduler refuses to service a QP
+ * whose read_rq_bal is 0. create_qp seeds this default and modify_qp
+ * clamps rdma_cm-driven max_rd_atomic = 0 up to it so plain SEND/RDMA-WRITE
+ * QPs are not wedged. Harmless when no read operations are issued.
+ */
+#define OCTEP_RDMA_DEFAULT_RD_ATOMIC 2
+
 struct octep_rdma_uqp {
 	struct octep_rdma_mem sq_mtt;
 	struct octep_rdma_mem rq_mtt;
