@@ -284,6 +284,8 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		desc_cnt->cpt -= cpt_inst_cnt;
 	}
 
+	desc_cnt->cpt -= nb_cpt_bypass;
+
 	pq->time_out = rte_get_timer_cycles() + DEFAULT_COMMAND_TIMEOUT * rte_get_timer_hz();
 	pq->head = head;
 }
