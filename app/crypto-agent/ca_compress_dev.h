@@ -8,10 +8,10 @@
 #include "crypto_agent.h"
 
 /* Maximum number of compress (inflight) operations */
-#define CA_MAX_COMP_OPERATIONS           2048
+#define CA_MAX_COMP_OPERATIONS           8192
 #define CA_COMP_DEV_MAX_NUM_INFLIGHT_OPS CA_MAX_COMP_OPERATIONS
 #define CA_COMP_DEV_MBUF_SIZE            16384
-#define CA_COMP_DEV_MBUF_ELEMENTS        4095
+#define CA_COMP_DEV_MBUF_ELEMENTS        8192
 /*
  * No.of xforms per compress device VF.
  * Compression levels : 2 (MIN & MAX)
@@ -30,7 +30,7 @@
 /* Effective consumer core end is (CONSUMER_CORE_START + nb_compdevs - 1); 1 VF = core 1, 2 VFs =
  * cores 1-2, etc. */
 #define CA_COMP_DEV_CONSUMER_CORE_END 8
-#define CA_COMP_DEV_REQ_RING_SIZE     4096
+#define CA_COMP_DEV_REQ_RING_SIZE     8192
 
 /* Consumer cores = nb_compdevs (cores 1..nb_compdevs); each can have up to 24 rings for single VF
  */

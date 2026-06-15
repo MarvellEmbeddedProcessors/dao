@@ -701,7 +701,7 @@ compress_devs_rings_init(void)
 			return -ENOMEM;
 		}
 	}
-	CA_INFO("Compdev req/resp rings created for all lcores");
+	CA_INFO("Compdev req/resp rings (Size: %u) created for all lcores", ring_size);
 	return 0;
 }
 
