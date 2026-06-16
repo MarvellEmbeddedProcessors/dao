@@ -8,6 +8,7 @@ tests = [
     ['rdma_rc_ping', 'rdma_rc_ping.sh', ''],
     ['rdma_cm_test', 'rdma_cm_test.sh', ''],
     ['rdma_mq_trf', 'rdma_mq_trf.sh', ''],
+    ['rdma_perftest', 'rdma_perftest.sh', ''],
 ]
 
 test_dir = meson.current_build_dir()

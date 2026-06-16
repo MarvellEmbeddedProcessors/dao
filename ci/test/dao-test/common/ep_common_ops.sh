@@ -388,6 +388,12 @@ function ep_common_rdma_test_cleanup()
 		"ibv_rc_pingpong"
 		"ibv_rdma_mq_trf"
 		"udaddy"
+		"ib_send_bw"
+		"ib_send_lat"
+		"ib_write_bw"
+		"ib_write_lat"
+		"ib_read_bw"
+		"ib_read_lat"
 		)
 
 	for binary in "${test_binaries[@]}"; do
