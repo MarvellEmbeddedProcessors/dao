@@ -282,6 +282,8 @@ DEFLATE Parameters
 
 	* Only DEFLATE algorithm is supported for both compression and decompression.
 	* Compression/decompression operations are supported in "stateless" mode only.
+	* Compression/decompression requests support input data up to 16364 bytes and output data up to
+	  16356 bytes (single 16KB segment limit).
 
 
 Control Plane
