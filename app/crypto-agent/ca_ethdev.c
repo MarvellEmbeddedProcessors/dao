@@ -1031,6 +1031,10 @@ ca_eth_lcore_map_link_clear(void)
 		lconf = &lcore_conf[lcore_id];
 		lconf->nb_pq = 0;
 		lconf->is_soft_reset = true;
+
+		/* Reset the packet counters */
+		lconf->rx_packets = 0;
+		lconf->tx_packets = 0;
 	}
 
 	/* One publish point for all lcores */
