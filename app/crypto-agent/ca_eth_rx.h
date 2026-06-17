@@ -204,14 +204,19 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
 #ifdef DAO_LIBOQS_DEP
 			rc = ca_pqc_process(rx_pkts[pkt_id], &infl_req->res);
-			if (rc != 0)
+			if (rc != 0) {
 				CA_INFO("Could not process PQC operation");
-			else
+				infl_req->res.pqc.compcode = DAO_PQC_COMP_ERROR;
+			} else {
 				infl_req->res.pqc.compcode = DAO_PQC_COMP_GOOD;
+			}
 #else
 			CA_INFO("PQC support not available - liboqs not found");
 			infl_req->res.pqc.compcode = DAO_PQC_COMP_LIB_ERROR_LIBOQS;
 #endif
+			infl_req->stage = 0;
+			infl_req->max_stage = 1;
+
 			pending_queue_advance(&head, pq_mask);
 			nb_cpt_bypass++;
 			break;
