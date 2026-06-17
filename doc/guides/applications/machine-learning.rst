@@ -1263,8 +1263,9 @@ This patch switches ``TRAIN.sh`` to use ``train_updated.py`` because the origina
 
 .. code-block:: bash
 
-    git clone https://github.com/syalavarthi_mrvl/Encrypted_Traffic_Classification.git
+    git clone https://github.com/MarvellEmbeddedProcessors/Encrypted_Traffic_Classification.git
     cd Encrypted_Traffic_Classification
+    git checkout release
     git apply patches/traffic.patch
 
 Create a Python environment and install the prerequisites using the ``requirements.txt`` file inside the repository.
@@ -1330,12 +1331,11 @@ Set the required environment variables and compile the model.
     --output model.tar \
     model.onnx
 
-For testing, use the scripts provided in the model repository to generate inference-ready input. Use ``pcap_to_json.py`` script to convert pcap to json files, and then use ``multi_gen.py`` to convert it to csv file.
+Use the scripts provided in the model repository to generate inference-ready input. Use the ``pcap_to_json.py`` script to convert PCAP to JSON files, and then use ``multi_gen.py`` to convert it to a CSV file. For testing, you can use any JSON file from the JSON folder in the ``data`` directory in the repository. The following commands demonstrate how to generate a CSV file for the test input ``add_vpn_email2a_14.json``.
 
 .. code-block:: bash
 
-    cd data && sh pcap_to_json.sh pcap_input_path tmp_json_path json_output_path 1
-    cd ../prepro && sh multi_gen.sh json_output_path input.csv 0
+    cd prepro && sh multi_gen.sh ../data/JSON/add_vpn_email2a_14.json input.csv 0
 
 Now we need to preprocess the test input using the same feature-engineering pipeline that was applied during training. The model expects fixed input features, so the preprocessing must reproduce the exact training transformations. The inference dataset is assumed to be of the same format as the `VPN-nonVPN dataset (ISCXVPN2016) <https://www.unb.ca/cic/datasets/vpn.html>`_, which was used for training. Each dataset entry contains multiple flows from the same network capture.
 
@@ -1344,6 +1344,8 @@ The ``generate_inference_files.py`` script applies the same filtering, feature e
 .. code-block:: bash
 
     python generate_inference_files.py input.csv
+
+For the example input ``add_vpn_email2a_14.json``, the preprocessing pipeline extracts 292 valid traffic flows. Consequently, 292 corresponding .bin files are generated in the inference_bins directory. Any one of these files can be used as input for running inference.
 
 Set up hugepages, bind the ML device, and run inference:
 
@@ -1375,6 +1377,18 @@ After inference, inspect the output and predicted class:
     i=a.argmax();
     print('\npredicted_label =', DIG2LABEL[i], '| \npredicted_index =', i, '| \nvalues =', a)"
 
+For the example input ``add_vpn_email2a_14.json``, we get the following output after interpretation.
+
+.. code-block:: text
+
+    predicted_label = vpn_email |
+    predicted_index = 11 |
+    values = [0.0000000e+00 0.0000000e+00 0.0000000e+00 2.6154518e-04 0.0000000e+00
+    3.4761429e-04 7.4434280e-04 5.4264069e-04 0.0000000e+00 9.3996525e-05
+    0.0000000e+00 9.9804688e-01]
+
+This confirms that the model correctly predicted the input as ``vpn_email`` with a high confidence score of 0.998.
+
 .. _references:
 
 References
@@ -1385,3 +1399,7 @@ References
 [2] R. Doriguzzi-Corin, S. Millar, S. Scott-Hayward, J. Martínez-del-Rincón, and D. Siracusa, "Lucid: A Practical, Lightweight Deep Learning Solution for DDoS Attack Detection," IEEE Transactions on Network and Service Management, vol. 17, no. 2, pp. 876-889, June 2020. doi: 10.1109/TNSM.2020.2971776. Available: `IEEE Xplore <https://ieeexplore.ieee.org/document/8984222>`_
 
 [3] `CIC-DDoS-2019 dataset <https://www.unb.ca/cic/datasets/ddos-2019.html>`_
+
+[4] Encrypted_Traffic_Classification repository on `GitHub <https://github.com/MarvellEmbeddedProcessors/Encrypted_Traffic_Classification>`__
+
+[5] `VPN-nonVPN dataset (ISCXVPN2016) <https://www.unb.ca/cic/datasets/vpn.html>`_
