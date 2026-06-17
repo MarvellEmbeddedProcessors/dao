@@ -372,7 +372,9 @@ enum dao_pqc_comp_code {
 	/** Request completed successfully. */
 	DAO_PQC_COMP_GOOD,
 	/** LibOQS library Not Found */
-	DAO_PQC_COMP_LIB_ERROR_LIBOQS
+	DAO_PQC_COMP_LIB_ERROR_LIBOQS,
+	/** Request completed with an error. */
+	DAO_PQC_COMP_ERROR
 };
 
 /**
