@@ -41,7 +41,7 @@ static pthread_t stats_thread;
 #endif
 
 static bool card_initialized;
-bool is_compdev_enabled;
+static bool is_compdev_enabled;
 
 static int host_dev_init(void);
 static int host_dev_fini(void);
@@ -582,7 +582,6 @@ card_init(struct dao_card_config *config)
 	}
 
 	force_quit = false;
-	is_compdev_enabled = false;
 
 	ret = rte_eal_init(config->argc, config->argv);
 	if (ret < 0) {
@@ -736,6 +735,8 @@ card_fini(void)
 	rte_eal_cleanup();
 
 	card_initialized = false;
+	/* Reset compress device status flag */
+	is_compdev_enabled = false;
 }
 
 static bool
@@ -914,7 +915,8 @@ card_info(struct dao_card_info *info)
 		info->max_sessions = CA_MAX_SYM_SESSIONS;
 
 	CA_INFO("nb_devs: %u, max_sessions: %u", info->nb_devs, info->max_sessions);
-	if (ca_glb_ctx.nb_compdevs > 0) {
+
+	if (card_initialized && is_compdev_enabled) {
 		info->comp_dev_enabled = 1;
 		CA_INFO("Compress device : Enabled");
 	} else {

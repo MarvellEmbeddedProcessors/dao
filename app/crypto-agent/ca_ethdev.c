@@ -21,7 +21,6 @@
 
 static struct ca_eth_dev_queue_lcore_map eth_map[CA_MAX_LCORE];
 extern struct lcore_conf lcore_conf[CA_MAX_LCORE];
-extern bool is_compdev_enabled;
 
 /* Forward declarations */
 
