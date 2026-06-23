@@ -980,17 +980,19 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			/* KMAC/cSHAKE control-word*/
-			sym_seg_sz += ROC_SE_CTRL_WORD_LEN;
+			if (params->sym.output_len) {
+				/* KMAC/cSHAKE control-word */
+				sym_seg_sz += ROC_SE_CTRL_WORD_LEN;
 
-			/* KMAC/cSHAKE custom-string */
-			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.custom_string_len, 8);
+				/* KMAC/cSHAKE custom-string */
+				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.custom_string_len, 8);
 
-			/* cSHAKE function-name */
-			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.function_name_len, 8);
+				/* cSHAKE function-name */
+				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.function_name_len, 8);
 
-			/* KMAC/cSHAKE output-len */
-			sym_seg_sz += RTE_ALIGN_CEIL(params->sym.output_len, 8);
+				/* KMAC/cSHAKE output-len */
+				sym_seg_sz += RTE_ALIGN_CEIL(params->sym.output_len, 8);
+			}
 
 			if (params->sym.key_wrap_len) {
 				if (params->sym.key_wrap_len >
