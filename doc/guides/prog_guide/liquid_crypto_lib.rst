@@ -10,10 +10,10 @@ cryptographic, compression and decompression operations to hardware accelerators
 is optimized for performance and low power consumption.
 
 The library provides a set of APIs for various cryptographic operations, including symmetric
-encryption, hashing, and public key cryptography. The library also provides support for hardware
-accelerated compression APIs, enabling high performance, hardware offloaded data compression
-operations. The library is designed to be modular and can be easily extended to support new
-algorithms and hardware accelerators.
+encryption, hashing, public key cryptography, and post-quantum cryptography (PQC). The library
+also provides support for hardware accelerated compression APIs, enabling high performance,
+hardware offloaded data compression operations. The library is designed to be modular and can
+be easily extended to support new algorithms and hardware accelerators.
 
 Architecture Overview
 ---------------------
@@ -30,8 +30,8 @@ The Liquid Crypto Library uses a queue-based architecture to manage the executio
 cryptographic and compression related operations. The queues are used to manage the execution of
 cryptographic and compression/decompression operations in a non-blocking manner, allowing multiple
 operations to be executed concurrently. The library provides a set of APIs for various cryptographic
-operations, including symmetric encryption, hashing, and public key cryptography. It also provides APIs
-for deflate algorithm compression and decompression operations.
+operations, including symmetric encryption, hashing, public key cryptography, and post-quantum
+cryptography. It also provides APIs for deflate algorithm compression and decompression operations.
 
 .. note::
 
@@ -77,9 +77,42 @@ Asymmetric Cryptography
 
 .. note::
 
-	* For RSA-OAEP operations, the modulus length must be at least twice the hash length used in OAEP padding,
-	  and not less than the minimum required for secure encryption. Ensure the input data length does not exceed
-	  the maximum allowed by the selected modulus and padding scheme.
+    * For RSA-OAEP operations, the modulus length must be at least twice the hash length used in OAEP padding,
+      and not less than the minimum required for secure encryption. Ensure the input data length does not exceed
+      the maximum allowed by the selected modulus and padding scheme.
+
+Post-Quantum Cryptography (PQC)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+ML-KEM Algorithms
++++++++++++++++++
+
++----------------+------------+-------------+-------------+---------------+----------------------+
+| Algorithm      | Public Key | Private Key | Ciphertext  | Shared Secret | Operations           |
++================+============+=============+=============+===============+======================+
+| ML-KEM-512     | 800 bytes  | 1632 bytes  | 768 bytes   | 32 bytes      | Keygen, encap, decap |
++----------------+------------+-------------+-------------+---------------+----------------------+
+| ML-KEM-768     | 1184 bytes | 2400 bytes  | 1088 bytes  | 32 bytes      | Keygen, encap, decap |
++----------------+------------+-------------+-------------+---------------+----------------------+
+| ML-KEM-1024    | 1568 bytes | 3168 bytes  | 1568 bytes  | 32 bytes      | Keygen, encap, decap |
++----------------+------------+-------------+-------------+---------------+----------------------+
+
+ML-DSA Algorithms
++++++++++++++++++
+
++----------------+------------+-------------+---------------+-------------+-------------+----------------------+
+| Algorithm      | Public Key | Private Key | Signature     | Max Message | Max Context | Operations           |
++================+============+=============+===============+=============+=============+======================+
+| ML-DSA-44      | 1312 bytes | 2560 bytes  | 2420 bytes    | 10240 bytes | 255 bytes   | Keygen, sign, verify |
++----------------+------------+-------------+---------------+-------------+-------------+----------------------+
+| ML-DSA-65      | 1952 bytes | 4032 bytes  | 3309 bytes    | 10240 bytes | 255 bytes   | Keygen, sign, verify |
++----------------+------------+-------------+---------------+-------------+-------------+----------------------+
+| ML-DSA-87      | 2592 bytes | 4896 bytes  | 4627 bytes    | 10240 bytes | 255 bytes   | Keygen, sign, verify |
++----------------+------------+-------------+---------------+-------------+-------------+----------------------+
+
+.. note::
+
+    * Seeded key generation is not supported; ``seed`` must be NULL for keygen operations.
 
 Symmetric Cryptography
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -166,10 +199,10 @@ Authentication Algorithms
 
 .. note::
 
-	* KMAC128 and KMAC256 operations are supported in XOF=False mode.
-	* cSHAKE128 and cSHAKE256 operations are supported in XOF=True mode.
-	* AES-CMAC creates a 16 byte MAC by default; when MACs less than 16 bytes are
-	  requested, the output is truncated.
+    * KMAC128 and KMAC256 operations are supported in XOF=False mode.
+    * cSHAKE128 and cSHAKE256 operations are supported in XOF=True mode.
+    * AES-CMAC creates a 16 byte MAC by default; when MACs less than 16 bytes are
+      requested, the output is truncated.
 
 
 AEAD Algorithms
@@ -208,7 +241,8 @@ Chained Cipher Auth Algorithms
 +-------------------+----------------+---------------+---------------+
 
 .. note::
-   * Only encrypt-then-authenticate mode is currently supported.
+
+    * Only encrypt-then-authenticate mode is currently supported.
 
 Random Number Generation (RNG)
 ++++++++++++++++++++++++++++++
@@ -224,9 +258,10 @@ Random Number Generation (RNG)
 +------------------+-------------+------------------+------------------+
 
 .. note::
-   * Only HW RANDOM RNG mode is currently supported.
-   * The maximum random data length is limited by 32600 bytes.
-   * Hardware Random RNG provides "true" random numbers generated from RNG circuit with a high amount of entropy.
+
+    * Only HW RANDOM RNG mode is currently supported.
+    * The maximum random data length is limited by 32600 bytes.
+    * Hardware Random RNG provides "true" random numbers generated from RNG circuit with a high amount of entropy.
 
 AES Key Wrap (KW) and AES Key Wrap with Padding (KWP) Algorithms
 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -249,8 +284,8 @@ AES Key Wrap (KW) and AES Key Wrap with Padding (KWP) Algorithms
 
 .. note::
 
-	* AES Key Wrap (KW) algorithm does not support padding; the input data length must be a multiple of 8 bytes.
-	* Padding is supported by the AES Key Wrap with Padding (KWP) algorithm; input data can be any length from 1 to 3072 bytes.
+    * AES Key Wrap (KW) algorithm does not support padding; the input data length must be a multiple of 8 bytes.
+    * Padding is supported by the AES Key Wrap with Padding (KWP) algorithm; input data can be any length from 1 to 3072 bytes.
 
 Compression and Decompression Device (ZIP)
 ++++++++++++++++++++++++++++++++++++++++++
@@ -280,10 +315,10 @@ DEFLATE Parameters
 
 .. note::
 
-	* Only DEFLATE algorithm is supported for both compression and decompression.
-	* Compression/decompression operations are supported in "stateless" mode only.
-	* Compression/decompression requests support input data up to 16364 bytes and output data up to
-	  16356 bytes (single 16KB segment limit).
+    * Only DEFLATE algorithm is supported for both compression and decompression.
+    * Compression/decompression operations are supported in "stateless" mode only.
+    * Compression/decompression requests support input data up to 16364 bytes and output data up to
+      16356 bytes (single 16KB segment limit).
 
 
 Control Plane
@@ -494,6 +529,18 @@ Enqueue API - Random Number Generation
 The following API is used to enqueue random number generation operations:
 
 * ``dao_liquid_crypto_enq_op_random()``: Enqueue a hardware-based random number generation operation.
+
+
+Enqueue API - Post-Quantum Cryptography
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The following API is used to enqueue PQC operations:
+
+* ``dao_liquid_crypto_pqc_enqueue()``: Enqueue an ML-KEM or ML-DSA operation.
+
+Before using PQC APIs, call ``dao_liquid_crypto_dev_caps_get()`` and verify that
+``struct dao_lc_dev_caps`` has ``pqc_en`` set. When clear, the crypto agent does not expose
+PQC offload.
 
 Compression/Decompression Capability
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -707,9 +754,9 @@ cryptographic operations:
 
 .. note::
 
-	- **R**: Required field for the operation.
-	- **O**: Optional field for the operation.
-	- **NA**: Not applicable for the operation.
+    * **R**: Required field for the operation.
+    * **O**: Optional field for the operation.
+    * **NA**: Not applicable for the operation.
 
 Dequeue API
 ~~~~~~~~~~~
