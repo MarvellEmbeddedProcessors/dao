@@ -43,6 +43,11 @@ dao_liquid_crypto_init(void)
 	struct dao_eth_trs_info trs_info;
 	int rc, i;
 
+	if (lc_ctx != NULL) {
+		dao_warn("Liquid crypto library already initialized");
+		return 0;
+	}
+
 	memset(&lc_info, 0, sizeof(lc_info));
 	memset(liquid_crypto_devs, 0, sizeof(liquid_crypto_devs));
 
