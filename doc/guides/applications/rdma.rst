@@ -589,3 +589,430 @@ Troubleshooting Perftest:
  * Empty or incorrect GID: re-check IP assignment or use alternate ``--gid-index``.
  * Low bandwidth: verify flow control settings, MTU, and absence of packet drops (``ethtool -S``).
  * Elevated latency spikes: inspect CPU frequency scaling, NUMA placement, and interrupt affinity.
+
+RDMA Counters
+=============
+
+.. note::
+
+   The telemetry client requires ``python3-dev`` and ``libreadline-dev`` packages. Install them before use:
+
+   .. code-block:: bash
+
+      sudo apt install python3-dev libreadline-dev
+
+.. note::
+
+   Debug counters require ``DAO_RDMA_DEBUG`` to be enabled at build time. Set the
+   ``rdma_debug`` option when configuring the build:
+
+   .. code-block:: bash
+
+      meson setup build -Drdma_debug=true
+
+Connection & Access Overview
+----------------------------
+
+Telemetry connects locally via a Unix domain socket. Remote access is not
+supported. Before connecting, make sure the ``dao-rdma_graph`` application is
+running to enable access to RDMA counter endpoints.
+
+Connect to telemetry:
+
+.. code-block:: console
+
+   dpdk-telemetry.py -f ep
+   Connecting to /var/run/dpdk/ep/dpdk_telemetry.v2
+   {
+     "version": "DPDK 25.11.0",
+     "pid": 981,
+     "max_output_len": 16384
+   }
+   Connected to application: "dao-rdma_graph"
+
+Where ``ep`` is the file-prefix used when launching the application.
+
+RDMA Core & Port Overview
+-------------------------
+
+Returns list of enabled lcores and active RDMA ports.
+
+* **Parameters:** None
+* **Endpoint:** ``/rdma/port/list``
+
+Example output:
+
+.. code-block:: console
+
+   --> /rdma/port/list
+   {
+     "/rdma/port/list": {
+       "rdma_system_info": {
+         "core_info": {
+           "num_enabled_lcores": 6,
+           "enabled_lcores": [
+             0,
+             1,
+             2,
+             3,
+             4,
+             5
+           ]
+         },
+         "port_info": {
+           "num_active_ports": 1,
+           "active_ports": [
+             0
+           ]
+         }
+       }
+     }
+   }
+
+RDMA Port-Level Statistics
+--------------------------
+
+Returns RDMA port statistics for a specific lcore and port.
+
+* **Parameters:**
+
+  * ``lcore`` — Logical core ID
+  * ``port`` — RDMA port ID
+
+* **Endpoint:** ``/rdma/port/counters,lcore,port``
+
+Example output (specific lcore and port):
+
+.. code-block:: console
+
+   --> /rdma/port/counters,1,0
+   {
+     "/rdma/port/counters": {
+       "lcore_1_port_0": {
+         "RDMA_RX_PORT_HDR_CHK_BTH_TVER_FAIL": 0,
+         "RDMA_RX_PORT_HDR_CHK_MULTICAST_QP_FAIL": 0,
+         "RDMA_RX_PORT_HDR_CHK_QP_INV": 0,
+         "RDMA_RX_PORT_RX_PROC_HDR_CHK_FAIL": 0,
+         "RDMA_RX_PORT_RSP_QP_INV": 0,
+         "RDMA_RX_PORT_PROC_ACK_QP_INV": 0,
+         "RDMA_TX_PORT_TX_PROC_QP_INV": 0,
+         "RDMA_TX_PORT_REQ_QP_INV": 0,
+         "RDMA_PORT_QP_DESTROY": 0,
+         "RDMA_PORT_QP_DESTROY_ACK_PENDING": 0,
+         "RDMA_PORT_QP_MODIFY": 0,
+         "RDMA_PORT_ETH_TX_DROP": 0
+       }
+     }
+   }
+
+Example output (aggregate across all lcores and ports):
+
+.. code-block:: console
+
+   --> /rdma/port/counters,-1,-1
+   {
+     "/rdma/port/counters": {
+       "all_lcores_all_ports_sum": {
+         "num_enabled_lcores": 6,
+         "enabled_lcores": [
+           0,
+           1,
+           2,
+           3,
+           4,
+           5
+         ],
+         "num_active_ports": 1,
+         "active_ports": [
+           0
+         ],
+         "port_counters": {
+           "RDMA_RX_PORT_HDR_CHK_BTH_TVER_FAIL": 0,
+           "RDMA_RX_PORT_HDR_CHK_MULTICAST_QP_FAIL": 0,
+           "RDMA_RX_PORT_HDR_CHK_QP_INV": 0,
+           "RDMA_RX_PORT_RX_PROC_HDR_CHK_FAIL": 0,
+           "RDMA_RX_PORT_RSP_QP_INV": 0,
+           "RDMA_RX_PORT_PROC_ACK_QP_INV": 0,
+           "RDMA_TX_PORT_TX_PROC_QP_INV": 0,
+           "RDMA_TX_PORT_REQ_QP_INV": 0,
+           "RDMA_PORT_QP_DESTROY": 0,
+           "RDMA_PORT_QP_DESTROY_ACK_PENDING": 0,
+           "RDMA_PORT_QP_MODIFY": 4,
+           "RDMA_PORT_ETH_TX_DROP": 0
+         }
+       }
+     }
+   }
+
+Special cases:
+
+* If ``lcore = -1`` and ``port = -1``: Aggregate statistics across all ports and all lcores.
+* If ``port = -1``: Aggregate statistics across all ports for a specified lcore.
+
+RDMA Port & QP Overview
+-----------------------
+
+Returns list of active Queue Pairs (QPs) across all active RDMA ports.
+
+* **Parameters:** None
+* **Endpoint:** ``/rdma/qp/list``
+
+Example output:
+
+.. code-block:: console
+
+   --> /rdma/qp/list
+   {
+     "/rdma/qp/list": {
+       "port_qp_info": {
+         "port_0": {
+           "num_active_qp": 2,
+           "valid_qps": [
+             1,
+             1023
+           ]
+         }
+       }
+     }
+   }
+
+RDMA Queue Pair Statistics
+--------------------------
+
+Returns RDMA statistics for a specific Queue Pair (QP) on a given port.
+
+* **Parameters:**
+
+  * ``port`` — RDMA port ID
+  * ``qp`` — Queue Pair ID
+
+* **Endpoint:** ``/rdma/qp/counters,port,qp``
+
+Example output (specific port and QP):
+
+.. code-block:: console
+
+   --> /rdma/qp/counters,0,1
+   {
+     "/rdma/qp/counters": {
+       "lcore_5_port_0_qp_1": {
+         "RDMA_RX_QP_HDR_CHK_ACCESS_QP_BY_NON_OWNER_LCORE": 0,
+         "RDMA_RX_QP_HDR_CHK_QP_STATE_INV": 0,
+         "RDMA_RX_QP_HDR_CHK_ADDR_INV": 0,
+         "RDMA_RX_QP_HDR_CHK_KEYS_INV": 0,
+         "RDMA_RX_QP_ICRC_CHK_PKT_ICRC_EXTRACT_FAIL": 0,
+         "RDMA_RX_QP_ICRC_CHECK_ICRC_MISMATCH": 0,
+         "RDMA_RX_QP_RX_PROC_ICRC_CHK_FAIL": 0,
+         "RDMA_RX_QP_WRITE_MSG_COMPLETE": 0,
+         "RDMA_RX_QP_WRITE_LAST_NO_ACK_REQ": 0,
+         "RDMA_RX_QP_ACK_GENERATED": 0,
+         "RDMA_RX_QP_ACK_QUEUED": 0,
+         "RDMA_RX_QP_ACK_SENT": 0,
+         "RDMA_RX_QP_CNP_THROTTLED": 0,
+         "RDMA_RX_QP_SEND_CNP_MBUF_ALLOC_FAIL": 0,
+         "RDMA_RX_QP_SEND_CNP_MBUF_PREPEND_FAIL": 0,
+         "RDMA_RX_QP_SEND_CNP_NET_HDR_INS_FAIL": 0,
+         "RDMA_RX_QP_SEND_CNP_ICRC_GEN_FAIL": 0,
+         "RDMA_RX_QP_SEND_CNP_TX_BURST_FAIL": 0,
+         "RDMA_RX_QP_CNP_SENT": 0,
+         "RDMA_RX_QP_ECN_CE_DETECTED": 0,
+         "RDMA_RX_QP_DCQCN_CNP_RECEIVED": 0,
+         "RDMA_RX_QP_RSP_QP_STATE_RESET": 0,
+         "RDMA_RX_QP_QUEUE_CHK_QP_STATE_ERR": 0,
+         "RDMA_RX_QP_CHK_PSN_PKT_OUT_OF_SEQ_ERR": 0,
+         "RDMA_RX_QP_CHK_PSN_DUP_REQ": 0,
+         "RDMA_RX_QP_CHK_OP_SEQ_MISS_OP_LAST_C_ERR": 0,
+         "RDMA_RX_QP_CHK_OP_SEQ_MISS_OP_FIRST_ERR": 0,
+         "RDMA_RX_QP_CHK_OP_VALID_UNSUPP_OP_ERR": 0,
+         "RDMA_RX_QP_CHK_RES_NO_READ_REQ_RES": 0,
+         "RDMA_RX_QP_CHK_RES_RNR_ERR": 0,
+         "RDMA_RX_QP_VAL_RKEY_INV_RKEY_INDEX": 0,
+         "RDMA_RX_QP_VAL_RKEY_PD_NOT_FOUND": 0,
+         "RDMA_RX_QP_VAL_RKEY_MR_NOT_FOUND": 0,
+         "RDMA_RX_QP_VAL_RKEY_ACC_VIOL": 0,
+         "RDMA_RX_QP_VAL_RKEY_LEN_VIOL": 0,
+         "RDMA_RX_QP_CHK_RKEY_INV_RKEY": 0,
+         "RDMA_RX_QP_HANDLE_READ_REQ_DMA_LEN_EXC": 0,
+         "RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR": 0,
+         "RDMA_RX_QP_HANDLE_READ_REQ_READ_PREP_PTS_FAIL": 0,
+         "RDMA_RX_QP_DO_COMP_QP_STATE_ERR": 0,
+         "RDMA_RX_QP_PREP_ACK_PKT_MBUF_ALLOC_FAIL": 0,
+         "RDMA_RX_QP_PREP_ACK_PKT_FAIL": 0,
+         "RDMA_RX_QP_SEND_ACK_UPDATE_ACK_PENDING_LIST_ERR": 0,
+         "RDMA_RX_QP_SEND_DUP_ACK_TX_BURST_FAIL": 0,
+         "RDMA_RX_QP_RSP_CLASS_C_ERR": 0,
+         "RDMA_RX_QP_RSP_CLASS_C_RNR_ERR": 0,
+         "RDMA_RX_QP_RSP_CQ_OVERFLOW_ERR": 0,
+         "RDMA_RX_QP_RSP_RESPST_EXIT": 0,
+         "RDMA_RX_QP_RSP_RESPST_RESET": 0,
+         "RDMA_RX_QP_RSP_RESPST_ERR": 0,
+         "RDMA_RX_QP_RX_PROC_RESPONDER_FAIL": 0,
+         "RDMA_RX_QP_GET_WQE_WQE_STATE_DONE": 0,
+         "RDMA_RX_QP_GET_WQE_WQE_STATE_ERR": 0,
+         "RDMA_RX_QP_CHK_PSN_READ_PSN_AHEAD_RETRY": 0,
+         "RDMA_RX_QP_CHK_ACK_OPCODE_MISMATCH": 0,
+         "RDMA_RX_QP_CHK_ACK_RNR_NAK": 0,
+         "RDMA_RX_QP_CHK_ACK_REMOTE_PSN_SEQ_ERR": 0,
+         "RDMA_RX_QP_CHK_ACK_NAK_PSN_SEQ_ERR": 0,
+         "RDMA_RX_QP_CHK_ACK_UNEXPECTED_NAK": 0,
+         "RDMA_RX_QP_CHK_ACK_UNEXPECTED_OPCODE": 0,
+         "RDMA_RX_QP_ERR_RETRY_RETRANS_LIMIT_EXC": 0,
+         "RDMA_RX_QP_RNR_RETRY_LIMIT_EXC_ERR": 0,
+         "RDMA_RX_QP_RDMA_COMPST_ERR": 0,
+         "RDMA_RX_QP_RX_PROC_PROCESS_ACK_FAIL": 0,
+         "RDMA_TX_QP_TX_PROC_ACC_QP_BY_NON_OWNER_LCORE": 0,
+         "RDMA_TX_QP_PROC_REMAINING_SEGS_WQE_EMPTY": 0,
+         "RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL": 0,
+         "RDMA_TX_QP_PREPROC_DEQ_PKTS_EXTRACT_WQE_FAIL": 0,
+         "RDMA_TX_QP_PREPROC_DEQ_PKTS_DMA_LEN_INV": 0,
+         "RDMA_TX_QP_PROC_RC_PKTS_PREPROC_DEQ_PKTS_FAIL": 0,
+         "RDMA_TX_QP_SEND_CQE_ENQ_CQE_FAIL": 0,
+         "RDMA_TX_QP_SEND_CQE_FAIL": 0,
+         "RDMA_TX_QP_PROC_READ_REPLY_ACK_MISMATCH": 0,
+         "RDMA_TX_QP_PROC_READ_REPLY_MBUF_PSN_MISMATCH": 0,
+         "RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL": 0,
+         "RDMA_TX_QP_PROC_RC_PKTS_WQE_EMPTY": 0,
+         "RDMA_TX_QP_REQ_QP_STATE_ERR": 0,
+         "RDMA_TX_QP_REQ_QP_STATE_RESET": 0,
+         "RDMA_TX_QP_REQ_WQE_FENCED": 0,
+         "RDMA_TX_QP_REQ_LOCAL_OP_FAIL": 0,
+         "RDMA_TX_QP_REQ_OPCODE_ERR": 0,
+         "RDMA_TX_QP_REQ_READ_CREDIT_EXHAUSTED": 0,
+         "RDMA_TX_QP_REQ_PAYLOAD_ERR": 0,
+         "RDMA_TX_QP_REQ_PAYLOAD_EXC_MTU": 0,
+         "RDMA_TX_QP_REQ_AV_FAIL": 0,
+         "RDMA_TX_QP_HDR_INSERT_PROTO_HDR_INS_FAIL": 0,
+         "RDMA_TX_QP_HDR_INS_NET_HDR_INS_FAIL": 0,
+         "RDMA_TX_QP_HDR_INSERT_ICRC_GEN_FAIL": 0,
+         "RDMA_TX_QP_REQ_INSERT_HDR_FAIL": 0,
+         "RDMA_TX_QP_REQ_WQE_STATE_ERR": 0,
+         "RDMA_TX_QP_PROC_RC_REQUESTER_FAIL": 0,
+         "RDMA_TX_QP_TX_PROC_RC_PKT_PROCESS_FAIL": 0,
+         "RDMA_TX_QP_TX_PROC_UD_REQUESTER_FAIL": 0,
+         "RDMA_TX_QP_TX_PROC_REQUESTER_FAIL": 0,
+         "RDMA_QP_NET_HDR_INSERT_FAIL": 0,
+         "RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL": 0,
+         "RDMA_TX_QP_PTS_ENQ_FAIL": 0,
+         "RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE": 0,
+         "RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE": 0
+       }
+     }
+   }
+
+Example output (aggregate across all ports and QPs):
+
+.. code-block:: console
+
+   --> /rdma/qp/counters,-1,-1
+   {
+     "/rdma/qp/counters": {
+       "all_ports_all_qps_sum": {
+         "qp_counters": {
+           "RDMA_RX_QP_HDR_CHK_ACCESS_QP_BY_NON_OWNER_LCORE": 0,
+           "RDMA_RX_QP_HDR_CHK_QP_STATE_INV": 0,
+           "RDMA_RX_QP_HDR_CHK_ADDR_INV": 0,
+           "RDMA_RX_QP_HDR_CHK_KEYS_INV": 0,
+           "RDMA_RX_QP_ICRC_CHK_PKT_ICRC_EXTRACT_FAIL": 0,
+           "RDMA_RX_QP_ICRC_CHECK_ICRC_MISMATCH": 0,
+           "RDMA_RX_QP_RX_PROC_ICRC_CHK_FAIL": 0,
+           "RDMA_RX_QP_WRITE_MSG_COMPLETE": 0,
+           "RDMA_RX_QP_WRITE_LAST_NO_ACK_REQ": 0,
+           "RDMA_RX_QP_ACK_GENERATED": 0,
+           "RDMA_RX_QP_ACK_QUEUED": 0,
+           "RDMA_RX_QP_ACK_SENT": 0,
+           "RDMA_RX_QP_CNP_THROTTLED": 0,
+           "RDMA_RX_QP_SEND_CNP_MBUF_ALLOC_FAIL": 0,
+           "RDMA_RX_QP_SEND_CNP_MBUF_PREPEND_FAIL": 0,
+           "RDMA_RX_QP_SEND_CNP_NET_HDR_INS_FAIL": 0,
+           "RDMA_RX_QP_SEND_CNP_ICRC_GEN_FAIL": 0,
+           "RDMA_RX_QP_SEND_CNP_TX_BURST_FAIL": 0,
+           "RDMA_RX_QP_CNP_SENT": 0,
+           "RDMA_RX_QP_ECN_CE_DETECTED": 0,
+           "RDMA_RX_QP_DCQCN_CNP_RECEIVED": 0,
+           "RDMA_RX_QP_RSP_QP_STATE_RESET": 0,
+           "RDMA_RX_QP_QUEUE_CHK_QP_STATE_ERR": 0,
+           "RDMA_RX_QP_CHK_PSN_PKT_OUT_OF_SEQ_ERR": 0,
+           "RDMA_RX_QP_CHK_PSN_DUP_REQ": 0,
+           "RDMA_RX_QP_CHK_OP_SEQ_MISS_OP_LAST_C_ERR": 0,
+           "RDMA_RX_QP_CHK_OP_SEQ_MISS_OP_FIRST_ERR": 0,
+           "RDMA_RX_QP_CHK_OP_VALID_UNSUPP_OP_ERR": 0,
+           "RDMA_RX_QP_CHK_RES_NO_READ_REQ_RES": 0,
+           "RDMA_RX_QP_CHK_RES_RNR_ERR": 0,
+           "RDMA_RX_QP_VAL_RKEY_INV_RKEY_INDEX": 0,
+           "RDMA_RX_QP_VAL_RKEY_PD_NOT_FOUND": 0,
+           "RDMA_RX_QP_VAL_RKEY_MR_NOT_FOUND": 0,
+           "RDMA_RX_QP_VAL_RKEY_ACC_VIOL": 0,
+           "RDMA_RX_QP_VAL_RKEY_LEN_VIOL": 0,
+           "RDMA_RX_QP_CHK_RKEY_INV_RKEY": 0,
+           "RDMA_RX_QP_HANDLE_READ_REQ_DMA_LEN_EXC": 0,
+           "RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR": 0,
+           "RDMA_RX_QP_HANDLE_READ_REQ_READ_PREP_PTS_FAIL": 0,
+           "RDMA_RX_QP_DO_COMP_QP_STATE_ERR": 0,
+           "RDMA_RX_QP_PREP_ACK_PKT_MBUF_ALLOC_FAIL": 0,
+           "RDMA_RX_QP_PREP_ACK_PKT_FAIL": 0,
+           "RDMA_RX_QP_SEND_ACK_UPDATE_ACK_PENDING_LIST_ERR": 0,
+           "RDMA_RX_QP_SEND_DUP_ACK_TX_BURST_FAIL": 0,
+           "RDMA_RX_QP_RSP_CLASS_C_ERR": 0,
+           "RDMA_RX_QP_RSP_CLASS_C_RNR_ERR": 0,
+           "RDMA_RX_QP_RSP_CQ_OVERFLOW_ERR": 0,
+           "RDMA_RX_QP_RSP_RESPST_EXIT": 0,
+           "RDMA_RX_QP_RSP_RESPST_RESET": 0,
+           "RDMA_RX_QP_RSP_RESPST_ERR": 0,
+           "RDMA_RX_QP_RX_PROC_RESPONDER_FAIL": 0,
+           "RDMA_RX_QP_GET_WQE_WQE_STATE_DONE": 0,
+           "RDMA_RX_QP_GET_WQE_WQE_STATE_ERR": 0,
+           "RDMA_RX_QP_CHK_PSN_READ_PSN_AHEAD_RETRY": 0,
+           "RDMA_RX_QP_CHK_ACK_OPCODE_MISMATCH": 0,
+           "RDMA_RX_QP_CHK_ACK_RNR_NAK": 0,
+           "RDMA_RX_QP_CHK_ACK_REMOTE_PSN_SEQ_ERR": 0,
+           "RDMA_RX_QP_CHK_ACK_NAK_PSN_SEQ_ERR": 0,
+           "RDMA_RX_QP_CHK_ACK_UNEXPECTED_NAK": 0,
+           "RDMA_RX_QP_CHK_ACK_UNEXPECTED_OPCODE": 0,
+           "RDMA_RX_QP_ERR_RETRY_RETRANS_LIMIT_EXC": 0,
+           "RDMA_RX_QP_RNR_RETRY_LIMIT_EXC_ERR": 0,
+           "RDMA_RX_QP_RDMA_COMPST_ERR": 0,
+           "RDMA_RX_QP_RX_PROC_PROCESS_ACK_FAIL": 0,
+           "RDMA_TX_QP_TX_PROC_ACC_QP_BY_NON_OWNER_LCORE": 0,
+           "RDMA_TX_QP_PROC_REMAINING_SEGS_WQE_EMPTY": 0,
+           "RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL": 0,
+           "RDMA_TX_QP_PREPROC_DEQ_PKTS_EXTRACT_WQE_FAIL": 0,
+           "RDMA_TX_QP_PREPROC_DEQ_PKTS_DMA_LEN_INV": 0,
+           "RDMA_TX_QP_PROC_RC_PKTS_PREPROC_DEQ_PKTS_FAIL": 0,
+           "RDMA_TX_QP_SEND_CQE_ENQ_CQE_FAIL": 0,
+           "RDMA_TX_QP_SEND_CQE_FAIL": 0,
+           "RDMA_TX_QP_PROC_READ_REPLY_ACK_MISMATCH": 0,
+           "RDMA_TX_QP_PROC_READ_REPLY_MBUF_PSN_MISMATCH": 0,
+           "RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL": 0,
+           "RDMA_TX_QP_PROC_RC_PKTS_WQE_EMPTY": 0,
+           "RDMA_TX_QP_REQ_QP_STATE_ERR": 0,
+           "RDMA_TX_QP_REQ_QP_STATE_RESET": 0,
+           "RDMA_TX_QP_REQ_WQE_FENCED": 0,
+           "RDMA_TX_QP_REQ_LOCAL_OP_FAIL": 0,
+           "RDMA_TX_QP_REQ_OPCODE_ERR": 0,
+           "RDMA_TX_QP_REQ_READ_CREDIT_EXHAUSTED": 0,
+           "RDMA_TX_QP_REQ_PAYLOAD_ERR": 0,
+           "RDMA_TX_QP_REQ_PAYLOAD_EXC_MTU": 0,
+           "RDMA_TX_QP_REQ_AV_FAIL": 0,
+           "RDMA_TX_QP_HDR_INSERT_PROTO_HDR_INS_FAIL": 0,
+           "RDMA_TX_QP_HDR_INS_NET_HDR_INS_FAIL": 0,
+           "RDMA_TX_QP_HDR_INSERT_ICRC_GEN_FAIL": 0,
+           "RDMA_TX_QP_REQ_INSERT_HDR_FAIL": 0,
+           "RDMA_TX_QP_REQ_WQE_STATE_ERR": 0,
+           "RDMA_TX_QP_PROC_RC_REQUESTER_FAIL": 0,
+           "RDMA_TX_QP_TX_PROC_RC_PKT_PROCESS_FAIL": 0,
+           "RDMA_TX_QP_TX_PROC_UD_REQUESTER_FAIL": 0,
+           "RDMA_TX_QP_TX_PROC_REQUESTER_FAIL": 0,
+           "RDMA_QP_NET_HDR_INSERT_FAIL": 0,
+           "RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL": 0,
+           "RDMA_TX_QP_PTS_ENQ_FAIL": 0,
+           "RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE": 0,
+           "RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE": 0
+         }
+       }
+     }
+   }
+
+Special cases:
+
+* If ``port = -1`` and ``qp = -1``: Aggregate statistics across all QPs and all ports.
+* If ``qp = -1``: Aggregate statistics across all QPs for the specified port.
