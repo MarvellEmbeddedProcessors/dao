@@ -33,6 +33,8 @@
 #define MIN_INPUT_DATA_LENGTH          1
 #define INVALID_DATA_LENGTH_MIN        0
 
+#define DAO_LC_COMP_INVALID_HUFFMAN 0
+
 struct comp_test_config {
 	uint32_t num_compress_ops;
 	uint32_t num_decompress_ops;
@@ -1056,11 +1058,14 @@ ut_compdev_compress_decompress_minimal_input(void)
 		return TEST_FAILED;
 	}
 
-	huf_type = 0; /* Device default huffman encoding */
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	/* Setting huffman to invalid value to test valid huffman values */
+	huf_type = DAO_LC_COMP_INVALID_HUFFMAN;
 	/* Enqueue deflate compress operation */
 	fill_compress_req_param(&req, (const uint8_t *)in_buf, comp_data_len, comp_data_out, 100);
 	ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp_id, &req, op_cookie);
 	TEST_ASSERT(ret == -EINVAL, "Invalid huffman encoding (device default)");
+#endif
 
 	huf_type = DAO_LC_COMP_HUFFMAN_FIXED;
 	/* Enqueue deflate compress operation */
