@@ -439,8 +439,8 @@ reload_and_bringup_octeon_ep(const char *boot_bin_path, const char *boot_arg, co
 	bring_up_octeon_ep_interface(ip_addr);
 
 	/* Integrated readiness wait */
-	DAO_CARD_INFO("Waiting for card to become ready (timeout: 20 seconds)...");
-	int wrc = dao_card_wait_ready(20000, 250);
+	DAO_CARD_INFO("Waiting for card to become ready (timeout: 40 seconds)...");
+	int wrc = dao_card_wait_ready(40000, 250);
 
 	if (wrc) {
 		DAO_CARD_ERR("Card did not respond within timeout period");
