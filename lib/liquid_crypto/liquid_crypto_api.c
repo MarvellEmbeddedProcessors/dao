@@ -5561,16 +5561,6 @@ dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 
 	qp = dev->qp[qp_id];
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (qp->max_seg_size < LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
-		dao_err("Compress i/o payload does not fit in configured segment.");
-		dao_err("Configured: %u Required Segment: %u", qp->max_seg_size,
-			LIQUID_CRYPTO_COMP_MAX_SEG_SIZE);
-		return -EINVAL;
-	}
-#endif
-
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -5594,6 +5584,15 @@ dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 		rc = -ENOMEM;
 		goto idx_put;
 	}
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(input_mbuf)) {
+		dao_err("Compress i/o payload does not fit in configured segment.");
+		rc = -ENOSPC;
+		goto mbuf_free;
+	}
+#endif
+
 	/* Allocate enough buffer to hold compress request parameters, input data
 	 * in the same request buffer.
 	 */
@@ -5706,16 +5705,6 @@ dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 
 	qp = dev->qp[qp_id];
-
-#ifdef DAO_LIQUID_CRYPTO_DEBUG
-	if (qp->max_seg_size < LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
-		dao_err("Decompress i/o payload does not fit in configured segment.");
-		dao_err("Configured: %u Required Segment: %u", qp->max_seg_size,
-			LIQUID_CRYPTO_COMP_MAX_SEG_SIZE);
-		return -EINVAL;
-	}
-#endif
-
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -5740,6 +5729,14 @@ dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 		rc = -ENOMEM;
 		goto idx_put;
 	}
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(input_mbuf)) {
+		dao_err("Decompress input data doesn't fit in single segment!");
+		rc = -ENOSPC;
+		goto mbuf_free;
+	}
+#endif
 
 	/* Allocate enough buffer to hold decompress request parameters and compressed
 	 * input data.
