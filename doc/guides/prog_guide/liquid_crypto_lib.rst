@@ -209,6 +209,8 @@ Chained Cipher Auth Algorithms
 
 .. note::
    * Only encrypt-then-authenticate mode is currently supported.
+   * Chained cipher/auth is supported only when ``cipher_offset + cipher_len`` equals
+     ``auth_offset + auth_len`` (i.e., both ranges end at the same offset).
 
 Random Number Generation (RNG)
 ++++++++++++++++++++++++++++++
