@@ -4970,7 +4970,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	req->op_type = LC_ASYM_RSA_OAEP_ENCODE;
 
 	/* Add instruction */
-	w4.s.opcode_major = ROC_SE_MAJOR_OP_OAEP_ENCODE_DECODE;
+	w4.s.opcode_major = ROC_SE_MAJOR_OP_PAD_SCHEME_ENCODE_DECODE;
 	w4.s.opcode_minor = ROC_SE_MINOR_OP_OAEP_ENCODE;
 	w4.s.param1 = mod_len;
 	w4.s.param2 = ((hash_type & 0xF) << 8);

@@ -186,11 +186,11 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			infl_req->rsa_mod_len = w4.s.param1;
 			inst[cpt_inst_cnt].w4.u64 = asym->w4;
 			inst[cpt_inst_cnt].w5.u64 =
-				(uint64_t)(asym->dptr + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE +
+				(uint64_t)(asym->dptr + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE +
 					   label_len);
 			inst[cpt_inst_cnt].w6.u64 =
 				(uint64_t)((uint8_t *)asym_resp->rptr +
-					   CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len);
+					   CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE + label_len);
 			inst[cpt_inst_cnt].w7.u64 = 0;
 			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			infl_req->op_type = asym->op_type;

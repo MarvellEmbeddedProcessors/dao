@@ -367,16 +367,16 @@ ca_cpt_build_next_stage(struct cpt_inflight_req *infl_req, struct cpt_inst_s *in
 		hash_type = infl_req->rsa_oaep.hash_type;
 		mod_len = infl_req->rsa_mod_len;
 
-		inst->w4.s.opcode_major = ROC_SE_MAJOR_OP_OAEP_ENCODE_DECODE;
+		inst->w4.s.opcode_major = ROC_SE_MAJOR_OP_PAD_SCHEME_ENCODE_DECODE;
 		inst->w4.s.opcode_minor = ROC_SE_MINOR_OP_OAEP_DECODE;
 		inst->w4.s.param1 = mod_len;
 		inst->w4.s.param2 = (hash_type & 0xF) << 8;
-		inst->w4.s.dlen = mod_len + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len;
-		rptr = asym_resp->rptr + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len;
+		inst->w4.s.dlen = mod_len + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE + label_len;
+		rptr = asym_resp->rptr + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE + label_len;
 
 		/* Copy the decrypted message to the dptr to decode using OAEP */
-		memcpy((uint8_t *)asym->dptr + CPT_AE_RSA_OAEP_CONTROL_WORD_SIZE + label_len, rptr,
-		       infl_req->rsa_mod_len);
+		memcpy((uint8_t *)asym->dptr + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE + label_len,
+		       rptr, infl_req->rsa_mod_len);
 
 		dptr = (uint8_t *)asym->dptr;
 		*(uint64_t *)dptr = rte_cpu_to_be_64(((uint64_t)label_len << 16) |

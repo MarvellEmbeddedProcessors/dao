@@ -60,6 +60,8 @@
 #define DAO_LC_MAX_AAD_LEN 1024
 /** Maximum supported modulus length */
 #define DAO_LC_MAX_MOD_LEN 1024
+/* Flag indicating the final stage of an operation is done */
+#define DAO_FLAG_FINAL_STAGE_DONE (1U << 0)
 
 /**
  * The params required for KMAC operations.

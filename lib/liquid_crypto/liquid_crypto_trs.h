@@ -55,6 +55,7 @@ struct __rte_packed_begin __dao_lc_req_asym {
 struct __rte_packed_begin __dao_lc_resp_asym {
 	struct __dao_lc_hdr hdr;
 	union dao_cpt_res_s res;
+	uint8_t status_flags;
 	uint8_t rptr[];
 } __rte_packed_end;
 
