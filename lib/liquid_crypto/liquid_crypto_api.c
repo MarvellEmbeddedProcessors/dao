@@ -925,8 +925,8 @@ uint16_t
 dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 {
 	uint16_t asym_seg_sz = 0, sym_seg_sz = 0, rng_seg_size = 0, max_seg_size = 0;
+	uint16_t pqc_seg_sz = 0, modex_seg_sz = 0, rsa_pss_seg_sz = 0;
 	uint16_t rsa_seg_sz = 0, ecc_seg_sz = 0, rsa_oaep_seg_sz = 0;
-	uint16_t pqc_seg_sz = 0, modex_seg_sz = 0;
 	struct dao_eth_trs_info trs_info;
 	/* Number of ECC components:
 	 * public key X, public key Y, private key, nonce,
@@ -1246,9 +1246,80 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 			rsa_oaep_seg_sz += 4;
 		}
 
+		if (params->rsa_pss.is_rsa_pss_enabled) {
+			bool is_crt;
+
+			if (params->rsa_pss.exp_len == 0)
+				is_crt = true;
+			else
+				is_crt = false;
+
+			/* DAO LC ASYM header */
+			rsa_pss_seg_sz += sizeof(struct __dao_lc_req_asym);
+
+			rc = cpt_ae_rsa_pss_mod_len_max_validate(params->rsa_pss.mod_len);
+			if (rc != 0) {
+				dao_err("Provided RSA-PSS modulus length %d exceeds maximum supported %u.",
+					params->rsa_pss.mod_len, DAO_LC_RSA_PSS_MAX_MOD_LEN);
+				return 0;
+			}
+
+			rc = cpt_ae_rsa_pad_scheme_mod_len_check(params->rsa_pss.mod_len, is_crt);
+			if (rc != 0) {
+				dao_err("Invalid %d RSA-PSS modulus length.",
+					params->rsa_pss.mod_len);
+				return 0;
+			}
+
+			if (is_crt) {
+				rsa_pss_seg_sz += (5 * (params->rsa_pss.mod_len / 2));
+			} else {
+				rc = cpt_ae_rsa_exp_len_check(params->rsa_pss.mod_len,
+							      params->rsa_pss.exp_len);
+				if (rc != 0) {
+					dao_err("Invalid %d RSA-PSS exponent length.",
+						params->rsa_pss.exp_len);
+					return 0;
+				}
+
+				/* Exponent */
+				rsa_pss_seg_sz += params->rsa_pss.exp_len;
+
+				/* Modulus */
+				rsa_pss_seg_sz += params->rsa_pss.mod_len;
+			}
+
+			rc = cpt_ae_rsa_pss_salt_len_max_validate(params->rsa_pss.salt_len);
+			if (rc != 0) {
+				dao_err("Invalid RSA-PSS salt length (%d). Maximum supported is %u.",
+					params->rsa_pss.salt_len, DAO_LC_RSA_PSS_MAX_SALT_LEN);
+				return 0;
+			}
+
+			rsa_pss_seg_sz += params->rsa_pss.salt_len;
+
+			/* For RSA-PSS sign: maximum plaintext length depends on modulus size
+			 * and hash function For RSA-PSS decryption: signature length must equal
+			 * modulus length (mod_len bytes) Allocate mod_len bytes to accommodate
+			 * signature for both signing and verification operations.
+			 */
+			rsa_pss_seg_sz += params->rsa_pss.mod_len;
+
+			/* 8 bytes control word */
+			rsa_pss_seg_sz += 8;
+
+			/* PSS Hash type */
+			rsa_pss_seg_sz += sizeof(params->rsa_pss.hash_type);
+
+			/* Reserve space for encoded message/signature output and rptr offset */
+			rsa_pss_seg_sz += params->rsa_pss.mod_len;
+			rsa_pss_seg_sz += 2;
+		}
+
 		asym_seg_sz = RTE_MAX(rsa_seg_sz, ecc_seg_sz);
 		asym_seg_sz = RTE_MAX(asym_seg_sz, modex_seg_sz);
 		asym_seg_sz = RTE_MAX(asym_seg_sz, rsa_oaep_seg_sz);
+		asym_seg_sz = RTE_MAX(asym_seg_sz, rsa_pss_seg_sz);
 
 		if (params->rng.rand_len) {
 			uint16_t rand_len_max = LIQUID_CRYPTO_RAND_LEN_MAX;

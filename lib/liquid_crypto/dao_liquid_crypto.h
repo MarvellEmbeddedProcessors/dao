@@ -1032,7 +1032,8 @@ struct dao_lc_feature_params {
 	 * For using following APIs the corresponding parameters must be set:
 	 * - `dao_liquid_crypto_enq_op_rsa_oaep_enc()`
 	 * - `dao_liquid_crypto_enq_op_rsa_oaep_exp_dec()`
-	 *   - Only certain hash types are valid for OAEP operations (SHA-1, SHA-256, etc.)
+	 *   - Only certain hash types are valid for OAEP operations (SHA-1, SHA2-256, SHA2-384,
+	 * SHA2-512)
 	 */
 	struct {
 		/** Specifies whether RSA OAEP enabled or not */
@@ -1046,6 +1047,33 @@ struct dao_lc_feature_params {
 		/** Hash type used in OAEP (must be a supported hash algorithm for OAEP) */
 		enum dao_lc_hash_type hash_type;
 	} rsa_oaep;
+
+	/**
+	 * RSA PSS asymmetric parameters. The parameters are used to calculate the size of the
+	 * maximum segment size for RSA PSS operations.
+	 *
+	 * The segment size calculation reserves space based on mod_len, hash_type, and salt_len to
+	 * accommodate RSA PSS operations.
+	 *
+	 * For using following APIs the corresponding parameters must be set:
+	 * - `dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc()`
+	 * - `dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc()`
+	 * - `dao_liquid_crypto_enq_op_rsa_pss_pub_dec()`
+	 *   - Only certain hash types are valid for PSS operations (SHA-1, SHA2-256, SHA2-384,
+	 * SHA2-512)
+	 */
+	struct {
+		/** Specifies whether RSA PSS enabled or not */
+		uint8_t is_rsa_pss_enabled;
+		/** Modulus length in bytes */
+		uint16_t mod_len;
+		/** Exponent length in bytes */
+		uint16_t exp_len;
+		/** Salt length in bytes */
+		uint16_t salt_len;
+		/** Hash type used in PSS (must be a supported hash algorithm for PSS) */
+		enum dao_lc_hash_type hash_type;
+	} rsa_pss;
 
 	/* Specifies whether PQC is enabled or not */
 	struct {
