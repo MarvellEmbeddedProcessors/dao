@@ -19,12 +19,12 @@
 #define COMP_LEVEL_1       1
 #define COMP_TEST_CFG_FILE "tests/liquid-crypto-autotest/compress_test.cfg"
 
-/* Below values are supported with 8 hugepages for compress device */
-#define CA_MAX_COMP_OPERATIONS           2048
+#define CA_MAX_COMP_OPERATIONS           8192
 #define COMP_TEST_MAX_OPS                CA_MAX_COMP_OPERATIONS
 #define COMP_TEST_DEFAULT_COMPRESS_OPS   10
 #define COMP_TEST_DEFAULT_DECOMPRESS_OPS 10
 #define COMP_TEST_DEFAULT_ITERATIONS     10
+#define COMP_MIX_TEST_QPS                8
 
 #define VALID_INPUT_DATA_LENGTH        16364
 #define VALID_OUTPUT_DATA_LENGTH       16356
@@ -38,12 +38,16 @@
 struct comp_test_config {
 	uint32_t num_compress_ops;
 	uint32_t num_decompress_ops;
+	uint32_t num_comp_decomp_ops;
+	uint8_t num_qps;
 	uint16_t iterations;
 };
 
 static struct comp_test_config comp_test_cfg = {
 	.num_compress_ops = COMP_TEST_DEFAULT_COMPRESS_OPS,
 	.num_decompress_ops = COMP_TEST_DEFAULT_DECOMPRESS_OPS,
+	.num_comp_decomp_ops = COMP_TEST_DEFAULT_DECOMPRESS_OPS,
+	.num_qps = COMP_MIX_TEST_QPS,
 	.iterations = COMP_TEST_DEFAULT_ITERATIONS,
 };
 
@@ -129,6 +133,12 @@ load_comp_test_config(void)
 		} else if (sscanf(p, "num_decompress_ops=%u", &val) == 1) {
 			if (val > 0 && val <= COMP_TEST_MAX_OPS)
 				comp_test_cfg.num_decompress_ops = val;
+		} else if (sscanf(p, "num_comp_decomp_ops=%u", &val) == 1) {
+			if (val > 0 && val <= COMP_TEST_MAX_OPS)
+				comp_test_cfg.num_comp_decomp_ops = val;
+		} else if (sscanf(p, "num_qps=%u", &val) == 1) {
+			if (val > 0 && val <= COMP_MIX_TEST_QPS)
+				comp_test_cfg.num_qps = val;
 		} else if (sscanf(p, "iterations=%u", &val) == 1) {
 			if (val > 0 && val <= COMP_TEST_MAX_OPS)
 				comp_test_cfg.iterations = val;
@@ -896,6 +906,315 @@ cleanup:
 	return rc;
 }
 
+/**
+ * This test enqueues compress and decompress operations to multiple QPs.
+ * Dequeues responses in bulk using op_dequeue_multi and validates.
+ */
+static int
+ut_compdev_mix_ops_with_multi_qp_in_order(void)
+{
+	uint32_t i, num_op, data_len = sizeof(plain_text);
+	uint32_t comp_data_len = sizeof(compressed_text);
+	uint32_t total_ops, op_count = 0, deq_ops = 0;
+	struct dao_lc_decomp_req_params dreq = {0};
+	struct dao_lc_comp_req_params req = {0};
+	const uint8_t *test_data = plain_text;
+	uint8_t dev_id = glb_params.dev_id;
+	struct dao_lc_res *comp_res;
+	uint16_t test_iteration = 0;
+	int ret, rc = TEST_FAILED;
+	uint8_t num_qps, qp;
+
+	load_comp_test_config();
+	num_op = comp_test_cfg.num_comp_decomp_ops;
+	num_qps = comp_test_cfg.num_qps;
+
+	if (num_qps > glb_params.info.nb_qp[dev_id])
+		num_qps = glb_params.info.nb_qp[dev_id];
+
+	if (num_qps <= 1)
+		return TEST_SKIPPED;
+
+	uint8_t *data_out[num_op], *plain_data_out[num_op];
+
+	memset(data_out, 0, sizeof(data_out));
+	memset(plain_data_out, 0, sizeof(plain_data_out));
+	/* Considering same number of decompress operations. */
+	total_ops = num_op * 2;
+
+	comp_res = calloc(total_ops, sizeof(*comp_res));
+	if (comp_res == NULL) {
+		TEST_LC_ERR("Could not allocate memory for comp_res");
+		return TEST_FAILED;
+	}
+
+	uint64_t op_cookie[total_ops];
+
+	TEST_LC_INFO("Testing compress & decompress operations with %d requests for %u iterations",
+		     total_ops, comp_test_cfg.iterations);
+	TEST_LC_INFO("Number of Queue pairs: %u", num_qps);
+	for (i = 0; i < num_op; i++) {
+		data_out[i] = malloc(sizeof(compressed_text));
+		if (data_out[i] == NULL) {
+			rc = TEST_FAILED;
+			goto cleanup;
+		}
+		op_cookie[op_count] = rte_rand();
+		op_count++;
+		plain_data_out[i] = malloc(sizeof(plain_text));
+		if (plain_data_out[i] == NULL) {
+			rc = TEST_FAILED;
+			goto cleanup;
+		}
+		op_cookie[op_count] = rte_rand();
+		op_count++;
+	}
+
+	for (qp = 1; qp < num_qps; qp++) {
+		do {
+			op_count = 0;
+			for (i = 0; i < num_op; i++) {
+				fill_compress_req_param(&req, test_data, data_len, data_out[i],
+							sizeof(compressed_text));
+				/* Enqueue deflate compress operation */
+				ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp, &req,
+									    op_cookie[op_count]);
+
+				if (ret < 0) {
+					TEST_LC_ERR("Could not enqueue deflate operation");
+					rc = TEST_FAILED;
+					goto cleanup;
+				}
+				op_count++;
+				fill_decompress_req_param(&dreq, compressed_text, comp_data_len,
+							  plain_data_out[i], sizeof(plain_text));
+				ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp, &dreq,
+									      op_cookie[op_count]);
+				if (ret < 0) {
+					TEST_LC_ERR("Could not enqueue deflate decomp operation");
+					rc = TEST_FAILED;
+					goto cleanup;
+				}
+				op_count++;
+			}
+
+			TEST_ASSERT(
+				op_count == total_ops,
+				"Expected(%d) compress/decompress operations are not enqueued (%d)",
+				total_ops, op_count);
+
+			deq_ops = op_dequeue_multi(dev_id, qp, comp_res, op_count);
+			if (deq_ops != op_count) {
+				TEST_LC_ERR("Could not dequeue all operations");
+				rc = TEST_FAILED;
+				goto cleanup;
+			}
+
+			TEST_ASSERT(deq_ops == total_ops,
+				    "Expected(%d) dequeue count not matched(%d)", total_ops,
+				    deq_ops);
+
+			op_count = 0;
+			for (i = 0; i < num_op; i++) {
+				TEST_ASSERT(comp_res[op_count].op_cookie == op_cookie[op_count],
+					    "Invalid operation cookie for operation: %d", i);
+				TEST_ASSERT(
+					comp_res[op_count].compdev_res.produced ==
+						sizeof(compressed_text),
+					"Compressed output size did not match the expected size");
+				ret = memcmp(data_out[i], compressed_text,
+					     comp_res[op_count].compdev_res.produced);
+				TEST_ASSERT(ret == 0,
+					    "Compressed Text did not match with the expected");
+				op_count++;
+				TEST_ASSERT(comp_res[op_count].op_cookie == op_cookie[op_count],
+					    "Invalid operation cookie for Decomp operation: %d", i);
+				TEST_ASSERT(
+					comp_res[op_count].compdev_res.produced ==
+						sizeof(plain_text),
+					"Decompressed output size did not match the expected size");
+				ret = memcmp(plain_data_out[i], plain_text,
+					     comp_res[op_count].compdev_res.produced);
+				TEST_ASSERT(ret == 0, "Plain text did not match with the expected");
+				op_count++;
+			}
+			test_iteration++;
+		} while (test_iteration < comp_test_cfg.iterations);
+	}
+	rc = TEST_SUCCESS;
+
+cleanup:
+	/* Cleanup */
+	for (i = 0; i < num_op; i++) {
+		if (data_out[i] != NULL)
+			free(data_out[i]);
+		if (plain_data_out[i] != NULL)
+			free(plain_data_out[i]);
+	}
+	free(comp_res);
+
+	return rc;
+}
+
+/**
+ * This test enqueues compress and decompress operations to multiple QPs.
+ * Dequeues responses in one after the other using op_dequeue and validates.
+ */
+static int
+ut_compdev_mix_ops_with_multi_qp_with_single_deq(void)
+{
+	uint32_t i, num_op, data_len = sizeof(plain_text);
+	uint32_t comp_data_len = sizeof(compressed_text);
+	struct dao_lc_decomp_req_params dreq = {0};
+	struct dao_lc_comp_req_params req = {0};
+	const uint8_t *test_data = plain_text;
+	uint8_t dev_id = glb_params.dev_id;
+	uint32_t total_ops, op_count = 0;
+	struct dao_lc_res *comp_res;
+	uint16_t test_iteration = 0;
+	int ret, rc = TEST_FAILED;
+	uint8_t num_qps, qp;
+	uint32_t deq_cnt;
+
+	load_comp_test_config();
+	num_op = comp_test_cfg.num_comp_decomp_ops;
+	num_qps = comp_test_cfg.num_qps;
+
+	if (num_qps > glb_params.info.nb_qp[dev_id])
+		num_qps = glb_params.info.nb_qp[dev_id];
+
+	if (num_qps <= 1)
+		return TEST_SKIPPED;
+
+	uint8_t *data_out[num_op], *plain_data_out[num_op];
+
+	memset(data_out, 0, sizeof(data_out));
+	memset(plain_data_out, 0, sizeof(plain_data_out));
+	/* Considering same number of decompress operations. */
+	total_ops = num_op * 2;
+
+	comp_res = calloc(total_ops, sizeof(*comp_res));
+	if (comp_res == NULL) {
+		TEST_LC_ERR("Could not allocate memory for comp_res");
+		return TEST_FAILED;
+	}
+
+	uint64_t op_cookie[total_ops];
+
+	TEST_LC_INFO("Testing compress & decompress operations with %d requests for %u iterations",
+		     total_ops, comp_test_cfg.iterations);
+	TEST_LC_INFO("Number of Queue pairs: %u", num_qps);
+	for (i = 0; i < num_op; i++) {
+		data_out[i] = malloc(sizeof(compressed_text));
+		if (data_out[i] == NULL) {
+			rc = TEST_FAILED;
+			goto cleanup;
+		}
+		op_cookie[op_count] = rte_rand();
+		op_count++;
+		plain_data_out[i] = malloc(sizeof(plain_text));
+		if (plain_data_out[i] == NULL) {
+			rc = TEST_FAILED;
+			goto cleanup;
+		}
+		op_cookie[op_count] = rte_rand();
+		op_count++;
+	}
+
+	for (qp = 1; qp < num_qps; qp++) {
+		do {
+			op_count = 0;
+			for (i = 0; i < num_op; i++) {
+				fill_compress_req_param(&req, test_data, data_len, data_out[i],
+							sizeof(compressed_text));
+				/* Enqueue deflate compress operation */
+				ret = dao_liquid_crypto_enq_comp_op_deflate(dev_id, qp, &req,
+									    op_cookie[op_count]);
+
+				if (ret < 0) {
+					TEST_LC_ERR("Could not enqueue deflate operation");
+					rc = TEST_FAILED;
+					goto cleanup;
+				}
+				op_count++;
+				fill_decompress_req_param(&dreq, compressed_text, comp_data_len,
+							  plain_data_out[i], sizeof(plain_text));
+				ret = dao_liquid_crypto_enq_decomp_op_deflate(dev_id, qp, &dreq,
+									      op_cookie[op_count]);
+				if (ret < 0) {
+					TEST_LC_ERR("Could not enqueue deflate decomp operation");
+					rc = TEST_FAILED;
+					goto cleanup;
+				}
+				op_count++;
+			}
+
+			TEST_ASSERT(
+				op_count == total_ops,
+				"Expected(%d) compress/decompress operations are not enqueued (%d)",
+				total_ops, op_count);
+
+			for (deq_cnt = 0; deq_cnt < op_count; deq_cnt++) {
+				/* Dequeue result */
+				ret = op_dequeue(dev_id, qp, comp_res + deq_cnt);
+				if (ret < 0) {
+					TEST_LC_ERR("Could not dequeue deflate operation");
+					rc = TEST_FAILED;
+					goto cleanup;
+				}
+			}
+			if (deq_cnt != op_count) {
+				TEST_LC_ERR("Could not dequeue all operations");
+				rc = TEST_FAILED;
+				goto cleanup;
+			}
+
+			TEST_ASSERT(deq_cnt == total_ops,
+				    "Expected(%d) dequeue count not matched(%d)", total_ops,
+				    deq_cnt);
+
+			op_count = 0;
+			for (i = 0; i < num_op; i++) {
+				TEST_ASSERT(comp_res[op_count].op_cookie == op_cookie[op_count],
+					    "Invalid operation cookie for operation: %d", i);
+				TEST_ASSERT(
+					comp_res[op_count].compdev_res.produced ==
+						sizeof(compressed_text),
+					"Compressed output size did not match the expected size");
+				ret = memcmp(data_out[i], compressed_text,
+					     comp_res[op_count].compdev_res.produced);
+				TEST_ASSERT(ret == 0,
+					    "Compressed Text did not match with the expected");
+				op_count++;
+				TEST_ASSERT(comp_res[op_count].op_cookie == op_cookie[op_count],
+					    "Invalid operation cookie for Decomp operation: %d", i);
+				TEST_ASSERT(
+					comp_res[op_count].compdev_res.produced ==
+						sizeof(plain_text),
+					"Decompressed output size did not match the expected size");
+				ret = memcmp(plain_data_out[i], plain_text,
+					     comp_res[op_count].compdev_res.produced);
+				TEST_ASSERT(ret == 0, "Plain text did not match with the expected");
+				op_count++;
+			}
+			test_iteration++;
+		} while (test_iteration < comp_test_cfg.iterations);
+	}
+	rc = TEST_SUCCESS;
+
+cleanup:
+	/* Cleanup */
+	for (i = 0; i < num_op; i++) {
+		if (data_out[i] != NULL)
+			free(data_out[i]);
+		if (plain_data_out[i] != NULL)
+			free(plain_data_out[i]);
+	}
+	free(comp_res);
+
+	return rc;
+}
+
 static int
 ut_compdev_multi_compress_decompress_ops_in_order(void)
 {
@@ -912,7 +1231,7 @@ ut_compdev_multi_compress_decompress_ops_in_order(void)
 	int ret, rc = TEST_FAILED;
 
 	load_comp_test_config();
-	num_op = comp_test_cfg.num_compress_ops;
+	num_op = comp_test_cfg.num_comp_decomp_ops;
 
 	uint8_t *data_out[num_op], *plain_data_out[num_op];
 
@@ -1279,6 +1598,12 @@ struct unit_test_suite lc_testsuite_comp = {
 		TEST_CASE_NAMED_ST(
 			"Multiple Compress & Decompress Operations (In-Order - Huffman: Dynamic)",
 			ut_setup, ut_teardown, ut_compdev_multi_compress_decompress_ops_in_order),
+		TEST_CASE_NAMED_ST("Multiple Operations with Multi QP(In-Order - Huffman: Dynamic)",
+				   ut_setup, ut_teardown,
+				   ut_compdev_mix_ops_with_multi_qp_in_order),
+		TEST_CASE_NAMED_ST(
+			"Multiple Compress & Decompress Operations with Multi QP(Dequeue Single)",
+			ut_setup, ut_teardown, ut_compdev_mix_ops_with_multi_qp_with_single_deq),
 		TEST_CASE_NAMED_ST("Compress With Large Input Text (Huffman: Fixed)", ut_setup,
 				   ut_teardown, ut_compdev_compress_op_with_large_text),
 		TEST_CASE_NAMED_ST("Decompress With Large Text (Huffman: Fixed)", ut_setup,
