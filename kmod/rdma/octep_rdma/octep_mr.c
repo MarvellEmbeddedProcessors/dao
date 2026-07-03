@@ -79,7 +79,7 @@ octep_iommu_unmapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *me
 		ibdev_err(&rdma_dev->ibdev, "iommu_unmapping size mismatch %lx != %llx\n", size,
 			  mem->size);
 
-	kfree(mem->iova);
+	kvfree(mem->iova);
 	mem->iova = NULL;
 	mem->size = 0;
 }
@@ -118,7 +118,7 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 
 	ibdev_dbg(&rdma_dev->ibdev, "Mapping IOMMU for device %s\n", dev_name(dev));
 
-	mem->iova = kcalloc(mem->page_cnt, sizeof(u64), GFP_KERNEL);
+	mem->iova = kvmalloc_array(mem->page_cnt, sizeof(u64), GFP_KERNEL | __GFP_ZERO);
 	if (!mem->iova)
 		return -ENOMEM;
 
@@ -150,7 +150,7 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 					iommu_unmap(domain, mem->iova[j], page_size);
 			}
 
-			kfree(mem->iova);
+			kvfree(mem->iova);
 			mem->iova = NULL;
 			return ret;
 		}
@@ -209,7 +209,7 @@ setup_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem,
 
 	if (mem->page_cnt > OCTEP_RDMA_MAX_INLINE_MTT_ENTRIES || force_indirect_mtt) {
 		mem->mtt_type = OCTEP_RDMA_MR_INDIRECT_MTT;
-		mem->mtt_buf = alloc_pages_exact(MTT_SIZE(mem->page_cnt), GFP_KERNEL);
+		mem->mtt_buf = kvmalloc(MTT_SIZE(mem->page_cnt), GFP_KERNEL);
 		if (!mem->mtt_buf) {
 			ret = -ENOMEM;
 			goto error_ret;
@@ -226,17 +226,6 @@ setup_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem,
 		phy_addr++;
 	}
 
-	if (mem->mtt_type == OCTEP_RDMA_MR_INDIRECT_MTT) {
-		mem->mtt_entry[0] = dma_map_single(&rdma_dev->pdev->dev, mem->mtt_buf,
-						   MTT_SIZE(mem->page_cnt), DMA_TO_DEVICE);
-		if (dma_mapping_error(&rdma_dev->pdev->dev, mem->mtt_entry[0])) {
-			free_pages_exact(mem->mtt_buf, MTT_SIZE(mem->page_cnt));
-			mem->mtt_buf = NULL;
-			ret = -ENOMEM;
-			goto error_ret;
-		}
-	}
-
 	ibdev_dbg(&rdma_dev->ibdev,
 		  "MTT_SIZE(mem->page_cnt) %x umem %p mem->mtt_buf[0] 0x%llx mtt_entry[0] %llx\n",
 		  MTT_SIZE(mem->page_cnt), mem->umem, mem->mtt_buf ? *((u64 *)mem->mtt_buf) : 0,
@@ -251,18 +240,8 @@ setup_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem,
 	return 0;
 
 error_iommu_mapping:
-	/* Clean up DMA mapping if it was created */
-	if (mem->mtt_type == OCTEP_RDMA_MR_INDIRECT_MTT && mem->mtt_entry[0]) {
-		if (!dma_mapping_error(&rdma_dev->pdev->dev, mem->mtt_entry[0])) {
-			dma_unmap_single(&rdma_dev->pdev->dev, mem->mtt_entry[0],
-					 MTT_SIZE(mem->page_cnt), DMA_TO_DEVICE);
-		}
-		mem->mtt_entry[0] = 0;
-	}
-
-	/* Clean up allocated buffer */
 	if (mem->mtt_buf) {
-		free_pages_exact(mem->mtt_buf, MTT_SIZE(mem->page_cnt));
+		kvfree(mem->mtt_buf);
 		mem->mtt_buf = NULL;
 	}
 
@@ -280,9 +259,8 @@ release_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *me
 {
 	octep_iommu_unmapping(rdma_dev, mem);
 	if (mem->mtt_buf) {
-		dma_unmap_single(&rdma_dev->pdev->dev, mem->mtt_entry[0], MTT_SIZE(mem->page_cnt),
-				 DMA_TO_DEVICE);
-		free_pages_exact(mem->mtt_buf, MTT_SIZE(mem->page_cnt));
+		kvfree(mem->mtt_buf);
+		mem->mtt_buf = NULL;
 	}
 
 	if (mem->umem) {
