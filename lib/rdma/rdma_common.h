@@ -41,7 +41,7 @@ rdma_delete_all_wqe(struct rdma_qp *qp)
 	STAILQ_FOREACH_SAFE(ack_next, &qp->resp.ack_pending_list, next, tmp_ack)
 	{
 		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack_next, rdma_ack, next);
-		/* ack embedded; no free */
+		rte_pktmbuf_free(ack_next->mbuf);
 	}
 }
 

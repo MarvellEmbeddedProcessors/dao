@@ -65,6 +65,7 @@ rdma_update_ack_pending_list(struct rdma_qp *qp, struct rte_mbuf *mbuf, uint32_t
 	ack->msn = qp->resp.msn;
 	ack->aeth_syndrome = syndrome;
 	ack->is_read = is_read;
+	ack->is_requeue = false;
 	ack->last_psn = qp->resp.ack_psn;
 	ack->mbuf = mbuf;
 	STAILQ_INSERT_TAIL(&qp->resp.ack_pending_list, ack, next);
@@ -112,6 +113,7 @@ check_psn(struct rdma_qp *qp, struct pkt_info *pinfo)
 					    RDMA_RX_QP_CHK_PSN_PKT_OUT_OF_SEQ_ERR);
 			return RDMA_RESPST_ERR_PSN_OUT_OF_SEQ;
 		} else if (diff < 0) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_PSN_DUP_REQ);
 			return RDMA_RESPST_DUPLICATE_REQUEST;
 		}
 
@@ -484,10 +486,13 @@ rdma_read_reply_finish(struct rdma_qp *qp)
 {
 	struct rdma_ack *ack;
 	struct rte_mbuf *head = qp->resp.read_reply.read_mbuf;
+	bool is_requeue = false;
 
 	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
-	if (likely(ack))
+	if (likely(ack)) {
+		is_requeue = ack->is_requeue;
 		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
+	}
 
 	/* Drop the emit pin and free the last ref so the head (and any chained
 	 * ICRC tail) returns to the pool; refcnt_update alone never frees it.
@@ -500,7 +505,12 @@ rdma_read_reply_finish(struct rdma_qp *qp)
 	qp->resp.resp_cur_rmbuf = NULL;
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
 	STAILQ_INIT(&qp->resp.read_reply.mbuf_list);
-	qp->resp.resp_read_rq_bal++;
+	if (ack) {
+		if (is_requeue)
+			qp->resp.resp_read_requeue_inflight--;
+		else
+			qp->resp.resp_read_rq_bal++;
+	}
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RSP_COMPLETE);
 }
 
@@ -1076,15 +1086,21 @@ rdma_ack_pending_list_remove_by_psn(struct rdma_qp *qp, uint32_t psn)
 }
 
 static inline int
-rdma_is_last_acked_request(struct rdma_qp *qp, uint32_t psn, struct pkt_info *pkt)
+rdma_is_previously_acked_request(struct rdma_qp *qp, uint32_t psn, struct pkt_info *pkt)
 {
-	uint32_t npkts = 0;
 	uint32_t dma_len = rte_be_to_cpu_32(pkt->rinfo.reth->len);
+	uint32_t npkts;
+	uint32_t last_req_psn;
 
 	npkts = dma_len / qp->mtu + ((dma_len % qp->mtu) ? 1 : 0);
+	last_req_psn = (psn + npkts - 1) & BTH_PSN_MASK;
 
-	/* Check if this is the last request that was acked. */
-	if (((psn + npkts - 1) & BTH_PSN_MASK) == ((qp->resp.ack_psn - 1) & BTH_PSN_MASK))
+	/* Accept retransmit for ANY previously-completed READ whose PSN
+	 * range falls entirely before ack_psn, not just the very last one.
+	 * Without this, retransmits for earlier READs in a multi-outstanding
+	 * window (RD_ATOM > 1) are silently dropped, causing a livelock.
+	 */
+	if (psn_compare(last_req_psn, (qp->resp.ack_psn - 1) & BTH_PSN_MASK) <= 0)
 		return 1;
 
 	return 0;
@@ -1136,6 +1152,17 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 		bool requeue_dma = false;
 		bool enq_requeue = false;
 
+		/* All read credits in use — original is still in-flight,
+		 * drop the duplicate to avoid TX congestion amplification.
+		 * requeue_dma borrows back resp_read_rq_bal, so account
+		 * for both: gate when inflight >= max_dest_rd_atomic.
+		 */
+		if (qp->resp.resp_read_rq_bal <= qp->resp.resp_read_requeue_inflight) {
+			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					    RDMA_RX_QP_READ_DUP_DMA_INFLIGHT);
+			return RDMA_RESPST_CLEANUP;
+		}
+
 		/* Check if request is in ack pending list */
 		old_mbuf = rdma_ack_pending_list_find_mbuf_by_psn(qp, pkt->rinfo.psn);
 		if (old_mbuf) {
@@ -1170,9 +1197,11 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 					pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
 					enq_requeue = true;
 				}
+			} else {
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_RX_QP_READ_DUP_DMA_INFLIGHT);
 			}
-			/* else: DMA in-flight or unsafe - remote retransmits. */
-		} else if (rdma_is_last_acked_request(qp, pkt->rinfo.psn, pkt) &&
+		} else if (rdma_is_previously_acked_request(qp, pkt->rinfo.psn, pkt) &&
 			   rdma_read_rkey_validate(qp, pkt)) {
 			/* Last read reply lost - reread and retransmit */
 			requeue_dma = true;
@@ -1184,9 +1213,16 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 					    RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE);
 
 		if (requeue_dma) {
-			rdma_read_prep_for_pts(qp, pkt, &npkts);
+			if (rdma_read_prep_for_pts(qp, pkt, &npkts) < 0) {
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_RX_QP_HANDLE_READ_REQ_READ_PREP_PTS_FAIL);
+				return RDMA_RESPST_CLEANUP;
+			}
+			qp->resp.resp_read_rq_bal++;
+			qp->resp.resp_read_requeue_inflight++;
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,
 						     AETH_ACK_UNLIMITED, true);
+			rdma_rx_priv_ack(pkt->mbuf)->is_requeue = true;
 			/* Last read reply lost on the wire; re-read and re-enqueue. */
 			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 					    RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE);

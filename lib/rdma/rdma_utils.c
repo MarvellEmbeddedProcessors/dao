@@ -412,6 +412,24 @@ rdma_mbuf_tail_extend(struct rte_mbuf *mbuf, size_t size, struct rdma_pkt_info *
 }
 
 int
+rdma_icrc_refresh(struct rte_mbuf *mbuf)
+{
+	rte_be32_t *icrcp;
+	rte_be32_t icrc;
+
+	if (rte_pktmbuf_trim(mbuf, RDMA_ICRC_SIZE) < 0)
+		return -1;
+
+	icrc = rdma_icrc_calculate(mbuf, NULL);
+
+	icrcp = (rte_be32_t *)rte_pktmbuf_append(mbuf, RDMA_ICRC_SIZE);
+	if (!icrcp)
+		return -1;
+	*icrcp = ~icrc;
+	return 0;
+}
+
+int
 rdma_icrc_generate(struct rte_mbuf *mbuf, struct rdma_pkt_info *pinfo)
 {
 	rdma_qp_t *qp = (rdma_qp_t *)pinfo->qp;

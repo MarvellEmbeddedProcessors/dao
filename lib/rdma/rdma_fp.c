@@ -191,7 +191,10 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 static inline int
 rdma_requester_error(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 {
-	/* Free'd in main loop */
+	/* All mbufs are fresh (preprocess bumped refcnt to 2, never TX'd).
+	 * First mbuf also freed by graph node drop path → 1 free here.
+	 * Non-first need 2 frees (undo preprocess + base).
+	 */
 	int first_skip = 1;
 	struct rdma_mbufs *rmbuf = NULL, *rmbuf_next = NULL;
 
@@ -212,19 +215,29 @@ rdma_requester_error(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 static inline int
 rdma_requester_error2(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 {
-	int first_skip = 1;
+	/* Segments before cur_mbuf were sent to NIC in a prior burst — NIC TX
+	 * owns their preprocess ref, so free once (base only).  Segments from
+	 * cur_mbuf onward are fresh (never TX'd) — free twice (preprocess + base).
+	 */
+	struct rdma_mbufs *fresh_start = qp->req.cur_mbuf;
+	bool is_fresh = false;
 	struct rdma_mbufs *rmbuf = NULL, *rmbuf_next = NULL;
 
+	RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+			    RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL);
 	wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 	dao_send_cqe(qp, false, wqe);
+	qp->req.cur_wqe = NULL;
+	qp->req.cur_mbuf = NULL;
 	STAILQ_REMOVE(&qp->req.wqe_head, wqe, rdma_send_wqe, next);
 	STAILQ_FOREACH_SAFE(rmbuf, &wqe->mbuf_list, next, rmbuf_next)
 	{
-		if (!first_skip)
+		if (rmbuf == fresh_start)
+			is_fresh = true;
+		if (is_fresh)
 			rte_pktmbuf_free(rmbuf->mbuf);
 		rte_pktmbuf_free(rmbuf->mbuf);
 		STAILQ_REMOVE(&wqe->mbuf_list, rmbuf, rdma_mbufs, next);
-		first_skip = 0;
 	}
 	return 0;
 }
@@ -259,8 +272,6 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 		if (ret < 0) {
 			rdma_requester_error2(qp, wqe);
 			*n_mbufs = 0;
-			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-					    RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL);
 			rte_mbuf_refcnt_update(qp->req.dummy_mbuf, 1);
 			return -1;
 		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
@@ -568,13 +579,14 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
-	/* On TX, private area holds wr, wqe, and rdma_mbuf nodes */
-	wr = rdma_tx_priv_wr(mbuf);
-
-	if (packet_type == DAO_PTS_RDMA_D2M_COMPL)
+	if (packet_type == DAO_PTS_RDMA_D2M_COMPL) {
 		wqe = &qp->resp.read_reply;
-	else
+		wr = NULL;
+	} else {
+		/* On TX, private area holds wr, wqe, and rdma_mbuf nodes */
+		wr = rdma_tx_priv_wr(mbuf);
 		wqe = rdma_tx_priv_wqe(mbuf);
+	}
 
 	if (unlikely(!wqe)) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
@@ -585,15 +597,24 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	memset(wqe, 0, sizeof(*wqe));
 	STAILQ_INIT(&wqe->mbuf_list);
 	wqe->wr = wr;
-	wqe->dma_length = wr->opcode == RDMA_WR_RDMA_READ ? rdma_get_sge_length(wr) : mbuf->pkt_len;
-	if (wr->opcode == RDMA_WR_RDMA_READ)
-		rte_pktmbuf_reset(mbuf);
+	if (packet_type == DAO_PTS_RDMA_D2M_COMPL) {
+		wqe->dma_length = mbuf->pkt_len;
+	} else {
+		if (wr->opcode == RDMA_WR_RDMA_READ) {
+			wqe->dma_length = rdma_get_sge_length(wr);
+			rte_pktmbuf_reset(mbuf);
+		} else {
+			wqe->dma_length = mbuf->pkt_len;
+		}
+	}
 
 	if (!wqe->dma_length || wqe->dma_length > RDMA_PORT_MAX_MSG_SZ) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_TX_QP_PREPROC_DEQ_PKTS_DMA_LEN_INV);
-		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
-		dao_send_cqe(qp, false, wqe);
+		if (packet_type != DAO_PTS_RDMA_D2M_COMPL) {
+			wqe->status = RDMA_WC_LOC_QP_OP_ERR;
+			dao_send_cqe(qp, false, wqe);
+		}
 		return -1;
 	}
 
@@ -716,16 +737,19 @@ dao_is_qp_stalled(uint32_t qp_id, int devid)
 
 	/* Always let an in-progress READ reply drain to free its WQE/DMA credit. */
 	if (qp && qp->resp.resp_cur_rmbuf)
-		return 1;
+		return (uint16_t)1 << 8;
 
-	if (unlikely(!qp || qp->attr.sq_draining || !qp->req.read_rq_bal ||
-		     qp->req.in_retransmission || (qp->req.unacked_window <= 0)))
+	if (unlikely(!qp || qp->attr.sq_draining))
 		return 0;
 
-	/* Lower byte: requester read queue balance (available slots for outgoing READs) */
+	resp_bal = (uint8_t)((qp->attr.max_dest_rd_atomic - qp->resp.resp_read_rq_bal) +
+			     qp->resp.resp_read_requeue_inflight);
+
+	if (unlikely(!qp->req.read_rq_bal || qp->req.in_retransmission ||
+		     (qp->req.unacked_window <= 0)))
+		return (uint16_t)resp_bal << 8;
+
 	req_bal = (uint8_t)qp->req.read_rq_bal;
-	/* Upper byte: responder pending D2M completions (READ requests in DMA) */
-	resp_bal = (uint8_t)(qp->attr.max_dest_rd_atomic - qp->resp.resp_read_rq_bal);
 
 	return ((uint16_t)resp_bal << 8) | req_bal;
 }

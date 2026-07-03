@@ -129,13 +129,7 @@ rdma_counter_update_lcore(void)
 	/** Requester RX: READ response segment received and reassembled. */                       \
 	X(RDMA_RX_QP_READ_RSP_RCVD)                                                                \
 	/** Requester RX: full READ data reassembled (all segments received). */                   \
-	X(RDMA_RX_QP_READ_MSG_COMPLETE)                                                            \
-	/** READ retransmission triggered (full request re-sent from first segment). */            \
-	X(RDMA_TX_QP_READ_RETRANSMIT)                                                              \
-	/** SEND retransmission triggered. */                                                      \
-	X(RDMA_TX_QP_SEND_RETRANSMIT)                                                              \
-	/** WRITE retransmission triggered. */                                                     \
-	X(RDMA_TX_QP_WRITE_RETRANSMIT)
+	X(RDMA_RX_QP_READ_MSG_COMPLETE)
 #else
 #define RDMA_QP_DBG_COUNTER_LIST
 #endif
@@ -339,6 +333,16 @@ rdma_counter_update_lcore(void)
 	X(RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE)                                            \
 	/** Duplicate READ: last read reply lost on the wire; re-read and re-enqueue to PTS. */    \
 	X(RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE)                                           \
+	/** Duplicate READ: DMA in-flight or reply active; retransmit deferred. */                 \
+	X(RDMA_RX_QP_READ_DUP_DMA_INFLIGHT)                                                        \
+	/** READ retransmission triggered (full request re-sent from first segment). */            \
+	X(RDMA_TX_QP_READ_RETRANSMIT)                                                              \
+	/** SEND retransmission triggered. */                                                      \
+	X(RDMA_TX_QP_SEND_RETRANSMIT)                                                              \
+	/** WRITE retransmission triggered. */                                                     \
+	X(RDMA_TX_QP_WRITE_RETRANSMIT)                                                             \
+	/** ICRC refresh failed during retransmission. */                                          \
+	X(RDMA_TX_QP_RETRANSMIT_ICRC_REFRESH_FAIL)                                                 \
 	RDMA_QP_DBG_COUNTER_LIST
 
 enum rdma_port_counters {

@@ -71,6 +71,7 @@ rdma_qp_create(void *data)
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
 	qp->resp.resp_cur_rmbuf = NULL;
 	qp->resp.resp_dummy_mbuf = NULL;
+	qp->resp.resp_read_requeue_inflight = 0;
 	qp->resp.read_reply_opcode = -1;
 	qp->resp.read_reply_psn = 0;
 	qp->state = QP_STATE_RESET;
@@ -186,6 +187,7 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 		qp->resp.resp_dummy_mbuf = NULL;
 	}
 	qp->resp.resp_cur_rmbuf = NULL;
+	qp->resp.resp_read_requeue_inflight = 0;
 	qp->resp.read_reply_opcode = -1;
 	qp->resp.read_reply_psn = 0;
 
@@ -210,16 +212,22 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 }
 
 /*
- * Convert timeout value to nsecs 4.096 μsec 2^timeout
- * then use DPDK API to convert nano seconds to CPU cycles
+ * Convert IBA timeout to CPU cycles: 4.096 µs * 2^timeout.
+ * Keep full nanosecond precision (4096 ns) and defer the division
+ * to avoid truncation at small timeout values.
  */
-
 static inline void
 rdma_convert_timeout_cycles(uint8_t timeout, uint64_t *timeout_cycles)
 {
-	/* 4.096 μsec 2^timeout */
-	*timeout_cycles = 4096ULL << timeout;
-	*timeout_cycles = rte_get_tsc_hz() * (*timeout_cycles) / 1000000;
+	uint64_t timeout_ns, tsc_mhz;
+
+	if (timeout > 31)
+		timeout = 31;
+
+	timeout_ns = 4096ULL << timeout;
+	tsc_mhz = rte_get_tsc_hz() / 1000000ULL;
+
+	*timeout_cycles = timeout_ns * tsc_mhz / 1000ULL;
 }
 
 static inline int
@@ -288,6 +296,7 @@ rdma_qp_update_from_attr(struct rdma_qp *qp, struct octep_rdma_user_qp_modify_re
 	if (mask & RDMA_QP_MAX_DEST_RD_ATOMIC) {
 		qp->attr.max_dest_rd_atomic = req->max_dest_rd_atomic;
 		qp->resp.resp_read_rq_bal = req->max_dest_rd_atomic;
+		qp->resp.resp_read_requeue_inflight = 0;
 		dao_dbg("RDMA_QP_MAX_DEST_RD_ATOMIC %d", qp->attr.max_dest_rd_atomic);
 	}
 

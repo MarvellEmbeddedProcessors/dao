@@ -286,6 +286,7 @@ struct rdma_ack {
 	int opcode;
 	struct rte_mbuf *mbuf;
 	bool is_read;
+	bool is_requeue;
 
 	STAILQ_ENTRY(rdma_ack) next;
 };
@@ -308,6 +309,7 @@ struct rdma_resp_info {
 	int opcode;
 	int goto_error;
 	int resp_read_rq_bal;
+	int resp_read_requeue_inflight;
 	uint8_t aeth_syndrome;
 
 	STAILQ_HEAD(ack_list, rdma_ack) ack_pending_list;

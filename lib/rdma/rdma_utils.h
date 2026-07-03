@@ -10,6 +10,7 @@
 
 int dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe);
 int rdma_icrc_check(struct rte_mbuf *mbuf, struct pkt_info *pinfo);
+int rdma_icrc_refresh(struct rte_mbuf *mbuf);
 int rdma_icrc_generate(struct rte_mbuf *mbuf, struct rdma_pkt_info *pinfo);
 void rdma_pkt_extract(struct rte_mbuf *mbuf, struct pkt_info *pinfo, uint16_t rx_queue, int devid);
 int rdma_hdr_check(struct pkt_info *pinfo);

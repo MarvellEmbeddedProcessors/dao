@@ -72,7 +72,7 @@ enum rdma_device_param {
 
 	RDMA_MAX_PKT_PER_ACK = 32,
 
-	RDMA_MAX_UNACKED_PSNS = 8192,
+	RDMA_MAX_UNACKED_PSNS = 32,
 
 	/* Max inflight SKBs per queue pair */
 	RDMA_INFLIGHT_SKBS_PER_QP_HIGH = 64,

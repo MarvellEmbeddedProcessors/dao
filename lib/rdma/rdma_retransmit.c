@@ -8,6 +8,7 @@
 #include "rdma_counter.h"
 #include "rdma_opcode.h"
 #include "rdma_qp.h"
+#include "rdma_utils.h"
 #include <assert.h>
 #include <dao_log.h>
 #include <rte_mbuf.h>
@@ -39,8 +40,7 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 		/* READ: always retransmit from the first mbuf */
 		qp->req.retransmit.curr_mbuf = rmbuf;
 		qp->req.in_retransmission = 1;
-		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
-					RDMA_TX_QP_READ_RETRANSMIT);
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RETRANSMIT);
 		return;
 	}
 
@@ -50,12 +50,10 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 	}
 	qp->req.retransmit.curr_mbuf = rmbuf;
 	qp->req.in_retransmission = 1;
-#ifdef DAO_RDMA_DEBUG
 	if (wqe->mask & WR_SEND_MASK)
 		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_SEND_RETRANSMIT);
 	else if (wqe->mask & WR_WRITE_MASK)
 		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_WRITE_RETRANSMIT);
-#endif
 }
 
 static inline void
@@ -163,8 +161,8 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 		if (wqe == qp->req.cur_wqe && rmbuf == qp->req.cur_mbuf)
 			break;
 
-		/* Skip non-pending WQEs and advance. */
-		if (wqe->state != wqe_state_pending) {
+		/* Skip non-pending/non-processing WQEs and advance. */
+		if (wqe->state != wqe_state_pending && wqe->state != wqe_state_processing) {
 			if (wqe == qp->req.cur_wqe)
 				break;
 			wqe = STAILQ_NEXT(wqe, next);
@@ -183,8 +181,17 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 
 		/* Copy mbufs from this WQE. */
 		while (produced < num_pkts && rmbuf) {
-			mbufs[produced] = rmbuf->mbuf;
-			rte_mbuf_refcnt_update(mbufs[produced], 1);
+			struct rte_mbuf *seg;
+			struct rte_mbuf *m = rmbuf->mbuf;
+
+			if (rdma_icrc_refresh(m) < 0) {
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_TX_QP_RETRANSMIT_ICRC_REFRESH_FAIL);
+				goto abort_retransmit;
+			}
+			mbufs[produced] = m;
+			for (seg = m; seg; seg = seg->next)
+				rte_mbuf_refcnt_update(seg, 1);
 			produced++;
 			rmbuf = STAILQ_NEXT(rmbuf, next);
 		}
@@ -212,5 +219,15 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 		rte_timer_reset(&qp->timer_data->retrans_timer, qp->req.timeout_cycles, SINGLE,
 				rte_lcore_id(), rdma_timeout_handler_cb, qp->timer_data);
 	}
+	return produced;
+
+abort_retransmit:
+	qp->req.in_retransmission = 0;
+	qp->req.retransmit.curr_wqe = NULL;
+	qp->req.retransmit.curr_mbuf = NULL;
+	if (rte_timer_pending(&qp->timer_data->retrans_timer))
+		rte_timer_stop(&qp->timer_data->retrans_timer);
+	rte_timer_reset(&qp->timer_data->retrans_timer, qp->req.timeout_cycles, SINGLE,
+			rte_lcore_id(), rdma_timeout_handler_cb, qp->timer_data);
 	return produced;
 }
