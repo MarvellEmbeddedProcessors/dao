@@ -242,13 +242,12 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	}
 	sq->cq_id = req->send_cq_id;
 	sq->cq_data.cq = send_cq;
-	sq->cq_data.q_sz = send_cq->q_sz;
+	sq->cq_data.q_sz = sq->q_sz;
 	sq->cq_data.dma_vchan = send_cq->dma_vchan;
 	sq->cq_data.pi_data = 0;
 	sq->cq_data.ci = 0;
-	sq->cq_data.ring_base =
-		(uint64_t *)rte_zmalloc("pts_rdma_sq_cq_sd_desc",
-					send_cq->q_sz * PTS_RDMA_DEV_CQE_SIZE, RTE_CACHE_LINE_SIZE);
+	sq->cq_data.ring_base = (uint64_t *)rte_zmalloc(
+		"pts_rdma_sq_cq_sd_desc", sq->q_sz * PTS_RDMA_DEV_CQE_SIZE, RTE_CACHE_LINE_SIZE);
 	if (!sq->cq_data.ring_base) {
 		dao_err("[dev %u] Failed to allocate memory for RDMA sq cq descriptors",
 			dev->dev_id);
@@ -296,13 +295,12 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	}
 	rq->cq_id = req->recv_cq_id;
 	rq->cq_data.cq = recv_cq;
-	rq->cq_data.q_sz = recv_cq->q_sz;
+	rq->cq_data.q_sz = rq->q_sz;
 	rq->cq_data.dma_vchan = recv_cq->dma_vchan;
 	rq->cq_data.pi_data = 0;
 	rq->cq_data.ci = 0;
-	rq->cq_data.ring_base =
-		(uint64_t *)rte_zmalloc("pts_rdma_rq_cq_sd_desc",
-					recv_cq->q_sz * PTS_RDMA_DEV_CQE_SIZE, RTE_CACHE_LINE_SIZE);
+	rq->cq_data.ring_base = (uint64_t *)rte_zmalloc(
+		"pts_rdma_rq_cq_sd_desc", rq->q_sz * PTS_RDMA_DEV_CQE_SIZE, RTE_CACHE_LINE_SIZE);
 	if (!rq->cq_data.ring_base) {
 		dao_err("[dev %u] Failed to allocate memory for RDMA rq cq descriptors",
 			dev->dev_id);

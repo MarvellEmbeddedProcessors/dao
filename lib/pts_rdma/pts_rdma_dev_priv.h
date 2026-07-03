@@ -363,7 +363,8 @@ push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *
 	struct pts_rdma_cq *cq = cq_data->cq;
 	uintptr_t desc_base = cq->desc_base;
 	uint16_t nb_desc, space;
-	uint16_t q_sz = cq->q_sz;
+	uint16_t sd_cq_sz = cq_data->q_sz;
+	uint16_t h_cq_sz = cq->q_sz;
 	uint16_t pi, ci, hci, hpi;
 	int desc_count = 0;
 	int i, j = 0;
@@ -373,13 +374,13 @@ push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *
 	hpi = cq->desc_off;
 
 	/* Skip if there is no desc in local cq ring */
-	nb_desc = desc_off_diff(pi, ci, q_sz);
+	nb_desc = desc_off_diff(pi, ci, sd_cq_sz);
 	if (unlikely(!nb_desc))
 		return 0;
 
 	/* Skip if there in no space to store the cq desc */
 	hci = __atomic_load_n(cq->ci_addr, __ATOMIC_RELAXED);
-	space = q_sz - desc_off_diff(hpi, hci, q_sz) - 1;
+	space = h_cq_sz - desc_off_diff(hpi, hci, h_cq_sz) - 1;
 	if (unlikely(!space))
 		return 0;
 	nb_desc = RTE_MIN(nb_desc, space);
@@ -387,16 +388,16 @@ push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *
 	/* Start DMA of descriptors */
 	i = 0;
 	do {
-		i = (hpi + nb_desc) > q_sz ? (q_sz - hpi) : nb_desc;
-		i = (ci + i) > q_sz ? (q_sz - ci) : i;
+		i = (hpi + nb_desc) > h_cq_sz ? (h_cq_sz - hpi) : nb_desc;
+		i = (ci + i) > sd_cq_sz ? (sd_cq_sz - ci) : i;
 		src[j].addr = (rte_iova_t)CQ_DESC_PTR_OFF(ring_base, ci, 0);
 		dst[j].addr = (rte_iova_t)CQ_DESC_PTR_OFF(desc_base, hpi, 0);
 		src[j].length = i << 6;
 		dst[j].length = i << 6;
 
 		desc_count += i;
-		hpi = (hpi + i) & (q_sz - 1);
-		ci = (ci + i) & (q_sz - 1);
+		hpi = (hpi + i) & (h_cq_sz - 1);
+		ci = (ci + i) & (sd_cq_sz - 1);
 		nb_desc -= i;
 		j++;
 	} while (nb_desc);
