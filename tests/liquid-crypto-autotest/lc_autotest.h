@@ -54,11 +54,17 @@
 #define TEST_LC_AES_KEY_WRAP_IV_LEN 8
 /* RSA OAEP maximum label length in bytes */
 #define TEST_LC_RSA_OAEP_MAX_LABEL_LEN 1024
-/* RSA OAEP maximum modulus length in bytes */
-#define TEST_LC_RSA_OAEP_MAX_MOD_LEN 988
+/* RSA PAD scheme maximum modulus length in bytes */
+#define TEST_LC_RSA_PAD_SCHEME_MAX_MOD_LEN 988
 /** Maximum customisation-string length for KMAC and cSHAKE */
 #define TEST_LC_SHA3_MAX_CUSTOM_STRING_LEN 511
 /** Maximum function-name length for cSHAKE */
 #define TEST_LC_SHA3_MAX_FUNCTION_NAME_LEN 511
+/* RSA PSS maximum salt length in bytes */
+#define TEST_LC_RSA_PSS_MAX_SALT_LEN  945
+/* RSA PSS maximum message length in bytes */
+#define TEST_LC_RSA_PSS_MAX_MSG_LEN 986
+/* RSA PSS maximum signature/output length in bytes (equal to max modulus length) */
+#define TEST_LC_RSA_PSS_MAX_SIG_LEN TEST_LC_RSA_PAD_SCHEME_MAX_MOD_LEN
 
 #endif /* __LC_AUTOTEST_H__ */

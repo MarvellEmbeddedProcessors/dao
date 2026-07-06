@@ -146,6 +146,55 @@ struct test_modex_params {
 	} qInv;
 };
 
+struct test_rsa_pss_params {
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} plaintext;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} sign;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} salt;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} n;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} e;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} d;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} p;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} q;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} dP;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} dQ;
+	struct {
+		uint8_t *data;
+		uint16_t len;
+	} qInv;
+
+	enum dao_lc_hash_type hash_type;
+};
+
 uint8_t rsa_plaintext[] = {
 	0xf8, 0xba, 0x1a, 0x55, 0xd0, 0x2f, 0x85, 0xae,
 	0x96, 0x7b, 0xb6, 0x2f, 0xb6, 0xcd, 0xa8, 0xeb,
@@ -2862,4 +2911,897 @@ struct test_modex_params rsa_modex_2048_params = {
 		.len = sizeof(rsa_2048_modex_result)
 	}
 };
+
+uint8_t rsa_pss_5B_salt[] = {
+	0xAA, 0xBB, 0xCC, 0xDD, 0xEE
+};
+
+struct test_rsa_pss_params rsa_pss_params_5B_salt_2048_mod = {
+	.plaintext = {
+		.data = rsa_plaintext,
+		.len = sizeof(rsa_plaintext)
+	},
+	.salt = {
+		.data = rsa_pss_5B_salt,
+		.len = sizeof(rsa_pss_5B_salt)
+	},
+	.n = {
+		.data = rsa_2048_n,
+		.len = sizeof(rsa_2048_n)
+	},
+	.e = {
+		.data = rsa_2048_e,
+		.len = sizeof(rsa_2048_e)
+	},
+	.d = {
+		.data = rsa_2048_d,
+		.len = sizeof(rsa_2048_d)
+	},
+	.p = {
+		.data = rsa_2048_p,
+		.len = sizeof(rsa_2048_p)
+	},
+	.q = {
+		.data = rsa_2048_q,
+		.len = sizeof(rsa_2048_q)
+	},
+	.dP = {
+		.data = rsa_2048_dP,
+		.len = sizeof(rsa_2048_dP)
+	},
+	.dQ = {
+		.data = rsa_2048_dQ,
+		.len = sizeof(rsa_2048_dQ)
+	},
+	.qInv = {
+		.data = rsa_2048_qInv,
+		.len = sizeof(rsa_2048_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512,
+};
+
+uint8_t rsa_pss_max_msg[986] = { [0 ... 985] = 0xAA };
+uint8_t rsa_pss_max_salt[800] = { [0 ... 799] = 0xBB };
+uint8_t rsa_pss_empty_msg[] = { };
+
+struct test_rsa_pss_params rsa_pss_params_1024_mod_0B_salt_max_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_n,
+		.len = sizeof(rsa_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_d,
+		.len = sizeof(rsa_d)
+	},
+	.p = {
+		.data = rsa_p,
+		.len = sizeof(rsa_p)
+	},
+	.q = {
+		.data = rsa_q,
+		.len = sizeof(rsa_q)
+	},
+	.dP = {
+		.data = rsa_dP,
+		.len = sizeof(rsa_dP)
+	},
+	.dQ = {
+		.data = rsa_dQ,
+		.len = sizeof(rsa_dQ)
+	},
+	.qInv = {
+		.data = rsa_qInv,
+		.len = sizeof(rsa_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
+};
+
+struct test_rsa_pss_params rsa_pss_params_2048_mod_0B_salt_max_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_2048_n,
+		.len = sizeof(rsa_2048_n)
+	},
+	.e = {
+		.data = rsa_2048_e,
+		.len = sizeof(rsa_2048_e)
+	},
+	.d = {
+		.data = rsa_2048_d,
+		.len = sizeof(rsa_2048_d)
+	},
+	.p = {
+		.data = rsa_2048_p,
+		.len = sizeof(rsa_2048_p)
+	},
+	.q = {
+		.data = rsa_2048_q,
+		.len = sizeof(rsa_2048_q)
+	},
+	.dP = {
+		.data = rsa_2048_dP,
+		.len = sizeof(rsa_2048_dP)
+	},
+	.dQ = {
+		.data = rsa_2048_dQ,
+		.len = sizeof(rsa_2048_dQ)
+	},
+	.qInv = {
+		.data = rsa_2048_qInv,
+		.len = sizeof(rsa_2048_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
+};
+
+struct  test_rsa_pss_params rsa_pss_params_4096_mod_0B_salt_max_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_4096_n,
+		.len = sizeof(rsa_4096_n)
+	},
+	.e = {
+		.data = rsa_4096_e,
+		.len = sizeof(rsa_4096_e)
+	},
+	.d = {
+		.data = rsa_4096_d,
+		.len = sizeof(rsa_4096_d)
+	},
+	.p = {
+		.data = rsa_4096_p,
+		.len = sizeof(rsa_4096_p)
+	},
+	.q = {
+		.data = rsa_4096_q,
+		.len = sizeof(rsa_4096_q)
+	},
+	.dP = {
+		.data = rsa_4096_dP,
+		.len = sizeof(rsa_4096_dP)
+	},
+	.dQ = {
+		.data = rsa_4096_dQ,
+		.len = sizeof(rsa_4096_dQ)
+	},
+	.qInv = {
+		.data = rsa_4096_qInv,
+		.len = sizeof(rsa_4096_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256
+};
+
+struct test_rsa_pss_params rsa_pss_params_7904_mod_0B_salt_max_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_7904_n,
+		.len = sizeof(rsa_7904_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_7904_d,
+		.len = sizeof(rsa_7904_d)
+	},
+	.p = {
+		.data = rsa_7904_p,
+		.len = sizeof(rsa_7904_p)
+	},
+	.q = {
+		.data = rsa_7904_q,
+		.len = sizeof(rsa_7904_q)
+	},
+	.dP = {
+		.data = rsa_7904_dP,
+		.len = sizeof(rsa_7904_dP)
+	},
+	.dQ = {
+		.data = rsa_7904_dQ,
+		.len = sizeof(rsa_7904_dQ)
+	},
+	.qInv = {
+		.data = rsa_7904_qInv,
+		.len = sizeof(rsa_7904_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA1,
+};
+
+uint8_t rsa_max_msg_with_BB_data[986] = {
+	[0 ... 985] = 0xBB,
+};
+
+struct test_rsa_pss_params rsa_pss_params_7904_mod_0B_salt_max_msg_BB_data = {
+	.plaintext = {
+		.data = rsa_max_msg_with_BB_data,
+		.len = sizeof(rsa_max_msg_with_BB_data)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_7904_n,
+		.len = sizeof(rsa_7904_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_7904_d,
+		.len = sizeof(rsa_7904_d)
+	},
+	.p = {
+		.data = rsa_7904_p,
+		.len = sizeof(rsa_7904_p)
+	},
+	.q = {
+		.data = rsa_7904_q,
+		.len = sizeof(rsa_7904_q)
+	},
+	.dP = {
+		.data = rsa_7904_dP,
+		.len = sizeof(rsa_7904_dP)
+	},
+	.dQ = {
+		.data = rsa_7904_dQ,
+		.len = sizeof(rsa_7904_dQ)
+	},
+	.qInv = {
+		.data = rsa_7904_qInv,
+		.len = sizeof(rsa_7904_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA1,
+};
+
+uint8_t rsa_pss_800B_msg_with_BB_data[800] = { [0 ... 799] = 0xBB };
+
+struct test_rsa_pss_params rsa_pss_params_1024_mod_0B_salt_800B_msg_BB_data = {
+	.plaintext = {
+		.data = rsa_pss_800B_msg_with_BB_data,
+		.len = sizeof(rsa_pss_800B_msg_with_BB_data)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_n,
+		.len = sizeof(rsa_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_d,
+		.len = sizeof(rsa_d)
+	},
+	.p = {
+		.data = rsa_p,
+		.len = sizeof(rsa_p)
+	},
+	.q = {
+		.data = rsa_q,
+		.len = sizeof(rsa_q)
+	},
+	.dP = {
+		.data = rsa_dP,
+		.len = sizeof(rsa_dP)
+	},
+	.dQ = {
+		.data = rsa_dQ,
+		.len = sizeof(rsa_dQ)
+	},
+	.qInv = {
+		.data = rsa_qInv,
+		.len = sizeof(rsa_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
+};
+
+uint8_t rsa_pss_800B_msg_with_AA_data[800] = { [0 ... 799] = 0xAA };
+
+struct test_rsa_pss_params rsa_pss_params_1024_mod_0B_salt_800B_msg_AA_data = {
+	.plaintext = {
+		.data = rsa_pss_800B_msg_with_AA_data,
+		.len = sizeof(rsa_pss_800B_msg_with_AA_data)
+	},
+	.salt = {
+		.data = NULL,
+		.len = 0
+	},
+	.n = {
+		.data = rsa_n,
+		.len = sizeof(rsa_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_d,
+		.len = sizeof(rsa_d)
+	},
+	.p = {
+		.data = rsa_p,
+		.len = sizeof(rsa_p)
+	},
+	.q = {
+		.data = rsa_q,
+		.len = sizeof(rsa_q)
+	},
+	.dP = {
+		.data = rsa_dP,
+		.len = sizeof(rsa_dP)
+	},
+	.dQ = {
+		.data = rsa_dQ,
+		.len = sizeof(rsa_dQ)
+	},
+	.qInv = {
+		.data = rsa_qInv,
+		.len = sizeof(rsa_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
+};
+
+uint8_t rsa_pss_800B_salt[800] = { [0 ... 799] = 0xDD };
+
+struct test_rsa_pss_params rsa_pss_params_800B_msg_800B_salt_988B_mod = {
+	.plaintext = {
+		.data = rsa_pss_800B_msg_with_AA_data,
+		.len = sizeof(rsa_pss_800B_msg_with_AA_data)
+	},
+	.salt = {
+		.data = rsa_pss_800B_salt,
+		.len = sizeof(rsa_pss_800B_salt)
+	},
+	.n = {
+		.data = rsa_7904_n,
+		.len = sizeof(rsa_7904_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_7904_d,
+		.len = sizeof(rsa_7904_d)
+	},
+	.p = {
+		.data = rsa_7904_p,
+		.len = sizeof(rsa_7904_p)
+	},
+	.q = {
+		.data = rsa_7904_q,
+		.len = sizeof(rsa_7904_q)
+	},
+	.dP = {
+		.data = rsa_7904_dP,
+		.len = sizeof(rsa_7904_dP)
+	},
+	.dQ = {
+		.data = rsa_7904_dQ,
+		.len = sizeof(rsa_7904_dQ)
+	},
+	.qInv = {
+		.data = rsa_7904_qInv,
+		.len = sizeof(rsa_7904_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
+};
+
+uint8_t rsa_pss_48B_salt[48] = {
+	[0 ... 47] = 0xCC
+};
+
+struct test_rsa_pss_params rsa_pss_params_1024_mod_48B_salt_986B_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_48B_salt,
+		.len = sizeof(rsa_pss_48B_salt)
+	},
+	.n = {
+		.data = rsa_n,
+		.len = sizeof(rsa_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_d,
+		.len = sizeof(rsa_d)
+	},
+	.p = {
+		.data = rsa_p,
+		.len = sizeof(rsa_p)
+	},
+	.q = {
+		.data = rsa_q,
+		.len = sizeof(rsa_q)
+	},
+	.dP = {
+		.data = rsa_dP,
+		.len = sizeof(rsa_dP)
+	},
+	.dQ = {
+		.data = rsa_dQ,
+		.len = sizeof(rsa_dQ)
+	},
+	.qInv = {
+		.data = rsa_qInv,
+		.len = sizeof(rsa_qInv)
+	},
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384,
+};
+
+uint8_t rsa_pss_106B_max_salt[106] = {
+	[0 ... 105] = 0xEE
+};
+
+struct test_rsa_pss_params rsa_pss_params_1024_mod_106B_salt_986B_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_106B_max_salt,
+		.len = sizeof(rsa_pss_106B_max_salt)
+	},
+	.n = {
+		.data = rsa_n,
+		.len = sizeof(rsa_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_d,
+		.len = sizeof(rsa_d)
+	},
+	.p = {
+		.data = rsa_p,
+		.len = sizeof(rsa_p)
+	},
+	.q = {
+		.data = rsa_q,
+		.len = sizeof(rsa_q)
+	},
+	.dP = {
+		.data = rsa_dP,
+		.len = sizeof(rsa_dP)
+	},
+	.dQ = {
+		.data = rsa_dQ,
+		.len = sizeof(rsa_dQ)
+	},
+	.qInv = {
+		.data = rsa_qInv,
+		.len = sizeof(rsa_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA1,
+};
+
+uint8_t rsa_pss_64B_salt[64] = {
+	[0 ... 63] = 0xFF
+};
+
+struct test_rsa_pss_params rsa_pss_params_64B_salt_2048_mod_max_msg = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_64B_salt,
+		.len = sizeof(rsa_pss_64B_salt)
+	},
+	.n = {
+		.data = rsa_2048_n,
+		.len = sizeof(rsa_2048_n)
+	},
+	.e = {
+		.data = rsa_2048_e,
+		.len = sizeof(rsa_2048_e)
+	},
+	.d = {
+		.data = rsa_2048_d,
+		.len = sizeof(rsa_2048_d)
+	},
+	.p = {
+		.data = rsa_2048_p,
+		.len = sizeof(rsa_2048_p)
+	},
+	.q = {
+		.data = rsa_2048_q,
+		.len = sizeof(rsa_2048_q)
+	},
+	.dP = {
+		.data = rsa_2048_dP,
+		.len = sizeof(rsa_2048_dP)
+	},
+	.dQ = {
+		.data = rsa_2048_dQ,
+		.len = sizeof(rsa_2048_dQ)
+	},
+	.qInv = {
+		.data = rsa_2048_qInv,
+		.len = sizeof(rsa_2048_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512,
+};
+
+uint8_t rsa_pss_222B_salt[222] = {
+	[0 ... 221] = 0xFF
+};
+
+struct test_rsa_pss_params rsa_pss_params_222B_salt_2048_mod_max_msg_sha256 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_222B_salt,
+		.len = sizeof(rsa_pss_222B_salt)
+	},
+	.n = {
+		.data = rsa_2048_n,
+		.len = sizeof(rsa_2048_n)
+	},
+	.e = {
+		.data = rsa_2048_e,
+		.len = sizeof(rsa_2048_e)
+	},
+	.d = {
+		.data = rsa_2048_d,
+		.len = sizeof(rsa_2048_d)
+	},
+	.p = {
+		.data = rsa_2048_p,
+		.len = sizeof(rsa_2048_p)
+	},
+	.q = {
+		.data = rsa_2048_q,
+		.len = sizeof(rsa_2048_q)
+	},
+	.dP = {
+		.data = rsa_2048_dP,
+		.len = sizeof(rsa_2048_dP)
+	},
+	.dQ = {
+		.data = rsa_2048_dQ,
+		.len = sizeof(rsa_2048_dQ)
+	},
+	.qInv = {
+		.data = rsa_2048_qInv,
+		.len = sizeof(rsa_2048_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
+};
+
+struct test_rsa_pss_params rsa_pss_params_64B_salt_2048_mod_max_msg_sha256 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_64B_salt,
+		.len = sizeof(rsa_pss_64B_salt)
+	},
+	.n = {
+		.data = rsa_2048_n,
+		.len = sizeof(rsa_2048_n)
+	},
+	.e = {
+		.data = rsa_2048_e,
+		.len = sizeof(rsa_2048_e)
+	},
+	.d = {
+		.data = rsa_2048_d,
+		.len = sizeof(rsa_2048_d)
+	},
+	.p = {
+		.data = rsa_2048_p,
+		.len = sizeof(rsa_2048_p)
+	},
+	.q = {
+		.data = rsa_2048_q,
+		.len = sizeof(rsa_2048_q)
+	},
+	.dP = {
+		.data = rsa_2048_dP,
+		.len = sizeof(rsa_2048_dP)
+	},
+	.dQ = {
+		.data = rsa_2048_dQ,
+		.len = sizeof(rsa_2048_dQ)
+	},
+	.qInv = {
+		.data = rsa_2048_qInv,
+		.len = sizeof(rsa_2048_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256,
+};
+
+struct test_rsa_pss_params rsa_pss_params_48B_salt_4096_mod_max_msg_sha384 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_48B_salt,
+		.len = sizeof(rsa_pss_48B_salt)
+	},
+	.n = {
+		.data = rsa_4096_n,
+		.len = sizeof(rsa_4096_n)
+	},
+	.e = {
+		.data = rsa_4096_e,
+		.len = sizeof(rsa_4096_e)
+	},
+	.d = {
+		.data = rsa_4096_d,
+		.len = sizeof(rsa_4096_d)
+	},
+	.p = {
+		.data = rsa_4096_p,
+		.len = sizeof(rsa_4096_p)
+	},
+	.q = {
+		.data = rsa_4096_q,
+		.len = sizeof(rsa_4096_q)
+	},
+	.dP = {
+		.data = rsa_4096_dP,
+		.len = sizeof(rsa_4096_dP)
+	},
+	.dQ = {
+		.data = rsa_4096_dQ,
+		.len = sizeof(rsa_4096_dQ)
+	},
+	.qInv = {
+		.data = rsa_4096_qInv,
+		.len = sizeof(rsa_4096_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA384
+};
+
+uint8_t rsa_pss_490B_max_salt[490] = { [0 ... 489] = 0xCC };
+
+struct test_rsa_pss_params rsa_pss_params_490B_max_salt_4096_mod_max_msg_sha1 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_490B_max_salt,
+		.len = sizeof(rsa_pss_490B_max_salt)
+	},
+	.n = {
+		.data = rsa_4096_n,
+		.len = sizeof(rsa_4096_n)
+	},
+	.e = {
+		.data = rsa_4096_e,
+		.len = sizeof(rsa_4096_e)
+	},
+	.d = {
+		.data = rsa_4096_d,
+		.len = sizeof(rsa_4096_d)
+	},
+	.p = {
+		.data = rsa_4096_p,
+		.len = sizeof(rsa_4096_p)
+	},
+	.q = {
+		.data = rsa_4096_q,
+		.len = sizeof(rsa_4096_q)
+	},
+	.dP = {
+		.data = rsa_4096_dP,
+		.len = sizeof(rsa_4096_dP)
+	},
+	.dQ = {
+		.data = rsa_4096_dQ,
+		.len = sizeof(rsa_4096_dQ)
+	},
+	.qInv = {
+		.data = rsa_4096_qInv,
+		.len = sizeof(rsa_4096_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA1
+};
+
+struct test_rsa_pss_params rsa_pss_params_48B_salt_4096_mod_max_msg_sha256 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_48B_salt,
+		.len = sizeof(rsa_pss_48B_salt)
+	},
+	.n = {
+		.data = rsa_4096_n,
+		.len = sizeof(rsa_4096_n)
+	},
+	.e = {
+		.data = rsa_4096_e,
+		.len = sizeof(rsa_4096_e)
+	},
+	.d = {
+		.data = rsa_4096_d,
+		.len = sizeof(rsa_4096_d)
+	},
+	.p = {
+		.data = rsa_4096_p,
+		.len = sizeof(rsa_4096_p)
+	},
+	.q = {
+		.data = rsa_4096_q,
+		.len = sizeof(rsa_4096_q)
+	},
+	.dP = {
+		.data = rsa_4096_dP,
+		.len = sizeof(rsa_4096_dP)
+	},
+	.dQ = {
+		.data = rsa_4096_dQ,
+		.len = sizeof(rsa_4096_dQ)
+	},
+	.qInv = {
+		.data = rsa_4096_qInv,
+		.len = sizeof(rsa_4096_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA256
+};
+
+struct test_rsa_pss_params rsa_pss_params_64B_salt_7904_mod_max_msg_sha512 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_64B_salt,
+		.len = sizeof(rsa_pss_64B_salt)
+	},
+	.n = {
+		.data = rsa_7904_n,
+		.len = sizeof(rsa_7904_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_7904_d,
+		.len = sizeof(rsa_7904_d)
+	},
+	.p = {
+		.data = rsa_7904_p,
+		.len = sizeof(rsa_7904_p)
+	},
+	.q = {
+		.data = rsa_7904_q,
+		.len = sizeof(rsa_7904_q)
+	},
+	.dP = {
+		.data = rsa_7904_dP,
+		.len = sizeof(rsa_7904_dP)
+	},
+	.dQ = {
+		.data = rsa_7904_dQ,
+		.len = sizeof(rsa_7904_dQ)
+	},
+	.qInv = {
+		.data = rsa_7904_qInv,
+		.len = sizeof(rsa_7904_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA2_SHA512
+};
+
+uint8_t rsa_pss_945B_max_salt[945] = { [0 ... 944] = 0xDD };
+
+struct test_rsa_pss_params rsa_pss_params_945B_salt_7904_mod_max_msg_sha1 = {
+	.plaintext = {
+		.data = rsa_pss_max_msg,
+		.len = sizeof(rsa_pss_max_msg)
+	},
+	.salt = {
+		.data = rsa_pss_945B_max_salt,
+		.len = sizeof(rsa_pss_945B_max_salt)
+	},
+	.n = {
+		.data = rsa_7904_n,
+		.len = sizeof(rsa_7904_n)
+	},
+	.e = {
+		.data = rsa_e,
+		.len = sizeof(rsa_e)
+	},
+	.d = {
+		.data = rsa_7904_d,
+		.len = sizeof(rsa_7904_d)
+	},
+	.p = {
+		.data = rsa_7904_p,
+		.len = sizeof(rsa_7904_p)
+	},
+	.q = {
+		.data = rsa_7904_q,
+		.len = sizeof(rsa_7904_q)
+	},
+	.dP = {
+		.data = rsa_7904_dP,
+		.len = sizeof(rsa_7904_dP)
+	},
+	.dQ = {
+		.data = rsa_7904_dQ,
+		.len = sizeof(rsa_7904_dQ)
+	},
+	.qInv = {
+		.data = rsa_7904_qInv,
+		.len = sizeof(rsa_7904_qInv)
+	},
+
+	.hash_type = DAO_LC_HASH_TYPE_SHA1
+};
+
 #endif /* __LC_TEST_ASYM_RSA_H__ */

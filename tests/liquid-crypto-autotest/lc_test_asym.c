@@ -945,6 +945,125 @@ test_rsa_modex_enc_exp_dec_crt(const void *data)
 	return TEST_SUCCESS;
 }
 
+static int
+test_rsa_pss_exp_sign_verify(const void *data)
+{
+	uint8_t sign_output[TEST_LC_RSA_PSS_MAX_SIG_LEN];
+	const struct test_rsa_pss_params *params = data;
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(sign_output, 0, sizeof(sign_output));
+
+	/* RSA PSS Exp SIGN */
+	ret = dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc(
+		dev_id, qp_id, params->hash_type, params->n.len, params->n.data, params->d.len,
+		params->d.data, params->plaintext.len, params->plaintext.data, params->salt.len,
+		params->salt.data, sign_output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA PSS sign operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA PSS sign operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA PSS Sign operation failed");
+
+	/* RSA PSS VERIFY */
+	ret = dao_liquid_crypto_enq_op_rsa_pss_pub_dec(
+		dev_id, qp_id, params->hash_type, params->salt.len, params->n.len, params->n.data,
+		params->e.len, params->e.data, params->plaintext.len, params->plaintext.data,
+		sign_output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA PSS verify operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA PSS verify operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA PSS verify operation failed");
+
+	return TEST_SUCCESS;
+}
+
+static int
+test_rsa_pss_crt_sign_verify(const void *data)
+{
+	uint8_t sign_output[TEST_LC_RSA_PSS_MAX_SIG_LEN];
+	const struct test_rsa_pss_params *params = data;
+	uint8_t dev_id = glb_params.dev_id;
+	uint16_t qp_id = glb_params.qp_id;
+	uint64_t op_cookie = rte_rand();
+	struct dao_lc_res res;
+	int ret;
+
+	memset(&res, 0, sizeof(res));
+	memset(sign_output, 0, sizeof(sign_output));
+
+	/* RSA PSS CRT SIGN */
+	ret = dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc(
+		dev_id, qp_id, params->hash_type, params->n.len, params->plaintext.len,
+		params->plaintext.data, params->salt.len, params->salt.data, params->p.data,
+		params->dP.data, params->q.data, params->dQ.data, params->qInv.data, sign_output,
+		op_cookie);
+
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA PSS CRT sign operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA PSS CRT sign operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+		    "RSA PSS CRT crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS,
+		    "RSA PSS CRT Sign operation failed");
+
+	/* RSA PSS VERIFY */
+	ret = dao_liquid_crypto_enq_op_rsa_pss_pub_dec(
+		dev_id, qp_id, params->hash_type, params->salt.len, params->n.len, params->n.data,
+		params->e.len, params->e.data, params->plaintext.len, params->plaintext.data,
+		sign_output, op_cookie);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not enqueue RSA PSS verify operation");
+		return TEST_FAILED;
+	}
+
+	ret = op_dequeue(dev_id, qp_id, &res);
+	if (ret < 0) {
+		TEST_LC_ERR("Could not dequeue RSA PSS verify operation");
+		return TEST_FAILED;
+	}
+
+	TEST_ASSERT(res.op_cookie == op_cookie, "Invalid operation cookie");
+	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD,
+		    "RSA PSS Verify crypto operation failed");
+	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA PSS verify operation failed");
+
+	return TEST_SUCCESS;
+}
+
 struct unit_test_suite lc_testsuite_asym = {
 	.suite_name = "Liquid Crypto Asymmetric Test Suite",
 	.setup = testsuite_setup,
@@ -1083,6 +1202,150 @@ struct unit_test_suite lc_testsuite_asym = {
 			"Modex encrypt with public exponent and decrypt with prv CRT params (2048 bits)",
 			ut_setup, ut_teardown, test_rsa_modex_enc_exp_dec_crt,
 			&rsa_modex_2048_params),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 1024 bits modulus and 800B message length with AA data",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_1024_mod_0B_salt_800B_msg_AA_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 1024 bits modulus and 800B message length with AA data",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_1024_mod_0B_salt_800B_msg_AA_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 64B salt with 2048 bits modulus and max message length with SHA256 hash",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_64B_salt_2048_mod_max_msg_sha256),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 64B salt with 2048 bits modulus and max message length with SHA256 hash",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_64B_salt_2048_mod_max_msg_sha256),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 64B salt with 7904 bits modulus and max message length with SHA512 hash",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_64B_salt_7904_mod_max_msg_sha512),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 64B salt with 7904 bits modulus and max message length with SHA512 hash",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_64B_salt_7904_mod_max_msg_sha512),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 945B salt with 7904 bits modulus and max message length with SHA1 hash",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_945B_salt_7904_mod_max_msg_sha1),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 945B salt with 7904 bits modulus and max message length with SHA1 hash",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_945B_salt_7904_mod_max_msg_sha1),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and salt with 2048 bits modulus 20B message length",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_5B_salt_2048_mod),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 5B salt with 2048 bits modulus 20B message length",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_5B_salt_2048_mod),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 1024 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_1024_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 1024 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_1024_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 2048 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_2048_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 2048 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_2048_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 4096 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_4096_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 4096 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_4096_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 7904 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_7904_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 7904 bits modulus and max message length (AA Data)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_7904_mod_0B_salt_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 1024 bits modulus and 800B message length (BB Data)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_1024_mod_0B_salt_800B_msg_BB_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 1024 bits modulus and 800B message length (BB Data)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_1024_mod_0B_salt_800B_msg_BB_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 0B salt with 7904 bits modulus and max message length (BB Data)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_7904_mod_0B_salt_max_msg_BB_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 0B salt with 7904 bits modulus and max message length (BB Data)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_7904_mod_0B_salt_max_msg_BB_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 48B salt with 1024 bits modulus 986B message length",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_1024_mod_48B_salt_986B_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 48B salt with 1024 bits modulus 986B message length",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_1024_mod_48B_salt_986B_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 106B(Max) salt for SHA1 with 1024 bits modulus 986B message length",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_1024_mod_106B_salt_986B_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 106B(Max) salt for SHA1 with 1024 bits modulus 986B message length",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_1024_mod_106B_salt_986B_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 64B salt with 2048 bits modulus and max message length",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_64B_salt_2048_mod_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 64B salt with 2048 bits modulus and max message length",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_64B_salt_2048_mod_max_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 222B salt with 2048 bits modulus and max message length",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_222B_salt_2048_mod_max_msg_sha256),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 222B salt with 2048 bits modulus and max message length",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_222B_salt_2048_mod_max_msg_sha256),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 48B salt with 4096 bits modulus and max message length with SHA384 hash",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_48B_salt_4096_mod_max_msg_sha384),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 48B salt with 4096 bits modulus and max message length with SHA384 hash",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_48B_salt_4096_mod_max_msg_sha384),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 490B salt with 4096 bits modulus and max message length with SHA1 hash",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_490B_max_salt_4096_mod_max_msg_sha1),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 490B salt with 4096 bits modulus and max message length with SHA1 hash",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_490B_max_salt_4096_mod_max_msg_sha1),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 48B salt with 4096 bits modulus and max message length with SHA256 hash",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_48B_salt_4096_mod_max_msg_sha256),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 48B salt with 4096 bits modulus and max message length with SHA256 hash",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_48B_salt_4096_mod_max_msg_sha256),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };

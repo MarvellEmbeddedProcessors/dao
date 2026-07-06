@@ -21,14 +21,16 @@
 #include "lc_test_sym.h"
 #include "test.h"
 
-struct unit_test_suite *test_suites[] = {&lc_testsuite_generic,
-					 &lc_testsuite_asym,
-					 &lc_testsuite_sym,
-					 &lc_testsuite_rng,
-					 &lc_testsuite_pqc,
-					 &lc_testsuite_comp,
-					 &lc_testsuite_cpt_compdev_mix,
-					 NULL};
+struct unit_test_suite *test_suites[] = {
+	&lc_testsuite_generic,
+	&lc_testsuite_asym,
+	&lc_testsuite_sym,
+	&lc_testsuite_rng,
+	&lc_testsuite_pqc,
+	&lc_testsuite_comp,
+	&lc_testsuite_cpt_compdev_mix,
+	NULL
+};
 
 volatile int force_quit;
 static volatile int nb_lcdevs_global;
@@ -215,11 +217,17 @@ main(int argc, char **argv)
 		feature_params.sym.key_wrap_len = TEST_LC_MAX_KEY_DATA_LEN;
 		feature_params.sym.aes_kek_type = DAO_LC_FC_AES_KEY_LEN_256;
 		feature_params.rsa_oaep.is_rsa_oaep_enabled = 1;
-		feature_params.rsa_oaep.mod_len = TEST_LC_RSA_OAEP_MAX_MOD_LEN;
+		feature_params.rsa_oaep.mod_len = TEST_LC_RSA_PAD_SCHEME_MAX_MOD_LEN;
 		/* Use CRT format */
 		feature_params.rsa_oaep.exp_len = 0;
 		feature_params.rsa_oaep.label_len = TEST_LC_RSA_OAEP_MAX_LABEL_LEN;
 		feature_params.rsa_oaep.hash_type = DAO_LC_HASH_TYPE_SHA1;
+		feature_params.rsa_pss.is_rsa_pss_enabled = 1;
+		feature_params.rsa_pss.mod_len = TEST_LC_RSA_PAD_SCHEME_MAX_MOD_LEN;
+		/* Use CRT format */
+		feature_params.rsa_pss.exp_len = 0;
+		feature_params.rsa_pss.salt_len = TEST_LC_RSA_PSS_MAX_SALT_LEN;
+		feature_params.rsa_pss.hash_type = DAO_LC_HASH_TYPE_SHA1;
 
 		ret = dao_liquid_crypto_dev_caps_get(&caps);
 		if (ret < 0)
