@@ -115,14 +115,18 @@ struct pts_rdma_cq {
 
 struct pts_rdma_cq_data {
 	uint64_t *ring_base __rte_cache_aligned;
-	uint16_t pi;
-	uint16_t ci;
-	uint16_t pi_data;
-	uint16_t ci_data;
 	uint16_t q_sz;
+	uint16_t qmask;
 	uint16_t dma_vchan;
-
 	struct pts_rdma_cq *cq;
+
+	RTE_CACHE_GUARD;
+	uint16_t pi __rte_cache_aligned;
+	uint16_t pi_data;
+
+	RTE_CACHE_GUARD;
+	uint16_t ci __rte_cache_aligned;
+	uint16_t ci_data;
 };
 
 struct pts_rdma_qp {
@@ -130,22 +134,26 @@ struct pts_rdma_qp {
 		uintptr_t desc_base __rte_cache_aligned;
 		uint16_t *pi_addr;
 		uint16_t *ci_addr;
-		uint16_t sd_desc_off;
+		uint16_t q_sz;
+		uint16_t dma_vchan;
+		uint16_t cq_id;
+		uint64_t *sd_desc_base;
+
+		RTE_CACHE_GUARD;
+		uint16_t sd_desc_off __rte_cache_aligned;
 		uint16_t sd_desc_dma_off;
-		uint16_t sd_mbuf_off;
 		uint16_t sd_mbuf_dma_off;
+
+		RTE_CACHE_GUARD;
+		uint16_t sd_mbuf_off __rte_cache_aligned;
+		uint16_t last_off;
 		uint16_t data_off;
 		uint16_t mtu;
-		uint16_t last_off;
-		uint16_t q_sz;
 		uint16_t buf_len;
-		uint16_t dma_vchan;
 		uint16_t port;
-		uint64_t *sd_desc_base;
 		struct rte_mempool *mp;
 		struct rte_mbuf **mbuf_arr;
 
-		uint16_t cq_id;
 		struct pts_rdma_cq_data cq_data;
 	} sq;
 
@@ -153,24 +161,30 @@ struct pts_rdma_qp {
 		uintptr_t desc_base __rte_cache_aligned;
 		uint16_t *pi_addr;
 		uint16_t *ci_addr;
-		uint16_t sd_desc_off;
-		uint16_t sd_desc_dma_off;
-		uint16_t sd_mbuf_off;
 		uint16_t q_sz;
 		uint16_t dma_vchan;
+		uint16_t cq_id;
 		uint32_t *sd_desc_base;
 
-		uint16_t cq_id;
+		RTE_CACHE_GUARD;
+		uint16_t sd_desc_off __rte_cache_aligned;
+		uint16_t sd_desc_dma_off;
+
+		RTE_CACHE_GUARD;
+		uint16_t sd_mbuf_off __rte_cache_aligned;
 		struct pts_rdma_cq_data cq_data;
 	} rq;
-	struct rte_mbuf **r_mbuf_arr;
-	uint16_t r_mbuf_dma_off;
-	uint16_t r_mbuf_off;
-	uint16_t r_last_off;
+	struct rte_mbuf **r_mbuf_arr __rte_cache_aligned;
 	uint16_t r_q_sz;
 	uint16_t qp_id;
 	uint8_t is_mgmt;
 	uint64_t ibqp;
+
+	uint16_t r_mbuf_off __rte_cache_aligned;
+
+	RTE_CACHE_GUARD;
+	uint16_t r_mbuf_dma_off __rte_cache_aligned;
+	uint16_t r_last_off;
 };
 
 struct pts_rdma_dev {
@@ -241,9 +255,9 @@ desc_off_diff(uint16_t a, uint16_t b, uint16_t q_sz)
 }
 
 static __rte_always_inline uint16_t
-is_queue_full(uint16_t pi, uint16_t ci)
+is_queue_full(uint16_t pi, uint16_t ci, uint16_t qmask)
 {
-	return (pi + 1 == ci);
+	return (((pi + 1) & qmask) == ci);
 }
 
 static __rte_always_inline void

@@ -243,6 +243,7 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	sq->cq_id = req->send_cq_id;
 	sq->cq_data.cq = send_cq;
 	sq->cq_data.q_sz = sq->q_sz;
+	sq->cq_data.qmask = sq->cq_data.q_sz - 1;
 	sq->cq_data.dma_vchan = send_cq->dma_vchan;
 	sq->cq_data.pi_data = 0;
 	sq->cq_data.ci = 0;
@@ -296,6 +297,7 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	rq->cq_id = req->recv_cq_id;
 	rq->cq_data.cq = recv_cq;
 	rq->cq_data.q_sz = rq->q_sz;
+	rq->cq_data.qmask = rq->cq_data.q_sz - 1;
 	rq->cq_data.dma_vchan = recv_cq->dma_vchan;
 	rq->cq_data.pi_data = 0;
 	rq->cq_data.ci = 0;

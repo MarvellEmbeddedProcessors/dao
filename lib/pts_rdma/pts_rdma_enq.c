@@ -320,7 +320,7 @@ process_rdma_read_resp(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem2d
 	uint32_t pkt_len;
 	uint16_t nb_sge;
 
-	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci)))
+	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci, cq_data->qmask)))
 		return -1;
 
 	nb_sge = mbuf->l2_len;
@@ -465,7 +465,7 @@ process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *
 		return -1;
 
 	/* Check for space in CQ */
-	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci)))
+	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci, cq_data->qmask)))
 		return -1;
 
 	if (process_rdma_write(mem2dev, mbuf))
@@ -782,7 +782,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 		return -1;
 
 	/* Check for space in CQ */
-	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci)))
+	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci, cq_data->qmask)))
 		return -1;
 
 	if (unlikely(process_and_enq_mbuf_desc(mem2dev, desc_base, ci, mbuf, &len,
