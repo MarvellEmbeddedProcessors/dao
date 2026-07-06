@@ -47,7 +47,9 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 		num_sges = (d_flags >> 24) & 0xFF;
 		next_desc = num_sges > 2 ? RTE_ALIGN_CEIL(num_sges - 2, 4) / 4 : 0;
 		if (unlikely(next_desc)) {
-			if (unlikely(desc_off_add(off, next_desc + 1, q_sz) > sd_mbuf_dma_off))
+			/* Find the available slots first and check for next desc availability in
+			 * the slots */
+			if (unlikely(desc_off_diff(sd_mbuf_dma_off, off, q_sz) < next_desc + 1))
 				break;
 		}
 		mbuf = mbuf_arr[off];
@@ -190,8 +192,12 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 	}
 
 	while (n_sge_idx < nb_src_segs && max_src_len > 0) {
-		if (unlikely(!dao_dma_flush(dev2mem, flush_thr)))
+		if (unlikely(!dao_dma_flush(dev2mem, flush_thr))) {
+			free_mbuf_seg_chain(mbuf->next);
+			mbuf->next = NULL;
+			mbuf->nb_segs = 1;
 			return -1;
+		}
 
 		dst_ops = 0;
 		max_dst_len = 0;
@@ -315,7 +321,9 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 		num_sges = (d_flags >> 24) & 0xFF;
 		next_desc = num_sges > 2 ? RTE_ALIGN_CEIL(num_sges - 2, 4) / 4 : 0;
 		if (unlikely(next_desc)) {
-			if (unlikely(desc_off_add(off, next_desc + 1, q_sz) > sd_desc_dma_off))
+			/* Find the available slots first and check for next desc availability in
+			 * the slots */
+			if (unlikely(desc_off_diff(sd_desc_dma_off, off, q_sz) < next_desc + 1))
 				break;
 		}
 		/* Skip DMA if xfer is from device to host */
