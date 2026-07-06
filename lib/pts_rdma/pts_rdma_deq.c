@@ -17,6 +17,9 @@
 #define PTS_RDMA_SQE_HDR_SZ offsetof(union dao_pts_rdma_sqe, sges0)
 #define PTS_RDMA_DATA_OFF   (RTE_PKTMBUF_HEADROOM)
 
+/* Up to 512 batch is supported */
+#define DEQ_BULK_MBUF_ALLOC 512U
+
 static __rte_always_inline uint16_t
 post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d_mbufs,
 		  uint16_t nb_mbufs, const uint16_t flags)
@@ -116,24 +119,30 @@ static __rte_always_inline int16_t
 alloc_and_chain_mbufs(struct pts_rdma_qp_sq *sq, struct rte_mbuf *mb, uint32_t n_mbufs,
 		      uint64_t rearm_data)
 {
-	struct rte_mbuf *mbuf = mb, *mb_next;
-	uint32_t i = 0;
+	struct rte_mbuf *mbufs[DEQ_BULK_MBUF_ALLOC];
+	struct rte_mbuf *last_mbuf = mb;
+	uint32_t n_left = n_mbufs - 1;
+	uint32_t n_alloc, i;
 
-	for (i = 1; i < n_mbufs; i++) {
-		if (rte_mempool_get(sq->mp, (void **)&mb_next)) {
+	while (n_left > 0) {
+		n_alloc = RTE_MIN(n_left, DEQ_BULK_MBUF_ALLOC);
+		if (unlikely(rte_mempool_get_bulk(sq->mp, (void **)mbufs, n_alloc))) {
 			free_mbuf_seg_chain(mb->next);
 			mb->next = NULL;
 			mb->nb_segs = 1;
 			return -1;
 		}
-		*((uint64_t *)&mb_next->rearm_data) = rearm_data;
-		mb_next->ol_flags = 0;
-		mb_next->next = NULL;
-		mb_next->pkt_len = 0;
-		mb_next->data_len = 0;
 
-		mbuf->next = mb_next;
-		mbuf = mb_next;
+		for (i = 0; i < n_alloc; i++) {
+			*((uint64_t *)&mbufs[i]->rearm_data) = rearm_data;
+			mbufs[i]->ol_flags = 0;
+			mbufs[i]->next = NULL;
+			mbufs[i]->pkt_len = 0;
+			mbufs[i]->data_len = 0;
+			last_mbuf->next = mbufs[i];
+			last_mbuf = mbufs[i];
+		}
+		n_left -= n_alloc;
 	}
 	return 0;
 }
