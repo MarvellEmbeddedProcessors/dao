@@ -773,3 +773,12 @@ Known Limitations
 #. The number of enqueue operations that can be pushed without performing a dequeue operation
    is 12.5% less than the number of descriptors configured for the queue pair; the remaining
    12.5% is reserved as slack for internal use to prevent any packet drops.
+
+#. Crypto and compression operations are independent in nature — there is no logical flow or
+   dependency between them from an application's perspective. When the out-of-order delivery
+   feature is disabled, response ordering is preserved independently within crypto and compression
+   operations. This means that responses for crypto requests are returned in the same order the
+   requests were submitted, and likewise for compression requests.
+
+   Therefore, the overall response sequence depends on the completion timing of each operation type
+   independently, rather than the global request submission order.
