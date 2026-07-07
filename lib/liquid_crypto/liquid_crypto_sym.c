@@ -872,13 +872,8 @@ lc_sym_op_cipher_auth_validate(const struct dao_lc_sym_op *op,
 		return -EINVAL;
 	}
 
-	if (auth_end < cipher_end) {
-		dao_err("Cipher end offset is more than auth end offset.");
-		return -EINVAL;
-	}
-
-	if ((auth_end - cipher_end) > 56) {
-		dao_err("Auth end offset is more than 56 bytes after cipher end offset.");
+	if (auth_end != cipher_end) {
+		dao_err("Auth and cipher operations do not end at same point.");
 		return -EINVAL;
 	}
 
