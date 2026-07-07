@@ -173,6 +173,7 @@ read_response_process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, struct rte
 				mbuf_next = m->next;
 				m->next = NULL;
 				m->nb_segs = 1;
+				PTS_RDMA_ENQ_UPDATE_COOKIE(m, 0);
 				m = mbuf_next;
 				src_offset = 0;
 				n_mbufs_left--;
@@ -283,6 +284,7 @@ read_response_process_multi_sge(struct dao_dma_vchan_state *mem2dev, struct rte_
 				mbuf_next = m->next;
 				m->next = NULL;
 				m->nb_segs = 1;
+				PTS_RDMA_ENQ_UPDATE_COOKIE(m, 0);
 				m = mbuf_next;
 				src_offset = 0;
 			}
@@ -317,7 +319,6 @@ read_resp_enqueue(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf,
 	else
 		ret = read_response_process_multi_mbuf(mem2dev, mbuf, nb_dst_segs, nb_mbuf_segs);
 
-	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, ret);
 	return ret;
 }
 
@@ -411,6 +412,7 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 			m_next = m->next;
 			m->next = NULL;
 			m->nb_segs = 1;
+			PTS_RDMA_ENQ_UPDATE_COOKIE(m, 0);
 			m = m_next;
 			n_segs_left--;
 		}
@@ -418,7 +420,6 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 		sge_off += tot_len;
 		tot_len = 0;
 	}
-	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 	return 0;
 }
 
@@ -606,6 +607,7 @@ process_multi_mbuf(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uin
 				mbuf_next = m->next;
 				m->next = NULL;
 				m->nb_segs = 1;
+				PTS_RDMA_ENQ_UPDATE_COOKIE(m, 0);
 				m = mbuf_next;
 				src_offset = 0;
 				n_mbufs_left--;
@@ -713,6 +715,7 @@ process_multi_sge(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_base, uint
 				mbuf_next = m->next;
 				m->next = NULL;
 				m->nb_segs = 1;
+				PTS_RDMA_ENQ_UPDATE_COOKIE(m, 0);
 				m = mbuf_next;
 				src_offset = 0;
 			}
@@ -746,6 +749,7 @@ process_and_enq_mbuf_desc(struct dao_dma_vchan_state *mem2dev, uintptr_t desc_ba
 		dao_dma_enq_src_x1(mem2dev, (uintptr_t)rte_pktmbuf_mtod(mbuf, uint64_t *), dlen);
 		mbuf->next = NULL;
 		mbuf->nb_segs = 1;
+		PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 		*len = dlen;
 		return 0;
 	}
@@ -795,8 +799,6 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	if (unlikely(process_and_enq_mbuf_desc(mem2dev, desc_base, ci, mbuf, &len,
 					       qp->qp_id == 1 || qp->is_mgmt)))
 		return -1;
-
-	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 
 	cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
 	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);

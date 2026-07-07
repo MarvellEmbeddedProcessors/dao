@@ -95,6 +95,10 @@ process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *me
 	m_next = mbuf->next;
 	mbuf->next = NULL;
 	mbuf->nb_segs = 1;
+#ifdef RTE_LIBRTE_MEMPOOL_DEBUG
+	if (!(flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF))
+		RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
+#endif
 	mbuf = m_next;
 	while (unlikely(mbuf)) {
 		hdr = rte_pktmbuf_mtod_offset(mbuf, uintptr_t, 0);
@@ -106,6 +110,10 @@ process_mseg_pkts_enq(struct virtio_net_queue *q, struct dao_dma_vchan_state *me
 		}
 		mbuf->next = NULL;
 		mbuf->nb_segs = 1;
+#ifdef RTE_LIBRTE_MEMPOOL_DEBUG
+		if (!(flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF))
+			RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
+#endif
 		mbuf = m_next;
 	}
 
@@ -503,14 +511,11 @@ push_enq_data(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2dev,
 			dao_dma_enq_x1(mem2dev, (uintptr_t)hdr, len,
 				       *DESC_PTR_OFF(sd_desc_base, off, 0), len);
 			off = (off + 1) & (q_sz - 1);
-		}
 #ifdef RTE_LIBRTE_MEMPOOL_DEBUG
-		/* When fast free is enabled, all the buffers would be freed by DPI to NPA
-		 * Mark them as put since SW didnot not be freeing them.
-		 */
-		if (!(flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF))
-			RTE_MEMPOOL_CHECK_COOKIES(mbufs[i]->pool, (void **)&mbufs[i], 1, 0);
+			if (!(flags & VIRTIO_NET_ENQ_OFFLOAD_NOFF))
+				RTE_MEMPOOL_CHECK_COOKIES(mbufs[i]->pool, (void **)&mbufs[i], 1, 0);
 #endif
+		}
 		i++;
 		used += hdr->num_buffers;
 
