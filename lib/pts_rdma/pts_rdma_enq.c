@@ -7,6 +7,21 @@
 
 #include "pts_rdma_dev_priv.h"
 
+/* All the buffers would be freed to NPA by DPI.
+ * Mark them as put since SW did not free them
+ */
+#ifdef RTE_LIBRTE_MEMPOOL_DEBUG
+#define PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, ret)                                                      \
+	do {                                                                                       \
+		if (likely(!(ret)))                                                                \
+			RTE_MEMPOOL_CHECK_COOKIES((mbuf)->pool, (void **)&(mbuf), 1, 0);           \
+	} while (0)
+#else
+#define PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, ret)                                                      \
+	do {                                                                                       \
+	} while (0)
+#endif
+
 static inline int
 pts_rdma_enqueue_cqe(struct pts_rdma_cq_data *cq_data, struct dao_pts_rdma_cqe *cqe,
 		     uint16_t nb_cqes, const bool skip_compl)
@@ -291,6 +306,7 @@ read_resp_enqueue(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf,
 		dao_dma_enq_src_x1(mem2dev, (uintptr_t)rte_pktmbuf_mtod(mbuf, uint64_t *), len);
 		mbuf->next = NULL;
 		mbuf->nb_segs = 1;
+		PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 		return 0;
 	}
 
@@ -301,12 +317,7 @@ read_resp_enqueue(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf,
 	else
 		ret = read_response_process_multi_mbuf(mem2dev, mbuf, nb_dst_segs, nb_mbuf_segs);
 
-#ifdef RTE_LIBRTE_MEMPOOL_DEBUG
-	/* All the buffers would be freed to NPA by DPI.
-	 * Mark them as put since SW did not free them
-	 */
-	RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
-#endif
+	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, ret);
 	return ret;
 }
 
@@ -382,6 +393,7 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 				   mbuf->data_len);
 		mbuf->next = NULL;
 		mbuf->nb_segs = 1;
+		PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 		return 0;
 	}
 	n_segs_left = nb_segs;
@@ -406,12 +418,7 @@ process_rdma_write(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
 		sge_off += tot_len;
 		tot_len = 0;
 	}
-#ifdef RTE_LIBRTE_MEMPOOL_DEBUG
-	/* All the buffers would be freed to NPA by DPI.
-	 * Mark them as put since SW did not free them
-	 */
-	RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
-#endif
+	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 	return 0;
 }
 
@@ -789,9 +796,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 					       qp->qp_id == 1 || qp->is_mgmt)))
 		return -1;
 
-#ifdef RTE_LIBRTE_MEMPOOL_DEBUG
-	RTE_MEMPOOL_CHECK_COOKIES(mbuf->pool, (void **)&mbuf, 1, 0);
-#endif
+	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
 
 	cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
 	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);
