@@ -236,6 +236,18 @@ function ep_common_if_configure()
 	fi
 
 	if [[ -z $down ]]; then
+		# Another interface on this host (e.g. a Mellanox NIC left configured
+		# by a different test profile) may still own this test subnet and
+		# hijack its route, silently blackholing the octep RDMA data path.
+		# Flush the subnet from every other interface before claiming it here.
+		if [[ -n $ip_addr ]]; then
+			local flush_subnet flush_dev
+			flush_subnet=$(echo "$ip_addr" | awk -F. '{print $1"."$2"."$3".0/24"}')
+			for flush_dev in $(ls /sys/class/net); do
+				[[ $flush_dev == "$iface_name" ]] && continue
+				ip addr flush dev "$flush_dev" to "$flush_subnet" 2>/dev/null || true
+			done
+		fi
 		if [[ -n $num_alias ]]; then
 			IFS='.' read -r -a ip_parts <<< "$ip_addr"
 			for ((i=0; i<$num_alias; i++)); do

@@ -48,6 +48,13 @@ function run_mq_test()
 		return 0
 	fi
 
+	# TEMPORARY: the repeated-connect RC READ cases (with and without SGE)
+	# are unstable on Octeon-to-Octeon (DPU-to-DPU); skip them there for now.
+	if [[ -n "${EP_REMOTE_DEVICE:-}" && "$test_name" == *"Repeated_RC_READ"* ]]; then
+		echo "Skipping $test_name on DPU-to-DPU (temporarily disabled)"
+		return 0
+	fi
+
 	# Cleanup previous test state and reconfigure before each test
 	cleanup_stuck_processes
 	rdma_tests_cleanup

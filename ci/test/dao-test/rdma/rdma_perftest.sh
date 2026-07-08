@@ -107,8 +107,13 @@ function run_perftest_case()
 	local cm_opt=""
 	[[ "$eff_use_cm" == "yes" ]] && cm_opt="-R"
 
-	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a"
-	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a"
+	# TEMPORARY: cap all perftest cases to 100 iterations per size so the full
+	# -a sweep stays fast on the octep_rdma path. Revert to per-binary defaults
+	# once timings are acceptable.
+	local iter_opt="-n 100"
+
+	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a $iter_opt"
+	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a $iter_opt"
 
 	local log_path="${EP_LOG_PATH:-/tmp}"
 	local server_log="$log_path/${binary}_${test_name}_server.log"

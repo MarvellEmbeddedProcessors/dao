@@ -31,6 +31,15 @@ function dao_rdma_cleanup()
 	save_log host_dmesg.log
 	ep_device_ssh_cmd "$EP_DEVICE_SUDO dmesg" > device_dmesg.log
 	save_log device_dmesg.log
+
+	# Flush the RDMA data-plane subnet on both hosts so a stale 30.0.0.x
+	# address (e.g. left on a Mellanox NIC by another test profile) cannot
+	# hijack the subnet route on the next run. Covers the legacy Mellanox
+	# remote path too, which cleans up via guest_rdma_cleanup.
+	ep_host_ssh_cmd "$EP_HOST_SUDO ip addr flush to 30.0.0.0/24" 2>/dev/null || true
+	if [[ -n "${EP_REMOTE:-}" ]]; then
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO ip addr flush to 30.0.0.0/24" 2>/dev/null || true
+	fi
 	echo "DAO RDMA cleanup completed"
 }
 
@@ -417,30 +426,20 @@ function dao_rdma_setup()
 	ep_host_ssh_cmd "$EP_HOST_SUDO mkdir -p $EP_HOST_RDMA_PATH"
 	ep_host_ssh_cmd "$EP_HOST_SUDO rsync -a $EP_DIR/rdma_prefix/* $EP_HOST_RDMA_PATH"
 
-	# Stage the remote RDMA stack matching the remote's architecture. x86
-	# remotes (e.g. Mellanox host) use the prebuilt x86 bundle, others use
-	# the default (aarch64) bundle. The existence check must run ON THE REMOTE
-	# because that is where the rsync source path lives (populated by
-	# remote_sync into $EP_DIR/ep_files); checking it locally in the container
-	# is wrong and silently falls back to the default bundle.
-	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
-		# DPU-to-DPU: the far host is an octep_rdma host; stage the octep host
-		# rdma stack (synced host-style to $EP_DIR/rdma_prefix) rather than the
-		# upstream x86 remote bundle which lacks the octep provider.
-		echo "Staging remote (far host) octep RDMA stack from $EP_DIR/rdma_prefix to $EP_REMOTE_RDMA_PATH"
+	# Stage the remote RDMA stack. EP_REMOTE is an x86 host (Mellanox native-
+	# RoCE host or the DPU-to-DPU far octep_rdma host), so it uses the freshly
+	# built host rdma stack synced host-style to $EP_DIR/rdma_prefix (rdma-core
+	# with all providers incl. mlx5 + octep, plus perftest). Only a legacy
+	# aarch64 remote falls back to the prebuilt rdma_remote bundle.
+	remote_arch=$(ep_remote_ssh_cmd "uname -m" 2>/dev/null | tr -d '[:space:]')
+	if [[ -n "${EP_REMOTE_DEVICE:-}" || "$remote_arch" == "x86_64" ]]; then
+		echo "Staging remote host RDMA stack from $EP_DIR/rdma_prefix to $EP_REMOTE_RDMA_PATH"
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_REMOTE_RDMA_PATH"
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rsync -a $EP_DIR/rdma_prefix/* $EP_REMOTE_RDMA_PATH"
 	else
-		remote_arch=$(ep_remote_ssh_cmd "uname -m" 2>/dev/null | tr -d '[:space:]')
-		if [[ "$remote_arch" == "x86_64" ]] && \
-		   ep_remote_ssh_cmd "[ -d $EP_DIR/ep_files/rdma_remote/x86 ]"; then
-			remote_rdma_src="$EP_DIR/ep_files/rdma_remote/x86"
-		else
-			remote_rdma_src="$EP_DIR/ep_files/rdma_remote"
-		fi
+		remote_rdma_src="$EP_DIR/ep_files/rdma_remote"
 		echo "Staging remote RDMA stack ($remote_arch) from $remote_rdma_src to $EP_REMOTE_RDMA_PATH"
-
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_REMOTE_RDMA_PATH"
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rsync -a $remote_rdma_src/* $EP_REMOTE_RDMA_PATH"

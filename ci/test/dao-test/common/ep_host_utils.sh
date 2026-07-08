@@ -86,6 +86,11 @@ function ep_host_rdma_cleanup()
 	local bdf=$(ep_common_pcie_addr_get "0xB900" 1)
 	local status
 
+	# Flush the RDMA data-plane subnet from every interface on this host so
+	# a stale 30.0.0.x address (e.g. left on a Mellanox NIC by another test
+	# profile) cannot hijack the subnet route on the next run.
+	ip addr flush to 30.0.0.0/24 2>/dev/null || true
+
 	# Disable SR-IOV first
 	echo 0 > /sys/bus/pci/devices/$bdf/sriov_numvfs
 

@@ -33,6 +33,11 @@ function device_sync()
 	fi
 
 	echo "Syncing EP device files"
+	# Remove any stale (possibly multi-GB) dao-rdma_graph log from a previous
+	# run before the rsync below, so it cannot fill the DPU rootfs and fail
+	# the sync. The log is intentionally preserved after a run (including
+	# failures) for debugging; it is only cleared here when a new run starts.
+	ep_device_ssh_cmd "$EP_DEVICE_SUDO rm -f /tmp/dao_rdma_graph.log" 2>/dev/null || true
 	ep_device_ssh_cmd "mkdir -p $EP_DIR"
 	$sync -e "$EP_SSH_CMD" -r $BUILD_DIR/* $EP_DEVICE:$EP_DIR
 	$sync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_DEVICE:$EP_DIR
@@ -50,31 +55,11 @@ function device_sync()
 function remote_sync()
 {
 	local sync="rsync -azzh --delete"
-	local plat
-	local arch
+	local hsync="rsync -azzh --delete --inplace"
+	local plat arch
 
 	if [[ -z ${EP_REMOTE:-} ]]; then
 		echo "EP_REMOTE is not set, skipping remote sync"
-		return
-	fi
-
-	# DPU-to-DPU: the far side is an octep_rdma host, so provision it like
-	# EP_HOST (host build incl. rdma_prefix + octep-rdma.ko) rather than the
-	# legacy single-endpoint remote RDMA-core bundle.
-	if [[ -n ${EP_REMOTE_DEVICE:-} ]]; then
-		local hsync="rsync -azzh --delete --inplace"
-		if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
-			echo "Cleanup EP remote (far host) files"
-			ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_DIR"
-		fi
-		echo "Syncing EP remote (far host) files (DPU-to-DPU, host-style)"
-		ep_remote_ssh_cmd "mkdir -p $EP_DIR"
-		ep_remote_ssh_cmd "mkdir -p $EP_DIR/ep_files"
-		$hsync -e "$EP_SSH_CMD" -r $BUILD_HOST_DIR/* $EP_REMOTE:$EP_DIR
-		$hsync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE:$EP_DIR
-		$hsync -e "$EP_SSH_CMD" -r $EP_PREBUILT_BINARIES_SERVER:$EP_PREBUILT_BINARIES_PATH/* \
-			/tmp/ep_files
-		$hsync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_REMOTE:$EP_DIR/ep_files
 		return
 	fi
 
@@ -83,6 +68,22 @@ function remote_sync()
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_DIR"
 	fi
 
+	arch=$(ep_remote_ssh_cmd "uname -m" 2>/dev/null | tr -d '[:space:]')
+
+	# EP_REMOTE is an x86 host in both RDMA topologies (Mellanox native-RoCE
+	# host or the DPU-to-DPU far octep_rdma host). Provision it exactly like
+	# EP_HOST from the freshly built host artifacts (rdma_prefix with all
+	# providers, perftest, octep-rdma.ko), so binaries are rebuilt every run
+	# instead of pulling a static bundle from EP_PREBUILT_BINARIES_SERVER.
+	if [[ -n ${EP_REMOTE_DEVICE:-} || "$arch" == "x86_64" ]]; then
+		echo "Syncing EP remote files (host-style, fresh x86 build)"
+		ep_remote_ssh_cmd "mkdir -p $EP_DIR"
+		$hsync -e "$EP_SSH_CMD" -r $BUILD_HOST_DIR/* $EP_REMOTE:$EP_DIR
+		$hsync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE:$EP_DIR
+		return
+	fi
+
+	# Legacy aarch64 remote (non-RDMA suites / soft-RoCE Octeon remote).
 	echo "Syncing EP remote files"
 	ep_remote_ssh_cmd "mkdir -p $EP_DIR"
 	$sync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE:$EP_DIR
@@ -92,28 +93,13 @@ function remote_sync()
 		/tmp/ep_files
 	$sync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_REMOTE:$EP_DIR/ep_files
 
-	arch=$(ep_remote_ssh_cmd "uname -m")
-
-	if [[ "$arch" == "x86_64" ]]; then
-		# The x86 host_files bundle (incl. dpdk-testpmd) may be absent for
-		# RDMA-only remotes; only copy it when actually present.
-		if [[ -e /tmp/ep_host_files/dpdk-testpmd ]]; then
-			# Force the destination to be a directory. A prior run may have
-			# left it as a single file (rsync of one entry into a missing
-			# dest), which makes the cp below fail with ENOTDIR.
-			ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_DIR/ep_host_files; mkdir -p $EP_DIR/ep_host_files"
-			$sync -e "$EP_SSH_CMD" -r /tmp/ep_host_files/ $EP_REMOTE:$EP_DIR/ep_host_files/
-			ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_host_files/dpdk-testpmd /usr/bin"
-		fi
+	plat=$(ep_remote_ssh_cmd "$EP_REMOTE_SUDO cat /proc/device-tree/compatible | tr '\0' '\n'")
+	if [[ "$plat" == *"cn10k"* ]]; then
+		plat=cn10k
 	else
-		plat=$(ep_remote_ssh_cmd "$EP_REMOTE_SUDO cat /proc/device-tree/compatible | tr '\0' '\n'")
-		if [[ "$plat" == *"cn10k"* ]]; then
-			plat=cn10k
-		else
-			plat=cn9k
-		fi
-		ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_files/perf/$plat/dpdk-testpmd /usr/bin"
+		plat=cn9k
 	fi
+	ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_files/perf/$plat/dpdk-testpmd /usr/bin"
 }
 
 function remote_device_sync()
@@ -131,6 +117,11 @@ function remote_device_sync()
 	fi
 
 	echo "Syncing EP remote device files"
+	# Remove any stale (possibly multi-GB) dao-rdma_graph log from a previous
+	# run before the rsync below, so it cannot fill the DPU rootfs and fail
+	# the sync. The log is intentionally preserved after a run (including
+	# failures) for debugging; it is only cleared here when a new run starts.
+	ep_remote_device_ssh_cmd "$EP_REMOTE_DEVICE_SUDO rm -f /tmp/dao_rdma_graph.log" 2>/dev/null || true
 	ep_remote_device_ssh_cmd "mkdir -p $EP_DIR"
 	$sync -e "$EP_SSH_CMD" -r $BUILD_DIR/* $EP_REMOTE_DEVICE:$EP_DIR
 	$sync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE_DEVICE:$EP_DIR
