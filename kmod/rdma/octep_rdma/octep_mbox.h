@@ -52,8 +52,7 @@ struct octep_rdma_ah_destroy_req {
 struct octep_rdma_cq_create_req {
 	u16 port_num;
 	u16 cq_id;
-	u16 size;
-	u16 rsvd; /* Explicit padding for u64 alignment */
+	u32 size;
 	u64 cq_base;
 };
 

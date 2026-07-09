@@ -16,7 +16,7 @@ octep_rdma_poll_one_cqe(struct octep_rdma_cq *cq, struct ib_wc *wc, int num_entr
 {
 	struct octep_rdma_cqe *q_base, *cqe;
 	struct octep_rdma_kcq_info *kcq;
-	u16 ci, pi, avail;
+	u32 ci, pi, avail;
 	u32 qmask;
 	int i;
 
@@ -27,7 +27,7 @@ octep_rdma_poll_one_cqe(struct octep_rdma_cq *cq, struct ib_wc *wc, int num_entr
 	ci = kcq->ci;
 
 	/* Read producer index - this is the expensive operation */
-	pi = (u16)atomic_read(kcq->pi_dbl);
+	pi = atomic_read(kcq->pi_dbl);
 
 	/* Fast path: empty queue check - most common case */
 	if (likely(octep_rdma_is_queue_empty(pi, ci)))
@@ -257,7 +257,7 @@ kern_cq_thread_fn(void *data)
 	struct octep_kern_cq_entry *entry;
 	struct octep_rdma_cq *cq;
 	struct octep_rdma_kcq_info *kcq;
-	u16 ci, pi, avail;
+	u32 ci, pi, avail;
 	u32 cq_sz;
 	bool found_work;
 	unsigned int idle_count = 0;
@@ -305,7 +305,7 @@ kern_cq_thread_fn(void *data)
 						    list));
 
 			/* Read producer index once and cache locally */
-			pi = (u16)atomic_read(kcq->pi_dbl);
+			pi = (u32)atomic_read(kcq->pi_dbl);
 			ci = kcq->ci;
 
 			/* Quick empty queue check - most common case */
