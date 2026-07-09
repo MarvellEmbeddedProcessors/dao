@@ -39,15 +39,15 @@ static void
 pts_rdma_qp_sq_flush(struct pts_rdma_qp *qp)
 {
 	struct pts_rdma_qp_sq *sq = &qp->sq;
-	uint16_t sd_mbuf_dma_off, last_off = sq->last_off, q_sz = sq->q_sz;
-	uint16_t off;
+	uint32_t sd_mbuf_dma_off, last_off = sq->last_off, q_sz = sq->q_sz;
+	uint32_t off;
 	uint32_t nb_avail, end;
 
 	if (!qp)
 		return;
 	/* No pending DMAs at this stage */
 	sd_mbuf_dma_off = __atomic_load_n(&sq->sd_mbuf_dma_off, __ATOMIC_ACQUIRE);
-	nb_avail = desc_off_diff(sd_mbuf_dma_off, last_off, q_sz);
+	nb_avail = desc_off_diff32(sd_mbuf_dma_off, last_off, q_sz);
 	if (unlikely(!nb_avail))
 		return;
 	off = last_off;
@@ -62,7 +62,7 @@ pts_rdma_qp_sq_flush(struct pts_rdma_qp *qp)
 static void
 pts_rdma_qp_read_ring_flush(struct pts_rdma_qp *qp)
 {
-	uint16_t mbuf_dma_off, last_off, q_sz, off, end;
+	uint32_t mbuf_dma_off, last_off, q_sz, off, end;
 	struct rte_mbuf *seg;
 	uint32_t nb_avail, k;
 
@@ -73,7 +73,7 @@ pts_rdma_qp_read_ring_flush(struct pts_rdma_qp *qp)
 	last_off = qp->r_last_off;
 	q_sz = qp->r_q_sz;
 
-	nb_avail = desc_off_diff(mbuf_dma_off, last_off, q_sz);
+	nb_avail = desc_off_diff32(mbuf_dma_off, last_off, q_sz);
 	if (unlikely(!nb_avail))
 		return;
 
@@ -191,6 +191,16 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	sq = &qp->sq;
 	rq = &qp->rq;
 
+	if (!(req->sq_size)) {
+		dao_err("[QP-%d] Invalid SQ size-(%d)", qp_id, req->sq_size);
+		return -EINVAL;
+	}
+
+	if (!(req->rq_size)) {
+		dao_err("[QP-%d] Invalid RQ size-(%d)", qp_id, req->rq_size);
+		return -EINVAL;
+	}
+
 	/* Populate Send Queue and associate with its CQ */
 	sq->sd_desc_base = (uint64_t *)rte_zmalloc(
 		"pts_rdma_sq_sd_desc", req->sq_size * PTS_RDMA_DEV_SQE_SIZE, RTE_CACHE_LINE_SIZE);
@@ -211,9 +221,9 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 
 	sq->desc_base = req->sq_base;
 	sq->q_sz = req->sq_size;
-	sq->pi_addr = (uint16_t *)(dev->notify_base +
+	sq->pi_addr = (uint32_t *)(dev->notify_base +
 				   ((qp_id * dev->notify_qs_mltpr) * dev->notify_off_mltpr));
-	sq->ci_addr = sq->pi_addr + 2;
+	sq->ci_addr = sq->pi_addr + 1;
 	*(sq->pi_addr) = 0;
 	*(sq->ci_addr) = 0;
 	sq->dma_vchan = dev->dma_vchan;
@@ -274,9 +284,9 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 	}
 	rq->desc_base = req->rq_base;
 	rq->q_sz = req->rq_size;
-	rq->pi_addr = (uint16_t *)(dev->notify_base +
+	rq->pi_addr = (uint32_t *)(dev->notify_base +
 				   (((qp_id * dev->notify_qs_mltpr) + 1) * dev->notify_off_mltpr));
-	rq->ci_addr = rq->pi_addr + 2;
+	rq->ci_addr = rq->pi_addr + 1;
 	*(rq->pi_addr) = 0;
 	*(rq->ci_addr) = 0;
 	rq->dma_vchan = dev->dma_vchan;
@@ -321,10 +331,10 @@ pts_rdma_populate_qp_info(struct pts_rdma_dev *dev,
 		dev->dev_id, qp_id, (void *)sq->desc_base, sq->q_sz, (void *)rq->desc_base,
 		rq->q_sz);
 	dao_dbg("[dev %u] Adding qp[%d]: send cq_id: %u notify_addr %p val %08x", dev->dev_id,
-		qp_id, req->send_cq_id, sq->pi_addr, *((uint16_t *)sq->pi_addr));
+		qp_id, req->send_cq_id, sq->pi_addr, *(sq->pi_addr));
 
 	dao_dbg("[dev %u] Adding qp[%d]: recv cq_id: %u notify_addr %p val %08x", dev->dev_id,
-		qp_id, req->recv_cq_id, rq->pi_addr, *((uint16_t *)rq->pi_addr));
+		qp_id, req->recv_cq_id, rq->pi_addr, *(rq->pi_addr));
 
 	return 0;
 
@@ -360,6 +370,11 @@ pts_rdma_populate_cq_info(struct pts_rdma_dev *dev,
 		return -EINVAL;
 	}
 
+	if (!(req->size)) {
+		dao_err("Invalid CQ(%d) size-(%d)", cq_id, req->size);
+		return -EINVAL;
+	}
+
 	cq = rte_zmalloc("pts_rdma_cq", sizeof(*cq), RTE_CACHE_LINE_SIZE);
 	if (!cq) {
 		dao_err("[dev %u] Failed to allocate memory for RDMA control queue %u", dev->dev_id,
@@ -369,18 +384,18 @@ pts_rdma_populate_cq_info(struct pts_rdma_dev *dev,
 	cq->desc_base = req->cq_base;
 	cq->q_sz = req->size;
 	cq->cq_id = cq_id;
-	cq->pi_addr = (uint16_t *)(dev->notify_base +
+	cq->pi_addr = (uint32_t *)(dev->notify_base +
 				   (((cq_id * dev->notify_qs_mltpr) + 2) * dev->notify_off_mltpr));
-	cq->ci_addr = cq->pi_addr + 2;
+	cq->ci_addr = cq->pi_addr + 1;
 	cq->dma_vchan = dev->dma_vchan;
 	cq->pend_dma = 0;
 
 	cq->cb_intr_addr = dev->nb_cb_intrs ? dev->cb_intr_addr[cq_id % dev->nb_cb_intrs] : NULL;
 
-	cq->cb_notify_addr = (uint32_t *)cq->pi_addr + 4;
+	cq->cb_notify_addr = cq->pi_addr + 4;
 	__atomic_store_n(cq->cb_notify_addr, 1, __ATOMIC_RELAXED);
 
-	cq->cb_cq_req_notify_addr = (uint32_t *)(cq->pi_addr + 6);
+	cq->cb_cq_req_notify_addr = cq->pi_addr + 3;
 	__atomic_store_n(cq->cb_cq_req_notify_addr, 1, __ATOMIC_RELAXED);
 
 	dev->cqs[cq_id] = cq;

@@ -363,8 +363,8 @@ dao_pts_rdma_rq_avail_get(uint16_t devid, uint16_t qp_id, uint16_t *avail)
 		return -EINVAL;
 
 	rq = &qp->rq;
-	*avail = desc_off_diff(__atomic_load_n(&rq->sd_desc_dma_off, __ATOMIC_ACQUIRE),
-			       __atomic_load_n(&rq->sd_mbuf_off, __ATOMIC_ACQUIRE), rq->q_sz);
+	*avail = desc_off_diff32(__atomic_load_n(&rq->sd_desc_dma_off, __ATOMIC_ACQUIRE),
+				 __atomic_load_n(&rq->sd_mbuf_off, __ATOMIC_ACQUIRE), rq->q_sz);
 
 	return 0;
 }

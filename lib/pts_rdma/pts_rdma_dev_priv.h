@@ -98,10 +98,10 @@ struct pts_rdma_dev_cfg {
 
 struct pts_rdma_cq {
 	uintptr_t desc_base __rte_cache_aligned;
-	uint16_t *pi_addr;
-	uint16_t *ci_addr;
-	uint16_t desc_off;
-	uint16_t q_sz;
+	uint32_t *pi_addr;
+	uint32_t *ci_addr;
+	uint32_t desc_off;
+	uint32_t q_sz;
 	uint16_t dma_vchan;
 	uint16_t cq_id;
 	uint16_t enable;
@@ -115,38 +115,38 @@ struct pts_rdma_cq {
 
 struct pts_rdma_cq_data {
 	uint64_t *ring_base __rte_cache_aligned;
-	uint16_t q_sz;
-	uint16_t qmask;
+	uint32_t q_sz;
+	uint32_t qmask;
 	uint16_t dma_vchan;
 	struct pts_rdma_cq *cq;
 
 	RTE_CACHE_GUARD;
-	uint16_t pi __rte_cache_aligned;
-	uint16_t pi_data;
+	uint32_t pi __rte_cache_aligned;
+	uint32_t pi_data;
 
 	RTE_CACHE_GUARD;
-	uint16_t ci __rte_cache_aligned;
-	uint16_t ci_data;
+	uint32_t ci __rte_cache_aligned;
+	uint32_t ci_data;
 };
 
 struct pts_rdma_qp {
 	struct pts_rdma_qp_sq {
 		uintptr_t desc_base __rte_cache_aligned;
-		uint16_t *pi_addr;
-		uint16_t *ci_addr;
-		uint16_t q_sz;
+		uint32_t *pi_addr;
+		uint32_t *ci_addr;
+		uint32_t q_sz;
 		uint16_t dma_vchan;
 		uint16_t cq_id;
 		uint64_t *sd_desc_base;
 
 		RTE_CACHE_GUARD;
-		uint16_t sd_desc_off __rte_cache_aligned;
-		uint16_t sd_desc_dma_off;
-		uint16_t sd_mbuf_dma_off;
+		uint32_t sd_desc_off __rte_cache_aligned;
+		uint32_t sd_desc_dma_off;
+		uint32_t sd_mbuf_dma_off;
 
 		RTE_CACHE_GUARD;
-		uint16_t sd_mbuf_off __rte_cache_aligned;
-		uint16_t last_off;
+		uint32_t sd_mbuf_off __rte_cache_aligned;
+		uint32_t last_off;
 		uint16_t data_off;
 		uint16_t mtu;
 		uint16_t buf_len;
@@ -159,32 +159,32 @@ struct pts_rdma_qp {
 
 	struct pts_rdma_qp_rq {
 		uintptr_t desc_base __rte_cache_aligned;
-		uint16_t *pi_addr;
-		uint16_t *ci_addr;
-		uint16_t q_sz;
+		uint32_t *pi_addr;
+		uint32_t *ci_addr;
+		uint32_t q_sz;
 		uint16_t dma_vchan;
 		uint16_t cq_id;
 		uint32_t *sd_desc_base;
 
 		RTE_CACHE_GUARD;
-		uint16_t sd_desc_off __rte_cache_aligned;
-		uint16_t sd_desc_dma_off;
+		uint32_t sd_desc_off __rte_cache_aligned;
+		uint32_t sd_desc_dma_off;
 
 		RTE_CACHE_GUARD;
-		uint16_t sd_mbuf_off __rte_cache_aligned;
+		uint32_t sd_mbuf_off __rte_cache_aligned;
 		struct pts_rdma_cq_data cq_data;
 	} rq;
 	struct rte_mbuf **r_mbuf_arr __rte_cache_aligned;
-	uint16_t r_q_sz;
+	uint32_t r_q_sz;
 	uint16_t qp_id;
 	uint8_t is_mgmt;
 	uint64_t ibqp;
 
-	uint16_t r_mbuf_off __rte_cache_aligned;
+	uint32_t r_mbuf_off __rte_cache_aligned;
 
 	RTE_CACHE_GUARD;
-	uint16_t r_mbuf_dma_off __rte_cache_aligned;
-	uint16_t r_last_off;
+	uint32_t r_mbuf_dma_off __rte_cache_aligned;
+	uint32_t r_last_off;
 };
 
 struct pts_rdma_dev {
@@ -239,14 +239,14 @@ pts_rdma_ptsdev_to_dao(struct pts_rdma_dev *dev)
 					   offsetof(struct dao_pts_rdma_dev, reserved));
 }
 
-static __rte_always_inline uint16_t
-desc_off_add(uint16_t a, uint16_t b, uint16_t q_sz)
+static __rte_always_inline uint32_t
+desc_off_add32(uint32_t a, uint32_t b, uint32_t q_sz)
 {
 	return (a + b) & (q_sz - 1);
 }
 
-static __rte_always_inline uint16_t
-desc_off_diff(uint16_t a, uint16_t b, uint16_t q_sz)
+static __rte_always_inline uint32_t
+desc_off_diff32(uint32_t a, uint32_t b, uint32_t q_sz)
 {
 	/* Normalize indexes of a and b */
 	a = a & (q_sz - 1);
@@ -254,8 +254,8 @@ desc_off_diff(uint16_t a, uint16_t b, uint16_t q_sz)
 	return a < b ? (q_sz - b + a) : (a - b);
 }
 
-static __rte_always_inline uint16_t
-is_queue_full(uint16_t pi, uint16_t ci, uint16_t qmask)
+static __rte_always_inline uint32_t
+is_queue_full(uint32_t pi, uint32_t ci, uint32_t qmask)
 {
 	return (((pi + 1) & qmask) == ci);
 }
@@ -267,11 +267,11 @@ pts_rdma_cq_intr_trigger(struct pts_rdma_cq *cq)
 	__atomic_store_n(cq->cb_intr_addr, (1UL << 59), __ATOMIC_RELEASE);
 }
 
-static __rte_always_inline uint16_t
-alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint16_t off, uint16_t q_sz,
-	    uint16_t nb_mbufs)
+static __rte_always_inline uint32_t
+alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint32_t off, uint32_t q_sz,
+	    uint32_t nb_mbufs)
 {
-	uint16_t cnt;
+	uint32_t cnt;
 
 	cnt = (off + nb_mbufs) > q_sz ? q_sz - off : nb_mbufs;
 	if (rte_mempool_get_bulk(mp, (void **)(mbuf_arr + off), cnt))
@@ -290,16 +290,16 @@ fetch_sq_desc_prep(struct pts_rdma_qp_sq *q, struct dao_dma_vchan_state *dev2mem
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	uintptr_t desc_base = q->desc_base;
 	struct rte_mbuf **mbuf_arr;
-	uint16_t q_sz = q->q_sz;
-	int desc_count = 0;
-	uint16_t pi, off;
-	int i, j = 0;
-	int nb_desc;
+	uint32_t q_sz = q->q_sz;
+	uint32_t desc_count = 0;
+	uint32_t pi, off;
+	uint32_t i, j = 0;
+	uint32_t nb_desc;
 
 	pi = __atomic_load_n(q->pi_addr, __ATOMIC_RELAXED);
 	off = q->sd_desc_off;
 
-	nb_desc = desc_off_diff(pi, off, q->q_sz);
+	nb_desc = desc_off_diff32(pi, off, q->q_sz);
 	if (unlikely(!nb_desc))
 		return 0;
 
@@ -336,16 +336,16 @@ fetch_rq_desc_prep(struct pts_rdma_qp_rq *q, struct dao_dma_vchan_state *dev2mem
 {
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	uintptr_t desc_base = q->desc_base;
-	uint16_t q_sz = q->q_sz;
-	int desc_count = 0;
-	uint16_t pi, off;
-	int i, j = 0;
-	int nb_desc;
+	uint32_t q_sz = q->q_sz;
+	uint32_t desc_count = 0;
+	uint32_t pi, off;
+	uint32_t i, j = 0;
+	uint32_t nb_desc;
 
 	pi = __atomic_load_n(q->pi_addr, __ATOMIC_RELAXED);
 	off = q->sd_desc_off;
 
-	nb_desc = desc_off_diff(pi, off, q->q_sz);
+	nb_desc = desc_off_diff32(pi, off, q->q_sz);
 	if (unlikely(!nb_desc))
 		return 0;
 
@@ -376,25 +376,25 @@ push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *
 	uintptr_t ring_base = (uintptr_t)cq_data->ring_base;
 	struct pts_rdma_cq *cq = cq_data->cq;
 	uintptr_t desc_base = cq->desc_base;
-	uint16_t nb_desc, space;
-	uint16_t sd_cq_sz = cq_data->q_sz;
-	uint16_t h_cq_sz = cq->q_sz;
-	uint16_t pi, ci, hci, hpi;
-	int desc_count = 0;
-	int i, j = 0;
+	uint32_t nb_desc, space;
+	uint32_t sd_cq_sz = cq_data->q_sz;
+	uint32_t h_cq_sz = cq->q_sz;
+	uint32_t pi, ci, hci, hpi;
+	uint32_t desc_count = 0;
+	uint32_t i, j = 0;
 
 	pi = __atomic_load_n(&cq_data->pi, __ATOMIC_RELAXED);
 	ci = __atomic_load_n(&cq_data->ci_data, __ATOMIC_RELAXED);
 	hpi = cq->desc_off;
 
 	/* Skip if there is no desc in local cq ring */
-	nb_desc = desc_off_diff(pi, ci, sd_cq_sz);
+	nb_desc = desc_off_diff32(pi, ci, sd_cq_sz);
 	if (unlikely(!nb_desc))
 		return 0;
 
 	/* Skip if there in no space to store the cq desc */
 	hci = __atomic_load_n(cq->ci_addr, __ATOMIC_RELAXED);
-	space = h_cq_sz - desc_off_diff(hpi, hci, h_cq_sz) - 1;
+	space = h_cq_sz - desc_off_diff32(hpi, hci, h_cq_sz) - 1;
 	if (unlikely(!space))
 		return 0;
 	nb_desc = RTE_MIN(nb_desc, space);

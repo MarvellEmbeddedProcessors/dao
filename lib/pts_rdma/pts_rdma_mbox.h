@@ -51,7 +51,7 @@ struct pts_rdma_dev_set_qp_state_req {
 struct pts_rdma_dev_set_cq_config_req {
 	uint16_t port_id;
 	uint16_t cq_id;
-	uint16_t size;
+	uint32_t size;
 	uint64_t cq_base;
 };
 

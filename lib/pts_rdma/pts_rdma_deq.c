@@ -27,11 +27,11 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 	const uint64_t rearm_data =
 		(0x100010000ULL | PTS_RDMA_DATA_OFF | ((uint64_t)(devid + RTE_MAX_ETHPORTS) << 48));
 	uintptr_t desc_base = (uintptr_t)sq->sd_desc_base;
-	uint16_t sd_mbuf_dma_off = sq->sd_mbuf_dma_off;
-	uint16_t q_sz = sq->q_sz;
+	uint32_t sd_mbuf_dma_off = sq->sd_mbuf_dma_off;
+	uint32_t q_sz = sq->q_sz;
 	struct rte_mbuf **mbuf_arr;
 	uint8_t opcode, next_desc;
-	uint16_t off, num_sges;
+	uint32_t off, num_sges;
 	struct rte_mbuf *mbuf;
 	uint64_t d_flags, len;
 	void *mbuf_priv;
@@ -49,7 +49,8 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 		if (unlikely(next_desc)) {
 			/* Find the available slots first and check for next desc availability in
 			 * the slots */
-			if (unlikely(desc_off_diff(sd_mbuf_dma_off, off, q_sz) < next_desc + 1))
+			if (unlikely(desc_off_diff32(sd_mbuf_dma_off, off, q_sz) <
+				     (uint32_t)(next_desc + 1)))
 				break;
 		}
 		mbuf = mbuf_arr[off];
@@ -68,7 +69,7 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 
 		d_mbufs[i] = mbuf;
 		i++;
-		off = desc_off_add(off, next_desc + 1, q_sz);
+		off = desc_off_add32(off, next_desc + 1, q_sz);
 		if (off == sd_mbuf_dma_off)
 			break;
 	}
@@ -276,19 +277,20 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 		(0x100010000ULL | PTS_RDMA_DATA_OFF | ((uint64_t)(devid + RTE_MAX_ETHPORTS) << 48));
 	uintptr_t desc_base = (uintptr_t)sq->sd_desc_base;
 	struct rte_dma_sge *src = NULL, *dst = NULL;
-	uint16_t sd_desc_dma_off, sd_mbuf_off, q_sz;
+	uint32_t sd_desc_dma_off, sd_mbuf_off, q_sz;
 	uint16_t data_off = sq->data_off;
 	uint16_t buf_len = sq->buf_len;
 	uint16_t mtu = sq->mtu;
 	struct rte_mbuf *mbuf;
-	uint16_t used = 0, read_used = 0, num_sges;
+	uint32_t used = 0, read_used = 0, num_sges;
 	uint32_t nb_mbufs, nb_desc;
 	uint32_t i = 0, slen, dlen, len;
 	struct rte_mbuf **mbuf_arr;
-	uint16_t unused_mbuf_off;
+	uint32_t unused_mbuf_off;
 	uint8_t opcode, next_desc;
-	uint16_t off, mbuf_off;
-	int last_idx = 0, j;
+	uint32_t off, mbuf_off;
+	int last_idx = 0;
+	uint32_t j;
 	uint64_t d_flags;
 
 	RTE_SET_USED(flags);
@@ -296,7 +298,7 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 	q_sz = sq->q_sz;
 	sd_mbuf_off = sq->sd_mbuf_off;
 	sd_desc_dma_off = __atomic_load_n(&sq->sd_desc_dma_off, __ATOMIC_ACQUIRE);
-	nb_mbufs = desc_off_diff(sd_desc_dma_off, sd_mbuf_off, q_sz);
+	nb_mbufs = desc_off_diff32(sd_desc_dma_off, sd_mbuf_off, q_sz);
 
 	/* Return if already something is pending DMA or there are no descriptors to process */
 	if (unlikely(!nb_mbufs))
@@ -323,7 +325,8 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 		if (unlikely(next_desc)) {
 			/* Find the available slots first and check for next desc availability in
 			 * the slots */
-			if (unlikely(desc_off_diff(sd_desc_dma_off, off, q_sz) < next_desc + 1))
+			if (unlikely(desc_off_diff32(sd_desc_dma_off, off, q_sz) <
+				     (uint32_t)(next_desc + 1)))
 				break;
 		}
 		/* Skip DMA if xfer is from device to host */
@@ -380,12 +383,12 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 
 exit:
 	if (used) {
-		mbuf_off = desc_off_add(sq->sd_mbuf_off, used, sq->q_sz);
+		mbuf_off = desc_off_add32(sq->sd_mbuf_off, used, sq->q_sz);
 		sq->sd_mbuf_off = mbuf_off;
 		dao_dma_update_cmpl_meta_v2(vchan, &sq->sd_mbuf_dma_off, mbuf_off, last_idx);
 	}
 	if (read_used) {
-		mbuf_off = desc_off_add(sq->sd_mbuf_off, read_used, sq->q_sz);
+		mbuf_off = desc_off_add32(sq->sd_mbuf_off, read_used, sq->q_sz);
 		sq->sd_mbuf_off = mbuf_off;
 		sq->sd_mbuf_dma_off = mbuf_off;
 	}
@@ -396,15 +399,15 @@ static __rte_always_inline uint16_t
 fetch_pending_read(struct pts_rdma_qp *qp, uint16_t hint, struct rte_mbuf **mbufs,
 		   const uint16_t flags)
 {
-	uint16_t nb_mbufs_avail, nb_desc, i = 0;
-	uint16_t q_sz, mbuf_off, last_off, index = 0;
+	uint32_t nb_mbufs_avail, nb_desc, i = 0;
+	uint32_t q_sz, mbuf_off, last_off, index = 0;
 	struct rte_mbuf **mbuf_arr;
 
 	RTE_SET_USED(flags);
 	q_sz = qp->r_q_sz;
 	last_off = qp->r_last_off;
 	mbuf_off = __atomic_load_n(&qp->r_mbuf_off, __ATOMIC_ACQUIRE);
-	nb_mbufs_avail = desc_off_diff(mbuf_off, last_off, q_sz);
+	nb_mbufs_avail = desc_off_diff32(mbuf_off, last_off, q_sz);
 
 	if (unlikely(!nb_mbufs_avail))
 		return 0;
@@ -416,11 +419,11 @@ fetch_pending_read(struct pts_rdma_qp *qp, uint16_t hint, struct rte_mbuf **mbuf
 	mbuf_arr = qp->r_mbuf_arr;
 
 	for (i = 0; i < nb_desc; i++) {
-		index = desc_off_add(last_off, i, q_sz);
+		index = desc_off_add32(last_off, i, q_sz);
 		mbufs[i] = mbuf_arr[index];
 	}
 
-	last_off = desc_off_add(last_off, nb_desc, q_sz);
+	last_off = desc_off_add32(last_off, nb_desc, q_sz);
 	__atomic_store_n(&qp->r_last_off, last_off, __ATOMIC_RELEASE);
 
 	return nb_desc;
@@ -430,14 +433,14 @@ static __rte_always_inline int
 pts_rdma_dequeue_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbufs,
 		       uint16_t nb_mbufs, const uint16_t flags)
 {
-	uint16_t q_sz, nb_read = 0, nb_deq_pkts = 0, nb_to_process = 0, nb_deq_hint = 0;
+	uint32_t q_sz, nb_read = 0, nb_deq_pkts = 0, nb_to_process = 0, nb_deq_hint = 0;
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
 	struct pts_rdma_qp_sq *sq = &qp->sq;
 	uint8_t nb_host_pkts, nb_read_pkts;
 	uint16_t dma_vchan = sq->dma_vchan;
 	struct dao_dma_vchan_state *vchan;
-	uint16_t nb_avail, last_off;
-	uint16_t sd_mbuf_dma_off;
+	uint32_t nb_avail, last_off;
+	uint32_t sd_mbuf_dma_off;
 	uint16_t nb_read_hint;
 
 	vchan = &vchan_info->dev2mem[dma_vchan];
@@ -458,7 +461,7 @@ pts_rdma_dequeue_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf *
 	last_off = sq->last_off;
 
 	q_sz = sq->q_sz;
-	nb_avail = desc_off_diff(sd_mbuf_dma_off, last_off, q_sz);
+	nb_avail = desc_off_diff32(sd_mbuf_dma_off, last_off, q_sz);
 	nb_to_process = RTE_MIN(nb_deq_hint, nb_avail);
 
 	if (unlikely(nb_to_process == 0))

@@ -30,14 +30,14 @@ pts_rdma_enqueue_cqe(struct pts_rdma_cq_data *cq_data, struct dao_pts_rdma_cqe *
 	uint16_t dma_vchan = cq_data->dma_vchan;
 	struct dao_dma_vchan_state *vchan = &vchan_info->mem2dev[dma_vchan];
 	void *ring_base = cq_data->ring_base;
-	uint16_t q_sz = cq_data->q_sz;
-	uint16_t i = 0, avail, tail;
-	uint16_t pi_data, ci;
-	uint16_t meta_index;
+	uint32_t q_sz = cq_data->q_sz;
+	uint32_t i = 0, avail;
+	uint32_t pi_data, ci;
+	uint16_t tail, meta_index;
 
 	ci = __atomic_load_n(&cq_data->ci, __ATOMIC_ACQUIRE);
 	pi_data = __atomic_load_n(&cq_data->pi_data, __ATOMIC_RELAXED);
-	avail = q_sz - desc_off_diff(pi_data, ci, q_sz) - 1;
+	avail = q_sz - desc_off_diff32(pi_data, ci, q_sz) - 1;
 
 	nb_cqes = RTE_MIN(nb_cqes, avail);
 	if (unlikely(!nb_cqes))
@@ -449,7 +449,7 @@ process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *
 	uintptr_t desc_base = (uintptr_t)rq->sd_desc_base;
 	struct pts_rdma_cq_data *cq_data;
 	struct dao_pts_rdma_cqe *cqe;
-	uint16_t ci, pi, q_sz;
+	uint32_t ci, pi, q_sz;
 	uint16_t rqe_slots;
 
 	cq_data = &qp->rq.cq_data;
@@ -458,18 +458,18 @@ process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *
 	q_sz = rq->q_sz;
 
 	/* Ensure at least the first RQE slot is DMA'd before reading descriptor */
-	if (unlikely(!desc_off_diff(pi, ci, q_sz)))
+	if (unlikely(!desc_off_diff32(pi, ci, q_sz)))
 		return -1;
 
 	rqe_slots = calculate_rqe_desc_count(desc_base, ci);
 
 	if (unlikely(rqe_slots > 1)) {
-		if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
+		if (unlikely(desc_off_diff32(pi, ci, q_sz) < rqe_slots))
 			return -1;
 	}
 
 	/* Check for space in RQ (all slots for this WQE) */
-	if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
+	if (unlikely(desc_off_diff32(pi, ci, q_sz) < rqe_slots))
 		return -1;
 
 	/* Check for space in CQ */
@@ -485,7 +485,7 @@ process_rdma_write_imm(struct dao_dma_vchan_state *mem2dev, struct pts_rdma_qp *
 
 	/* Push CQE at last */
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
-	ci = desc_off_add(ci, rqe_slots, q_sz);
+	ci = desc_off_add32(ci, rqe_slots, q_sz);
 	rq->sd_mbuf_off = ci;
 
 	return 0;
@@ -496,7 +496,7 @@ process_rdma_read_req(uint16_t dev_id, struct pts_rdma_qp *qp, struct dao_dma_vc
 		      struct rte_mbuf *mbuf, uint16_t *r_off)
 {
 	uint8_t flush_thr = dev2mem->flush_thr;
-	uint16_t r_last_off, q_sz;
+	uint32_t r_last_off, q_sz;
 	struct rte_mbuf *m = NULL;
 	struct dao_pts_rdma_sge *sges;
 	uint16_t roff = *r_off, nb_segs = 0, n_segs_left = 0;
@@ -768,7 +768,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	uintptr_t desc_base = (uintptr_t)rq->sd_desc_base;
 	struct pts_rdma_cq_data *cq_data;
 	struct dao_pts_rdma_cqe *cqe;
-	uint16_t ci, pi, q_sz;
+	uint32_t ci, pi, q_sz;
 	uint16_t rqe_slots;
 	uint32_t len = 0;
 
@@ -778,18 +778,18 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	q_sz = rq->q_sz;
 
 	/* Ensure at least the first RQE slot is DMA'd before reading descriptor */
-	if (unlikely(!desc_off_diff(pi, ci, q_sz)))
+	if (unlikely(!desc_off_diff32(pi, ci, q_sz)))
 		return -1;
 
 	rqe_slots = calculate_rqe_desc_count(desc_base, ci);
 
 	if (unlikely(rqe_slots > 1)) {
-		if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
+		if (unlikely(desc_off_diff32(pi, ci, q_sz) < rqe_slots))
 			return -1;
 	}
 
 	/* Check for space in RQ (all slots for this WQE) */
-	if (unlikely(desc_off_diff(pi, ci, q_sz) < rqe_slots))
+	if (unlikely(desc_off_diff32(pi, ci, q_sz) < rqe_slots))
 		return -1;
 
 	/* Check for space in CQ */
@@ -804,7 +804,7 @@ process_m2d_rqe_with_cqe(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem
 	cqe->wr_id = *RQ_DESC_PTR_OFF(desc_base, ci, 8);
 
 	pts_rdma_enqueue_cqe(&qp->rq.cq_data, cqe, 1, true);
-	ci = desc_off_add(ci, rqe_slots, q_sz);
+	ci = desc_off_add32(ci, rqe_slots, q_sz);
 	rq->sd_mbuf_off = ci;
 
 	return 0;
@@ -909,7 +909,7 @@ exit:
 
 	/* Update mbuf_off index with mbuf_dma_off as completion */
 	if (nb_read_enq) {
-		r_mbuf_dma_off = desc_off_add(qp->r_mbuf_dma_off, nb_read_enq, qp->r_q_sz);
+		r_mbuf_dma_off = desc_off_add32(qp->r_mbuf_dma_off, nb_read_enq, qp->r_q_sz);
 		qp->r_mbuf_dma_off = r_mbuf_dma_off;
 		dao_dma_update_cmpl_meta_v2(dev2mem, &qp->r_mbuf_off, qp->r_mbuf_dma_off,
 					    last_read_idx);

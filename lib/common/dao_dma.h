@@ -45,7 +45,10 @@ struct dao_dma_cmpl_mdata {
 	/** Pending value */
 	uint16_t pend_val[DAO_DMA_MAX_META_POINTER];
 	/** Completion val to write */
-	uint16_t val[DAO_DMA_MAX_META_POINTER];
+	union {
+		uint16_t val[DAO_DMA_MAX_META_POINTER];
+		uint32_t val32[DAO_DMA_MAX_META_POINTER];
+	};
 	/** Completion address to write */
 	uint16_t *ptr[DAO_DMA_MAX_META_POINTER];
 	/** Count */
@@ -872,6 +875,7 @@ dao_dma_check_meta_compl_v2(struct dao_dma_vchan_state *vchan, const int mem_ord
 {
 	uint32_t cmpl, i, j, idx = 0;
 	bool has_err = 0;
+	uint32_t *ptr;
 
 	/* Fetch all DMA completed status */
 	cmpl = rte_dma_completed(vchan->devid, vchan->vchan, 128, NULL, &has_err);
@@ -882,11 +886,11 @@ dao_dma_check_meta_compl_v2(struct dao_dma_vchan_state *vchan, const int mem_ord
 	for (i = vchan->head; i < vchan->head + cmpl; i++) {
 		idx = i % DAO_DMA_MAX_INFLIGHT_MDATA;
 		for (j = 0; j < vchan->mdata[idx].cnt; j++) {
+			ptr = (uint32_t *)vchan->mdata[idx].ptr[j];
 			if (mem_order)
-				__atomic_store_n(vchan->mdata[idx].ptr[j], vchan->mdata[idx].val[j],
-						 __ATOMIC_RELEASE);
+				__atomic_store_n(ptr, vchan->mdata[idx].val32[j], __ATOMIC_RELEASE);
 			else
-				*vchan->mdata[idx].ptr[j] = vchan->mdata[idx].val[j];
+				*ptr = vchan->mdata[idx].val32[j];
 		}
 		vchan->mdata[idx].cnt = 0;
 	}
@@ -906,14 +910,14 @@ dao_dma_check_meta_compl_v2(struct dao_dma_vchan_state *vchan, const int mem_ord
  *    Meta data index to store
  */
 static __rte_always_inline void
-dao_dma_update_cmpl_meta_v2(struct dao_dma_vchan_state *vchan, uint16_t *ptr, uint16_t val,
+dao_dma_update_cmpl_meta_v2(struct dao_dma_vchan_state *vchan, uint32_t *ptr, uint32_t val,
 			    uint16_t tail)
 {
 	uint16_t idx = tail % DAO_DMA_MAX_INFLIGHT_MDATA;
 	uint16_t j = vchan->mdata[idx].cnt;
 
-	vchan->mdata[idx].ptr[j] = ptr;
-	vchan->mdata[idx].val[j] = val;
+	vchan->mdata[idx].ptr[j] = (uint16_t *)ptr;
+	vchan->mdata[idx].val32[j] = val;
 	vchan->mdata[idx].cnt = j + 1;
 }
 
