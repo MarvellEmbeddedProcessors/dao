@@ -151,6 +151,7 @@ int
 rdma_qp_status_cb(uint16_t devid, uint16_t qp_id, bool enable)
 {
 	struct lcore_conf *qconf = NULL, *found = NULL;
+	struct rte_mempool *lcore_tx_pool;
 	struct rdma_pts_deq_node_ctx *ctx = NULL;
 	rdma_pts_bitmap_t *qp_map;
 	uint32_t lcore_id;
@@ -210,7 +211,9 @@ rdma_qp_status_cb(uint16_t devid, uint16_t qp_id, bool enable)
 			dao_err("No lcore found for dev_id %d\n", devid);
 			return -1;
 		}
-
+		lcore_tx_pool = rdma_tx_lcore_pool_get(lcore_id);
+		if (lcore_tx_pool)
+			dao_pts_rdma_qp_pool_set(devid, qp_id, lcore_tx_pool);
 		dao_dbg("Enabling QP %d on lcore %u\n", qp_id, lcore_id);
 		qp_map->bits[qp_id / 64] |= RTE_BIT64(qp_id % 64);
 		ctx->qp_count++;

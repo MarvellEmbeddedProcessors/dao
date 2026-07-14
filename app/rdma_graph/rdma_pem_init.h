@@ -14,5 +14,6 @@ typedef struct rdma_pem {
 } rdma_pemdev_param_t;
 
 int rdma_pem_init(struct rdma_main_cfg_data *rdma_main_cfg);
+struct rte_mempool *rdma_tx_lcore_pool_get(uint32_t lcore_id);
 
 #endif /* __RDMA_PEM_H__ */

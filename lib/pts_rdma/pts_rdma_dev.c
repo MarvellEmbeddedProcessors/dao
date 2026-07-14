@@ -397,6 +397,21 @@ dao_pts_rdma_dev_info_get(uint16_t pem_devid, uint16_t dev_id, struct dao_pts_rd
 }
 
 int
+dao_pts_rdma_qp_pool_set(uint16_t devid, uint16_t qp_id, struct rte_mempool *pool)
+{
+	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
+	struct pts_rdma_qp_sq *sq;
+
+	if (unlikely(!qp || !pool))
+		return -EINVAL;
+
+	sq = &qp->sq;
+	sq->mp = pool;
+
+	return 0;
+}
+
+int
 dao_pts_rdma_dev_config_update(uint16_t devid, uint8_t *cfg, uint16_t cfg_len)
 {
 	struct dao_pts_rdma_dev *ptsdev = &dao_pts_rdma_devs[devid];

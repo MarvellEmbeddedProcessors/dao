@@ -255,6 +255,21 @@ int dao_pts_rdma_rq_avail_get(uint16_t devid, uint16_t qp_id, uint16_t *avail);
  */
 int dao_pts_rdma_dev_info_get(uint16_t pem_devid, uint16_t dev_id,
 			      struct dao_pts_rdma_dev_info *dev_info);
+
+/**
+ * Set RDMA TR device QP's send queue mempool
+ *
+ * @param devid
+ *   RDMA dev id
+ * @param qp_id
+ *   RDMA dev qp id
+ * @param pool
+ *   Mempool to assign to the SQ
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_qp_pool_set(uint16_t devid, uint16_t qp_id, struct rte_mempool *pool);
+
 /**
  * Initialize RDMA TR device.
  *

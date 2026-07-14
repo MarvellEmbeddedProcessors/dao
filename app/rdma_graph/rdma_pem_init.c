@@ -7,52 +7,72 @@
 #include <rte_mbuf.h>
 
 #include "dao_pem.h"
-#include "dao_rdma_mbox.h"
 #include "dao_rdma_fp.h"
+#include "dao_rdma_mbox.h"
 #include "pts_rdma_dev_priv.h"
 #include "rdma_priv.h"
 #include "rdma_pts_deq_priv.h"
 #include "rdma_pts_enq_priv.h"
 
-#define RDMA_PTS_SQ_DEFAULT_NB_MBUF RDMA_DEFAULT_NB_MBUF
+#define RDMA_PER_LCORE_NB_MBUFS RDMA_DEFAULT_NB_MBUF
 
 extern struct rdma_graph_map rdma_map[RDMA_MAX_DEVS];
 extern uint8_t rdma_dma_vchans[RDMA_MAX_DEVS];
 
-/*
- * Create a dedicated mbuf pool for PTS SQ path, isolated from the
- * NIC RX pool.  Sharing one pool causes stale mbuf metadata (e.g.
- * mbuf->port stamped by PTS) to leak into NIC RX mbufs, resulting
- * in corrupted port_id values and crashes under high concurrency.
- */
+static struct rte_mempool *tx_lcore_pools[RTE_MAX_LCORE];
+
+struct rte_mempool *
+rdma_tx_lcore_pool_get(uint32_t lcore_id)
+{
+	if (lcore_id < RTE_MAX_LCORE)
+		return tx_lcore_pools[lcore_id];
+	return NULL;
+}
+
 static struct rte_mempool *
-rdma_pts_sq_pool_create(rdma_ethdev_param_t *eth_prm, rdma_config_param_t *cfg_prm)
+rdma_tx_lcore_pool_create(rdma_ethdev_param_t *eth_prm, rdma_config_param_t *cfg_prm,
+			  rdma_lcore_param_t *lcore_prm)
 {
 	struct rte_mempool *rx_pool = eth_prm->pktmbuf_pool[0][0];
-	struct rte_mempool *pts_sq_pool;
+	struct rte_mempool *pool = NULL;
 	uint16_t pvt_size, data_room;
-	uint32_t pts_nb_mbufs;
+	uint32_t per_lcore_mbufs;
+	uint16_t nb_workers = 0;
+	uint32_t lcore_id;
+	char name[64];
 
 	if (!rx_pool)
 		rte_exit(EXIT_FAILURE, "NIC RX mbuf pool not created before PEM init\n");
 
 	pvt_size = rte_pktmbuf_priv_size(rx_pool);
 	data_room = rx_pool->elt_size - sizeof(struct rte_mbuf) - pvt_size;
-	pts_nb_mbufs = cfg_prm->num_mbufs ? cfg_prm->num_mbufs
-					   : RDMA_PTS_SQ_DEFAULT_NB_MBUF;
 
-	pts_sq_pool = rte_pktmbuf_pool_create("pts_sq_mbuf_pool",
-					      pts_nb_mbufs,
-					      RDMA_MEMPOOL_CACHE_SIZE,
-					      pvt_size, data_room, 0);
-	if (!pts_sq_pool)
-		rte_exit(EXIT_FAILURE,
-			 "Cannot create PTS SQ mbuf pool (%u mbufs)\n", pts_nb_mbufs);
+	RTE_LCORE_FOREACH_WORKER(lcore_id)
+	{
+		if (!lcore_prm->lcore_conf[lcore_id].service_lcore)
+			nb_workers++;
+	}
 
-	dao_info("Created PTS SQ mbuf pool: %u mbufs, priv %u, data_room %u",
-		 pts_nb_mbufs, pvt_size, data_room);
+	if (!nb_workers)
+		rte_exit(EXIT_FAILURE, "Invalid worker count");
 
-	return pts_sq_pool;
+	per_lcore_mbufs = cfg_prm->num_mbufs ? cfg_prm->num_mbufs : RDMA_PER_LCORE_NB_MBUFS;
+	RTE_LCORE_FOREACH_WORKER(lcore_id)
+	{
+		if (lcore_prm->lcore_conf[lcore_id].service_lcore)
+			continue;
+		snprintf(name, sizeof(name), "tx_mbuf_pool_lc%u", lcore_id);
+		tx_lcore_pools[lcore_id] = rte_pktmbuf_pool_create(
+			name, per_lcore_mbufs, RDMA_MEMPOOL_CACHE_SIZE, pvt_size, data_room, 0);
+		if (!tx_lcore_pools[lcore_id])
+			rte_exit(EXIT_FAILURE, "Can not create per lcore tx mbuf pool");
+
+		if (!pool)
+			pool = tx_lcore_pools[lcore_id];
+		dao_info("Created tx mbuf pool lcore %u: %u mbufs, priv %u, data_room %u", lcore_id,
+			 per_lcore_mbufs, pvt_size, data_room);
+	}
+	return pool;
 }
 
 static inline int
@@ -142,7 +162,8 @@ rdma_pem_init(struct rdma_main_cfg_data *rdma_main_cfg)
 	pts_rdma_conf.max_qps_limit = 1024;
 	pts_rdma_conf.max_cqs_limit = 1024;
 
-	pts_rdma_conf.data_pool = rdma_pts_sq_pool_create(eth_prm, cfg_prm);
+	pts_rdma_conf.data_pool =
+		rdma_tx_lcore_pool_create(eth_prm, cfg_prm, rdma_main_cfg->lcore_prm);
 	memset(dao_pts_rdma_devs, 0, sizeof(dao_pts_rdma_devs));
 
 	for (devid = 0; devid < RDMA_MAX_DEVS; devid++) {
