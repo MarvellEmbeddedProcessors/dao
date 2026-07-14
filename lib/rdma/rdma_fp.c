@@ -276,6 +276,17 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 			break;
 	}
 
+	/* Current WQE fully drained — advance to next in chain if available */
+	if (wqe->n_rdma_segs == 0 && qp->req.cur_mbuf == NULL) {
+		struct rdma_send_wqe *next_wqe = STAILQ_NEXT(wqe, next);
+
+		if (next_wqe) {
+			qp->req.cur_wqe = next_wqe;
+			qp->req.cur_mbuf = STAILQ_FIRST(&next_wqe->mbuf_list);
+			qp->req.opcode = -1;
+		}
+	}
+
 	return 0;
 }
 
@@ -304,8 +315,28 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		rdma_read_reply_flush_all(qp, mbufs, n_mbufs);
 	}
 
-	if (wqe && wqe->state == wqe_state_processing)
+	if (wqe && (wqe->state == wqe_state_processing || qp->req.cur_mbuf)) {
+		if (mbuf != qp->req.dummy_mbuf) {
+			ret = dao_rdma_preprocess_dequeued_pkts(qp, mbuf);
+			if (ret < 0) {
+				RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+						    RDMA_TX_QP_PROC_RC_PKTS_PREPROC_DEQ_PKTS_FAIL);
+				return -1;
+			}
+			if (qp->resp.read_reply.n_rdma_segs) {
+				ret = rdma_process_read_reply(qp, mbuf, mbufs, n_mbufs,
+							      burst_limit);
+				if (ret < 0) {
+					RDMA_INC_QP_COUNTER(
+						lcore_id, port_id, qp_id,
+						RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL);
+					return -1;
+				}
+				return 0;
+			}
+		}
 		return dao_rdma_process_remaining_segs(qp, mbufs, n_mbufs, burst_limit);
+	}
 
 	/* Handle scheduled trigger for remaining requester segments */
 	if (mbuf == qp->req.dummy_mbuf)
