@@ -963,6 +963,9 @@ ca_dev_caps_get(struct dao_dev_caps *caps)
 	if (is_compdev_enabled)
 		caps->compdev_en = 1;
 
+	/* Enable support for asymmetric response status */
+	caps->asym_rsp_status_en = 1;
+
 	return 0;
 }
 
