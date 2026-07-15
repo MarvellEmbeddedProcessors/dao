@@ -102,7 +102,7 @@ rdma_print_usage(const char *prgname)
 		"  --enable-debug: Enable debug mode\n\n"
 		"  --enable-graph-stats: Enable graph statistics\n\n"
 		"  --dma-flush-thr N : DMA flush threshold per vchan (1-15, default from library)\n"
-		"  --dma-nb-desc N   : DMA vchan ring descriptors (default 2048)\n\n"
+		"  --dma-nb-desc N   : DMA vchan ring descriptors (default 32768)\n\n"
 		"  --disable-cc      : Disable RDMA congestion control (ECN/CNP)\n\n"
 		"  --enable-termination : Enable termination mode\n\n",
 		prgname);
@@ -281,7 +281,7 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 
 	cfg_prm = rdma_main_cfg->cfg_prm;
 	cfg_prm->dma_flush_thr = 0;
-	cfg_prm->dma_nb_desc = 2048; /* default */
+	cfg_prm->dma_nb_desc = 32768; /* default */
 	cfg_prm->disable_cc = false;
 	cfg_prm->termination_enabled = false;
 	while ((opt = getopt_long(argc, argvopt, short_options, lgopts, &option_index)) != EOF) {
