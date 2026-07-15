@@ -459,6 +459,7 @@ static void mgmt_destroy_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_q
 		req.port_num = rdma_dev->port.port_num;
 		req.qp_id = qp->ibqp.qp_num;
 		octep_rdma_mbox_qp_destroy(rdma_dev->caps_rgn, &req);
+		octep_rdma_prepare_qp_state_cmd(rdma_dev, qp, false);
 	}
 
 	free_kernel_qp(rdma_dev, qp);
