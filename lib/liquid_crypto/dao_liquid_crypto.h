@@ -68,6 +68,14 @@
 #define DAO_LC_RSA_PSS_MAX_MOD_LEN 988
 /** Maximum supported message length for RSA-PSS */
 #define DAO_LC_RSA_PSS_MAX_MSG_LEN 986
+/** PQC enabled */
+#define DAO_LC_FEAT_PQC_EN (1ULL << 0)
+/** Compression device enabled */
+#define DAO_LC_FEAT_COMPDEV_EN (1ULL << 1)
+/** Asymmetric response status enabled */
+#define DAO_LC_FEAT_ASYM_RSP_STATUS_EN (1ULL << 2)
+/** Optional features enabled */
+#define DAO_LC_OPTIONAL_FEATURES (DAO_LC_FEAT_PQC_EN | DAO_LC_FEAT_COMPDEV_EN)
 
 /**
  * The params required for KMAC operations.
@@ -502,6 +510,8 @@ struct dao_lc_dev_caps {
 			uint64_t pqc_en : 1;
 			/** Compress device enable bit */
 			uint64_t compdev_en : 1;
+			/** Asymmetric response status enable bit */
+			uint64_t asym_rsp_status_en : 1;
 		};
 		/** 64-bit representation of capabilities */
 		uint64_t feature_mask0;

@@ -708,7 +708,9 @@ liquid_crypto_qp_free(uint8_t dev_id, uint16_t qp_id, bool is_qp_reconfigure)
 int
 dao_liquid_crypto_dev_caps_get(struct dao_lc_dev_caps *lc_caps)
 {
-	struct dao_dev_caps caps;
+	uint64_t expected_feature_mask = 0;
+	struct dao_dev_caps caps = {0};
+	uint64_t fw_feature_mask;
 	int rc = 0;
 
 	if (lc_caps == NULL) {
@@ -720,6 +722,21 @@ dao_liquid_crypto_dev_caps_get(struct dao_lc_dev_caps *lc_caps)
 	if (rc) {
 		dao_err("Could not get device capabilities.");
 		return rc;
+	}
+
+	/** Host requires asym response status.*/
+	expected_feature_mask |= DAO_LC_FEAT_ASYM_RSP_STATUS_EN;
+
+	/** Ignore optional features. */
+	fw_feature_mask = caps.feature_mask0 & ~DAO_LC_OPTIONAL_FEATURES;
+
+	/* Compare complete 64-bit mask after removing
+	 * optional features.
+	 */
+	if (fw_feature_mask != expected_feature_mask) {
+		dao_err("Feature mask mismatch. Expected: 0x%lx, Got: 0x%lx", expected_feature_mask,
+			fw_feature_mask);
+		return -ENOTSUP;
 	}
 
 	lc_caps->feature_mask0 = caps.feature_mask0;
