@@ -90,6 +90,7 @@ struct pts_rdma_dev_pci_vndr_cap {
 };
 
 struct pts_rdma_dev_cfg {
+	void *host_meta_addr;
 	uint32_t max_qps;
 	uint32_t max_cqs;
 	uint8_t device_status;

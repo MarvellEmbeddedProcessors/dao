@@ -460,4 +460,18 @@ void dao_pts_rdma_dev_cb_register(struct dao_pts_rdma_dev_cbs *cbs);
  */
 void dao_pts_rdma_dev_cb_unregister(void);
 
+/**
+ * Copy given number of bytes to the dst buffer
+ *
+ * @param devid
+ *   RDMA TR device id
+ * @param dest
+ *   Destination buffer
+ * @param len
+ *   Number of bytes to copy
+ * @return
+ *   Number of bytes copied on success, 0 on error
+ */
+uint16_t dao_pts_rdma_meta_data_get(uint16_t devid, void *dest, uint16_t len);
+
 #endif /* __INCLUDE_DAO_PTS_RDMA_DEV_H__ */

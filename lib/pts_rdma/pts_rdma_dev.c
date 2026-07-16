@@ -134,6 +134,7 @@ pts_rdma_dev_config_populate(struct pts_rdma_dev *dev, uint16_t mac_port_id)
 	volatile struct pts_rdma_dev_cfg *cfg = (volatile struct pts_rdma_dev_cfg *)dev->dev_cfg;
 	struct rte_ether_addr mac_buf = {0};
 
+	cfg->host_meta_addr = NULL;
 	cfg->device_status = 0;
 	cfg->max_qps = dev->max_qps;
 	cfg->max_cqs = dev->max_cqs;
@@ -442,6 +443,50 @@ dao_pts_rdma_mgmt_qp_id_get(uint16_t devid)
 	dev = pts_rdma_dev_priv(dao_dev);
 
 	return dev->mgmt_qp_id;
+}
+
+uint16_t
+dao_pts_rdma_meta_data_get(uint16_t devid, void *dest, uint16_t len)
+{
+	struct dao_pts_rdma_dev *dao_dev = &dao_pts_rdma_devs[devid];
+	struct pts_rdma_dev *dev = pts_rdma_dev_priv(dao_dev);
+	volatile struct pts_rdma_dev_cfg *cfg;
+	int16_t dev2mem;
+	uint64_t src;
+	bool has_err = 0;
+	int cnt, rc;
+
+	if (!dest || !len)
+		return 0;
+
+	cfg = dev->dev_cfg;
+	if (!cfg)
+		return 0;
+
+	src = (uint64_t)__atomic_load_n(&cfg->host_meta_addr, __ATOMIC_ACQUIRE);
+	if (!src)
+		return 0;
+
+	dev2mem = dao_dma_ctrl_dev2mem();
+	if (dev2mem < 0)
+		return 0;
+
+	rc = rte_dma_copy(dev2mem, 0, (rte_iova_t)src, (rte_iova_t)dest, len,
+			  RTE_DMA_OP_FLAG_SUBMIT);
+	if (rc < 0) {
+		dao_err("[dev %u] DMA submit failed, rc=%d", dev->dev_id, rc);
+		return 0;
+	}
+
+	do {
+		cnt = rte_dma_completed(dev2mem, 0, 1, NULL, &has_err);
+		if (unlikely(has_err)) {
+			dao_err("[dev %u] DMA error", dev->dev_id);
+			return 0;
+		}
+	} while (cnt != 1);
+
+	return len;
 }
 
 int
