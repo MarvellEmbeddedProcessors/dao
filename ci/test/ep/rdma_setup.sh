@@ -32,9 +32,9 @@ function verify_rdma_setup()
 {
 	local host_ip="30.0.0.3"
 	local remote_ip="30.0.0.11"
-	local num_mbufs=524288
+	local num_mbufs=131072
 	local max_pkt_len=9600
-	local dma_nb_desc=8192
+	local dma_nb_desc=32768
 	local serialized_args
 	local remote_iface
 	local ping_status
@@ -132,7 +132,7 @@ function dao_rdma_setup()
 	echo "Setting up EP device for rdma tests"
 	ep_device_op dpi_setup
 
-	ep_device_op hugepage_setup 524288 24 14
+	ep_device_op hugepage_setup 524288 24 24
 
 	ep_device_op pem_setup
 

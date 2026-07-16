@@ -58,9 +58,9 @@ function rdma_setup_configure()
 	args=()
 	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
 	if [[ "$skip_mbuf_opts" != "true" ]]; then
-		read -r -a tmp <<< "$(form_split_args "--num-mbufs" "524288")"
+		read -r -a tmp <<< "$(form_split_args "--num-mbufs" "131072")"
 		args+=("${tmp[@]}")
-		read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "8192")"
+		read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "32768")"
 		args+=("${tmp[@]}")
 	fi
 	serialized_args=$(printf '%q ' "${args[@]}")
@@ -86,8 +86,8 @@ function rdma_app_launch()
 	local num_cores=$(ep_device_get_num_cores)
 	local pci_devs=""
 	local maxpktlen=9600
-	local num_mbuf=524288
-	local num_dma_desc=8192
+	local num_mbuf=131072
+	local num_dma_desc=32768
 	local max_cores=$num_cores
 	local cpu_mask="0xf"
 	local port_mask="0x1"
