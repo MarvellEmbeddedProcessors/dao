@@ -36,6 +36,9 @@ volatile int force_quit;
 static volatile int nb_lcdevs_global;
 static volatile int in_signal_handler;
 
+extern uint32_t compdev_seg_size;
+extern bool is_compdev_enabled;
+
 static void
 signal_handler(int signum)
 {
@@ -235,8 +238,10 @@ main(int argc, char **argv)
 		else if (caps.pqc_en)
 			feature_params.pqc.is_pqc_enabled = true;
 
-		if (caps.compdev_en)
+		if (ret == 0 && caps.compdev_en) {
 			feature_params.compdev.is_compdev_enabled = true;
+			is_compdev_enabled = true;
+		}
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {
@@ -250,6 +255,7 @@ main(int argc, char **argv)
 		qp_conf.nb_desc = 2048;
 		qp_conf.out_of_order_delivery_en = false;
 		qp_conf.max_seg_size = max_seg_size;
+		compdev_seg_size = qp_conf.max_seg_size;
 
 		for (qp_id = 0; qp_id < info->nb_qp[dev_id]; qp_id++) {
 			if (qp_id == dev_conf.cmd_qp_idx)

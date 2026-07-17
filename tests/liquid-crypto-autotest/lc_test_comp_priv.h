@@ -5,6 +5,7 @@
 #ifndef __LC_TEST_COMP_PRIV_H__
 #define __LC_TEST_COMP_PRIV_H__
 
+/* Size of the below text: 4735 bytes */
 static const char large_text[] = {
 	"The quick brown fox jumps over the lazy dog while the silent wind moves across "
 	"the valley and distant hills shimmer under the afternoon sun. Compression testing "
