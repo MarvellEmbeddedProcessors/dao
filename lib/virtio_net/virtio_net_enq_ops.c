@@ -144,6 +144,7 @@ push_enq_data_ops(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2de
 	uint64x2_t rss0, rss1, rss2, rss3, d01, d23, rss0213;
 	uint32_t pkt_typ0, pkt_typ1, pkt_typ2, pkt_typ3;
 	const uint8_t flush_thr = mem2dev->flush_thr;
+	uint16_t count, nb_enq = 0, extra_desc = 0;
 	uint16_t pack_filled_len = 0, pack_sz = 0;
 	uint64x2_t flags01, flags23, len01, len23;
 	uint16_t virtio_hdr_sz = q->virtio_hdr_sz;
@@ -155,7 +156,6 @@ push_enq_data_ops(struct virtio_net_queue *q, struct dao_dma_vchan_state *mem2de
 	uint64x2_t dataoff_iova0, dataoff_iova1;
 	uint64x2_t dataoff_iova2, dataoff_iova3;
 	uint16_t mbuf_nb_segs = 0;
-	uint16_t count, nb_enq, extra_desc = 0;
 	uint32x4_t ol_flags, xlen, ylen, h0213;
 	uint8_t curr_op = 0, src_off, dst_off;
 	uint64x2_t desc0, desc1, desc2, desc3;
