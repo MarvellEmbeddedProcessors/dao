@@ -5713,21 +5713,21 @@ dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	qp = dev->qp[qp_id];
 	buf_len = sizeof(struct __dao_lc_req_comp_op) + req->in_data_len;
 	op_buf_len = sizeof(struct __dao_lc_resp_compdev_op) + req->out_data_len;
 
 	/* Validate input/output lengths */
 	if (buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE ||
-	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
+	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE || buf_len > qp->max_seg_size ||
+	    op_buf_len > qp->max_seg_size) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		dao_err("Compress i/o payload (%u|%u) exceeds maximum supported packet size (%u|%u).",
-			req->in_data_len, req->out_data_len, LIQUID_CRYPTO_COMP_MAX_INPUT_DATA_SIZE,
-			LIQUID_CRYPTO_COMP_MAX_OUTPUT_DATA_SIZE);
+			req->in_data_len, req->out_data_len, qp->max_seg_size, qp->max_seg_size);
 #endif
 		return -EINVAL;
 	}
 
-	qp = dev->qp[qp_id];
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 
@@ -5856,22 +5856,21 @@ dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 	}
 #endif
 
+	qp = dev->qp[qp_id];
 	buf_len = sizeof(struct __dao_lc_req_decomp_op) + req->in_data_len;
 	op_buf_len = sizeof(struct __dao_lc_resp_compdev_op) + req->out_data_len;
 
 	/* Validate input/output lengths */
 	if (buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE ||
-	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE) {
+	    op_buf_len > LIQUID_CRYPTO_COMP_MAX_SEG_SIZE || buf_len > qp->max_seg_size ||
+	    op_buf_len > qp->max_seg_size) {
 #ifdef DAO_LIQUID_CRYPTO_DEBUG
 		dao_err("Decompress i/o payload (%u|%u) exceeds maximum supported packet size (%u|%u).",
-			req->in_data_len, req->out_data_len,
-			LIQUID_CRYPTO_DECOMP_MAX_INPUT_DATA_SIZE,
-			LIQUID_CRYPTO_COMP_MAX_OUTPUT_DATA_SIZE);
+			req->in_data_len, req->out_data_len, qp->max_seg_size, qp->max_seg_size);
 #endif
 		return -EINVAL;
 	}
 
-	qp = dev->qp[qp_id];
 	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
 	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
 

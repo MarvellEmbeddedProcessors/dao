@@ -127,7 +127,9 @@ struct __rte_packed_begin __dao_lc_req_decomp_op {
 	/** Output buffer length */
 	uint32_t op_buf_len;
 	/**  Compression algorithm */
-	enum dao_lc_comp_algo comp_algo;
+	uint32_t comp_algo : 2;
+	/** Padding */
+	uint32_t rsvd_align : 30;
 	/** Compressed text to be decompressed */
 	uint8_t input[];
 } __rte_packed_end;

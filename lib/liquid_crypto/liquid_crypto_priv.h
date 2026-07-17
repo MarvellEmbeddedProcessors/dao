@@ -48,18 +48,6 @@
 /* Compress device maximum single segment size */
 #define LIQUID_CRYPTO_COMP_MAX_SEG_SIZE 16384u
 
-/* Maximum input buffer size for compress requests */
-#define LIQUID_CRYPTO_COMP_MAX_INPUT_DATA_SIZE                                                     \
-	((uint16_t)(LIQUID_CRYPTO_COMP_MAX_SEG_SIZE - sizeof(struct __dao_lc_req_comp_op)))
-
-/* Maximum input buffer size for decompress requests */
-#define LIQUID_CRYPTO_DECOMP_MAX_INPUT_DATA_SIZE                                                   \
-	((uint16_t)(LIQUID_CRYPTO_COMP_MAX_SEG_SIZE - sizeof(struct __dao_lc_req_decomp_op)))
-
-/* Maximum output buffer size for both compress & decompress requests */
-#define LIQUID_CRYPTO_COMP_MAX_OUTPUT_DATA_SIZE                                                    \
-	((uint16_t)(LIQUID_CRYPTO_COMP_MAX_SEG_SIZE - sizeof(struct __dao_lc_resp_compdev_op)))
-
 struct liquid_crypto_prev_mp {
 	struct rte_mempool *tx_mp;
 	struct rte_mempool *rx_mp;
