@@ -40,6 +40,8 @@
 #define ENQ_TIMEOUT   90
 #define DRAIN_TIMEOUT 30
 
+#define LCPERF_MAX_DEVS 1
+
 enum lcperf_perf_test_type {
 	LCPERF_TEST_TYPE_THROUGHPUT,
 	LCPERF_TEST_TYPE_LATENCY,

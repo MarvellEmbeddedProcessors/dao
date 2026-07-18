@@ -18,8 +18,6 @@
 #include "lcperf_test_latency.h"
 #include "lcperf_test_throughput.h"
 
-#define LCPERF_MAX_DEVS 1
-
 const char *lcperf_test_type_strs[] = {
 	[LCPERF_TEST_TYPE_THROUGHPUT] = "throughput",
 	[LCPERF_TEST_TYPE_LATENCY] = "latency",
@@ -150,6 +148,7 @@ static int
 lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 {
 	uint8_t enabled_cdev_count, nb_lcores, cdev_id, required_cdev_cnt, lcore_id;
+	struct dao_lc_dev_caps caps = {0};
 	uint16_t qp_id, required_qp_cnt;
 	struct dao_lc_dev_conf dev_conf;
 	struct dao_lc_qp_conf qp_conf;
@@ -166,6 +165,7 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 	}
 
 	memset(&info, 0, sizeof(info));
+	memset(&qp_conf, 0, sizeof(qp_conf));
 
 	ret = dao_liquid_crypto_info_get(&info);
 	if (ret < 0) {
@@ -195,6 +195,24 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 	if (opts->op_type == LCPERF_OP_COMPRESS || opts->op_type == LCPERF_OP_DECOMPRESS) {
 		is_cmd_qp_reqd = false; /* comp uses data QPs only */
 		is_compdev_op = true;
+	}
+
+	if (is_compdev_op) {
+		ret = dao_liquid_crypto_dev_caps_get(&caps);
+		if (ret < 0) {
+			RTE_LOG(INFO, USER1,
+				"Could not get liquid crypto device capabilities; skipping %s perf test\n",
+				lcperf_op_type_strs[opts->op_type]);
+			dao_liquid_crypto_fini();
+			return 0;
+		}
+
+		if (!caps.compdev_en) {
+			RTE_LOG(INFO, USER1, "Compress device not enabled; skipping %s perf test\n",
+				lcperf_op_type_strs[opts->op_type]);
+			dao_liquid_crypto_fini();
+			return 0;
+		}
 	}
 
 	/* Determine the number of 'qp's required per device */
@@ -309,8 +327,6 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		feature_params.ecc.is_ecc_enabled = true;
 		feature_params.ecc.curve_id = DAO_LC_AE_EC_ID_P521;
 		feature_params.ecc.digest_len = TEST_LC_MAX_ECC_DIGEST_LEN;
-		if (is_compdev_op)
-			feature_params.compdev.is_compdev_enabled = true;
 
 		max_seg_size = dao_liquid_crypto_seg_size_calc(&feature_params);
 		if (max_seg_size == 0) {
@@ -319,6 +335,9 @@ lcperf_initialize_liquid_crypto(struct lcperf_options *opts)
 		}
 
 		memset(&qp_conf, 0, sizeof(qp_conf));
+
+		if (is_compdev_op)
+			feature_params.compdev.is_compdev_enabled = true;
 
 		qp_conf.nb_desc = opts->nb_descriptors;
 		qp_conf.max_seg_size = max_seg_size;
@@ -404,6 +423,17 @@ main(int argc, char **argv)
 	}
 
 	nb_lcdevs = lcperf_initialize_liquid_crypto(&opts);
+	/**
+	 * Skip only when running compress/decompress and compdev is not enabled during card_init.
+	 */
+	if ((opts.op_type == LCPERF_OP_COMPRESS || opts.op_type == LCPERF_OP_DECOMPRESS) &&
+	    nb_lcdevs == 0) {
+		RTE_LOG(ERR, USER1,
+			"Failed to initialise liquid crypto device, skipping compress test\n");
+		ret = -ENODEV;
+		goto eal_cleanup;
+	}
+
 	nb_lcdevs_global = nb_lcdevs; /* Update global for signal handler */
 	if (nb_lcdevs <= 0) {
 		RTE_LOG(ERR, USER1, "Failed to initialise liquid crypto device\n");

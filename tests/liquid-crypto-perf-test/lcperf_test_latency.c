@@ -10,6 +10,7 @@
 #include <rte_crypto.h>
 #include <rte_cryptodev.h>
 #include <rte_cycles.h>
+#include <rte_log.h>
 #include <rte_malloc.h>
 #include <rte_random.h>
 
@@ -38,7 +39,34 @@ struct lcperf_latency_ctx {
 	struct lcperf_op_result *result;
 	/** For compress/decompress: test data from get_dummy; NULL otherwise */
 	struct lcperf_test_data *tdata;
+	bool skip_test;
 };
+
+static bool
+lcperf_latency_compdev_should_skip(const struct lcperf_options *options)
+{
+	struct dao_lc_dev_caps caps = {0};
+	int ret;
+
+	if (options->op_type != LCPERF_OP_COMPRESS && options->op_type != LCPERF_OP_DECOMPRESS)
+		return false;
+
+	ret = dao_liquid_crypto_dev_caps_get(&caps);
+	if (ret < 0) {
+		RTE_LOG(INFO, USER1,
+			"Could not get liquid crypto device capabilities; skipping %s latency test\n",
+			lcperf_op_type_strs[options->op_type]);
+		return true;
+	}
+
+	if (!caps.compdev_en) {
+		RTE_LOG(INFO, USER1, "Compress device not enabled; skipping %s latency test\n",
+			lcperf_op_type_strs[options->op_type]);
+		return true;
+	}
+
+	return false;
+}
 
 static void
 lcperf_latency_test_free(struct lcperf_latency_ctx *ctx)
@@ -75,6 +103,11 @@ lcperf_latency_test_constructor(uint8_t dev_id, uint16_t qp_id,
 	ctx->populate_ops = op_fns->populate_ops;
 	ctx->options = options;
 	ctx->op_fns = op_fns;
+
+	if (lcperf_latency_compdev_should_skip(options)) {
+		ctx->skip_test = true;
+		return ctx;
+	}
 
 	ctx->result =
 		rte_malloc(NULL, sizeof(struct lcperf_op_result) * ctx->options->total_ops, 0);
@@ -124,6 +157,15 @@ lcperf_check_single_op(struct lcperf_latency_ctx *ctx, struct lcperf_test_data *
 		ret = dao_liquid_crypto_dequeue_burst(ctx->dev_id, ctx->qp_id, &res, 1);
 
 		if (ret == 1) {
+			if (ctx->options->op_type == LCPERF_OP_COMPRESS ||
+			    ctx->options->op_type == LCPERF_OP_DECOMPRESS) {
+				if (res.compdev_res.status != DAO_LC_COMP_OP_STATUS_SUCCESS) {
+					RTE_LOG(ERR, USER1, "Compdev op failed with status: %d\n",
+						res.compdev_res.status);
+					return -1;
+				}
+			}
+
 			if (res.op_cookie != tdata->op_cookie) {
 				RTE_LOG(ERR, USER1, "Invalid operation cookie\n");
 				return -1;
@@ -162,6 +204,9 @@ lcperf_latency_test_runner(void *test_ctx)
 	uint8_t dev_id;
 	uint16_t qp_id;
 	int ret;
+
+	if (ctx->skip_test)
+		return 0;
 
 	if (ctx->options->op_type == LCPERF_OP_COMPRESS ||
 	    ctx->options->op_type == LCPERF_OP_DECOMPRESS)
