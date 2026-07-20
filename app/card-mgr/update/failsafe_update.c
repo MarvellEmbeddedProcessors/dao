@@ -41,7 +41,7 @@ dao_card_mgr_failsafe_update(cli_args *cmd)
 	/* Start operation tracking */
 	rc = dao_card_operation_start("failsafe_update");
 	if (rc < 0)
-		return rc;
+		goto exit;
 
 	DAO_CARD_INFO("Starting failsafe image update (estimated 10-12 minutes)");
 	DAO_CARD_INFO("WARNING: This operation takes significant time");
