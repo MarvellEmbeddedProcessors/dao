@@ -816,11 +816,9 @@ cleanup:
 	if (comp_res != NULL)
 		free(comp_res);
 
-	if (data_out != NULL) {
-		for (i = 0; i < num_op; i++) {
-			if (data_out[i] != NULL)
-				free(data_out[i]);
-		}
+	for (i = 0; i < num_op; i++) {
+		if (data_out[i] != NULL)
+			free(data_out[i]);
 	}
 
 	return rc;
