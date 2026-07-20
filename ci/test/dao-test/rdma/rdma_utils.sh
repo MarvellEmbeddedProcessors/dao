@@ -35,6 +35,7 @@ function rdma_setup_configure()
 	local ext_iface
 	local remote_iface
 	local pci_devs=""
+	local _i _rdma_log
 
 	ext_iface=${EP_DEVICE_EXT_IFACE:-}
 	remote_iface=${EP_REMOTE_IFACE:-}
@@ -66,18 +67,39 @@ function rdma_setup_configure()
 	serialized_args=$(printf '%q ' "${args[@]}")
 	rdma_app_launch $serialized_args
 
+	# Wait until the device RDMA app's mailbox service is up before creating the
+	# host octep_rdma VF. If the host driver probes while the app is still
+	# initialising, its "get device capabilities" mailbox request times out and
+	# ibdev registration fails (-5), leaving the host VF with no RDMA netdev.
+	_rdma_log="${EP_LOG_PATH:-/tmp}/dao_rdma_graph.log"
+	for _i in $(seq 1 40); do
+		grep -q 'Entering service main loop' "$_rdma_log" 2>/dev/null && break
+		sleep 1
+	done
 
-	# Configure Octeon Host
+	# Bring up the remote (external) side FIRST, before the host octep_rdma
+	# connects. The device external port (Port 0) links to the remote NIC; if
+	# the host connects and dao-rdma_graph configures the management QP while
+	# that external link is still down, the app crashes. This matches the
+	# working manual order: remote link up, then host insmod/VF.
+	ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
+	ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
+	sleep 2
+
+	# Configure Octeon Host (this drives the host<->device RDMA handshake).
 	ep_host_op rdma_setup 1
 	sleep 1
 	rdma_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
 
-	# Configure Remote
-	ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
-	sleep 1
+	# The host RDMA VF netdev can take a few seconds to appear after the VF is
+	# created and octep_rdma syncs with the device app; poll for it before
+	# assigning its IP so the pingpong server can bind to $host_ip.
+	for _i in $(seq 1 15); do
+		[[ -n "$(ep_host_op if_name_get $rdma_vfs 2>/dev/null)" ]] && break
+		sleep 1
+	done
 
 	ep_host_op if_configure --pcie-addr $rdma_vfs --ip $host_ip
-	ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
 }
 
 function rdma_app_launch()

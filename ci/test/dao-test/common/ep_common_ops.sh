@@ -68,6 +68,98 @@ function ep_common_pcie_addr_get()
 	echo $(lspci -Dd :$devid | awk '{print $1}' | head -n$num)
 }
 
+function ep_common_rdma_eth_interfaces_get()
+{
+	local ssh_ip=${1:-}
+	local ssh_ifc_name=
+	local out=""
+	local ibdev nd netdev pci
+
+	# Determine the management (SSH) netdev so it can be excluded from the
+	# candidate list.
+	if [[ -n "$ssh_ip" ]]; then
+		ssh_ifc_name=$(ip -f inet addr show | grep "$ssh_ip" -B 1 | head -n1 | \
+				awk -F '[ :]' '{print $3}')
+	fi
+
+	# Enumerate netdevs backed by an RDMA (InfiniBand) device. This discovers
+	# the cabled interface dynamically and works for any RDMA peer (Mellanox
+	# mlx5, Octeon octep_rdma, ...) without relying on a fixed PCI device ID.
+	# The actual cabled port is selected later by the data-plane ping loop.
+	for ibdev in /sys/class/infiniband/*; do
+		[ -e "$ibdev" ] || continue
+		for nd in "$ibdev"/device/net/*; do
+			[ -e "$nd" ] || continue
+			netdev=$(basename "$nd")
+			[[ "$netdev" == "$ssh_ifc_name" ]] && continue
+			pci=$(awk -F= '/PCI_SLOT_NAME/{print $2}' \
+				/sys/class/net/"$netdev"/device/uevent 2>/dev/null)
+			[[ -n "$pci" ]] && out="$out $pci"
+		done
+	done
+
+	echo $out | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' '
+}
+
+function ep_common_mellanox_rdma_iface_get()
+{
+	# Echo the PCI BDF(s) of the netdev(s) backed by a Mellanox (vendor
+	# 0x15b3) RDMA device, excluding the management (SSH) netdev. Empty
+	# output means the box has no Mellanox RDMA NIC. Used to decide whether
+	# to use the remote's native-RoCE Mellanox NIC as the peer.
+	local ssh_ip=${1:-}
+	local ssh_ifc_name=
+	local out=""
+	local ibdev nd netdev pci vendor
+
+	if [[ -n "$ssh_ip" ]]; then
+		ssh_ifc_name=$(ip -f inet addr show | grep "$ssh_ip" -B 1 | head -n1 | \
+				awk -F '[ :]' '{print $3}')
+	fi
+
+	for ibdev in /sys/class/infiniband/*; do
+		[ -e "$ibdev" ] || continue
+		vendor=$(cat "$ibdev"/device/vendor 2>/dev/null || echo "")
+		[[ "$vendor" == "0x15b3" ]] || continue
+		for nd in "$ibdev"/device/net/*; do
+			[ -e "$nd" ] || continue
+			netdev=$(basename "$nd")
+			[[ "$netdev" == "$ssh_ifc_name" ]] && continue
+			pci=$(awk -F= '/PCI_SLOT_NAME/{print $2}' \
+				/sys/class/net/"$netdev"/device/uevent 2>/dev/null)
+			[[ -n "$pci" ]] && out="$out $pci"
+		done
+	done
+
+	echo $out | tr ' ' '\n' | awk 'NF && !seen[$0]++' | tr '\n' ' '
+}
+
+function ep_common_link_wait()
+{
+	local pcie_addr=$1
+	local timeout=${2:-10}
+	local iface_name
+	local i
+
+	iface_name=$(ep_common_if_name_get $pcie_addr)
+	if [[ -z $iface_name ]]; then
+		echo "0"
+		return
+	fi
+
+	# Poll the netdev carrier; a freshly-upped high-speed link needs a few
+	# seconds to negotiate. Returns "1" as soon as carrier is up, else "0"
+	# after the timeout (in seconds).
+	for ((i = 0; i < timeout * 2; i++)); do
+		if [[ "$(cat /sys/class/net/$iface_name/carrier 2>/dev/null)" == "1" ]]; then
+			echo "1"
+			return
+		fi
+		sleep 0.5
+	done
+	echo "0"
+}
+
 function ep_common_if_name_get()
 {
 	local pcie_addr=$1
@@ -126,6 +218,14 @@ function ep_common_if_configure()
 		ep_common_cleanup_interfaces $iface_name
 	fi
 
+	# Bring the interface fully down: flush all addresses and set the link
+	# down. ifconfig-down alone leaves the IP assigned, so a rejected pair-
+	# discovery candidate keeps its IP and creates a duplicate-IP route that
+	# breaks rdma_cm address resolution on the valid interface.
+	if [[ -n $down ]]; then
+		ip addr flush dev $iface_name 2>/dev/null || true
+		ip link set dev $iface_name down 2>/dev/null || true
+	fi
 
 	if [[ -z $down ]]; then
 		if [[ -n $num_alias ]]; then
@@ -291,18 +391,51 @@ function ep_common_set_numvfs()
 	sleep 1
 }
 
-function ep_common_unbind_driver()
+function ep_common_is_octep_managed()
 {
+	# Returns success (0) only for devices whose driver binding is managed
+	# the Octeon way (driver_override + explicit bind to rvu_nicpf/vfio-pci).
+	# Mellanox NICs (vendor 0x15b3) keep their native mlx5_core driver, and
+	# some devices do not expose a driver_override node. In both cases the
+	# octep-specific bind/unbind dance must be skipped.
 	local s=$1
 	local dev=$2
 	local vendor_id
 
 	if [[ "$s" == "pci" ]]; then
 		vendor_id=$(cat /sys/bus/pci/devices/$dev/vendor 2>/dev/null || echo "")
-		# Mellanox device needs no unbinding
 		if [[ "$vendor_id" == "0x15b3" ]]; then
-			return 0
+			return 1
 		fi
+	fi
+
+	if [[ ! -e /sys/bus/$s/devices/$dev/driver_override ]]; then
+		return 1
+	fi
+
+	return 0
+}
+
+function ep_common_is_mellanox()
+{
+	# Returns success (0) if the given PCI device is a Mellanox NIC
+	# (vendor 0x15b3). Such peers provide native RoCE and must not get the
+	# octep-specific soft-RoCE (rxe) / driver-rebind treatment.
+	local dev=$1
+	local vendor_id
+
+	vendor_id=$(cat /sys/bus/pci/devices/$dev/vendor 2>/dev/null || echo "")
+	[[ "$vendor_id" == "0x15b3" ]]
+}
+
+function ep_common_unbind_driver()
+{
+	local s=$1
+	local dev=$2
+
+	# Skip octep-specific unbinding for Mellanox / non-octep devices.
+	if ! ep_common_is_octep_managed "$s" "$dev"; then
+		return 0
 	fi
 
 	if [[ -e /sys/bus/$s/devices/$dev/driver/unbind ]]; then
@@ -318,14 +451,10 @@ function ep_common_bind_driver()
 	local s=$1
 	local dev=$2
 	local driver=$3
-	local vendor_id
 
-	if [[ "$s" == "pci" ]]; then
-		vendor_id=$(cat /sys/bus/pci/devices/$dev/vendor 2>/dev/null || echo "")
-		# Mellanox device needs no binding
-		if [[ "$vendor_id" == "0x15b3" ]]; then
-			return 0
-		fi
+	# Skip octep-specific binding for Mellanox / non-octep devices.
+	if ! ep_common_is_octep_managed "$s" "$dev"; then
+		return 0
 	fi
 
 	ep_common_unbind_driver $s $dev
@@ -352,13 +481,46 @@ function ep_common_get_v4_gid_index()
 	echo $gid
 }
 
+function ep_common_port_active()
+{
+	# Returns success (0) if the RDMA device has a port in PORT_ACTIVE state.
+	local dev="$1"
+
+	ibv_devinfo -d "$dev" 2>/dev/null | \
+		awk '/state:/ && /PORT_ACTIVE/ {found=1} END {exit !found}'
+}
+
+function ep_common_dev_has_ip()
+{
+	# Returns success (0) if any netdev backing the RDMA device carries the
+	# given IPv4 address (used to disambiguate multiple active RDMA devices).
+	local dev="$1"
+	local ip_hint="$2"
+	local nd netdev
+
+	[[ -z "$ip_hint" ]] && return 1
+
+	for nd in /sys/class/infiniband/"$dev"/device/net/*; do
+		[ -e "$nd" ] || continue
+		netdev=$(basename "$nd")
+		if ip -4 -o addr show dev "$netdev" 2>/dev/null | grep -qw "$ip_hint"; then
+			return 0
+		fi
+	done
+	return 1
+}
+
 function ep_common_get_rdma_device()
 {
 	local rdma_build="${1:-}"
+	local ip_hint="${2:-}"
+	local prefer_name="${3:-octep_}"
 	local bin_path="$rdma_build/bin"
 	local lib_path="$rdma_build/lib"
 	local devices=
 	local dev=
+	local active_devs=()
+	local name_match=
 
 	[[ -n "$bin_path" ]] && export PATH="${bin_path}:${PATH}"
 	[[ -n "$lib_path"  ]] && export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH:-}"
@@ -369,15 +531,46 @@ function ep_common_get_rdma_device()
 		return 2
 	fi
 
+	# Collect all PORT_ACTIVE devices, then choose among them:
+	#   1. the device whose netdev carries $ip_hint (the cabled data-plane IP)
+	#   2. else the first device whose name matches $prefer_name (e.g. octep_)
+	#   3. else the first active device
 	while IFS= read -r dev; do
-		if ibv_devinfo -d "$dev" 2>/dev/null | awk '/state:/ && /PORT_ACTIVE/ {exit 0} AND {exit 1}'; then
-			echo $dev
-			return 0
+		[[ -z "$dev" ]] && continue
+		if ep_common_port_active "$dev"; then
+			active_devs+=("$dev")
 		fi
 	done <<< "$devices"
 
-	echo "Error: No devices have a port in PORT_ACTIVE state." >&2
-	return 3
+	if [ ${#active_devs[@]} -eq 0 ]; then
+		echo "Error: No devices have a port in PORT_ACTIVE state." >&2
+		return 3
+	fi
+
+	if [[ -n "$ip_hint" ]]; then
+		for dev in "${active_devs[@]}"; do
+			if ep_common_dev_has_ip "$dev" "$ip_hint"; then
+				echo "$dev"
+				return 0
+			fi
+		done
+	fi
+
+	if [[ -n "$prefer_name" ]]; then
+		for dev in "${active_devs[@]}"; do
+			if [[ "$dev" == "$prefer_name"* ]]; then
+				name_match="$dev"
+				break
+			fi
+		done
+	fi
+
+	if [[ -n "$name_match" ]]; then
+		echo "$name_match"
+	else
+		echo "${active_devs[0]}"
+	fi
+	return 0
 }
 
 function ep_common_rdma_test_cleanup()

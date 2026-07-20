@@ -185,7 +185,7 @@ function ep_device_pem_setup()
 	# Loop through devices
 	echo "Binding PEM/SDP regs devices"
 
-	for dev in $(lspci -d :a0ef | awk -e '{print $1}'); do
+	for dev in $(lspci -d :a0ef | awk '{print $1}'); do
 		# Bind the device to vfio-pci driver
 		ep_common_bind_driver pci $dev vfio-pci
 		echo "Device $dev configured."
@@ -333,7 +333,7 @@ function ep_device_get_inactive_if()
 
 function ep_device_get_unused_npa_pf()
 {
-	for dev in $(lspci -d :a0fb | awk -e '{print $1}'); do
+	for dev in $(lspci -d :a0fb | awk '{print $1}'); do
 		if [ ! -d /sys/bus/pci/devices/$dev/driver ]; then
 			echo $dev
 			break;
@@ -363,6 +363,12 @@ function ep_device_guest_rdma_setup()
 	local rdma_dev=$1
 	local iface_name=
 
+	# Mellanox NICs provide native RoCE; no soft-RoCE (rxe) device needed.
+	if ep_common_is_mellanox "$rdma_dev"; then
+		echo "Mellanox RDMA device $rdma_dev: skipping soft-RoCE (rxe) setup"
+		return 0
+	fi
+
 	modprobe ib_uverbs
 	modprobe rdma_ucm
 	modprobe rdma_cm
@@ -375,6 +381,12 @@ function ep_device_guest_rdma_cleanup()
 {
 	local rdma_dev=$1
 	local iface_name=
+
+	# Mellanox NICs use native RoCE; nothing to tear down here.
+	if ep_common_is_mellanox "$rdma_dev"; then
+		echo "Mellanox RDMA device $rdma_dev: skipping soft-RoCE (rxe) cleanup"
+		return 0
+	fi
 
 	# Setup RDMA device on guest
 	iface_name=$(ep_common_if_name_get $rdma_dev)

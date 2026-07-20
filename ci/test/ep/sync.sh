@@ -40,7 +40,10 @@ function device_sync()
 	$sync -e "$EP_SSH_CMD" -r $DEPS_PREFIX/* $EP_DEVICE:$EP_DIR/deps-prefix
 	$sync -e "$EP_SSH_CMD" -r $EP_PREBUILT_BINARIES_SERVER:$EP_PREBUILT_BINARIES_PATH/* \
 		/tmp/ep_files
-	$sync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_DEVICE:$EP_DIR/ep_files
+	# The device never consumes the remote RDMA bundle; excluding it avoids
+	# filling the device's limited /tmp with the (possibly x86) binaries.
+	$sync -e "$EP_SSH_CMD" -r --exclude='rdma_remote' /tmp/ep_files/* \
+		$EP_DEVICE:$EP_DIR/ep_files
 	ep_device_ssh_cmd "$EP_DEVICE_SUDO cp $EP_DIR/ep_files/hostname /usr/bin"
 }
 
@@ -72,8 +75,16 @@ function remote_sync()
 	arch=$(ep_remote_ssh_cmd "uname -m")
 
 	if [[ "$arch" == "x86_64" ]]; then
-		$sync -e "$EP_SSH_CMD" -r /tmp/ep_host_files/* $EP_REMOTE:$EP_DIR/ep_host_files
-		ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_host_files/dpdk-testpmd /usr/bin"
+		# The x86 host_files bundle (incl. dpdk-testpmd) may be absent for
+		# RDMA-only remotes; only copy it when actually present.
+		if [[ -e /tmp/ep_host_files/dpdk-testpmd ]]; then
+			# Force the destination to be a directory. A prior run may have
+			# left it as a single file (rsync of one entry into a missing
+			# dest), which makes the cp below fail with ENOTDIR.
+			ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_DIR/ep_host_files; mkdir -p $EP_DIR/ep_host_files"
+			$sync -e "$EP_SSH_CMD" -r /tmp/ep_host_files/ $EP_REMOTE:$EP_DIR/ep_host_files/
+			ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_host_files/dpdk-testpmd /usr/bin"
+		fi
 	else
 		plat=$(ep_remote_ssh_cmd "$EP_REMOTE_SUDO cat /proc/device-tree/compatible | tr '\0' '\n'")
 		if [[ "$plat" == *"cn10k"* ]]; then
