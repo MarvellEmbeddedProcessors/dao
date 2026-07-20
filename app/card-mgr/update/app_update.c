@@ -114,7 +114,7 @@ dao_card_mgr_app_update(cli_args *cmd)
 	/* Start operation tracking */
 	rc = dao_card_operation_start("app_update");
 	if (rc < 0)
-		return rc;
+		goto exit;
 
 	DAO_CARD_INFO("Starting application update (estimated 1-3 minutes)");
 	DAO_CARD_INFO("Do not interrupt or power off the system during update");

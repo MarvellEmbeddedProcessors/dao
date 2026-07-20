@@ -41,7 +41,7 @@ dao_card_mgr_fw_update(cli_args *cmd)
 	/* Start operation tracking */
 	rc = dao_card_operation_start("fw_update");
 	if (rc < 0)
-		return rc;
+		goto exit;
 
 	DAO_CARD_INFO("Starting firmware update (estimated 3-5 minutes)");
 	DAO_CARD_INFO("Do not interrupt or power off the system during update");
