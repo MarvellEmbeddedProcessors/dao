@@ -8,134 +8,13 @@ source $EP_DIR/ci/test/dao-test/common/utils.sh
 source $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh
 source $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh
 
-# Set RDMA environment variables only if both paths are configured
+# RDMA env strings, only if both paths are set.
 REMOTE_ENV=""
 HOST_ENV=""
 if [[ -n "${EP_REMOTE_RDMA_PATH:-}" ]] && [[ -n "${EP_HOST_RDMA_PATH:-}" ]]; then
 	REMOTE_ENV="export PATH=\"${EP_REMOTE_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_REMOTE_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
 	HOST_ENV="export PATH=\"${EP_HOST_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_HOST_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
 fi
-
-function rdma_tests_cleanup() {
-
-	ep_host_op rdma_test_cleanup
-	ep_remote_op rdma_test_cleanup
-	ep_host_op rdma_cleanup
-	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
-		ep_remote_host_op rdma_cleanup
-		ep_remote_device_op rdma_app_cleanup
-	else
-		ep_remote_op guest_rdma_cleanup $EP_REMOTE_IFACE
-	fi
-	ep_device_rdma_app_cleanup
-
-	return 0
-}
-
-function rdma_setup_configure()
-{
-	local host_ip=${1:-"30.0.0.3"}
-	local remote_ip=${2:-"30.0.0.11"}
-	local skip_mbuf_opts=${3:-false}
-	local ext_iface
-	local remote_iface
-	local pci_devs=""
-	local _i _rdma_log
-
-	ext_iface=${EP_DEVICE_EXT_IFACE:-}
-	remote_iface=${EP_REMOTE_IFACE:-}
-
-	if [[ -n $EP_REMOTE ]]; then
-		if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
-			if [[ -z $ext_iface ]] || [[ -z "${EP_REMOTE_DEVICE_EXT_IFACE:-}" ]]; then
-				echo "Failed to find a valid interface pair (DPU-to-DPU)"
-				exit 1
-			fi
-		elif [[ -z $ext_iface ]] || [[ -z $remote_iface ]]; then
-			echo "Failed to find a valid interface pair"
-			exit 1
-		fi
-	fi
-
-	pci_devs="$pci_devs $ext_iface"
-
-	# Add DPI VFs
-	read -r -a dpi_vfs <<< "$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
-	for dpi in "${dpi_vfs[@]}"; do
-		pci_devs="$pci_devs $dpi"
-	done
-
-	# Launch RDMA application with all PCI devices
-	args=()
-	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
-	if [[ "$skip_mbuf_opts" != "true" ]]; then
-		read -r -a tmp <<< "$(form_split_args "--num-mbufs" "131072")"
-		args+=("${tmp[@]}")
-		read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "32768")"
-		args+=("${tmp[@]}")
-	fi
-	serialized_args=$(printf '%q ' "${args[@]}")
-	rdma_app_launch $serialized_args
-
-	# Wait until the device RDMA app's mailbox service is up before creating the
-	# host octep_rdma VF. If the host driver probes while the app is still
-	# initialising, its "get device capabilities" mailbox request times out and
-	# ibdev registration fails (-5), leaving the host VF with no RDMA netdev.
-	_rdma_log="${EP_LOG_PATH:-/tmp}/dao_rdma_graph.log"
-	for _i in $(seq 1 40); do
-		grep -q 'Entering service main loop' "$_rdma_log" 2>/dev/null && break
-		sleep 1
-	done
-
-	# Bring up the remote (external) side FIRST, before the host octep_rdma
-	# connects. The device external port (Port 0) links to the remote NIC; if
-	# the host connects and dao-rdma_graph configures the management QP while
-	# that external link is still down, the app crashes. This matches the
-	# working manual order: remote link up, then host insmod/VF.
-	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
-		# DPU-to-DPU: the far side is a second Octeon DPU + octep_rdma host.
-		# Launch dao-rdma_graph on the far DPU, wait for its mailbox service,
-		# then bring up the far host's octep_rdma VF (mirror of the near side)
-		# instead of soft-RoCE (rxe).
-		local rdev_ext_iface="${EP_REMOTE_DEVICE_EXT_IFACE:-}"
-		local _rhost_vfs
-
-		ep_remote_device_op bind_driver pci $rdev_ext_iface vfio-pci
-		rdma_launch_remote_device_app "$rdev_ext_iface"
-		for _i in $(seq 1 40); do
-			ep_remote_device_ssh_cmd "grep -q 'Entering service main loop' /tmp/dao_rdma_graph.log 2>/dev/null" && break
-			sleep 1
-		done
-
-		ep_remote_host_op rdma_setup 1
-		sleep 1
-		_rhost_vfs=$(ep_remote_host_op pcie_addr_get "0xB903" 1)
-		for _i in $(seq 1 15); do
-			[[ -n "$(ep_remote_host_op if_name_get $_rhost_vfs 2>/dev/null)" ]] && break
-			sleep 1
-		done
-		ep_remote_host_op if_configure --pcie-addr $_rhost_vfs --ip $remote_ip
-	else
-		ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
-		ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
-	fi
-	sleep 2
-
-	# Configure Octeon Host (this drives the host<->device RDMA handshake).
-	ep_host_op rdma_setup 1
-	sleep 1
-	rdma_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
-
-	# The host RDMA VF netdev can take a few seconds to appear after the VF is
-	# created and octep_rdma syncs with the device app; poll for it before
-	# assigning its IP so the pingpong server can bind to $host_ip.
-	for _i in $(seq 1 15); do
-		[[ -n "$(ep_host_op if_name_get $rdma_vfs 2>/dev/null)" ]] && break
-		sleep 1
-	done
-
-	ep_host_op if_configure --pcie-addr $rdma_vfs --ip $host_ip
-}
 
 function rdma_app_launch()
 {
@@ -172,7 +51,7 @@ function rdma_app_launch()
 		shift
 	done
 
-	# Find the dao-rdma_graph executable
+	# Find the dao-rdma_graph binary.
 	find_executable "dao-rdma_graph" dao_rdma_app "$RDMA_UTILS_SCRIPT_PATH/../../../../app"
 
 	if [[ -z "$dao_rdma_app" ]]; then
@@ -181,33 +60,33 @@ function rdma_app_launch()
 	fi
 	echo "Found dao-rdma_graph binary: $dao_rdma_app"
 
-	# Build the application command
+	# Build the app command.
 	local app_cmd="$dao_rdma_app -c $cpu_mask"
 
-	# Add all PCI devices
+	# Add PCI devices.
 	if [[ -n "$pci_devs" ]]; then
 		for dev in $pci_devs; do
 			app_cmd="$app_cmd -a $dev"
 		done
 	fi
 
-	# Add DPDK options
+	# Add DPDK options.
 	app_cmd="$app_cmd --file-prefix=$file_prefix -- -p $port_mask -P --max-pkt-len=$maxpktlen -n $num_queues -r 0x1 --num-mbufs $num_mbuf --dma-nb-desc $num_dma_desc"
 
 	echo "Launching RDMA application..."
 	echo "Command: $app_cmd"
 	echo "Log file: $log_path/dao_rdma_graph.log"
 
-	# Launch the application in background
+	# Launch in background.
 	setsid $app_cmd > "$log_path/dao_rdma_graph.log" 2>&1 &
 	local app_pid=$!
 	echo $app_pid > "$pid_file"
 	echo "dao-rdma_graph started with PID: $app_pid"
 
-	# Give the application time to initialize
+	# Let it initialize.
 	sleep 5
 
-	# Verify the application is still running
+	# Verify it's still running.
 	if kill -0 $app_pid 2>/dev/null; then
 		echo "dao-rdma_graph is running successfully with PID: $app_pid"
 		return 0
@@ -223,40 +102,189 @@ function rdma_app_launch()
 	fi
 }
 
-# Launch dao-rdma_graph on the far (EP_REMOTE_DEVICE) Octeon DPU over SSH.
-# Mirror of rdma_launch_device_app (rdma_setup.sh) but self-contained here so
-# it is available in the on-device test context where rdma_setup.sh is not
-# sourced. Used only in DPU-to-DPU mode.
-function rdma_launch_remote_device_app()
+# Launch dao-rdma_graph on EP_DEVICE. $1=ext BDF (may carry ,devargs), $2=num-mbufs, $3=dma-nb-desc.
+function rdma_launch_graph_on_device()
 {
-	local ext_iface=$1
-	local num_mbufs=524288
-	local max_pkt_len=9600
-	local dma_nb_desc=32768
+	local ext_iface=${1:-${EP_DEVICE_EXT_IFACE:-}}
+	local num_mbufs=${2:-131072}
+	local dma_nb_desc=${3:-32768}
 	local pci_devs="$ext_iface"
-	local serialized_args app_cmd ld_library_path rdma_utils
-	local dpi
-	local dpi_vfs=()
-	local tmp=()
-	local args=()
+	local pci_bdf="${ext_iface%%,*}"
+	local dpi dpi_vfs=() tmp=() args=()
+	local _i _rdma_log="${EP_LOG_PATH:-/tmp}/dao_rdma_graph.log"
 
-	read -r -a dpi_vfs <<< "$(ep_remote_device_op pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
+	if [[ -z "$ext_iface" ]]; then
+		echo "rdma_launch_graph_on_device: no external interface given"
+		return 1
+	fi
+
+	# Bind external port to vfio-pci for DPDK (BDF only; DPDK devargs kept for -a).
+	ep_common_bind_driver pci "$pci_bdf" vfio-pci
+
+	# Add DPI (DMA) VFs.
+	read -r -a dpi_vfs <<< "$(ep_common_pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
 	for dpi in "${dpi_vfs[@]}"; do
 		pci_devs="$pci_devs $dpi"
 	done
 
+	# Assemble args and launch locally.
 	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
-	read -r -a tmp <<< "$(form_split_args "--max-pkt-len" "$max_pkt_len")" ; args+=("${tmp[@]}")
 	read -r -a tmp <<< "$(form_split_args "--num-mbufs"   "$num_mbufs")"   ; args+=("${tmp[@]}")
 	read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "$dma_nb_desc")" ; args+=("${tmp[@]}")
+	rdma_app_launch "${args[@]}"
 
+	# Wait for mailbox ready; fail if not.
+	local ready=
+	for _i in $(seq 1 40); do
+		if grep -q 'Entering service main loop' "$_rdma_log" 2>/dev/null; then
+			ready=1
+			break
+		fi
+		sleep 1
+	done
+	if [[ -z "$ready" ]]; then
+		echo "rdma_launch_graph_on_device: dao-rdma_graph did not signal ready (no 'Entering service main loop' after 40s)"
+		return 1
+	fi
+}
+
+# Launch dao-rdma_graph on EP_REMOTE over SSH. $1=ext BDF (may carry ,devargs), $2=num-mbufs, $3=dma-nb-desc.
+function rdma_launch_graph_on_remote()
+{
+	local ext_iface=${1:-${EP_REMOTE_IFACE:-}}
+	local num_mbufs=${2:-131072}
+	local dma_nb_desc=${3:-32768}
+	local pci_devs="$ext_iface"
+	local pci_bdf="${ext_iface%%,*}"
+	local dpi dpi_vfs=() tmp=() args=()
+	local serialized_args app_cmd ld_library_path rdma_utils _i
+
+	if [[ -z "$ext_iface" ]]; then
+		echo "rdma_launch_graph_on_remote: no external interface given"
+		return 1
+	fi
+
+	# Bind remote external port to vfio-pci over SSH (BDF only; DPDK devargs kept for -a).
+	ep_remote_op bind_driver pci "$pci_bdf" vfio-pci
+
+	# Add remote DPI (DMA) VFs.
+	read -r -a dpi_vfs <<< "$(ep_remote_op pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
+	for dpi in "${dpi_vfs[@]}"; do
+		pci_devs="$pci_devs $dpi"
+	done
+
+	# Assemble args and run rdma_app_launch on EP_REMOTE via SSH.
+	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
+	read -r -a tmp <<< "$(form_split_args "--num-mbufs"   "$num_mbufs")"   ; args+=("${tmp[@]}")
+	read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "$dma_nb_desc")" ; args+=("${tmp[@]}")
 	serialized_args=$(printf '%q ' "${args[@]}")
+
 	rdma_utils=$EP_DIR/ci/test/dao-test/rdma/rdma_utils.sh
 	app_cmd="EP_DIR=$EP_DIR; source \"$rdma_utils\"; rdma_app_launch $serialized_args"
 	ld_library_path="export LD_LIBRARY_PATH=\"${EP_DIR}/deps-prefix/ep/lib:\${LD_LIBRARY_PATH:-}\";"
 	app_cmd="$ld_library_path $app_cmd"
+	ep_remote_ssh_cmd "$EP_REMOTE_SUDO -E bash -lc $(printf %q "$app_cmd")"
 
-	ep_remote_device_ssh_cmd "$EP_REMOTE_DEVICE_SUDO -E bash -lc $(printf %q "$app_cmd")"
+	# Wait for remote mailbox ready; fail if not.
+	local ready=
+	for _i in $(seq 1 40); do
+		if ep_remote_ssh_cmd "grep -q 'Entering service main loop' /tmp/dao_rdma_graph.log 2>/dev/null"; then
+			ready=1
+			break
+		fi
+		sleep 1
+	done
+	if [[ -z "$ready" ]]; then
+		echo "rdma_launch_graph_on_remote: dao-rdma_graph did not signal ready on EP_REMOTE (no 'Entering service main loop' after 40s)"
+		return 1
+	fi
+}
+
+# Bring up an octep_rdma host VF. $1=host op (ep_host_op/ep_remote_host_op), $2=IP.
+function rdma_setup_host_endpoint()
+{
+	local host_op=$1
+	local ip=$2
+	local vfs if_name _i
+
+	if [[ -z "$host_op" || -z "$ip" ]]; then
+		echo "rdma_setup_host_endpoint: usage: <ep_host_op|ep_remote_host_op> <ip>"
+		return 1
+	fi
+
+	# insmod octep-rdma + create the RDMA VF.
+	$host_op rdma_setup 1
+	sleep 1
+
+	# VF netdev may take a few seconds; poll before assigning IP.
+	vfs=$($host_op pcie_addr_get "0xB903" 1)
+	for _i in $(seq 1 15); do
+		if_name=$($host_op if_name_get "$vfs" 2>/dev/null)
+		[[ -n "$if_name" ]] && break
+		sleep 1
+	done
+
+	$host_op if_configure --pcie-addr "$vfs" --ip "$ip"
+}
+
+# Bring up native Mellanox endpoint on EP_REMOTE_HOST (IP + link wait). $1=BDF, $2=IP.
+function rdma_setup_mlx_endpoint()
+{
+	local mlx_iface=$1
+	local ip=$2
+
+	if [[ -z "$mlx_iface" || -z "$ip" ]]; then
+		echo "rdma_setup_mlx_endpoint: usage: <mlx_pci_bdf> <ip>"
+		return 1
+	fi
+
+	ep_remote_host_op if_configure --pcie-addr "$mlx_iface" --down
+	ep_remote_host_op if_configure --pcie-addr "$mlx_iface" --ip "$ip"
+	ep_remote_host_op link_wait "$mlx_iface" 15 >/dev/null
+}
+
+# Best-effort idempotent teardown; scenario-specific steps guarded.
+function rdma_tests_cleanup()
+{
+	set +e
+
+	echo "CLEANUP: ===== rdma_tests_cleanup START ====="
+
+	# 1. Kill leftover test binaries (EP_HOST + EP_REMOTE_HOST).
+	ep_host_op rdma_test_cleanup true
+	if [[ -n "${EP_REMOTE_HOST:-}" ]]; then
+		ep_remote_host_op rdma_test_cleanup true
+	fi
+
+	# 2. Tear down host octep stacks; far host first, EP_HOST last.
+	#    O<->O: drop EP_REMOTE_HOST octep VF first.
+	if [[ -n "${EP_REMOTE:-}" ]]; then
+		ep_remote_host_op rdma_cleanup
+	fi
+	#    O<->MLX: drop Mellanox IP.
+	if [[ -n "${EP_REMOTE_HOST_MLX_IFACE:-}" ]]; then
+		ep_remote_host_op if_configure --pcie-addr "$EP_REMOTE_HOST_MLX_IFACE" --down
+	fi
+	#    EP_HOST octep VF last.
+	ep_host_op rdma_cleanup
+
+	# 3. Stop dao-rdma_graph (EP_DEVICE always, EP_REMOTE for O<->O).
+	ep_device_rdma_app_cleanup
+	if [[ -n "${EP_REMOTE:-}" ]]; then
+		ep_remote_op rdma_app_cleanup
+	fi
+
+	# 4. Return external ports to the kernel driver.
+	if [[ -n "${EP_DEVICE_EXT_IFACE:-}" ]]; then
+		ep_device_op bind_driver pci "$EP_DEVICE_EXT_IFACE" rvu_nicpf
+	fi
+	if [[ -n "${EP_REMOTE_IFACE:-}" ]]; then
+		ep_remote_op bind_driver pci "$EP_REMOTE_IFACE" rvu_nicpf
+	fi
+
+	echo "CLEANUP: ===== rdma_tests_cleanup END ====="
+	set -e
+	return 0
 }
 
 function rdma_sig_handler()
@@ -281,7 +309,7 @@ function rdma_sig_handler()
 function rdma_register_sig_handler()
 {
 	local vlan_id=${1:-}
-	# Register the traps
+	# Register traps.
 	trap "rdma_sig_handler ERR $vlan_id" ERR
 	trap "rdma_sig_handler INT $vlan_id" INT
 	trap "rdma_sig_handler QUIT $vlan_id" QUIT

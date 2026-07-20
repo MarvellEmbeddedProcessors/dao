@@ -358,44 +358,6 @@ function ep_device_get_num_cores()
 	echo $(($num_cores + 1))
 }
 
-function ep_device_guest_rdma_setup()
-{
-	local rdma_dev=$1
-	local iface_name=
-
-	# Mellanox NICs provide native RoCE; no soft-RoCE (rxe) device needed.
-	if ep_common_is_mellanox "$rdma_dev"; then
-		echo "Mellanox RDMA device $rdma_dev: skipping soft-RoCE (rxe) setup"
-		return 0
-	fi
-
-	modprobe ib_uverbs
-	modprobe rdma_ucm
-	modprobe rdma_cm
-	# Setup RDMA device on guest
-	iface_name=$(ep_common_if_name_get $rdma_dev)
-	rdma link add rxe0 type rxe netdev $iface_name
-}
-
-function ep_device_guest_rdma_cleanup()
-{
-	local rdma_dev=$1
-	local iface_name=
-
-	# Mellanox NICs use native RoCE; nothing to tear down here.
-	if ep_common_is_mellanox "$rdma_dev"; then
-		echo "Mellanox RDMA device $rdma_dev: skipping soft-RoCE (rxe) cleanup"
-		return 0
-	fi
-
-	# Setup RDMA device on guest
-	iface_name=$(ep_common_if_name_get $rdma_dev)
-	ip link set dev $iface_name down
-	if rdma link show 2>/dev/null | grep -q "rxe0"; then
-		rdma link delete rxe0
-	fi
-}
-
 function ep_device_rdma_app_cleanup() {
 	local force_mode="${1:-false}"
 	local binary="${2:-dao-rdma_graph}"
@@ -418,8 +380,6 @@ function ep_device_rdma_app_cleanup() {
 		else
 			echo "$binary processes stopped successfully"
 		fi
-	else
-		echo "No $binary processes found"
 	fi
 
 	# Clean up PID and lock files

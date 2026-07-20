@@ -147,53 +147,38 @@ function ep_device_op_bg()
 	ep_ssh_cmd EP_DEVICE true $wait "$EP_DEVICE_SUDO EP_DEVICE=$EP_DEVICE EP_DIR=$EP_DIR LD_LIBRARY_PATH=${EP_DIR}/deps-prefix/ep/lib:${LD_LIBRARY_PATH:-} nohup $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
 }
 
-# ---- Far-side (DPU-to-DPU) role helpers --------------------------------
-# EP_REMOTE_DEVICE is the second (far) Octeon DPU; EP_REMOTE is then the far
-# octep_rdma host. These mirror the ep_device_* / ep_host_* helpers for that
-# far pair and are only used when EP_REMOTE_DEVICE is set.
-
-function ep_remote_device_ssh_cmd()
+function ep_remote_host_ssh_cmd()
 {
 	local cmd=$1
 
-	ep_ssh_cmd EP_REMOTE_DEVICE false 0 "$cmd"
+	ep_ssh_cmd EP_REMOTE_HOST false 0 "$cmd"
 }
 
-function ep_remote_device_ssh_cmd_bg()
+function ep_remote_host_ssh_cmd_bg()
 {
 	local wait=$1
 	local cmd=$2
 
-	ep_ssh_cmd EP_REMOTE_DEVICE true $wait "$cmd 2>&1 &"
+	ep_ssh_cmd EP_REMOTE_HOST true $wait "$cmd 2>&1 &"
 }
 
-function ep_remote_device_op()
-{
-	local op=$1
-	local args=${@:2}
-
-	ep_remote_device_ssh_cmd "$EP_REMOTE_DEVICE_SUDO EP_DEVICE=$EP_REMOTE_DEVICE EP_DIR=$EP_DIR $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args"
-}
-
-function ep_remote_device_op_bg()
-{
-	local wait=$1
-	local op=$2
-	local args=${@:3}
-
-	ep_ssh_cmd EP_REMOTE_DEVICE true $wait "$EP_REMOTE_DEVICE_SUDO EP_DEVICE=$EP_REMOTE_DEVICE EP_DIR=$EP_DIR LD_LIBRARY_PATH=${EP_DIR}/deps-prefix/ep/lib:${LD_LIBRARY_PATH:-} nohup $EP_DIR/ci/test/dao-test/common/ep_device_utils.sh $op $args 2>&1 &"
-}
-
-# Run a host-op on the far RDMA host (EP_REMOTE) so it brings up the octep
-# HOST stack (octep-rdma.ko + RDMA VF), mirroring ep_host_op for the near
-# host. Used only in DPU-to-DPU mode.
 function ep_remote_host_op()
 {
 	local op=$1
 	local args=${@:2}
-	local env="EP_HOST_MODULE_DIR=$EP_REMOTE_MODULE_DIR EP_HOST=$EP_REMOTE EP_DIR=$EP_DIR"
+	local env="EP_HOST_MODULE_DIR=${EP_REMOTE_HOST_MODULE_DIR:-} EP_HOST=$EP_REMOTE_HOST EP_DIR=$EP_DIR"
 
-	ep_remote_ssh_cmd "$EP_REMOTE_SUDO $env $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args"
+	ep_remote_host_ssh_cmd "$EP_REMOTE_HOST_SUDO $env $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args"
+}
+
+function ep_remote_host_op_bg()
+{
+	local wait=$1
+	local op=$2
+	local args=${@:3}
+	local env="EP_HOST_MODULE_DIR=${EP_REMOTE_HOST_MODULE_DIR:-} EP_HOST=$EP_REMOTE_HOST EP_DIR=$EP_DIR"
+
+	ep_ssh_cmd EP_REMOTE_HOST true $wait "$EP_REMOTE_HOST_SUDO $env nohup $EP_DIR/ci/test/dao-test/common/ep_host_utils.sh $op $args 2>&1 &"
 }
 
 function test_run()

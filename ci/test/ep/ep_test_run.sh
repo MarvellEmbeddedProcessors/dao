@@ -183,7 +183,7 @@ trap "sig_handler QUIT NONE" QUIT
 host_sync
 device_sync
 remote_sync
-remote_device_sync
+remote_host_sync
 ${DAO_SUITE_SETUP["$DAO_SUITE"]}
 run_all_tests
 

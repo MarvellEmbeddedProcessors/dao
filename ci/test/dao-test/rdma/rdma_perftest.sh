@@ -3,15 +3,16 @@
 # Copyright (c) 2025 Marvell.
 
 # RDMA perftest (ib_*_bw / ib_*_lat) Tests
-# This test exercises the perftest micro-benchmarks between the Octeon
-# (octep_rdma) host and the remote (RXE/ConnectX) peer, mirroring the
-# documented perftest examples. Each test is run in both directions:
-#   1. Host (Octeon) as Server -> Remote as Client
-#   2. Remote as Server -> Host (Octeon) as Client
+# Runs the perftest micro-benchmarks between EP_HOST (octep_rdma) and
+# EP_REMOTE_HOST over each supported octep RDMA data path, in both directions:
+#   1. Octeon<->Octeon  : EP_HOST octep VF <-> EP_REMOTE_HOST octep VF (30.0.0.x)
+#   2. Octeon<->Mellanox: EP_HOST octep VF <-> EP_REMOTE_HOST Mellanox (21.0.0.x)
+# Each case runs (a) EP_HOST as server, then (b) EP_REMOTE_HOST as server.
 #
 # Connection establishment:
 #   * SEND tests (ib_send_bw / ib_send_lat) for both UD and RC are run over
-#     rdma_cm (-R). For these the QPs are connected through the rdma_cm module.
+#     rdma_cm (-R), except where the CM client would be an octep VF (RoCE v1
+#     GID octep_rdma can't use) - see run_perftest_case.
 #   * RDMA WRITE and READ tests (ib_write_*/ib_read_*) do not require rdma_cm;
 #     QP information is exchanged out-of-band over the management socket.
 
@@ -47,7 +48,9 @@ function cleanup_perftest_processes()
 	for binary in "${PERFTEST_BINARIES[@]}"; do
 		kill_cmd="source $utils && safe_kill $binary"
 		ep_host_ssh_cmd "$kill_cmd" || true
-		ep_remote_ssh_cmd "$kill_cmd" || true
+		if [[ -n "${EP_REMOTE_HOST:-}" ]]; then
+			ep_remote_host_ssh_cmd "$kill_cmd" || true
+		fi
 	done
 	sleep 1
 }
@@ -57,7 +60,7 @@ function cleanup_perftest_processes()
 #   $2 binary      - perftest binary (e.g. ib_send_bw)
 #   $3 conn_type   - connection type (UD or RC)
 #   $4 use_cm      - "yes" to connect QPs through rdma_cm (-R), else "no"
-#   $5 server_node - "host" (Octeon is server) or "remote" (RXE is server)
+#   $5 server_node - "host" (EP_HOST is server) or "remote" (EP_REMOTE_HOST is server)
 function run_perftest_case()
 {
 	local test_name=$1
@@ -72,15 +75,15 @@ function run_perftest_case()
 	local status
 
 	if [[ "$server_node" == "host" ]]; then
-		server_env=$host_env;   server_dev=$host_rdma_dev;   server_gid=$host_gid
-		client_env=$remote_env; client_dev=$remote_rdma_dev; client_gid=$remote_gid
-		server_ssh="ep_host_ssh_cmd"; client_ssh="ep_remote_ssh_cmd"
+		server_env=$host_env;        server_dev=$host_rdma_dev;        server_gid=$host_gid
+		client_env=$remote_host_env; client_dev=$remote_host_rdma_dev; client_gid=$remote_host_gid
+		server_ssh="ep_host_ssh_cmd"; client_ssh="ep_remote_host_ssh_cmd"
 		server_ip=$host_ip
 	else
-		server_env=$remote_env; server_dev=$remote_rdma_dev; server_gid=$remote_gid
-		client_env=$host_env;   client_dev=$host_rdma_dev;   client_gid=$host_gid
-		server_ssh="ep_remote_ssh_cmd"; client_ssh="ep_host_ssh_cmd"
-		server_ip=$remote_ip
+		server_env=$remote_host_env; server_dev=$remote_host_rdma_dev; server_gid=$remote_host_gid
+		client_env=$host_env;        client_dev=$host_rdma_dev;        client_gid=$host_gid
+		server_ssh="ep_remote_host_ssh_cmd"; client_ssh="ep_host_ssh_cmd"
+		server_ip=$remote_host_ip
 	fi
 
 	# Build the common perftest option set.
@@ -95,11 +98,11 @@ function run_perftest_case()
 	# GID (-x) is honored. The reverse direction (Octeon as CM server) is fine.
 	local eff_use_cm=$use_cm
 	if [[ "$use_cm" == "yes" ]]; then
-		# In DPU-to-DPU mode both ends are octep_rdma, so the RoCE v1 GID issue
+		# In Octeon<->Octeon both ends are octep_rdma, so the RoCE v1 GID issue
 		# (rdma_cm picking an unsupported GID when Octeon is the CM client)
 		# affects both directions; otherwise only the host-as-client direction
 		# (server_node=remote) is affected.
-		if [[ -n "${EP_REMOTE_DEVICE:-}" || "$server_node" == "remote" ]]; then
+		if [[ "$pt_scenario" == "Octeon<->Octeon" || "$server_node" == "remote" ]]; then
 			eff_use_cm="no"
 		fi
 	fi
@@ -107,21 +110,16 @@ function run_perftest_case()
 	local cm_opt=""
 	[[ "$eff_use_cm" == "yes" ]] && cm_opt="-R"
 
-	# TEMPORARY: cap all perftest cases to 100 iterations per size so the full
-	# -a sweep stays fast on the octep_rdma path. Revert to per-binary defaults
-	# once timings are acceptable.
-	local iter_opt="-n 100"
-
-	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a $iter_opt"
-	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a $iter_opt"
+	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a"
+	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a"
 
 	local log_path="${EP_LOG_PATH:-/tmp}"
 	local server_log="$log_path/${binary}_${test_name}_server.log"
 
 	echo "  --- $test_name ($server_node server, $conn_type, rdma_cm=$eff_use_cm) ---"
 
-	local server_cmd="bash -c \"${server_env} setsid $binary $server_opts >$server_log 2>&1 &\""
-	local client_cmd="bash -c \"${client_env} $binary $client_opts $server_ip\""
+	local server_cmd="bash -c \"( time ( ${server_env} setsid $binary $server_opts ) ) >$server_log 2>&1 &\""
+	local client_cmd="bash -c \"time ( ${client_env} $binary $client_opts $server_ip )\""
 
 	# A single case can transiently time out on the octep_rdma path even though
 	# it passes when re-run in isolation. Retry with a fresh server a few times
@@ -175,9 +173,9 @@ function run_perftest_bidir()
 	local use_cm=$4
 	local rc=0
 
-	echo "========================================="
-	echo "$test_name"
-	echo "========================================="
+	echo "=========================================================================================="
+	echo "[$pt_scenario] $test_name"
+	echo "=========================================================================================="
 
 	if ! run_perftest_case "$test_name" "$binary" "$conn_type" "$use_cm" "host"; then
 		rc=1
@@ -189,72 +187,114 @@ function run_perftest_bidir()
 	return $rc
 }
 
-function rdma_perftest()
+# Run the full perftest matrix for the current scenario. The run_perftest_bidir
+# invocations are unchanged; only the failed_tests label carries the scenario.
+function run_all_perftests()
 {
-	local remote_ip="30.0.0.11"
-	local host_ip="30.0.0.3"
-	local remote_env
-	local host_env
-	local host_rdma_dev
-	local host_gid
-	local remote_rdma_dev
-	local remote_gid
-	local failed_tests=""
-
-	# Register signal handler
-	rdma_register_sig_handler
-
-	rdma_setup_configure
-	sleep 1
-
-	# Get RDMA device information
-	host_rdma_dev=$(ep_host_op get_rdma_device "$EP_HOST_RDMA_PATH")
-	host_gid=$(ep_host_op get_v4_gid_index $host_rdma_dev "$EP_HOST_RDMA_PATH")
-
-	remote_rdma_dev=$(ep_remote_op get_rdma_device "$EP_REMOTE_RDMA_PATH")
-	remote_gid=$(ep_remote_op get_v4_gid_index $remote_rdma_dev "$EP_REMOTE_RDMA_PATH")
-
-	# Build environment strings
-	remote_env=$REMOTE_ENV
-	host_env=$HOST_ENV
-
-	echo "========================================"
-	echo "RDMA perftest benchmarks starting"
-	echo "========================================"
-	echo "Host Device   : $host_rdma_dev (GID: $host_gid, IP: $host_ip)"
-	echo "Remote Device : $remote_rdma_dev (GID: $remote_gid, IP: $remote_ip)"
-	echo ""
-
 	# Unreliable Datagram (UD) SEND - connected through rdma_cm
 	if ! run_perftest_bidir "UD_SEND_LAT" "ib_send_lat" "UD" "yes"; then
-		failed_tests="$failed_tests\n  UD_SEND_LAT"
+		failed_tests="$failed_tests\n  [$pt_scenario] UD_SEND_LAT"
 	fi
 	if ! run_perftest_bidir "UD_SEND_BW" "ib_send_bw" "UD" "yes"; then
-		failed_tests="$failed_tests\n  UD_SEND_BW"
+		failed_tests="$failed_tests\n  [$pt_scenario] UD_SEND_BW"
 	fi
 
 	# Reliable Connection (RC) SEND - connected through rdma_cm
 	if ! run_perftest_bidir "RC_SEND_LAT" "ib_send_lat" "RC" "yes"; then
-		failed_tests="$failed_tests\n  RC_SEND_LAT"
+		failed_tests="$failed_tests\n  [$pt_scenario] RC_SEND_LAT"
 	fi
 	if ! run_perftest_bidir "RC_SEND_BW" "ib_send_bw" "RC" "yes"; then
-		failed_tests="$failed_tests\n  RC_SEND_BW"
+		failed_tests="$failed_tests\n  [$pt_scenario] RC_SEND_BW"
 	fi
 
 	# Reliable Connection (RC) RDMA WRITE - no rdma_cm required
 	if ! run_perftest_bidir "RC_WRITE_LAT" "ib_write_lat" "RC" "no"; then
-		failed_tests="$failed_tests\n  RC_WRITE_LAT"
+		failed_tests="$failed_tests\n  [$pt_scenario] RC_WRITE_LAT"
 	fi
 	if ! run_perftest_bidir "RC_WRITE_BW" "ib_write_bw" "RC" "no"; then
-		failed_tests="$failed_tests\n  RC_WRITE_BW"
+		failed_tests="$failed_tests\n  [$pt_scenario] RC_WRITE_BW"
 	fi
 
 	# Reliable Connection (RC) RDMA READ - no rdma_cm required
 	if ! run_perftest_bidir "RC_READ_LAT" "ib_read_lat" "RC" "no"; then
-		failed_tests="$failed_tests\n  RC_READ_LAT"
+		failed_tests="$failed_tests\n  [$pt_scenario] RC_READ_LAT"
 	fi
 	if ! run_perftest_bidir "RC_READ_BW" "ib_read_bw" "RC" "no"; then
-		failed_tests="$failed_tests\n  RC_READ_BW"
+		failed_tests="$failed_tests\n  [$pt_scenario] RC_READ_BW"
+	fi
+}
+
+function rdma_perftest()
+{
+	local host_ip host_env host_rdma_dev host_gid
+	local remote_host_ip remote_host_env remote_host_rdma_dev remote_host_gid
+	local pt_scenario failed_tests="" ran=0
+
+	# Register signal handler
+	rdma_register_sig_handler
+
+	# EP_HOST is always octep; EP_REMOTE_HOST is octep (O<->O) or Mellanox (O<->MLX).
+	host_env=$HOST_ENV
+	remote_host_env=$REMOTE_ENV
+
+	echo "========================================"
+	echo "RDMA perftest benchmarks starting"
+	echo "========================================"
+
+	# ============ Scenario 1: Octeon <-> Octeon (needs EP_REMOTE) ============
+	if [[ "${RDMA_SCENARIO:-both}" != "mlx" && -n "${EP_REMOTE:-}" ]]; then
+		pt_scenario="Octeon<->Octeon"
+		host_ip="30.0.0.3"
+		remote_host_ip="30.0.0.11"
+		echo ""
+		echo "==================== SCENARIO: Octeon <-> Octeon ===================="
+		echo "  EP_HOST octep VF (30.0.0.3) <-> EP_REMOTE_HOST octep VF (30.0.0.11)"
+
+		rdma_launch_graph_on_device                                   # graph on EP_DEVICE
+		rdma_launch_graph_on_remote                                   # graph on EP_REMOTE
+		rdma_setup_host_endpoint ep_remote_host_op "$remote_host_ip"  # octep VF on EP_REMOTE_HOST
+		sleep 1
+		rdma_setup_host_endpoint ep_host_op        "$host_ip"         # octep VF on EP_HOST - last
+		sleep 1
+
+		host_rdma_dev=$(ep_host_op get_rdma_device "$EP_HOST_RDMA_PATH" "$host_ip")
+		host_gid=$(ep_host_op get_v4_gid_index "$host_rdma_dev" "$EP_HOST_RDMA_PATH")
+		remote_host_rdma_dev=$(ep_remote_host_op get_rdma_device "$EP_REMOTE_RDMA_PATH" "$remote_host_ip")
+		remote_host_gid=$(ep_remote_host_op get_v4_gid_index "$remote_host_rdma_dev" "$EP_REMOTE_RDMA_PATH")
+
+		run_all_perftests
+		rdma_tests_cleanup
+		ran=1
+	fi
+
+	# ================= Scenario 2: Octeon <-> Mellanox =================
+	if [[ "${RDMA_SCENARIO:-both}" != "octeon" && -n "${EP_DEVICE_MLX_IFACE:-}" && -n "${EP_REMOTE_HOST_MLX_IFACE:-}" ]]; then
+		pt_scenario="Octeon<->Mellanox"
+		host_ip="21.0.0.3"
+		remote_host_ip="21.0.0.11"
+		echo ""
+		echo "=================== SCENARIO: Octeon <-> Mellanox ==================="
+		echo "  EP_HOST octep VF (21.0.0.3) <-> EP_REMOTE_HOST Mellanox (21.0.0.11)"
+
+		rdma_launch_graph_on_device "${EP_DEVICE_MLX_IFACE},force_tail_drop=1" # graph on EP_DEVICE MLX port (force_tail_drop for O<->MLX)
+		rdma_setup_mlx_endpoint "$EP_REMOTE_HOST_MLX_IFACE" "$remote_host_ip" # Mellanox IP (native)
+		sleep 2
+		rdma_setup_host_endpoint ep_host_op "$host_ip"                       # octep VF on EP_HOST - last
+		sleep 1
+
+		host_rdma_dev=$(ep_host_op get_rdma_device "$EP_HOST_RDMA_PATH" "$host_ip")
+		host_gid=$(ep_host_op get_v4_gid_index "$host_rdma_dev" "$EP_HOST_RDMA_PATH")
+		remote_host_rdma_dev=$(ep_remote_host_op get_rdma_device "$EP_REMOTE_RDMA_PATH" "$remote_host_ip")
+		remote_host_gid=$(ep_remote_host_op get_v4_gid_index "$remote_host_rdma_dev" "$EP_REMOTE_RDMA_PATH")
+
+		run_all_perftests
+		rdma_tests_cleanup
+		ran=1
+	fi
+
+	if [[ $ran -eq 0 ]]; then
+		echo "No RDMA scenario selected/available (RDMA_SCENARIO=${RDMA_SCENARIO:-both})"
+		exit 77
 	fi
 
 	# Final cleanup
@@ -273,4 +313,4 @@ function rdma_perftest()
 		exit 1
 	fi
 }
-test_run ${DAO_TEST} 2
+test_run rdma_perftest 2
