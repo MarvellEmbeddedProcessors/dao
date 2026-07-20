@@ -17,10 +17,16 @@ function dao_rdma_cleanup()
 	echo "Starting DAO RDMA cleanup..."
 
 	ep_host_op rdma_cleanup
-	ep_remote_op guest_rdma_cleanup $EP_REMOTE_IFACE
+	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+		ep_remote_host_op rdma_cleanup
+		ep_remote_device_op rdma_app_cleanup
+	else
+		ep_remote_op guest_rdma_cleanup $EP_REMOTE_IFACE
+	fi
 	ep_device_op rdma_app_cleanup
 	ep_host_op safe_kill $EP_DIR
 	ep_device_op safe_kill $EP_DIR
+	[[ -n "${EP_REMOTE_DEVICE:-}" ]] && ep_remote_device_op safe_kill $EP_DIR
 	ep_host_ssh_cmd "$EP_HOST_SUDO dmesg" > host_dmesg.log
 	save_log host_dmesg.log
 	ep_device_ssh_cmd "$EP_DEVICE_SUDO dmesg" > device_dmesg.log
@@ -33,6 +39,8 @@ function dao_rdma_cleanup()
 function rdma_launch_device_app()
 {
 	local ext_iface=$1
+	local role=${2:-device}
+	local op_fn ssh_fn sudo_var
 	local num_mbufs=524288
 	local max_pkt_len=9600
 	local dma_nb_desc=8192
@@ -43,8 +51,19 @@ function rdma_launch_device_app()
 	local tmp=()
 	local args=()
 
+	# Select the near (EP_DEVICE) or far (EP_REMOTE_DEVICE) DPU role.
+	if [[ "$role" == "remote_device" ]]; then
+		op_fn=ep_remote_device_op
+		ssh_fn=ep_remote_device_ssh_cmd
+		sudo_var=$EP_REMOTE_DEVICE_SUDO
+	else
+		op_fn=ep_device_op
+		ssh_fn=ep_device_ssh_cmd
+		sudo_var=$EP_DEVICE_SUDO
+	fi
+
 	# Add DPI VFs
-	read -r -a dpi_vfs <<< "$(ep_device_op pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
+	read -r -a dpi_vfs <<< "$($op_fn pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
 	for dpi in "${dpi_vfs[@]}"; do
 		pci_devs="$pci_devs $dpi"
 	done
@@ -62,7 +81,39 @@ function rdma_launch_device_app()
 	ld_library_path="export LD_LIBRARY_PATH=\"${EP_DIR}/deps-prefix/ep/lib:\${LD_LIBRARY_PATH:-}\";"
 	app_cmd="$ld_library_path $app_cmd"
 
-	ep_device_ssh_cmd "$EP_DEVICE_SUDO -E bash -lc $(printf %q "$app_cmd")"
+	$ssh_fn "$sudo_var -E bash -lc $(printf %q "$app_cmd")"
+}
+
+# List all RVU-PF external ports on a DPU that do NOT carry the management
+# (SSH) IP, in probe order. $1=op function, $2=ssh function, $3=mgmt ip.
+function rdma_ext_ports()
+{
+	local op_fn=$1 ssh_fn=$2 ssh_ip=$3
+	local all_ports p
+
+	all_ports=$($op_fn pcie_addr_get "${PCI_DEVID_CNXK_RVU_PF:-0xa063}" all)
+	for p in $all_ports; do
+		if [[ -n "$ssh_ip" ]] && $ssh_fn "nd=\$(ls /sys/bus/pci/devices/$p/net 2>/dev/null | head -n1); [ -n \"\$nd\" ] && ip -o -4 addr show dev \"\$nd\" 2>/dev/null | grep -qw $ssh_ip" >/dev/null 2>&1; then
+			continue
+		fi
+		echo "$p"
+	done
+}
+
+# Wait up to 40s for a DPU app's RDMA mailbox service. $1=ssh function.
+function rdma_wait_app_ready()
+{
+	local ssh_fn=$1
+	local aw
+
+	for aw in $(seq 1 40); do
+		if $ssh_fn "grep -q 'Entering service main loop' /tmp/dao_rdma_graph.log 2>/dev/null"; then
+			echo "Device RDMA app ready (mailbox service up)"
+			return 0
+		fi
+		sleep 1
+	done
+	echo "WARNING: device RDMA app readiness marker not seen after 40s"
 }
 
 function verify_rdma_setup()
@@ -79,6 +130,119 @@ function verify_rdma_setup()
 
 	ssh_ip=$(echo $EP_DEVICE | awk -F '@' '{print $2}' 2>/dev/null)
 	remote_ssh_ip=$(echo $EP_REMOTE | awk -F '@' '{print $2}' 2>/dev/null)
+
+	# ---- Octeon-to-Octeon (DPU-to-DPU) bring-up ------------------------
+	# The far side mirrors the near side: EP_REMOTE_DEVICE (octeon#2) runs
+	# dao-rdma_graph and EP_REMOTE is its octep_rdma host. Bring up both DPU
+	# apps and both host octep stacks, then validate the data path with a
+	# single ping. Pin external ports via EP_DEVICE_EXT_IFACE /
+	# EP_REMOTE_DEVICE_EXT_IFACE (auto-picked otherwise).
+	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+		local rdev_ssh_ip host_if rhost_if rdma_vfs rhost_rdma_vfs w
+		local near_cands far_cands np fp found= rdev_ext_iface=
+
+		rdev_ssh_ip=$(echo $EP_REMOTE_DEVICE | awk -F '@' '{print $2}' 2>/dev/null)
+
+		# Candidate external ports on each DPU: honor explicit pins, otherwise
+		# enumerate every non-management RVU-PF port so we can search for the
+		# one physically cabled between the two DPUs.
+		if [[ -n "${EP_DEVICE_EXT_IFACE:-}" ]]; then
+			near_cands="$EP_DEVICE_EXT_IFACE"
+		else
+			near_cands=$(rdma_ext_ports ep_device_op ep_device_ssh_cmd "$ssh_ip")
+		fi
+		if [[ -n "${EP_REMOTE_DEVICE_EXT_IFACE:-}" ]]; then
+			far_cands="$EP_REMOTE_DEVICE_EXT_IFACE"
+		else
+			far_cands=$(rdma_ext_ports ep_remote_device_op ep_remote_device_ssh_cmd "$rdev_ssh_ip")
+		fi
+		if [[ -z "$near_cands" || -z "$far_cands" ]]; then
+			echo "DPU-to-DPU: could not enumerate external interface(s); set EP_DEVICE_EXT_IFACE and EP_REMOTE_DEVICE_EXT_IFACE"
+			exit 1
+		fi
+		echo "Near DPU candidate ext ifaces:" $near_cands
+		echo "Far DPU candidate ext ifaces: " $far_cands
+
+		# Search for the cabled pair the real way: for each near/far ext-port
+		# combination, bring up both DPU apps, insmod both host octep stacks,
+		# assign IPs and ping host -> remote host. The host octep stacks are
+		# ALWAYS removed before any DPU app is killed, so a rejected combination
+		# cannot wedge octep_rdma.
+		for np in $near_cands; do
+			ep_device_op bind_driver pci $np vfio-pci
+			rdma_launch_device_app $np device
+			rdma_wait_app_ready ep_device_ssh_cmd
+			for fp in $far_cands; do
+				echo "Trying DPU ext port pair: near $np <-> far $fp"
+				ep_remote_device_op bind_driver pci $fp vfio-pci
+				rdma_launch_device_app $fp remote_device
+				rdma_wait_app_ready ep_remote_device_ssh_cmd
+
+				# Bring up both host octep stacks + RDMA VF + IP.
+				ep_host_op rdma_setup 1
+				ep_remote_host_op rdma_setup 1
+				sleep 1
+				rdma_vfs=$(ep_host_op pcie_addr_get "0xB903" 1)
+				rhost_rdma_vfs=$(ep_remote_host_op pcie_addr_get "0xB903" 1)
+				for w in $(seq 1 15); do
+					host_if=$(ep_host_op if_name_get $rdma_vfs 2>/dev/null)
+					rhost_if=$(ep_remote_host_op if_name_get $rhost_rdma_vfs 2>/dev/null)
+					[[ -n "$host_if" && -n "$rhost_if" ]] && break
+					sleep 1
+				done
+				ep_host_op if_configure --pcie-addr $rdma_vfs --ip $host_ip
+				ep_remote_host_op if_configure --pcie-addr $rhost_rdma_vfs --ip $remote_ip
+
+				echo "Checking $rdma_vfs (Host) <-> $rhost_rdma_vfs (Remote host)"
+				ping_status=$(ep_host_op ping $host_ip $remote_ip 5)
+
+				# Always tear the host octep stacks down BEFORE touching the DPU
+				# apps so a rejected combination cannot wedge octep_rdma.
+				ep_host_op if_configure --pcie-addr $rdma_vfs --down
+				ep_remote_host_op if_configure --pcie-addr $rhost_rdma_vfs --down
+				ep_host_op rdma_cleanup
+				ep_remote_host_op rdma_cleanup
+
+				if [[ "$ping_status" == "SUCCESS" ]]; then
+					ext_iface=$np; rdev_ext_iface=$fp; found=1
+					break
+				fi
+				echo "  ping failed on near $np <-> far $fp; trying next"
+				ep_remote_device_op rdma_app_cleanup
+			done
+			[[ -n "$found" ]] && break
+			ep_device_op rdma_app_cleanup
+		done
+
+		# Tear down the DPU apps; per-test rdma_setup_configure re-brings-up
+		# everything cleanly for the actual test cases.
+		ep_device_op rdma_app_cleanup
+		ep_remote_device_op rdma_app_cleanup
+
+		if [[ -z "$found" ]]; then
+			echo "DPU-to-DPU: no cabled external port pair found (host <-> remote host ping failed on all combinations)"
+			exit 1
+		fi
+
+		echo "Device External Interface: $ext_iface"
+		echo "Remote Device External Interface: $rdev_ext_iface"
+		add_test_env EP_DEVICE_EXT_IFACE=$ext_iface
+		add_test_env EP_REMOTE_DEVICE_EXT_IFACE=$rdev_ext_iface
+		# Carry the DPU-to-DPU mode marker into the per-test environment; the
+		# test runner re-sources the env file where EP_REMOTE_DEVICE defaults to
+		# empty, so it must be injected here or the per-test falls into the
+		# legacy remote path and fails on EP_REMOTE_IFACE.
+		add_test_env EP_REMOTE_DEVICE=$EP_REMOTE_DEVICE
+		# In DPU-to-DPU mode the far host runs the octep host rdma stack; the
+		# env file resolves EP_REMOTE_RDMA_PATH from EP_REMOTE_DEVICE, but the
+		# test runner re-sources it with EP_REMOTE_DEVICE empty (legacy path),
+		# so inject the correct path for the per-test far-host tooling.
+		add_test_env EP_REMOTE_RDMA_PATH=$EP_REMOTE_RDMA_PATH
+		EP_DEVICE_EXT_IFACE=$ext_iface
+		EP_REMOTE_DEVICE_EXT_IFACE=$rdev_ext_iface
+		echo "Setup verified (DPU-to-DPU)"
+		return 0
+	fi
 
 	# If both the device external port and the remote port are pinned by the
 	# operator (e.g. Mellanox x86 remote), skip the app-first pair discovery and
@@ -259,18 +423,28 @@ function dao_rdma_setup()
 	# because that is where the rsync source path lives (populated by
 	# remote_sync into $EP_DIR/ep_files); checking it locally in the container
 	# is wrong and silently falls back to the default bundle.
-	remote_arch=$(ep_remote_ssh_cmd "uname -m" 2>/dev/null | tr -d '[:space:]')
-	if [[ "$remote_arch" == "x86_64" ]] && \
-	   ep_remote_ssh_cmd "[ -d $EP_DIR/ep_files/rdma_remote/x86 ]"; then
-		remote_rdma_src="$EP_DIR/ep_files/rdma_remote/x86"
+	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+		# DPU-to-DPU: the far host is an octep_rdma host; stage the octep host
+		# rdma stack (synced host-style to $EP_DIR/rdma_prefix) rather than the
+		# upstream x86 remote bundle which lacks the octep provider.
+		echo "Staging remote (far host) octep RDMA stack from $EP_DIR/rdma_prefix to $EP_REMOTE_RDMA_PATH"
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_REMOTE_RDMA_PATH"
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rsync -a $EP_DIR/rdma_prefix/* $EP_REMOTE_RDMA_PATH"
 	else
-		remote_rdma_src="$EP_DIR/ep_files/rdma_remote"
-	fi
-	echo "Staging remote RDMA stack ($remote_arch) from $remote_rdma_src to $EP_REMOTE_RDMA_PATH"
+		remote_arch=$(ep_remote_ssh_cmd "uname -m" 2>/dev/null | tr -d '[:space:]')
+		if [[ "$remote_arch" == "x86_64" ]] && \
+		   ep_remote_ssh_cmd "[ -d $EP_DIR/ep_files/rdma_remote/x86 ]"; then
+			remote_rdma_src="$EP_DIR/ep_files/rdma_remote/x86"
+		else
+			remote_rdma_src="$EP_DIR/ep_files/rdma_remote"
+		fi
+		echo "Staging remote RDMA stack ($remote_arch) from $remote_rdma_src to $EP_REMOTE_RDMA_PATH"
 
-	ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_REMOTE_RDMA_PATH"
-	ep_remote_ssh_cmd "$EP_REMOTE_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
-	ep_remote_ssh_cmd "$EP_REMOTE_SUDO rsync -a $remote_rdma_src/* $EP_REMOTE_RDMA_PATH"
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_REMOTE_RDMA_PATH"
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO mkdir -p $EP_REMOTE_RDMA_PATH"
+		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rsync -a $remote_rdma_src/* $EP_REMOTE_RDMA_PATH"
+	fi
 
 	if [[ -n $SKIP_SETUP ]]; then
 		echo "Skip EP device setup"
@@ -283,6 +457,15 @@ function dao_rdma_setup()
 	ep_device_op hugepage_setup 524288 24 24
 
 	ep_device_op pem_setup
+
+	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+		# DPU-to-DPU: bring up the far DPU (octeon#2) identically so it has DPI
+		# VFs (for dao-rdma_graph), hugepages and PEM/SDP regs bound.
+		echo "Setting up EP remote device (far DPU) for rdma tests"
+		ep_remote_device_op dpi_setup
+		ep_remote_device_op hugepage_setup 524288 24 14
+		ep_remote_device_op pem_setup
+	fi
 
 	echo "Verifying rdma setup"
 	verify_rdma_setup

@@ -35,6 +35,16 @@ TEST_ENV_VARS+=" LD_LIBRARY_PATH=${EP_DIR}/deps-prefix/ep/lib/:${LD_LIBRARY_PATH
 TEST_ENV_VARS+=" EP_DEVICE_OVS_PATH=${EP_DEVICE_OVS_PATH:-}"
 TEST_ENV_VARS+=" EP_HOST_RDMA_PATH=${EP_HOST_RDMA_PATH:-}"
 TEST_ENV_VARS+=" EP_REMOTE_RDMA_PATH=${EP_REMOTE_RDMA_PATH:-}"
+TEST_ENV_VARS+=" EP_REMOTE_DEVICE_SUDO=${EP_REMOTE_DEVICE_SUDO:-}"
+# Emit EP_REMOTE_DEVICE only when non-empty. This static string is appended
+# AFTER TEST_ENV_VARS_DYNAMIC in get_test_command, so an empty assignment here
+# would clobber the value verify_rdma_setup injects via add_test_env for
+# DPU-to-DPU runs (exe_wrapper re-sources the env file and often sees it empty).
+if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+	TEST_ENV_VARS+=" EP_REMOTE_DEVICE=${EP_REMOTE_DEVICE}"
+fi
+TEST_ENV_VARS+=" EP_REMOTE_MODULE_DIR=${EP_REMOTE_MODULE_DIR:-}"
+TEST_ENV_VARS+=" MQ_TEST_FILTER=${MQ_TEST_FILTER:-}"
 
 add_test "$DAO_TEST" "$TEST_BINARY" "$TEST_DIR" "$TEST_ARGS" "$TEST_ENV_VARS"
 

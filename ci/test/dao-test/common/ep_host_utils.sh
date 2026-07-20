@@ -5,7 +5,7 @@
 HOST_UTILS_SCRIPT_PATH=$(dirname $(readlink -f "${BASH_SOURCE[0]}"))
 source "$HOST_UTILS_SCRIPT_PATH/ep_common_ops.sh"
 
-HOST_DEPENDENCIES="iperf iperf3"
+HOST_DEPENDENCIES="iperf iperf3 pciutils"
 
 function ep_host_pre_setup()
 {

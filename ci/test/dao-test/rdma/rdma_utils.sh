@@ -21,7 +21,12 @@ function rdma_tests_cleanup() {
 	ep_host_op rdma_test_cleanup
 	ep_remote_op rdma_test_cleanup
 	ep_host_op rdma_cleanup
-	ep_remote_op guest_rdma_cleanup $EP_REMOTE_IFACE
+	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+		ep_remote_host_op rdma_cleanup
+		ep_remote_device_op rdma_app_cleanup
+	else
+		ep_remote_op guest_rdma_cleanup $EP_REMOTE_IFACE
+	fi
 	ep_device_rdma_app_cleanup
 
 	return 0
@@ -41,7 +46,12 @@ function rdma_setup_configure()
 	remote_iface=${EP_REMOTE_IFACE:-}
 
 	if [[ -n $EP_REMOTE ]]; then
-		if [[ -z $ext_iface ]] || [[ -z $remote_iface ]]; then
+		if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+			if [[ -z $ext_iface ]] || [[ -z "${EP_REMOTE_DEVICE_EXT_IFACE:-}" ]]; then
+				echo "Failed to find a valid interface pair (DPU-to-DPU)"
+				exit 1
+			fi
+		elif [[ -z $ext_iface ]] || [[ -z $remote_iface ]]; then
 			echo "Failed to find a valid interface pair"
 			exit 1
 		fi
@@ -82,8 +92,33 @@ function rdma_setup_configure()
 	# the host connects and dao-rdma_graph configures the management QP while
 	# that external link is still down, the app crashes. This matches the
 	# working manual order: remote link up, then host insmod/VF.
-	ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
-	ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
+	if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+		# DPU-to-DPU: the far side is a second Octeon DPU + octep_rdma host.
+		# Launch dao-rdma_graph on the far DPU, wait for its mailbox service,
+		# then bring up the far host's octep_rdma VF (mirror of the near side)
+		# instead of soft-RoCE (rxe).
+		local rdev_ext_iface="${EP_REMOTE_DEVICE_EXT_IFACE:-}"
+		local _rhost_vfs
+
+		ep_remote_device_op bind_driver pci $rdev_ext_iface vfio-pci
+		rdma_launch_remote_device_app "$rdev_ext_iface"
+		for _i in $(seq 1 40); do
+			ep_remote_device_ssh_cmd "grep -q 'Entering service main loop' /tmp/dao_rdma_graph.log 2>/dev/null" && break
+			sleep 1
+		done
+
+		ep_remote_host_op rdma_setup 1
+		sleep 1
+		_rhost_vfs=$(ep_remote_host_op pcie_addr_get "0xB903" 1)
+		for _i in $(seq 1 15); do
+			[[ -n "$(ep_remote_host_op if_name_get $_rhost_vfs 2>/dev/null)" ]] && break
+			sleep 1
+		done
+		ep_remote_host_op if_configure --pcie-addr $_rhost_vfs --ip $remote_ip
+	else
+		ep_remote_op guest_rdma_setup $EP_REMOTE_IFACE
+		ep_remote_op if_configure --pcie-addr $remote_iface --ip $remote_ip
+	fi
 	sleep 2
 
 	# Configure Octeon Host (this drives the host<->device RDMA handshake).
@@ -186,6 +221,42 @@ function rdma_app_launch()
 		fi
 		return 1
 	fi
+}
+
+# Launch dao-rdma_graph on the far (EP_REMOTE_DEVICE) Octeon DPU over SSH.
+# Mirror of rdma_launch_device_app (rdma_setup.sh) but self-contained here so
+# it is available in the on-device test context where rdma_setup.sh is not
+# sourced. Used only in DPU-to-DPU mode.
+function rdma_launch_remote_device_app()
+{
+	local ext_iface=$1
+	local num_mbufs=524288
+	local max_pkt_len=9600
+	local dma_nb_desc=32768
+	local pci_devs="$ext_iface"
+	local serialized_args app_cmd ld_library_path rdma_utils
+	local dpi
+	local dpi_vfs=()
+	local tmp=()
+	local args=()
+
+	read -r -a dpi_vfs <<< "$(ep_remote_device_op pcie_addr_get $PCI_DEVID_CN10K_RVU_DPI_VF 16)"
+	for dpi in "${dpi_vfs[@]}"; do
+		pci_devs="$pci_devs $dpi"
+	done
+
+	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
+	read -r -a tmp <<< "$(form_split_args "--max-pkt-len" "$max_pkt_len")" ; args+=("${tmp[@]}")
+	read -r -a tmp <<< "$(form_split_args "--num-mbufs"   "$num_mbufs")"   ; args+=("${tmp[@]}")
+	read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "$dma_nb_desc")" ; args+=("${tmp[@]}")
+
+	serialized_args=$(printf '%q ' "${args[@]}")
+	rdma_utils=$EP_DIR/ci/test/dao-test/rdma/rdma_utils.sh
+	app_cmd="EP_DIR=$EP_DIR; source \"$rdma_utils\"; rdma_app_launch $serialized_args"
+	ld_library_path="export LD_LIBRARY_PATH=\"${EP_DIR}/deps-prefix/ep/lib:\${LD_LIBRARY_PATH:-}\";"
+	app_cmd="$ld_library_path $app_cmd"
+
+	ep_remote_device_ssh_cmd "$EP_REMOTE_DEVICE_SUDO -E bash -lc $(printf %q "$app_cmd")"
 }
 
 function rdma_sig_handler()

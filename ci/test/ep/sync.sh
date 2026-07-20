@@ -58,6 +58,26 @@ function remote_sync()
 		return
 	fi
 
+	# DPU-to-DPU: the far side is an octep_rdma host, so provision it like
+	# EP_HOST (host build incl. rdma_prefix + octep-rdma.ko) rather than the
+	# legacy single-endpoint remote RDMA-core bundle.
+	if [[ -n ${EP_REMOTE_DEVICE:-} ]]; then
+		local hsync="rsync -azzh --delete --inplace"
+		if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
+			echo "Cleanup EP remote (far host) files"
+			ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_DIR"
+		fi
+		echo "Syncing EP remote (far host) files (DPU-to-DPU, host-style)"
+		ep_remote_ssh_cmd "mkdir -p $EP_DIR"
+		ep_remote_ssh_cmd "mkdir -p $EP_DIR/ep_files"
+		$hsync -e "$EP_SSH_CMD" -r $BUILD_HOST_DIR/* $EP_REMOTE:$EP_DIR
+		$hsync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE:$EP_DIR
+		$hsync -e "$EP_SSH_CMD" -r $EP_PREBUILT_BINARIES_SERVER:$EP_PREBUILT_BINARIES_PATH/* \
+			/tmp/ep_files
+		$hsync -e "$EP_SSH_CMD" -r /tmp/ep_files/* $EP_REMOTE:$EP_DIR/ep_files
+		return
+	fi
+
 	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
 		echo "Cleanup EP remote files"
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO rm -rf $EP_DIR"
@@ -94,4 +114,33 @@ function remote_sync()
 		fi
 		ep_remote_ssh_cmd "$EP_REMOTE_SUDO cp $EP_DIR/ep_files/perf/$plat/dpdk-testpmd /usr/bin"
 	fi
+}
+
+function remote_device_sync()
+{
+	local sync="rsync -azzh --delete"
+
+	if [[ -z ${EP_REMOTE_DEVICE:-} ]]; then
+		echo "EP_REMOTE_DEVICE is not set, skipping remote device sync"
+		return
+	fi
+
+	if [[ -z $SYNC_WITH_NO_CLEANUP ]]; then
+		echo "Cleanup EP remote device files"
+		ep_remote_device_ssh_cmd "$EP_REMOTE_DEVICE_SUDO rm -rf $EP_DIR"
+	fi
+
+	echo "Syncing EP remote device files"
+	ep_remote_device_ssh_cmd "mkdir -p $EP_DIR"
+	$sync -e "$EP_SSH_CMD" -r $BUILD_DIR/* $EP_REMOTE_DEVICE:$EP_DIR
+	$sync -e "$EP_SSH_CMD" -r $PROJECT_ROOT/ci $EP_REMOTE_DEVICE:$EP_DIR
+	ep_remote_device_ssh_cmd "mkdir -p $EP_DIR/deps-prefix"
+	$sync -e "$EP_SSH_CMD" -r $DEPS_PREFIX/* $EP_REMOTE_DEVICE:$EP_DIR/deps-prefix
+	$sync -e "$EP_SSH_CMD" -r $EP_PREBUILT_BINARIES_SERVER:$EP_PREBUILT_BINARIES_PATH/* \
+		/tmp/ep_files
+	# The device never consumes the remote RDMA bundle; exclude it as in
+	# device_sync.
+	$sync -e "$EP_SSH_CMD" -r --exclude='rdma_remote' /tmp/ep_files/* \
+		$EP_REMOTE_DEVICE:$EP_DIR/ep_files
+	ep_remote_device_ssh_cmd "$EP_REMOTE_DEVICE_SUDO cp $EP_DIR/ep_files/hostname /usr/bin"
 }

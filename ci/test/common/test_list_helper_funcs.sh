@@ -215,6 +215,6 @@ function get_test_command()
 		esac
 	done
 	cmd="cd $test_dir &&
-	     $EP_DEVICE_SUDO $TEST_ENV_VARS_DYNAMIC $envs $exec_bin $args $extra_args"
+	     $EP_DEVICE_SUDO $envs $TEST_ENV_VARS_DYNAMIC $exec_bin $args $extra_args"
 	echo "$cmd"
 }

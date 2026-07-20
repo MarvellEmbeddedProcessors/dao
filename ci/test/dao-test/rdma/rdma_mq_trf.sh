@@ -40,6 +40,14 @@ function run_mq_test()
 	local server_max_conn=${10:-1000}
 	local skip_mbuf_opts=${11:-false}
 
+	# Optional single-case filter. Set MQ_TEST_FILTER to a test name
+	# (substring match) to run only matching case(s), e.g.
+	#   MQ_TEST_FILTER=Repeated_UD_SEND_SGE_Host_Server
+	if [[ -n "${MQ_TEST_FILTER:-}" && "$test_name" != *"$MQ_TEST_FILTER"* ]]; then
+		echo "Skipping $test_name (MQ_TEST_FILTER=$MQ_TEST_FILTER)"
+		return 0
+	fi
+
 	# Cleanup previous test state and reconfigure before each test
 	cleanup_stuck_processes
 	rdma_tests_cleanup

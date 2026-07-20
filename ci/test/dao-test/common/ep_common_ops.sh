@@ -164,6 +164,14 @@ function ep_common_if_name_get()
 {
 	local pcie_addr=$1
 
+	# Without a PCI address, an empty grep pattern matches every netdev
+	# (including unrelated NICs such as Mellanox), so refuse to guess. This
+	# also keeps DPU-to-DPU discovery from ever picking a Mellanox interface
+	# when an octep RDMA VF lookup returns empty.
+	if [[ -z $pcie_addr ]]; then
+		return 0
+	fi
+
 	set +e
 	grep PCI_SLOT_NAME /sys/class/net/*/device/uevent | grep $pcie_addr | \
 		awk -F '/' '{print $5}'

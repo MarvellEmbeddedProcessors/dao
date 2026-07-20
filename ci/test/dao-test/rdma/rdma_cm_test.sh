@@ -72,4 +72,12 @@ function rdma_cm_test()
 
 	return 0
 }
+# rdma_cm_test drives udaddy over rdma_cm. rdma_cm selects a RoCE v1 GID on
+# the octep_rdma path, which it cannot use as a CM client; in DPU-to-DPU mode
+# both ends are octep_rdma so CM cannot establish. Skip in that mode.
+if [[ -n "${EP_REMOTE_DEVICE:-}" ]]; then
+	echo "DPU-to-DPU mode: skipping rdma_cm_test (udaddy over rdma_cm unsupported on octep<->octep)"
+	exit 77
+fi
+
 test_run ${DAO_TEST} 2

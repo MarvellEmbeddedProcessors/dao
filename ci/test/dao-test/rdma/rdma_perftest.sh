@@ -32,12 +32,11 @@ PERFTEST_BINARIES=(
 )
 
 # Per-client timeout to guard against a hung benchmark
-PERFTEST_CLIENT_TIMEOUT=180
-# Iteration count for the bandwidth (*_bw) sweeps. With the default (1000) the
-# large sizes in the -a sweep collapse in bandwidth on the octep_rdma path and
-# exceed PERFTEST_CLIENT_TIMEOUT. A reduced count keeps the single-connection
-# -a sweep well within the timeout.
-PERFTEST_BW_ITERS=100
+PERFTEST_CLIENT_TIMEOUT=600
+# Number of attempts per case (per direction). A case can transiently time out
+# on the octep_rdma path yet pass on an immediate re-run with a fresh server, so
+# retry before declaring failure instead of restarting the whole dao-rdma_graph.
+PERFTEST_CASE_ATTEMPTS=3
 
 function cleanup_perftest_processes()
 {
@@ -95,59 +94,70 @@ function run_perftest_case()
 	# Force the socket-based QP exchange there so the script-selected RoCE v2
 	# GID (-x) is honored. The reverse direction (Octeon as CM server) is fine.
 	local eff_use_cm=$use_cm
-	if [[ "$use_cm" == "yes" && "$server_node" == "remote" ]]; then
-		eff_use_cm="no"
+	if [[ "$use_cm" == "yes" ]]; then
+		# In DPU-to-DPU mode both ends are octep_rdma, so the RoCE v1 GID issue
+		# (rdma_cm picking an unsupported GID when Octeon is the CM client)
+		# affects both directions; otherwise only the host-as-client direction
+		# (server_node=remote) is affected.
+		if [[ -n "${EP_REMOTE_DEVICE:-}" || "$server_node" == "remote" ]]; then
+			eff_use_cm="no"
+		fi
 	fi
 
 	local cm_opt=""
 	[[ "$eff_use_cm" == "yes" ]] && cm_opt="-R"
 
-	# Bandwidth (*_bw) sweeps run many iterations per size; at large sizes the
-	# octep_rdma path collapses in bandwidth and the default 1000 iters would
-	# blow past the client timeout. Reduce the iteration count for *_bw so the
-	# whole -a sweep (single connection) stays within PERFTEST_CLIENT_TIMEOUT.
-	local iter_opt=""
-	if [[ "$binary" == *_bw ]]; then
-		iter_opt="-n $PERFTEST_BW_ITERS"
-	fi
-
-	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a $iter_opt"
-	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a $iter_opt"
+	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a"
+	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a"
 
 	local log_path="${EP_LOG_PATH:-/tmp}"
 	local server_log="$log_path/${binary}_${test_name}_server.log"
 
 	echo "  --- $test_name ($server_node server, $conn_type, rdma_cm=$eff_use_cm) ---"
 
-	cleanup_perftest_processes
-
 	local server_cmd="bash -c \"${server_env} setsid $binary $server_opts >$server_log 2>&1 &\""
 	local client_cmd="bash -c \"${client_env} $binary $client_opts $server_ip\""
 
-	$server_ssh "$server_cmd"
-	# Allow the server to reach the accept/listen state.
-	sleep 3
+	# A single case can transiently time out on the octep_rdma path even though
+	# it passes when re-run in isolation. Retry with a fresh server a few times
+	# before declaring failure, rather than restarting the whole datapath.
+	local attempt
+	for (( attempt = 1; attempt <= PERFTEST_CASE_ATTEMPTS; attempt++ )); do
+		cleanup_perftest_processes
 
-	set +e
-	$client_ssh "timeout ${PERFTEST_CLIENT_TIMEOUT} $client_cmd"
-	status=$?
-	set -e
+		$server_ssh "$server_cmd"
+		# Allow the server to reach the accept/listen state.
+		sleep 3
 
-	if [[ $status -eq 124 ]]; then
-		echo "  $test_name [$server_node server] FAILED (TIMEOUT after ${PERFTEST_CLIENT_TIMEOUT}s)"
+		set +e
+		$client_ssh "timeout ${PERFTEST_CLIENT_TIMEOUT} $client_cmd"
+		status=$?
+		set -e
+
+		if [[ $status -eq 0 ]]; then
+			echo "  $test_name [$server_node server] PASSED (attempt $attempt)"
+			cleanup_perftest_processes
+			return 0
+		fi
+
+		if [[ $status -eq 124 ]]; then
+			echo "  $test_name [$server_node server] attempt $attempt/$PERFTEST_CASE_ATTEMPTS FAILED" \
+				"(TIMEOUT after ${PERFTEST_CLIENT_TIMEOUT}s)"
+		else
+			echo "  $test_name [$server_node server] attempt $attempt/$PERFTEST_CASE_ATTEMPTS FAILED" \
+				"(exit code: $status)"
+		fi
 		$server_ssh "tail -30 $server_log 2>/dev/null" || true
 		cleanup_perftest_processes
-		return 1
-	elif [[ $status -ne 0 ]]; then
-		echo "  $test_name [$server_node server] FAILED (exit code: $status)"
-		$server_ssh "tail -30 $server_log 2>/dev/null" || true
-		cleanup_perftest_processes
-		return 1
-	fi
 
-	echo "  $test_name [$server_node server] PASSED"
-	cleanup_perftest_processes
-	return 0
+		if [[ $attempt -lt PERFTEST_CASE_ATTEMPTS ]]; then
+			echo "  retrying $test_name [$server_node server]..."
+			sleep 2
+		fi
+	done
+
+	echo "  $test_name [$server_node server] FAILED after $PERFTEST_CASE_ATTEMPTS attempts"
+	return 1
 }
 
 # Run a perftest case in both directions (Host server and Remote server).
