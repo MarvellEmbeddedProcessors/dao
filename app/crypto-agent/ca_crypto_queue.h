@@ -8,6 +8,7 @@
 #include <rte_common.h>
 #include <rte_cryptodev.h>
 #include <rte_mbuf.h>
+#include <rte_ring.h>
 
 #include <dao_liquid_crypto.h>
 #include <dao_util.h>
@@ -69,12 +70,21 @@ struct __rte_aligned(ROC_ALIGN) comp_dev_inflight_req
 
 DAO_STATIC_ASSERT(sizeof(struct comp_dev_inflight_req) == 128);
 
+struct comp_dev_inflight_queue {
+	/** Per port/queue compress request ring */
+	struct rte_ring *comp_req_ring;
+	/** Per port/queue compress response ring */
+	struct rte_ring *comp_resp_ring;
+	/** Pending compress dev requests (array in same memzone) */
+	struct comp_dev_inflight_req *reqs;
+};
+
 struct pending_queue {
 	union {
 		/** Array of pending CPT requests */
 		struct cpt_inflight_req *cpt_req_queue;
 		/** Array of pending compress dev requests */
-		struct comp_dev_inflight_req *compdev_req_queue;
+		struct comp_dev_inflight_queue *compdev_infl_queue;
 	};
 	/** Head of the queue to be used for enqueue */
 	uint64_t head;

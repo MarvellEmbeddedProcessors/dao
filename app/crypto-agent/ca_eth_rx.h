@@ -47,8 +47,8 @@ cpt_inst_init(struct cpt_inflight_req *infl_req, struct cpt_inst_s *inst)
 
 static inline void
 process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *pq,
-	     struct rte_pmd_cnxk_crypto_qptr *cpt_qptr, struct dev_desc_cnt *desc_cnt,
-	     const bool compdev_enabled)
+	     struct pending_queue *compdev_pq, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
+	     struct dev_desc_cnt *desc_cnt, const bool compdev_enabled)
 {
 	struct cpt_inst_s inst[CA_ETHDEV_RX_BURST];
 	struct cpt_inflight_req *infl_req = NULL;
@@ -62,7 +62,6 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	uint64_t ctrl_word_be;
 	union cpt_inst_w4 w4;
 	uint64_t ctrl_word;
-	uint8_t lcore_id;
 	uint16_t exp_len;
 	uint64_t head;
 	int rc = 0;
@@ -330,10 +329,14 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 		case DAO_ETH_TRS_OP_TYPE_COMPRESS:
 		case DAO_ETH_TRS_OP_TYPE_DECOMPRESS:
 			if (compdev_enabled) {
-				lcore_id = rte_lcore_id();
-				rte_ring_enqueue(
-					ca_glb_ctx.compdev_ctx[lcore_id].comp_req_ring[lcore_id],
-					rx_pkts[pkt_id]);
+				rc = rte_ring_enqueue(compdev_pq->compdev_infl_queue->comp_req_ring,
+						      rx_pkts[pkt_id]);
+				if (unlikely(rc != 0)) {
+					CA_ERR("Failed to enqueue compress request port %u queue %u",
+					       compdev_pq->eth_port_id, compdev_pq->eth_queue_id);
+					rte_pktmbuf_free(rx_pkts[pkt_id]);
+					break;
+				}
 				desc_cnt->comp_req_ring_enq_cnt++;
 			} else {
 				infl_req = &pq->cpt_req_queue[head];
@@ -449,8 +452,8 @@ static inline uint16_t
 ca_eth_rx(struct lcore_conf *lconf, int pq_id, struct rte_pmd_cnxk_crypto_qptr *cpt_qptr,
 	  struct dev_desc_cnt *desc_cnt, const bool compdev_enabled)
 {
+	struct pending_queue *cpt_pq, *compdev_pq = NULL;
 	uint16_t nb_cpt_pq_avail, nb_compdev_pq_avail;
-	struct pending_queue *cpt_pq, *compdev_pq;
 	struct rte_mbuf *mb[CA_ETHDEV_RX_BURST];
 	uint16_t nb_rx, port_id, queue_id;
 
@@ -484,7 +487,7 @@ ca_eth_rx(struct lcore_conf *lconf, int pq_id, struct rte_pmd_cnxk_crypto_qptr *
 		if (nb_rx == 0)
 			return 0;
 #endif /* CA_DEBUG_ENABLE_CPT_BYPASS_REFLECT */
-		process_pkts(mb, nb_rx, cpt_pq, cpt_qptr, desc_cnt, compdev_enabled);
+		process_pkts(mb, nb_rx, cpt_pq, compdev_pq, cpt_qptr, desc_cnt, compdev_enabled);
 	}
 
 	return nb_rx;

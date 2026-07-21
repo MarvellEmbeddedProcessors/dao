@@ -3,7 +3,9 @@
  */
 
 #include <rte_ethdev.h>
+#include <rte_malloc.h>
 #include <rte_mempool.h>
+#include <rte_ring.h>
 #include <rte_thash.h>
 
 #include "ca_admin.h"
@@ -21,16 +23,23 @@
 
 static struct ca_eth_dev_queue_lcore_map eth_map[CA_MAX_LCORE];
 extern struct lcore_conf lcore_conf[CA_MAX_LCORE];
+extern uint32_t compdev_desc_cnt;
+extern bool is_compdev_enabled;
 
 /* Forward declarations */
 
 static void ca_eth_flow_clear(uint8_t port_id);
 static int ca_eth_flow_create(uint8_t port_id, uint16_t nb_queue);
+static int comp_dev_rings_create(struct pending_queue *pq, uint8_t port_id, uint16_t qp_id,
+				 unsigned int ring_size);
+static void comp_dev_rings_destroy(struct pending_queue *pq, bool free_infl_queue);
 
 struct pair {
 	uint8_t port;
 	uint16_t q;
 };
+
+static void comp_dev_ring_map_destroy(const struct pair *pairs, uint32_t nb_pairs);
 
 int
 ca_eth_lcore_map_init(void)
@@ -38,6 +47,7 @@ ca_eth_lcore_map_init(void)
 	uint8_t main_lcore = rte_get_main_lcore();
 	uint16_t nb_queue_list[RTE_MAX_ETHPORTS];
 	uint8_t port_id_list[RTE_MAX_ETHPORTS];
+	struct pending_queue *compdev_pq;
 	uint8_t worker_ids[CA_MAX_LCORE];
 	struct ca_eth_dev_ctx *eth_ctx;
 	uint32_t idx, k, total_pairs = 0;
@@ -47,6 +57,7 @@ ca_eth_lcore_map_init(void)
 	uint16_t p, q, min_q, max_q;
 	struct pair *pairs;
 	uint32_t wid, li, l;
+	int rc;
 
 	for (lc = 0; lc < CA_MAX_LCORE; lc++) {
 		if (!rte_lcore_is_enabled(lc))
@@ -75,6 +86,9 @@ ca_eth_lcore_map_init(void)
 	}
 
 	memset(eth_map, 0, sizeof(eth_map));
+
+	if (is_compdev_enabled && ca_glb_ctx.nb_compdevs > 0)
+		comp_dev_ring_map_init();
 
 	min_q = UINT16_MAX;
 	for (d = 0; d < nb_eth_dev; d++)
@@ -107,12 +121,44 @@ ca_eth_lcore_map_init(void)
 		li = eth_map[wid].nb_links;
 		if (li >= CA_MAX_QUEUE_PER_CORE) {
 			CA_ERR("Capacity exceeded on lcore %u", wid);
+			if (is_compdev_enabled)
+				comp_dev_ring_map_destroy(pairs, k);
 			free(pairs);
 			return -E2BIG;
 		}
 		eth_map[wid].link[li].port_id = pairs[k].port;
 		eth_map[wid].link[li].queue_id = pairs[k].q;
 		eth_map[wid].nb_links++;
+
+		if (!is_compdev_enabled)
+			continue;
+
+		eth_ctx = ca_eth_dev_ctx_get(pairs[k].port);
+		if (eth_ctx == NULL) {
+			CA_ERR("Could not get ethdev context for port %u", pairs[k].port);
+			rc = -ENODEV;
+			goto cleanup_pair;
+		}
+
+		compdev_pq = &eth_ctx->compdev_pq[pairs[k].q];
+		compdev_pq->eth_port_id = pairs[k].port;
+		compdev_pq->eth_queue_id = pairs[k].q;
+
+		if (compdev_pq->compdev_infl_queue != NULL &&
+		    compdev_pq->compdev_infl_queue->comp_req_ring != NULL)
+			continue;
+
+		rc = comp_dev_rings_create(compdev_pq, pairs[k].port, pairs[k].q,
+					   CA_COMP_DEV_REQ_RING_SIZE);
+		if (rc) {
+			CA_ERR("Could not create compdev rings for port %u queue %u", pairs[k].port,
+			       pairs[k].q);
+			goto cleanup_pair;
+		}
+
+		rc = comp_dev_ring_map_add(compdev_pq);
+		if (rc)
+			goto cleanup_pair;
 	}
 	free(pairs);
 
@@ -134,12 +180,58 @@ ca_eth_lcore_map_init(void)
 	}
 
 	return 0;
+
+cleanup_pair:
+	if (is_compdev_enabled)
+		comp_dev_ring_map_destroy(pairs, k + 1);
+	free(pairs);
+	return rc;
 }
 
 void
 ca_eth_lcore_map_fini(void)
 {
+	struct ca_eth_dev_ctx *eth_ctx;
+	uint16_t i, j;
+
+	if (is_compdev_enabled) {
+		for (i = 0; i < CA_MAX_LCORE; i++) {
+			for (j = 0; j < eth_map[i].nb_links; j++) {
+				eth_ctx = ca_eth_dev_ctx_get(eth_map[i].link[j].port_id);
+				if (eth_ctx == NULL)
+					continue;
+				comp_dev_rings_destroy(
+					&eth_ctx->compdev_pq[eth_map[i].link[j].queue_id], true);
+			}
+		}
+
+		if (ca_glb_ctx.nb_compdevs > 0)
+			comp_dev_ring_map_fini();
+	}
+
 	memset(eth_map, 0, sizeof(eth_map));
+}
+
+static void
+comp_dev_ring_map_destroy(const struct pair *pairs, uint32_t nb_pairs)
+{
+	struct pending_queue *compdev_pq;
+	struct ca_eth_dev_ctx *eth_ctx;
+	uint32_t i;
+
+	if (pairs == NULL || nb_pairs == 0)
+		return;
+
+	for (i = 0; i < nb_pairs; i++) {
+		eth_ctx = ca_eth_dev_ctx_get(pairs[i].port);
+		if (eth_ctx == NULL)
+			continue;
+
+		compdev_pq = &eth_ctx->compdev_pq[pairs[i].q];
+		comp_dev_ring_map_remove(compdev_pq);
+		comp_dev_rings_destroy(compdev_pq, true);
+	}
+	comp_dev_ring_map_fini();
 }
 
 static int
@@ -381,9 +473,80 @@ ca_eth_dev_q_name_get(uint32_t dev_id, uint32_t qp_id, char *name, size_t len, c
 }
 
 static int
-pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
+comp_dev_rings_create(struct pending_queue *pq, uint8_t port_id, uint16_t qp_id,
+		      unsigned int ring_size)
+{
+	char name[RTE_RING_NAMESIZE];
+
+	if (pq->compdev_infl_queue == NULL) {
+		pq->compdev_infl_queue =
+			rte_zmalloc(NULL, sizeof(*pq->compdev_infl_queue), RTE_CACHE_LINE_SIZE);
+		if (pq->compdev_infl_queue == NULL) {
+			CA_ERR("Could not allocate compdev inflight queue for port %u queue %u",
+			       port_id, qp_id);
+			return -ENOMEM;
+		}
+	}
+
+	if (pq->compdev_infl_queue->comp_req_ring != NULL ||
+	    pq->compdev_infl_queue->comp_resp_ring != NULL)
+		comp_dev_rings_destroy(pq, false);
+
+	snprintf(name, sizeof(name), "ca_cdev_req_p%u_q%u", port_id, qp_id);
+	pq->compdev_infl_queue->comp_req_ring =
+		rte_ring_create(name, ring_size, SOCKET_ID_ANY, RING_F_SP_ENQ | RING_F_SC_DEQ);
+	if (pq->compdev_infl_queue->comp_req_ring == NULL) {
+		CA_ERR("Could not create compdev req ring for port %u queue %u", port_id, qp_id);
+		return -ENOMEM;
+	}
+
+	snprintf(name, sizeof(name), "ca_cdev_resp_p%u_q%u", port_id, qp_id);
+	pq->compdev_infl_queue->comp_resp_ring =
+		rte_ring_create(name, ring_size, SOCKET_ID_ANY, RING_F_SP_ENQ | RING_F_SC_DEQ);
+	if (pq->compdev_infl_queue->comp_resp_ring == NULL) {
+		CA_ERR("Could not create compdev resp ring for port %u queue %u", port_id, qp_id);
+		rte_ring_free(pq->compdev_infl_queue->comp_req_ring);
+		pq->compdev_infl_queue->comp_req_ring = NULL;
+		return -ENOMEM;
+	}
+
+	CA_DEBUG("Compdev req/resp rings (size %u) created for port %u queue %u", ring_size,
+		 port_id, qp_id);
+	return 0;
+}
+
+static void
+comp_dev_rings_destroy(struct pending_queue *pq, bool free_infl_queue)
+{
+	struct comp_dev_inflight_queue *comp_infl_q;
+
+	if (pq->compdev_infl_queue == NULL)
+		return;
+
+	comp_infl_q = pq->compdev_infl_queue;
+
+	if (comp_infl_q->comp_req_ring != NULL) {
+		rte_ring_free(comp_infl_q->comp_req_ring);
+		comp_infl_q->comp_req_ring = NULL;
+	}
+
+	if (comp_infl_q->comp_resp_ring != NULL) {
+		rte_ring_free(comp_infl_q->comp_resp_ring);
+		comp_infl_q->comp_resp_ring = NULL;
+	}
+
+	if (free_infl_queue) {
+		rte_free(comp_infl_q);
+		pq->compdev_infl_queue = NULL;
+	}
+}
+
+static int
+pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc, uint32_t compdev_nb_desc)
 {
 	const struct rte_memzone *cpt_pq_mem, *compdev_pq_mem;
+	struct comp_dev_inflight_queue *comp_infl_q;
+	struct rte_ring *req_ring, *resp_ring;
 	char name[RTE_MEMZONE_NAMESIZE];
 	struct pending_queue *pq;
 	uint16_t infl_req_size;
@@ -416,13 +579,26 @@ pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
 	pq->eth_port_id = port_id;
 	pq->eth_queue_id = qp_id;
 
-	/**
-	 * Compress device specific pending queue memory is allocated regardless of whether the
-	 * device is enabled or not. This is to avoid check in process_pkts function.
-	 */
+	if (!is_compdev_enabled)
+		return 0;
+
 	pq = &eth_ctx->compdev_pq[qp_id];
+	comp_infl_q = pq->compdev_infl_queue;
+	if (comp_infl_q != NULL) {
+		req_ring = comp_infl_q->comp_req_ring;
+		resp_ring = comp_infl_q->comp_resp_ring;
+	} else {
+		req_ring = NULL;
+		resp_ring = NULL;
+		comp_infl_q = rte_zmalloc(NULL, sizeof(*comp_infl_q), RTE_CACHE_LINE_SIZE);
+		if (comp_infl_q == NULL) {
+			CA_ERR("Could not allocate compdev inflight queue: %d, %d", port_id, qp_id);
+			rc = -ENOMEM;
+			goto cpt_pq_mem_free;
+		}
+	}
 	infl_req_size = sizeof(struct comp_dev_inflight_req);
-	len = nb_desc * infl_req_size;
+	len = compdev_nb_desc * infl_req_size;
 	ca_eth_dev_q_name_get(port_id, qp_id, name, sizeof(name), COMP_DEV);
 
 	compdev_pq_mem =
@@ -430,18 +606,25 @@ pq_init(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id, uint32_t nb_desc)
 	if (compdev_pq_mem == NULL) {
 		CA_ERR("Could not reserve memzone for pending queue: %d, %d", port_id, qp_id);
 		rc = -ENOMEM;
-		goto cpt_pq_mem_free;
+		goto comp_infl_q_free;
 	}
 	req_queue = compdev_pq_mem->addr;
 	memset(req_queue, 0, len);
+	comp_infl_q->reqs = req_queue;
 
 	memset(pq, 0, sizeof(struct pending_queue));
-	pq->compdev_req_queue = req_queue;
+	pq->compdev_infl_queue = comp_infl_q;
 	pq->pq_mask = (len / infl_req_size) - 1;
 	pq->eth_port_id = port_id;
 	pq->eth_queue_id = qp_id;
+	comp_infl_q->comp_req_ring = req_ring;
+	comp_infl_q->comp_resp_ring = resp_ring;
 
 	return 0;
+
+comp_infl_q_free:
+	if (comp_infl_q != pq->compdev_infl_queue)
+		rte_free(comp_infl_q);
 
 cpt_pq_mem_free:
 	rte_memzone_free(cpt_pq_mem);
@@ -452,7 +635,10 @@ cpt_pq_mem_free:
 static int
 pq_destroy(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id)
 {
+	struct comp_dev_inflight_queue *comp_infl_q;
 	char name[RTE_MEMZONE_NAMESIZE];
+	struct rte_ring *resp_ring;
+	struct rte_ring *req_ring;
 	uint16_t port_id;
 
 	port_id = eth_ctx->port_id;
@@ -467,7 +653,21 @@ pq_destroy(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id)
 
 	rte_memzone_free(rte_memzone_lookup(name));
 
-	memset(&eth_ctx->compdev_pq[qp_id], 0, sizeof(struct pending_queue));
+	if (is_compdev_enabled) {
+		comp_infl_q = eth_ctx->compdev_pq[qp_id].compdev_infl_queue;
+		if (comp_infl_q != NULL) {
+			req_ring = comp_infl_q->comp_req_ring;
+			resp_ring = comp_infl_q->comp_resp_ring;
+			comp_infl_q->reqs = NULL;
+			comp_infl_q->comp_req_ring = req_ring;
+			comp_infl_q->comp_resp_ring = resp_ring;
+		}
+
+		memset(&eth_ctx->compdev_pq[qp_id], 0, sizeof(struct pending_queue));
+		eth_ctx->compdev_pq[qp_id].compdev_infl_queue = comp_infl_q;
+		eth_ctx->compdev_pq[qp_id].eth_port_id = port_id;
+		eth_ctx->compdev_pq[qp_id].eth_queue_id = qp_id;
+	}
 
 	return 0;
 }
@@ -475,12 +675,12 @@ pq_destroy(struct ca_eth_dev_ctx *eth_ctx, uint16_t qp_id)
 int
 ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 {
+	uint32_t buf_len, compdev_nb_desc, pool_elements;
 	char name[RTE_MEMZONE_NAMESIZE];
 	struct ca_eth_dev_ctx *eth_ctx;
 	struct rte_eth_rxconf rx_conf;
 	struct rte_eth_txconf tx_conf;
 	struct rte_mempool *mp;
-	uint32_t buf_len;
 	int ret;
 
 	CA_INFO("Configuring QP: dev_id %u, qp_id %u", conf->dev_id, conf->qp_id);
@@ -551,7 +751,11 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		goto mp_free;
 	}
 
-	ret = pq_init(eth_ctx, conf->qp_id, conf->nb_desc);
+	compdev_nb_desc = RTE_MIN(compdev_desc_cnt, (uint32_t)CA_MAX_COMP_OPERATIONS);
+	compdev_nb_desc = rte_align32pow2(compdev_nb_desc);
+	compdev_nb_desc = RTE_MAX(compdev_nb_desc, (uint32_t)CA_CPT_MIN_QUEUE_DEPTH);
+
+	ret = pq_init(eth_ctx, conf->qp_id, conf->nb_desc, compdev_nb_desc);
 	if (ret) {
 		CA_ERR("Could not initialize CPT/Compress device PQ: %d, %d.", conf->dev_id,
 		       conf->qp_id);
@@ -572,12 +776,28 @@ ca_eth_dev_q_configure(struct dao_lc_eth_qconf *conf)
 		goto pq_free;
 	}
 
+	if (is_compdev_enabled && ca_glb_ctx.nb_compdevs > 0) {
+		pool_elements = compdev_nb_desc * ca_glb_ctx.nb_compdevs;
+		ret = host_dev_comp_dst_mbuf_pool_init(conf->max_seg_size, pool_elements);
+		if (ret) {
+			CA_ERR("Could not init comp dst mbuf pool (max_seg_size %u): %d, %d.",
+			       conf->max_seg_size, conf->dev_id, conf->qp_id);
+			goto pq_free;
+		}
+	}
+
 	eth_ctx->mtu = RTE_MAX(eth_ctx->mtu, conf->max_seg_size);
 
 	eth_ctx->init_q_mask |= (1 << conf->qp_id);
 
 	return 0;
 pq_free:
+	if (is_compdev_enabled && ca_glb_ctx.nb_compdevs > 0) {
+		comp_dev_ring_map_remove_quiesce(&eth_ctx->compdev_pq[conf->qp_id]);
+		comp_dev_rings_destroy(&eth_ctx->compdev_pq[conf->qp_id], false);
+	}
+
+	ca_eth_lcore_map_pq_remove(conf->dev_id, conf->qp_id);
 	pq_destroy(eth_ctx, conf->qp_id);
 
 mp_free:
@@ -1034,6 +1254,10 @@ ca_eth_lcore_map_link_clear(void)
 		/* Reset the packet counters */
 		lconf->rx_packets = 0;
 		lconf->tx_packets = 0;
+		lconf->comp_enq = 0;
+		lconf->comp_deq = 0;
+		lconf->comp_req_ring_enq = 0;
+		lconf->comp_resp_ring_deq = 0;
 	}
 
 	/* One publish point for all lcores */
