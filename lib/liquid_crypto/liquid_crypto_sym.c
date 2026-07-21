@@ -1088,6 +1088,7 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 {
 	struct dao_lc_sym_sess_meta *sess_meta;
 	enum lc_crypto_op_type op_type;
+	bool is_empty_buf_allowed;
 	int ret;
 
 	if (op == NULL) {
@@ -1102,10 +1103,17 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 
 	sess_meta = DAO_LC_SYM_META_GET_PTR(op->sess_id);
 	op_type = sess_meta->op_type;
+	is_empty_buf_allowed = lc_sym_op_is_empty_buf_allowed(op_type);
 
-	ret = lc_buf_validate(op->in_buffer, lc_sym_op_is_empty_buf_allowed(op_type));
+	ret = lc_buf_validate(op->in_buffer, is_empty_buf_allowed);
 	if (ret != 0) {
 		dao_err("Invalid input buffer.");
+		return ret;
+	}
+
+	ret = lc_out_buffer_validate(op, op_type, is_empty_buf_allowed);
+	if (ret != 0) {
+		dao_err("Invalid output buffer.");
 		return ret;
 	}
 
