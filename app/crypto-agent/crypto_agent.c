@@ -41,12 +41,14 @@ static pthread_t stats_thread;
 #endif
 
 static bool card_initialized;
-static bool is_compdev_enabled;
+bool is_compdev_enabled;
+uint32_t compdev_desc_cnt;
 
 static int host_dev_init(void);
 static int host_dev_fini(void);
 
 struct comp_dev_ring_map compdev_ring_map[CA_MAX_LCORE];
+struct pending_queue *compdev_pqs[CA_MAX_LCORE][MAX_RINGS_PER_CORE];
 
 static void
 signal_handler(int signum)
@@ -391,32 +393,28 @@ eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_
 	    struct lcore_conf *lconf, uint16_t cpt_allowed, uint16_t compdev_allowed,
 	    const bool compdev_enabled)
 {
-	uint8_t ring_count = 0, rings[MAX_RINGS_PER_CORE];
-	struct ca_cryptodev_ctx *cdev_ctx;
 	struct dev_desc_cnt desc_cnt = {0};
+	struct ca_compdev_ctx *compdev_ctx;
+	struct ca_cryptodev_ctx *cdev_ctx;
 	compdev_enq_fn enq_to_comp_dev;
 	uint16_t nb_pkts, nb_tx_pkts;
+	uint8_t pq_count = 0;
 	int i;
 
 	desc_cnt.cpt = cpt_allowed;
 
 	if (compdev_enabled) {
-		/**
-		 * Compress device ring flow:
-		 * Cores 1..23: enqueue requests to their comp_req_ring (in process_pkts).
-		 * Cores 1..nb_compdevs: drain req rings, dequeue from compress device, enqueue
-		 * completions to compdev_resp_ring by ring_id from infl_req.
-		 * Cores 1..23: dequeue from their resp ring and send to host.
-		 */
-		desc_cnt.compdev = compdev_allowed;
+		if (ca_is_compdev_consumer_core(lcore_id)) {
+			desc_cnt.compdev = compdev_allowed;
+			pq_count = CA_MAX_ETH_QUEUE;
+			enq_to_comp_dev = ca_enq_comp_req_ring_to_compdev;
+		} else {
+			desc_cnt.compdev = UINT16_MAX;
+			enq_to_comp_dev = ca_enq_comp_req_noop;
+		}
+
 		desc_cnt.comp_req_ring_enq_cnt = 0;
 		desc_cnt.compdev_deq_cnt = 0;
-		ring_count = get_rings_for_core(lcore_id, rings);
-		if (lcore_id >= CA_COMP_DEV_CONSUMER_CORE_START &&
-		    lcore_id <= CA_COMP_DEV_CONSUMER_CORE_END)
-			enq_to_comp_dev = ca_enq_comp_req_ring_to_compdev;
-		else
-			enq_to_comp_dev = ca_comp_dev_enq_noop;
 	}
 
 	while (!force_quit) {
@@ -428,6 +426,16 @@ eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_
 				cdev_ctx = &ca_glb_ctx.cryptodev_ctx[lcore_id];
 				/* Restore nb_allowed after soft reset */
 				desc_cnt.cpt = cdev_ctx->nb_allowed;
+
+				if (compdev_enabled) {
+					/* Restore compress device nb_allowed */
+					compdev_ctx = &ca_glb_ctx.compdev_ctx[lcore_id];
+					if (ca_is_compdev_consumer_core(lcore_id))
+						desc_cnt.compdev = compdev_ctx->nb_allowed;
+					else
+						desc_cnt.compdev = CA_COMP_DEV_INVALID_NB_DESC;
+				}
+
 				lconf->is_soft_reset = false;
 			}
 			rte_smp_rmb();
@@ -443,8 +451,10 @@ eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_
 			desc_cnt.cpt += nb_tx_pkts;
 
 			if (compdev_enabled) {
-				nb_pkts = enq_to_comp_dev(lconf->compdev_pq[i], ring_count, rings,
-							  &desc_cnt);
+				lconf->comp_req_ring_enq += desc_cnt.comp_req_ring_enq_cnt;
+				desc_cnt.comp_req_ring_enq_cnt = 0;
+				/* enq_to_comp_dev is noop for non compdev consumer cores */
+				nb_pkts = enq_to_comp_dev(pq_count, lcore_id, &desc_cnt);
 				lconf->comp_enq += nb_pkts;
 				lconf->comp_deq += desc_cnt.compdev_deq_cnt;
 				desc_cnt.compdev =
@@ -455,8 +465,6 @@ eth_rx_loop(int lcore_id, struct rte_rcu_qsbr *qsbr, struct rte_pmd_cnxk_crypto_
 					ca_deq_comp_resp_ring_send_to_host(lconf->compdev_pq[i]);
 				lconf->tx_packets += nb_tx_pkts;
 				lconf->comp_resp_ring_deq += nb_tx_pkts;
-				lconf->comp_req_ring_enq += desc_cnt.comp_req_ring_enq_cnt;
-				desc_cnt.comp_req_ring_enq_cnt = 0;
 			}
 		}
 	}
@@ -507,11 +515,13 @@ worker_thread(__rte_unused void *arg)
 		compdev_ctx = &ca_glb_ctx.compdev_ctx[lcore_id];
 		ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].compress_dev_pkt_hdlr =
 			process_compdev_pkt;
-		nb_compdev_allowed = compdev_ctx->nb_allowed;
-		if (nb_compdev_allowed == 0) {
-			CA_ERR("Invalid number of allowed descriptors for compress device on lcore: %d",
-			       lcore_id);
-			return -EINVAL;
+		if (ca_is_compdev_consumer_core(lcore_id)) {
+			nb_compdev_allowed = compdev_ctx->nb_allowed;
+			if (nb_compdev_allowed == 0) {
+				CA_ERR("Invalid number of allowed descriptors for compress device on lcore: %d",
+				       lcore_id);
+				return -EINVAL;
+			}
 		}
 	} else {
 		ca_glb_ctx.host_ctx[CA_LC_COMPRESS_DEV_ID].compress_dev_pkt_hdlr =
@@ -598,6 +608,10 @@ card_init(struct dao_card_config *config)
 		}
 	}
 
+	if (is_compdev_enabled) {
+		compdev_desc_cnt = config->crypto_nb_desc;
+		CA_INFO("Compress device queue depth (nb-desc): %u", compdev_desc_cnt);
+	}
 	ret = crypto_devs_validate();
 	if (ret) {
 		CA_ERR("Could not validate crypto devices");
@@ -631,7 +645,7 @@ card_init(struct dao_card_config *config)
 	}
 
 	if (is_compdev_enabled) {
-		ret = compress_devs_init(config->crypto_nb_desc);
+		ret = compress_devs_init(compdev_desc_cnt);
 		if (ret) {
 			CA_ERR("Could not initialize compress devices");
 			goto cdev_fini;
@@ -871,6 +885,16 @@ card_soft_reset(void)
 
 	CA_INFO("Successfully cleared all inflight requests during soft reset");
 
+	if (is_compdev_enabled) {
+		rc = ca_compdev_clear_inflight_reqs();
+		if (rc) {
+			CA_ERR("Failed to clear compress device inflight requests during soft reset");
+			return rc;
+		}
+
+		CA_INFO("Successfully cleared all compress device inflight requests during soft reset");
+	}
+
 	/* Clear eth RX queues again */
 	rc = ca_eth_rx_queue_clear_all(lconf_prev);
 	if (rc) {
@@ -1011,7 +1035,8 @@ host_dev_sess_mempool_init(uint8_t dev_id, uint32_t nb_sess)
 static int
 host_dev_init(void)
 {
-	uint16_t i, dev_id, nb_sess, nb_comp_op;
+	uint16_t i, dev_id, nb_sess;
+	uint32_t nb_comp_op;
 	int ret;
 
 	for (i = 0; i < CA_MAX_HOST_DEV; i++) {
@@ -1025,11 +1050,11 @@ host_dev_init(void)
 		}
 
 		if (is_compdev_enabled) {
-			nb_comp_op = CA_MAX_COMP_OPERATIONS;
+			nb_comp_op = CA_MAX_COMP_OPERATIONS * CA_COMP_DEV_MAX_VFS;
 
-			ret = host_dev_compressdev_pool_init(dev_id, nb_comp_op);
+			ret = host_dev_comp_op_pool_init(dev_id, nb_comp_op);
 			if (ret < 0) {
-				CA_ERR("Could not initialize compdev pool: %u", dev_id);
+				CA_ERR("Could not initialize compdev op pool: %u", dev_id);
 				rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
 				return ret;
 			}
@@ -1038,7 +1063,7 @@ host_dev_init(void)
 			if (ret < 0) {
 				CA_ERR("Could not create compress priv_xform");
 				rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
-				host_dev_compress_pools_fini(dev_id);
+				host_dev_comp_op_pool_fini(dev_id);
 				return ret;
 			}
 
@@ -1046,14 +1071,19 @@ host_dev_init(void)
 			if (ret < 0) {
 				CA_ERR("Could not create decompress priv_xform");
 				rte_mempool_free(ca_glb_ctx.host_ctx[i].sess_mempool);
-				host_dev_compress_pools_fini(dev_id);
+				host_dev_comp_op_pool_fini(dev_id);
 				compress_priv_xforms_fini();
 				return ret;
 			}
-			build_comp_dev_ring_map(compdev_ring_map, ca_glb_ctx.nb_compdevs);
 		}
 
 		ca_glb_ctx.nb_host_dev++;
+	}
+
+	if (is_compdev_enabled) {
+		ca_refresh_comp_dev_pqs();
+		for (i = 0; i < CA_MAX_LCORE; i++)
+			compdev_ring_map[i].nb_pqs = 0;
 	}
 
 	return 0;

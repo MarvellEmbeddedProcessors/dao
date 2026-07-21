@@ -72,6 +72,8 @@ struct ca_hostdev_ctx {
 	struct rte_mempool *comp_op_mempool;
 	/* Pool for destination mbufs for compress operations */
 	struct rte_mempool *comp_dst_mbuf_pool;
+	/* Data room size of buffers in comp_dst_mbuf_pool */
+	uint32_t comp_dst_mbuf_size;
 	/* Function pointer to compress device packet handler */
 	int (*compress_dev_pkt_hdlr)(struct dao_eth_trs_pkt *pkt, struct rte_mbuf *mb,
 				     struct comp_dev_inflight_req *infl_req,
@@ -103,9 +105,6 @@ struct ca_compdev_ctx {
 	 * algorithm.
 	 */
 	void *decomp_priv_xform;
-	/** Per-lcore compress request / response rings (indexed by lcore id). */
-	struct rte_ring *comp_req_ring[CA_MAX_LCORE];
-	struct rte_ring *comp_resp_ring[CA_MAX_LCORE];
 };
 
 struct ca_global_ctx {
