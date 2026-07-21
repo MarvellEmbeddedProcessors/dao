@@ -27,6 +27,7 @@
 #define CMD_LINE_OPT_DMA_NB_DESC        "dma-nb-desc"
 #define CMD_LINE_OPT_DISABLE_CC         "disable-cc"
 #define CMD_LINE_OPT_ENABLE_TERMINATION "enable-termination"
+#define CMD_LINE_OPT_ENABLE_PFC         "enable-pfc"
 
 static const char short_options[] = "p:" /* portmask */
 				    "P"  /* promiscuous */
@@ -52,6 +53,7 @@ enum {
 	CMD_LINE_OPT_PARSE_DMA_NB_DESC,
 	CMD_LINE_OPT_PARSE_DISABLE_CC,
 	CMD_LINE_OPT_PARSE_ENABLE_TERMINATION,
+	CMD_LINE_OPT_PARSE_ENABLE_PFC,
 };
 
 enum fld_type {
@@ -74,6 +76,7 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_DMA_NB_DESC, 1, 0, CMD_LINE_OPT_PARSE_DMA_NB_DESC},
 	{CMD_LINE_OPT_DISABLE_CC, 0, 0, CMD_LINE_OPT_PARSE_DISABLE_CC},
 	{CMD_LINE_OPT_ENABLE_TERMINATION, 0, 0, CMD_LINE_OPT_PARSE_ENABLE_TERMINATION},
+	{CMD_LINE_OPT_ENABLE_PFC, 1, 0, CMD_LINE_OPT_PARSE_ENABLE_PFC},
 	{NULL, 0, 0, 0}};
 
 /* display usage */
@@ -104,7 +107,8 @@ rdma_print_usage(const char *prgname)
 		"  --dma-flush-thr N : DMA flush threshold per vchan (1-15, default from library)\n"
 		"  --dma-nb-desc N   : DMA vchan ring descriptors (default 32768)\n\n"
 		"  --disable-cc      : Disable RDMA congestion control (ECN/CNP)\n\n"
-		"  --enable-termination : Enable termination mode\n\n",
+		"  --enable-termination : Enable termination mode\n\n"
+		"  --enable-pfc \"class <N>,pause_time <T>\" : Enable PFC (class 0-7, pause_time 1-65535)\n\n",
 		prgname);
 }
 
@@ -284,6 +288,8 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 	cfg_prm->dma_nb_desc = 32768; /* default */
 	cfg_prm->disable_cc = false;
 	cfg_prm->termination_enabled = false;
+	cfg_prm->pfc_tc = -1;
+	cfg_prm->pfc_pause_time = 0xFFFF;
 	while ((opt = getopt_long(argc, argvopt, short_options, lgopts, &option_index)) != EOF) {
 		switch (opt) {
 		/* portmask */
@@ -412,6 +418,40 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 		case CMD_LINE_OPT_PARSE_ENABLE_TERMINATION:
 			cfg_prm->termination_enabled = true;
 			break;
+		case CMD_LINE_OPT_PARSE_ENABLE_PFC: {
+			long prio = -1, pt = 0xFFFF;
+			char buf[128];
+			char *split, *ptr;
+
+			rte_strlcpy(buf, optarg, sizeof(buf));
+			for (split = strtok_r(buf, ",", &ptr); split;
+			     split = strtok_r(NULL, ",", &ptr)) {
+				while (*split == ' ')
+					split++;
+				if (sscanf(split, "class %ld", &prio) == 1)
+					continue;
+				if (sscanf(split, "pause_time %ld", &pt) == 1)
+					continue;
+				dao_err("Unknown PFC parameters: %s", split);
+				rdma_print_usage(prgname);
+				return -1;
+			}
+			if (prio < 0 || prio > 7) {
+				dao_err("enable-pfc: class must be in 0-7 range");
+				rdma_print_usage(prgname);
+				return -1;
+			}
+			if (pt < 1 || pt > 65535) {
+				dao_err("enable-pfc: pause_time must be in 1-65535 range");
+				rdma_print_usage(prgname);
+				return -1;
+			}
+			cfg_prm->pfc_tc = (int8_t)prio;
+			cfg_prm->pfc_pause_time = (uint16_t)pt;
+			dao_info("PFC enabled: class %d, pause_time %u", cfg_prm->pfc_tc,
+				 cfg_prm->pfc_pause_time);
+			break;
+		}
 		default:
 			rdma_print_usage(prgname);
 			return -1;

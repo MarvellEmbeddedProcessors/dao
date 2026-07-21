@@ -42,18 +42,22 @@ static uint8_t nb_rx_queue;
 uint16_t nb_rxd = RDMA_RX_DESC_DEFAULT;
 uint16_t nb_txd = RDMA_TX_DESC_DEFAULT;
 static struct rte_eth_conf port_conf = {
-	.rxmode = {
-		.mq_mode = RTE_ETH_MQ_RX_RSS,
-		//		.offloads = 0x00080000,
-		.offloads = RTE_ETH_RX_OFFLOAD_RSS_HASH | RTE_ETH_RX_OFFLOAD_SCATTER,
-	},
-	.rx_adv_conf = {
-		.rss_conf = {
-			.rss_key = rss_key,
-			.rss_key_len = sizeof(rss_key),
-			.rss_hf = RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP,
+	.rxmode =
+		{
+			.mq_mode = RTE_ETH_MQ_RX_RSS,
+			//		.offloads = 0x00080000,
+			.offloads = RTE_ETH_RX_OFFLOAD_RSS_HASH | RTE_ETH_RX_OFFLOAD_SCATTER,
 		},
-	},
+	.rx_adv_conf =
+		{
+			.rss_conf =
+				{
+					.rss_key = rss_key,
+					.rss_key_len = sizeof(rss_key),
+					.rss_hf =
+						RTE_ETH_RSS_IP | RTE_ETH_RSS_TCP | RTE_ETH_RSS_UDP,
+				},
+		},
 };
 
 static void
@@ -97,10 +101,8 @@ check_all_ports_link_status(struct rdma_main_cfg_data *rdma_main_cfg)
 			}
 			/* print link status if flag set */
 			if (print_flag == 1) {
-				rte_eth_link_to_str(
-					link_status_text,
-					sizeof(link_status_text),
-					&link);
+				rte_eth_link_to_str(link_status_text, sizeof(link_status_text),
+						    &link);
 				dao_info("Port %d %s", portid, link_status_text);
 				continue;
 			}
@@ -708,6 +710,45 @@ rdma_ethdev_init(struct rdma_main_cfg_data *rdma_main_cfg)
 		rc = eth_rx_queue_setup(rdma_main_cfg, lcore_id);
 		if (rc)
 			DAO_ERR_GOTO(rc, fail, "Failed to setup RX queue for lcore %d", lcore_id);
+	}
+
+	if (cfg_prm->pfc_tc >= 0) {
+		RTE_ETH_FOREACH_DEV(portid) {
+			struct rte_eth_pfc_queue_conf pfc_conf;
+			struct rte_eth_dev_info pfc_dev_info;
+			struct rte_eth_fc_conf fc_off;
+			uint16_t queue;
+
+			memset(&fc_off, 0, sizeof(fc_off));
+			fc_off.mode = RTE_ETH_FC_NONE;
+			rc = rte_eth_dev_flow_ctrl_set(portid, &fc_off);
+			if (rc < 0)
+				rte_exit(EXIT_FAILURE,
+					 "Port %u: failed to disable flow control (%d): %s\n",
+					 portid, rc, rte_strerror(-rc));
+
+			rc = rte_eth_dev_info_get(portid, &pfc_dev_info);
+			if (rc < 0)
+				rte_exit(EXIT_FAILURE, "Port %u: dev_info_get failed (%d)\n",
+					 portid, rc);
+
+			for (queue = 0; queue < pfc_dev_info.nb_rx_queues; queue++) {
+				memset(&pfc_conf, 0, sizeof(pfc_conf));
+				pfc_conf.mode = RTE_ETH_FC_TX_PAUSE;
+				pfc_conf.tx_pause.rx_qid = queue;
+				pfc_conf.tx_pause.tc = cfg_prm->pfc_tc;
+				pfc_conf.tx_pause.pause_time = cfg_prm->pfc_pause_time;
+
+				rc = rte_eth_dev_priority_flow_ctrl_queue_configure(portid,
+										    &pfc_conf);
+				if (rc < 0)
+					rte_exit(EXIT_FAILURE,
+						 "Port %u queue%u: PFC config failed (%d): %s\n",
+						 portid, queue, rc, rte_strerror(-rc));
+			}
+			dao_info("Port %u: PFC enabled on TC %d for %u RX queues", portid,
+				 cfg_prm->pfc_tc, pfc_dev_info.nb_rx_queues);
+		}
 	}
 
 	/* Start ports */

@@ -58,6 +58,10 @@ typedef struct rdma_config_param {
 	bool termination_enabled;
 	/* secondary stream id */
 	uint8_t sec_strm_id;
+	/* PFC priority class */
+	int8_t pfc_tc;
+	/* PFC pause time */
+	uint16_t pfc_pause_time;
 } rdma_config_param_t;
 
 /* display usage */
