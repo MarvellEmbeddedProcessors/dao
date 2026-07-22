@@ -80,17 +80,21 @@ int cpt_ae_rsa_oaep_label_len_check(uint8_t *label, uint16_t label_len);
 
 int cpt_ae_rsa_oaep_hash_type_check(enum dao_lc_hash_type hash_type);
 
-int cpt_ae_rsa_oaep_get_hash_len(enum dao_lc_hash_type hash_type);
+int cpt_ae_rsa_pad_scheme_get_hash_len(enum dao_lc_hash_type hash_type);
 
 int cpt_ae_rsa_oaep_label_validate(uint8_t *label, uint16_t label_len);
 
 int cpt_ae_rsa_oaep_msg_len_max(uint16_t mod_len, enum dao_lc_hash_type hash_type);
 
-int cpt_ae_rsa_oaep_mod_len_check(uint16_t mod_len, bool is_crt);
+int cpt_ae_rsa_pad_scheme_mod_len_check(uint16_t mod_len, bool is_crt);
 
 int cpt_ae_modex_msg_len_check(uint16_t mod_len, uint16_t msg_len);
 
 int cpt_ae_modex_input_validate(const uint8_t *in, uint16_t in_len, const uint8_t *mod,
 				uint16_t mod_len);
+int cpt_ae_rsa_pss_salt_and_mod_len_check(uint16_t mod_len, enum dao_lc_hash_type hash_type,
+					  uint16_t salt_len);
+
+int cpt_ae_rsa_pss_salt_validate(const uint8_t *salt, uint16_t salt_len);
 
 #endif /* __LIQUID_CRYPTO_ASYM_H__ */

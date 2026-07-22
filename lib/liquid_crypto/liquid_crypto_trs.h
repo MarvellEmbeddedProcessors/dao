@@ -44,9 +44,9 @@ struct __rte_packed_begin __dao_lc_req_asym {
 	enum lc_crypto_op_type op_type;
 	uint64_t w4;
 	union {
-		/* Used for OAEP Encode */
+		/* Used for RSA PAD SCHEME Encode */
 		uint16_t exp_len;
-		/* Used for OAEP Decode */
+		/* Used for RSA PAD SCHEME Decode */
 		uint16_t hash_type;
 	};
 	uint8_t dptr[];

@@ -847,6 +847,42 @@ dao_liquid_crypto_dev_stop(uint8_t dev_id)
 }
 
 static inline int
+cpt_ae_rsa_pss_max_msg_len_check(uint16_t msg_len)
+{
+	if (msg_len > DAO_LC_RSA_PSS_MAX_MSG_LEN) {
+		dao_err("Invalid message length. msg_len=%u (maximum allowed: %u).", msg_len,
+			DAO_LC_RSA_PSS_MAX_MSG_LEN);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline int
+cpt_ae_rsa_pss_salt_len_max_validate(uint16_t salt_len)
+{
+	if (salt_len > DAO_LC_RSA_PSS_MAX_SALT_LEN) {
+		dao_err("Invalid salt length. salt_len=%u (maximum allowed: %u).", salt_len,
+			DAO_LC_RSA_PSS_MAX_SALT_LEN);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline int
+cpt_ae_rsa_pss_mod_len_max_validate(uint16_t mod_len)
+{
+	if (mod_len > DAO_LC_RSA_PSS_MAX_MOD_LEN) {
+		dao_err("Invalid modulus length. mod_len=%u (maximum allowed: %u).", mod_len,
+			DAO_LC_RSA_PSS_MAX_MOD_LEN);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+static inline int
 cpt_ae_rsa_oaep_label_len_validate(uint16_t label_len)
 {
 	if (label_len > DAO_LC_RSA_OAEP_MAX_LABEL_LEN) {
@@ -1151,7 +1187,7 @@ dao_liquid_crypto_seg_size_calc(struct dao_lc_feature_params *params)
 				return 0;
 			}
 
-			rc = cpt_ae_rsa_oaep_mod_len_check(params->rsa_oaep.mod_len, false);
+			rc = cpt_ae_rsa_pad_scheme_mod_len_check(params->rsa_oaep.mod_len, false);
 			if (rc != 0) {
 				dao_err("Invalid %d RSA-OAEP modulus length.",
 					params->rsa_oaep.mod_len);
@@ -2702,6 +2738,41 @@ idx_put:
 }
 
 static inline void
+dao_lc_post_process_asym_rsa_pad_scheme(struct liquid_crypto_cpt_inflight_req *req,
+					struct dao_lc_res *res, struct rte_mbuf *mbuf)
+{
+	struct __dao_lc_resp_asym *resp;
+
+	resp = rte_pktmbuf_mtod(mbuf, struct __dao_lc_resp_asym *);
+	memcpy(&res->res, &resp->res, sizeof(union dao_cpt_res_s));
+
+	res->rsa.data_out_len = 0;
+
+	switch (req->op_type) {
+	case LC_ASYM_RSA_PSS_VERIFY:
+		/* The first stage of the RSA‑PSS verification process returns only
+		 * when an error occurs in the PSS padding scheme.
+		 */
+		break;
+	case LC_ASYM_RSA_OAEP_ENCRYPT:
+	case LC_ASYM_RSA_OAEP_DECRYPT:
+	case LC_ASYM_RSA_PSS_SIGN:
+		if (resp->status_flags & DAO_FLAG_FINAL_STAGE_DONE) {
+			res->rsa.data_out_len = resp->res.cn9k.reserved_17_63;
+			memcpy((uint8_t *)req->data_out, resp->rptr, resp->res.cn9k.reserved_17_63);
+		} else {
+			dao_err("Final stage not done for RSA padding scheme operation type: %d",
+				req->op_type);
+		}
+		break;
+	default:
+		dao_err("Unsupported RSA padding scheme operation type: %d", req->op_type);
+		rte_errno = EINVAL;
+		return;
+	}
+}
+
+static inline void
 dao_lc_post_process_pqc(struct liquid_crypto_cpt_inflight_req *req, struct dao_lc_res *res,
 			struct rte_mbuf *mbuf)
 {
@@ -3805,10 +3876,16 @@ dao_liquid_crypto_dequeue_burst(uint8_t dev_id, uint16_t qp_id, struct dao_lc_re
 			dao_lc_post_process_rng(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_ENC:
-			dao_lc_post_process_asym(cpt_req, &res[i], mbuf);
+			dao_lc_post_process_asym_rsa_pad_scheme(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
-			dao_lc_post_process_asym(cpt_req, &res[i], mbuf);
+			dao_lc_post_process_asym_rsa_pad_scheme(cpt_req, &res[i], mbuf);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_SIGN:
+			dao_lc_post_process_asym_rsa_pad_scheme(cpt_req, &res[i], mbuf);
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_VERIFY:
+			dao_lc_post_process_asym_rsa_pad_scheme(cpt_req, &res[i], mbuf);
 			break;
 		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
 			dao_lc_post_process_pqc(cpt_req, &res[i], mbuf);
@@ -4881,7 +4958,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 	if (rc != 0)
 		return rc;
 
-	rc = cpt_ae_rsa_oaep_mod_len_check(mod_len, false);
+	rc = cpt_ae_rsa_pad_scheme_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
 
@@ -5096,7 +5173,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_exp_dec(uint8_t dev_id, uint16_t qp_id, ui
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_oaep_mod_len_check(mod_len, false);
+	rc = cpt_ae_rsa_pad_scheme_mod_len_check(mod_len, false);
 	if (rc != 0)
 		return rc;
 
@@ -5305,11 +5382,6 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id, ui
 		return -EINVAL;
 	}
 
-	if (q == NULL || dQ == NULL || p == NULL || dP == NULL || qInv == NULL) {
-		dao_err("Invalid argument. CRT parameters cannot be NULL.");
-		return -EINVAL;
-	}
-
 	if (em == NULL) {
 		dao_err("Invalid argument. em cannot be NULL.");
 		return -EINVAL;
@@ -5320,7 +5392,7 @@ dao_liquid_crypto_enq_op_rsa_oaep_pvt_crt_dec(uint8_t dev_id, uint16_t qp_id, ui
 		return -EINVAL;
 	}
 
-	rc = cpt_ae_rsa_oaep_mod_len_check(mod_len, true);
+	rc = cpt_ae_rsa_pad_scheme_mod_len_check(mod_len, true);
 	if (rc != 0)
 		return rc;
 
@@ -5774,5 +5846,655 @@ mbuf_free:
 idx_put:
 	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
 
+	return rc;
+}
+
+int
+dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc(uint8_t dev_id, uint16_t qp_id,
+					     enum dao_lc_hash_type hash_type, uint16_t mod_len,
+					     const uint8_t *mod, uint16_t exp_len,
+					     const uint8_t *exp, uint16_t msg_len,
+					     const uint8_t *msg, uint16_t salt_len,
+					     const uint8_t *salt, uint8_t *em, uint64_t op_cookie)
+{
+	/* dlen = salt_len + msg_len + 8B (control word) */
+	uint32_t dlen = salt_len + msg_len + 8;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	uint32_t rsvd_space = 0;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint64_t ctrl_word;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	rc = cpt_ae_rsa_pss_mod_len_max_validate(mod_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. mod_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_salt_len_max_validate(salt_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. salt_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_max_msg_len_check(msg_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. msg_len exceeds maximum allowed length.");
+		return rc;
+	}
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (mod == NULL) {
+		dao_err("Invalid argument. mod cannot be NULL.");
+		return -EINVAL;
+	}
+	if (exp == NULL) {
+		dao_err("Invalid argument. exp cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	rc = cpt_ae_rsa_pad_scheme_mod_len_check(mod_len, false);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_exp_len_check(mod_len, exp_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_msw_check(mod_len, mod);
+	if (rc != 0) {
+		dao_err("Invalid argument. MSW of modulus must be non-zero.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_salt_and_mod_len_check(mod_len, hash_type, salt_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. salt_len too large for given mod_len and hash_type.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_salt_validate(salt, salt_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. salt cannot be NULL when salt_len is non-zero or salt should be NULL when salt_len is zero.");
+		return rc;
+	}
+#endif
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = em;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_PSS_SIGN;
+	/* For RSA PSS sign encode dlen = salt_len + msg_len + 8 (control word) */
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+
+	/* If dlen(salt_len + msg_len + control word) is less than mod_len, reserve
+	 * additional space to accommodate the encoded message length is exactly equal
+	 * to the modulus length (mod_len).
+	 */
+
+	if (dlen < mod_len) {
+		rsvd_space = mod_len - dlen;
+		buf_len += rsvd_space;
+	}
+
+	/* Reserve 2 bytes for rptr offset */
+	buf_len += 2;
+	buf_len += mod_len + exp_len;
+
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("RSA PSS Exp sign data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("RSA PSS Exp sign data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
+	rte_pktmbuf_append(mbuf, buf_len);
+	/* Add payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_SIGN;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_SE_MAJOR_OP_PAD_SCHEME_ENCODE_DECODE;
+	w4.s.opcode_minor = ROC_SE_MINOR_OP_PSS_ENCODE;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = (1 << 7) | ((hash_type & 0xF) << 8);
+	w4.s.dlen = dlen;
+
+	req->op_type = LC_ASYM_RSA_PSS_ENCODE;
+	req->w4 = w4.u64;
+	req->exp_len = exp_len;
+
+	/* Add data */
+	dptr = req->dptr;
+
+	memcpy(dptr, mod, mod_len);
+	dptr += mod_len;
+
+	memcpy(dptr, exp, exp_len);
+	dptr += exp_len;
+
+	/* Control word: [63:48 Reserved][47:32 SLen][31:16 LLen][15:0 MLen] (big endian) */
+	ctrl_word = rte_cpu_to_be_64(((uint64_t)salt_len << 32) | ((uint64_t)msg_len));
+	memcpy(dptr, &ctrl_word, sizeof(ctrl_word));
+	dptr += 8;
+
+	memcpy(dptr, msg, msg_len);
+	dptr += msg_len;
+
+	if (salt_len)
+		memcpy(dptr, salt, salt_len);
+	dptr += salt_len;
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+#endif
+	return rc;
+}
+
+int
+dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc(uint8_t dev_id, uint16_t qp_id,
+					     enum dao_lc_hash_type hash_type, uint16_t mod_len,
+					     uint16_t msg_len, const uint8_t *msg,
+					     uint16_t salt_len, const uint8_t *salt,
+					     const uint8_t *p, const uint8_t *dP, const uint8_t *q,
+					     const uint8_t *dQ, const uint8_t *qInv, uint8_t *em,
+					     uint64_t op_cookie)
+{
+	/* dlen = salt_len + msg_len + 8B (control word) */
+	uint32_t dlen = salt_len + msg_len + 8;
+	uint16_t comp_len = mod_len / 2;
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	uint32_t rsvd_space = 0;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint64_t ctrl_word;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	rc = cpt_ae_rsa_pss_mod_len_max_validate(mod_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. mod_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_salt_len_max_validate(salt_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. salt_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_max_msg_len_check(msg_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. msg_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	rc = cpt_ae_rsa_pad_scheme_mod_len_check(mod_len, true);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_crt_params_check(mod_len, q, dQ, p, dP, qInv);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_pss_salt_and_mod_len_check(mod_len, hash_type, salt_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_pss_salt_validate(salt, salt_len);
+	if (rc != 0)
+		return rc;
+#endif
+
+	if (cpt_ae_rsa_msw_check(comp_len, q) != 0) {
+		dao_err("Invalid CRT parameter. MSW of q must be non-zero.");
+		return -EINVAL;
+	}
+
+	if (cpt_ae_rsa_msw_check(comp_len, p) != 0) {
+		dao_err("Invalid CRT parameter. MSW of p must be non-zero.");
+		return -EINVAL;
+	}
+
+	qp = dev->qp[qp_id];
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.data_out = em;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_PSS_SIGN;
+
+	/* For RSA PSS sign encode dlen = salt_len + msg_len + 8 (control word) */
+	buf_len = sizeof(struct __dao_lc_req_asym) + dlen;
+	/* If dlen(salt_len + msg_len + control word) is less than mod_len, reserve
+	 * additional space to accommodate the encoded message length is exactly equal
+	 * to the modulus length (mod_len).
+	 */
+
+	if (dlen < mod_len) {
+		rsvd_space = mod_len - dlen;
+		buf_len += rsvd_space;
+	}
+
+	/* Reserve 2 bytes for rptr offset */
+	buf_len += 2;
+	buf_len += (comp_len * 5);
+
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("RSA PSS CRT sign data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("RSA PSS CRT sign data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
+	rte_pktmbuf_append(mbuf, buf_len);
+	/* Add payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_SIGN;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_SE_MAJOR_OP_PAD_SCHEME_ENCODE_DECODE;
+	w4.s.opcode_minor = ROC_SE_MINOR_OP_PSS_ENCODE;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = (1 << 7) | ((hash_type & 0xF) << 8);
+	w4.s.dlen = dlen;
+
+	req->op_type = LC_ASYM_RSA_PSS_ENCODE;
+	req->w4 = w4.u64;
+	req->exp_len = 0;
+
+	/* Add data */
+	dptr = req->dptr;
+
+	memcpy(dptr, q, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dQ, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, p, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, dP, comp_len);
+	dptr += comp_len;
+	memcpy(dptr, qInv, comp_len);
+	dptr += comp_len;
+
+	/* Control word: [63:48 Reserved][47:32 SLen][31:16 LLen][15:0 MLen] (big endian) */
+	ctrl_word = rte_cpu_to_be_64(((uint64_t)salt_len << 32) | ((uint64_t)msg_len));
+	memcpy(dptr, &ctrl_word, sizeof(ctrl_word));
+	dptr += 8;
+
+	memcpy(dptr, msg, msg_len);
+	dptr += msg_len;
+
+	if (salt_len)
+		memcpy(dptr, salt, salt_len);
+	dptr += salt_len;
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+#endif
+	return rc;
+}
+
+int
+dao_liquid_crypto_enq_op_rsa_pss_pub_dec(uint8_t dev_id, uint16_t qp_id,
+					 enum dao_lc_hash_type hash_type, uint16_t salt_len,
+					 uint16_t mod_len, const uint8_t *mod, uint16_t exp_len,
+					 const uint8_t *exp, uint16_t msg_len, const uint8_t *msg,
+					 const uint8_t *em, uint64_t op_cookie)
+{
+	/* dlen = modulus length + exponent length + signature length (equal to modulus length) */
+	uint32_t dlen = exp_len + (mod_len * 2);
+	struct __dao_lc_req_asym *req;
+	struct liquid_crypto_dev *dev;
+	struct liquid_crypto_qp *qp;
+	struct rte_mbuf *mbuf;
+	union cpt_inst_w4 w4;
+	uint32_t req_idx = 0;
+	uint64_t ctrl_word;
+	uint16_t buf_len;
+	uint8_t *dptr;
+	int rc;
+
+	rc = cpt_ae_rsa_pss_mod_len_max_validate(mod_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. mod_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_salt_len_max_validate(salt_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. salt_len exceeds maximum allowed length.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_max_msg_len_check(msg_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. msg_len exceeds maximum allowed length.");
+		return rc;
+	}
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (dev_id >= lc_info.nb_dev) {
+		dao_err("Invalid argument. dev_id must be between 0 and %u.", lc_info.nb_dev - 1);
+		return -EINVAL;
+	}
+#endif
+
+	dev = &liquid_crypto_devs[dev_id];
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (qp_id >= dev->nb_qp) {
+		dao_err("Invalid argument. qp_id must be between 0 and %u.", dev->nb_qp - 1);
+		return -EINVAL;
+	}
+
+	if (qp_id == dev->cmd_qp_idx) {
+		dao_err("Invalid argument. qp_id cannot be the command queue index.");
+		return -EINVAL;
+	}
+
+	if (!dev->is_started) {
+		dao_err("Invalid device. Device(%d) not started.", dev_id);
+		return -EINVAL;
+	}
+
+	if (mod == NULL) {
+		dao_err("Invalid argument. mod cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (exp == NULL) {
+		dao_err("Invalid argument. exp cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
+		return -EINVAL;
+	}
+
+	if (msg == NULL) {
+		dao_err("Invalid argument. msg cannot be NULL.");
+		return -EINVAL;
+	}
+
+	rc = cpt_ae_rsa_pad_scheme_mod_len_check(mod_len, false);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_exp_len_check(mod_len, exp_len);
+	if (rc != 0)
+		return rc;
+
+	rc = cpt_ae_rsa_msw_check(mod_len, mod);
+	if (rc != 0) {
+		dao_err("Invalid argument. MSW of modulus must be non-zero.");
+		return rc;
+	}
+
+	rc = cpt_ae_rsa_pss_salt_and_mod_len_check(mod_len, hash_type, salt_len);
+	if (rc != 0) {
+		dao_err("Invalid argument. salt_len too large for given mod_len and hash_type.");
+		return rc;
+	}
+
+#endif
+	qp = dev->qp[qp_id];
+
+	req_idx = liquid_crypto_qp_req_idx_get(qp, false);
+	if (unlikely(req_idx == UINT32_MAX)) {
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+		dao_err("No available request index.");
+#endif
+		return -ENOSPC;
+	}
+
+	mbuf = rte_pktmbuf_alloc(qp->tx_mp);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (unlikely(mbuf == NULL)) {
+		dao_err("Could not allocate mbuf.");
+		rc = -ENOMEM;
+		goto idx_put;
+	}
+#endif
+
+	lc_inflight_cpt_req_reset(&qp->req_queue[req_idx].cpt);
+	qp->req_queue[req_idx].cpt.op_cookie = op_cookie;
+	qp->req_queue[req_idx].cpt.op_type = LC_ASYM_RSA_PSS_VERIFY;
+
+	/* PSS Decoding and RSA Public Key Decryption */
+	buf_len = sizeof(struct __dao_lc_req_asym);
+	/* 8 bytes control word */
+	buf_len += 8;
+	buf_len += msg_len;
+
+	/* RSA Decrypt */
+	buf_len += dlen;
+
+	buf_len = RTE_MAX(buf_len, LIQUID_CRYPTO_BUF_SZ_MIN);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (buf_len > rte_pktmbuf_tailroom(mbuf)) {
+		dao_err("RSA PSS pub verify data doesn't fit in single segment!");
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+
+	if (buf_len > LIQUID_CRYPTO_BUF_SZ_MAX) {
+		dao_err("RSA PSS pub verify data too large. buf_len = %u", buf_len);
+		rc = -ENOMEM;
+		goto mbuf_free;
+	}
+#endif
+
+	rte_pktmbuf_append(mbuf, buf_len);
+	/* Add payload to mbuf */
+	req = rte_pktmbuf_mtod(mbuf, struct __dao_lc_req_asym *);
+	req->hdr.trs_hdr.op_type = DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_VERIFY;
+	req->hdr.trs_hdr.op_len = buf_len;
+	req->hdr.req_idx = req_idx;
+	req->op_type = LC_ASYM_RSA_PSS_VERIFY;
+
+	/* Add instruction */
+	w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+	w4.s.opcode_minor = ROC_AE_MINOR_OP_MODEX_EXP;
+	w4.s.param1 = mod_len;
+	w4.s.param2 = exp_len;
+	w4.s.dlen = dlen;
+	req->w4 = w4.u64;
+	req->hash_type = hash_type;
+
+	/* Add data */
+	dptr = req->dptr;
+
+	/* Control word: [63:48 Reserved][47:32 SLen][31:16 LLen][15:0 MLen] (big endian) */
+	ctrl_word = rte_cpu_to_be_64(((uint64_t)salt_len << 32) | ((uint64_t)msg_len));
+	memcpy(dptr, &ctrl_word, sizeof(ctrl_word));
+	dptr += 8;
+
+	memcpy(dptr, msg, msg_len);
+	dptr += msg_len;
+
+	memcpy(dptr, mod, mod_len);
+	dptr += mod_len;
+
+	memcpy(dptr, exp, exp_len);
+	dptr += exp_len;
+
+	memcpy(dptr, em, mod_len);
+	dptr += mod_len;
+
+	rc = rte_eth_tx_burst(qp->port_id, qp->queue_id, &mbuf, 1);
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+	if (rc != 1) {
+		dao_err("Failed to transmit packet.");
+		rc = -EIO;
+		goto mbuf_free;
+	}
+#endif
+	return 0;
+
+#ifdef DAO_LIQUID_CRYPTO_DEBUG
+mbuf_free:
+	rte_pktmbuf_free(mbuf);
+idx_put:
+	liquid_crypto_qp_req_idx_put(qp, req_idx, false);
+#endif
 	return rc;
 }

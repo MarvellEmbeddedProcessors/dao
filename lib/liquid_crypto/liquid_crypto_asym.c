@@ -232,7 +232,7 @@ cpt_ae_rsa_oaep_hash_type_check(enum dao_lc_hash_type hash_type)
 }
 
 int
-cpt_ae_rsa_oaep_get_hash_len(enum dao_lc_hash_type hash_type)
+cpt_ae_rsa_pad_scheme_get_hash_len(enum dao_lc_hash_type hash_type)
 {
 	switch (hash_type) {
 	case DAO_LC_HASH_TYPE_SHA1:
@@ -254,7 +254,7 @@ cpt_ae_oaep_msg_and_mod_len_check(uint16_t mod_len, uint16_t msg_len,
 {
 	int hash_len;
 
-	hash_len = cpt_ae_rsa_oaep_get_hash_len(hash_type);
+	hash_len = cpt_ae_rsa_pad_scheme_get_hash_len(hash_type);
 	if (hash_len < 0) {
 		dao_err("Invalid hash type. hash_type=%d (valid values: %d, %d, %d, %d).",
 			hash_type, DAO_LC_HASH_TYPE_SHA1, DAO_LC_HASH_TYPE_SHA2_SHA256,
@@ -280,7 +280,7 @@ cpt_ae_oaep_msg_and_mod_len_check(uint16_t mod_len, uint16_t msg_len,
 }
 
 int
-cpt_ae_rsa_oaep_mod_len_check(uint16_t mod_len, bool is_crt)
+cpt_ae_rsa_pad_scheme_mod_len_check(uint16_t mod_len, bool is_crt)
 {
 	uint16_t min_len = LIQUID_CRYPTO_RSA_MOD_LEN_MIN;
 
@@ -324,7 +324,7 @@ cpt_ae_rsa_oaep_msg_len_max(uint16_t mod_len, enum dao_lc_hash_type hash_type)
 {
 	int hash_len;
 
-	hash_len = cpt_ae_rsa_oaep_get_hash_len(hash_type);
+	hash_len = cpt_ae_rsa_pad_scheme_get_hash_len(hash_type);
 	if (hash_len < 0) {
 		dao_err("Invalid hash type. hash_type=%d (valid values: %d, %d, %d, %d).",
 			hash_type, DAO_LC_HASH_TYPE_SHA1, DAO_LC_HASH_TYPE_SHA2_SHA256,
@@ -333,6 +333,49 @@ cpt_ae_rsa_oaep_msg_len_max(uint16_t mod_len, enum dao_lc_hash_type hash_type)
 	}
 
 	return mod_len - 2 * hash_len - 2;
+}
+
+int
+cpt_ae_rsa_pss_salt_and_mod_len_check(uint16_t mod_len, enum dao_lc_hash_type hash_type,
+				      uint16_t salt_len)
+{
+	int hash_len;
+
+	hash_len = cpt_ae_rsa_pad_scheme_get_hash_len(hash_type);
+	if (hash_len < 0) {
+		dao_err("Invalid hash type. hash_type=%d (valid values: %d, %d, %d, %d).",
+			hash_type, DAO_LC_HASH_TYPE_SHA1, DAO_LC_HASH_TYPE_SHA2_SHA256,
+			DAO_LC_HASH_TYPE_SHA2_SHA384, DAO_LC_HASH_TYPE_SHA2_SHA512);
+		return -EINVAL;
+	}
+
+	if (mod_len < hash_len + salt_len + 2) {
+		dao_err("Invalid modulus length: mod_len=%u, salt_len=%u, hash_len=%u. Required minimum is %u bytes.",
+			mod_len, salt_len, hash_len, hash_len + salt_len + 2);
+		return -EINVAL;
+	}
+	if (salt_len > mod_len - hash_len - 2) {
+		dao_err("Invalid salt length. For the given modulus length (%u bytes) and hash type (%d), "
+			"salt_len should be at most %u bytes.",
+			mod_len, hash_type, mod_len - hash_len - 2);
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
+int
+cpt_ae_rsa_pss_salt_validate(const uint8_t *salt, uint16_t salt_len)
+{
+	if (salt_len > 0 && salt == NULL) {
+		dao_err("Invalid salt. If salt_len > 0, salt cannot be NULL.");
+		return -EINVAL;
+	} else if (salt_len == 0 && salt != NULL) {
+		dao_err("Invalid salt. If salt_len is zero, salt must be NULL.");
+		return -EINVAL;
+	}
+
+	return 0;
 }
 
 int

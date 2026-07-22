@@ -62,6 +62,12 @@
 #define DAO_LC_MAX_MOD_LEN 1024
 /* Flag indicating the final stage of an operation is done */
 #define DAO_FLAG_FINAL_STAGE_DONE (1U << 0)
+/** Maximum supported salt length for RSA-PSS */
+#define DAO_LC_RSA_PSS_MAX_SALT_LEN 945
+/** Maximum supported modulus length for RSA-PSS */
+#define DAO_LC_RSA_PSS_MAX_MOD_LEN 988
+/** Maximum supported message length for RSA-PSS */
+#define DAO_LC_RSA_PSS_MAX_MSG_LEN 986
 
 /**
  * The params required for KMAC operations.
@@ -288,6 +294,15 @@ enum dao_uc_comp_code {
 	 *    found in the expected position.
 	 */
 	DAO_UC_RSA_OAEP_DECODING_ERROR = 0x9c,
+	/**
+	 * Indicates an error during RSA PSS decoding.
+	 * This error may occur due to one or more of the following reasons:
+	 *  - The signature validation failed.
+	 *  - A required zero byte was not found in the padding.
+	 *  - The expected 0x01 byte delimiter was not located.
+	 *  - The trailing byte is not 0xbc as required by the PSS standard.
+	 */
+	DAO_UC_RSA_PSS_DECODING_ERROR = 0x9d,
 };
 
 /** Compression device operation types */
@@ -2425,4 +2440,206 @@ int dao_liquid_crypto_enq_comp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 int dao_liquid_crypto_enq_decomp_op_deflate(uint8_t dev_id, uint16_t qp_id,
 					    struct dao_lc_decomp_req_params *req,
 					    uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform RSA PSS private encryption operation using the private exponential
+ * key.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param hash_type
+ *  The hash algorithm to be used in the PSS padding scheme. Supported hash types are:
+ *   -DAO_LC_HASH_TYPE_SHA1
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA256
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA384
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA512
+ * @param mod_len
+ *  The length of the RSA modulus in bytes. The minimum required modulus length is determined
+ *  by the salt length (salt_len) and the hash output length (hash_len) when using
+ *  RSA PSS padding. Specifically, the minimum modulus length must satisfy:
+ *      mod_len >= hash_len + salt_len + 2
+ *  This ensures there is sufficient space for the PSS encoding, which includes the hash output,
+ *  salt, and padding bytes (including the trailing 0xbc byte).
+ *  Using a modulus smaller than this minimum will result in encoding errors or security
+ *  vulnerabilities. The maximum supported mod_len is ``DAO_LC_RSA_PSS_MAX_MOD_LEN`` bytes.
+ *  @param mod
+ *  The address of the buffer containing the modulus. Modulus must be odd.
+ *  Length of this buffer must be at most *mod_len* bytes.
+ * @param exp_len
+ *  The length of the exponent.
+ * @param exp
+ *  The address of the buffer containing the exponent.
+ * @param msg_len
+ *  The length of the message to be signed in bytes. Maximum supported message length is
+ *  ``DAO_LC_RSA_PSS_MAX_MSG_LEN`` bytes.
+ * @param msg
+ *  The address of the buffer containing the message to be signed.
+ * @param salt_len
+ *  The length of the salt in bytes to be used in the PSS padding scheme.
+ *  Maximum supported salt length is ``DAO_LC_RSA_PSS_MAX_SALT_LEN`` bytes.
+ *  The salt length must satisfy the following constraint for the given modulus and hash type:
+ *      salt_len <= mod_len - hash_len - 2
+ *
+ *  Example: For a 2048-bit (256-byte) modulus with SHA-256 (32-byte hash output):
+ *      Maximum salt_len = 256 - 32 - 2 = 222 bytes
+ *  @param salt
+ *  The address of the buffer containing the salt to be used in the PSS padding scheme.
+ *  Length of this buffer must be equal to *salt_len* bytes.
+ * @param em
+ *  The address of the buffer where the encrypted message(Signature) is to be stored.
+ *  Length of this buffer must be equal to *mod_len* bytes.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc(uint8_t dev_id, uint16_t qp_id,
+						 enum dao_lc_hash_type hash_type, uint16_t mod_len,
+						 const uint8_t *mod, uint16_t exp_len,
+						 const uint8_t *exp, uint16_t msg_len,
+						 const uint8_t *msg, uint16_t salt_len,
+						 const uint8_t *salt, uint8_t *em,
+						 uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform RSA PSS private encryption operation using the CRT private key.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param hash_type
+ *  The hash algorithm to be used in the PSS padding scheme. Supported hash types are:
+ *   -DAO_LC_HASH_TYPE_SHA1
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA256
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA384
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA512
+ * @param mod_len
+ *  The length of the RSA modulus in bytes. mod_len must be even.
+ *  The minimum required modulus length is determined by the salt length (salt_len) and
+ *  the hash output length (hash_len) when using
+ *  RSA PSS padding. Specifically, the minimum modulus length must satisfy:
+ *      mod_len >= hash_len + salt_len + 2
+ *  This ensures there is sufficient space for the PSS encoding, which includes the hash output,
+ *  salt, and padding bytes (including the trailing 0xbc byte).
+ *  Using a modulus smaller than this minimum will result in encoding errors or security
+ *  vulnerabilities. The maximum supported mod_len is ``DAO_LC_RSA_PSS_MAX_MOD_LEN`` bytes.
+ * @param msg_len
+ *  The length of the message to be signed in bytes. Maximum supported message length
+ *  is ``DAO_LC_RSA_PSS_MAX_MSG_LEN`` bytes.
+ * @param msg
+ *  The address of the buffer containing the message to be signed.
+ * @param salt_len
+ *  The length of the salt in bytes to be used in the PSS padding scheme.
+ *  Maximum supported salt length is ``DAO_LC_RSA_PSS_MAX_SALT_LEN`` bytes.
+ *  The salt length must satisfy the following constraint for the given modulus and hash type:
+ *      salt_len <= mod_len - hash_len - 2
+ *
+ *  Example: For a 2048-bit (256-byte) modulus with SHA-256 (32-byte hash output):
+ *      Maximum salt_len = 256 - 32 - 2 = 222 bytes
+ *  @param salt
+ *  The address of the buffer containing the salt to be used in the PSS padding scheme.
+ *  Length of this buffer must be equal to *salt_len* bytes.
+ * @param p
+ *  The address of the buffer containing the first factor. Length
+ *  must be mod_len/2 bytes and the value must be odd.
+ * @param dP
+ *  The address of the buffer containing the second factor's CRT exponent. Length of this buffer
+ *  must be mod_len/2 bytes.
+ *  @param q
+ *  The address of the buffer containing the second factor. Length of this buffer
+ *  must be mod_len/2 bytes and the value must be odd.
+ * @param dQ
+ *  The address of the buffer containing the second factor's CRT exponent. Length of this buffer
+ *  must be mod_len/2 bytes.
+ * @param qInv
+ *  The address of the buffer containing the CRT coefficient. Length of this
+ *  buffer must be mod_len/2 bytes.
+ * @param em
+ *  The address of the buffer where the encrypted message(Signature) is to be stored.
+ *  Length of this buffer must be equal to *mod_len* bytes.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc(
+	uint8_t dev_id, uint16_t qp_id, enum dao_lc_hash_type hash_type, uint16_t mod_len,
+	uint16_t msg_len, const uint8_t *msg, uint16_t salt_len, const uint8_t *salt,
+	const uint8_t *p, const uint8_t *dP, const uint8_t *q, const uint8_t *dQ,
+	const uint8_t *qInv, uint8_t *em, uint64_t op_cookie);
+
+/**
+ * Enqueue request to perform RSA PSS public decrypt operation.
+ *
+ * @param dev_id
+ *  The identifier of the device.
+ * @param qp_id
+ *  The index of the queue pair on which the operation is to be enqueued.
+ * @param hash_type
+ *  The hash algorithm to be used in the PSS padding scheme. Supported hash types are:
+ *   -DAO_LC_HASH_TYPE_SHA1
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA256
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA384
+ *   -DAO_LC_HASH_TYPE_SHA2_SHA512
+ * @param salt_len
+ *  The length of the salt in bytes to be used in the PSS padding scheme.
+ *  Maximum supported salt length is ``DAO_LC_RSA_PSS_MAX_SALT_LEN`` bytes.
+ *  The salt length must satisfy the following constraint for the given modulus and hash type:
+ *      salt_len <= mod_len - hash_len - 2
+ *
+ *  Example: For a 2048-bit (256-byte) modulus with SHA-256 (32-byte hash output):
+ *      Maximum salt_len = 256 - 32 - 2 = 222 bytes
+ * @param mod_len
+ *  The length of the RSA modulus in bytes. The modulus length (mod_len)
+ *  must match the length used during RSA PSS encryption.
+ *  Note: The minimum required modulus length should be calculated at the encryption side and
+ *  must be matched at decryption. The maximum supported mod_len is ``DAO_LC_RSA_PSS_MAX_MOD_LEN``
+ *  bytes.
+ * @param mod
+ *  The address of the buffer containing the modulus. Modulus must be odd.
+ *  Length of this buffer must be *mod_len* bytes.
+ * @param exp_len
+ *  The length of the exponent.
+ * @param exp
+ *  The address of the buffer containing the exponent. Length of this buffer
+ *  must be *exp_len* bytes.
+ * @param msg_len
+ *  The length of the message to be verified in bytes. Maximum supported message length is
+ * ``DAO_LC_RSA_PSS_MAX_MSG_LEN`` bytes.
+ * @param msg
+ *  The address of the buffer containing the original message to be verified.
+ *  Length of this buffer must be equal to *msg_len* bytes.
+ * @param em
+ *  The address of the buffer containing the encrypted message(Signature). Length of this
+ *  buffer must be equal to *mod_len* bytes.
+ * @param op_cookie
+ *  The cookie to be associated with the operation. This cookie is returned
+ *  in the *dao_lc_res* structure when the operation is dequeued.
+ * @return
+ *  - 0 on success, negative value on failure.
+ *  -  -EINVAL, indicating an invalid argument.
+ *  -  -ENOMEM, indicating an out of memory error.
+ *  -  -ENOSPC, indicating that there is no space left in the queue.
+ *  -  -EIO, indicating an I/O error.
+ */
+int dao_liquid_crypto_enq_op_rsa_pss_pub_dec(uint8_t dev_id, uint16_t qp_id,
+					     enum dao_lc_hash_type hash_type, uint16_t salt_len,
+					     uint16_t mod_len, const uint8_t *mod, uint16_t exp_len,
+					     const uint8_t *exp, uint16_t msg_len,
+					     const uint8_t *msg, const uint8_t *em,
+					     uint64_t op_cookie);
+
 #endif /* __DAO_LIQUID_CRYPTO_H__ */
