@@ -417,6 +417,11 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 			ret = RDMA_REQUESTER_POSTPONED_RC;
 			goto out;
 		}
+
+		if (unlikely(qp->req.unacked_window <= 0)) {
+			ret = RDMA_REQUESTER_POSTPONED_RC;
+			goto out;
+		}
 	}
 
 	if (unlikely(mask & (RDMA_READ_MASK))) {

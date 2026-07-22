@@ -416,6 +416,12 @@ rdma_icrc_refresh(struct rte_mbuf *mbuf)
 {
 	rte_be32_t *icrcp;
 	rte_be32_t icrc;
+	struct rte_mbuf *seg;
+
+	for (seg = mbuf; seg; seg = seg->next) {
+		if (rte_mbuf_refcnt_read(seg) > 1)
+			return -1;
+	}
 
 	if (rte_pktmbuf_trim(mbuf, RDMA_ICRC_SIZE) < 0)
 		return -1;

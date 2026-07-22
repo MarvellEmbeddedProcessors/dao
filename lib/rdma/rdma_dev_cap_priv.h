@@ -7,6 +7,8 @@
 #include <dao_log.h>
 #include <rte_byteorder.h>
 
+#include "dao_rdma_fp.h"
+
 #define DEFAULT_MAX_VALUE (1 << 20)
 
 enum rdma_device_cap_flags {
@@ -72,7 +74,7 @@ enum rdma_device_param {
 
 	RDMA_MAX_PKT_PER_ACK = 32,
 
-	RDMA_MAX_UNACKED_PSNS = 32,
+	RDMA_MAX_UNACKED_PSNS = RDMA_MAX_ENQ_BURST,
 
 	/* Max inflight SKBs per queue pair */
 	RDMA_INFLIGHT_SKBS_PER_QP_HIGH = 64,
