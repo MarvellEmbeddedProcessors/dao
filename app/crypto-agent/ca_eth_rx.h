@@ -53,6 +53,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	struct cpt_inst_s inst[CA_ETHDEV_RX_BURST];
 	struct cpt_inflight_req *infl_req = NULL;
 	struct __dao_lc_resp_asym *asym_resp;
+	uint16_t label_len, rsa_pss_msg_len;
 	uint16_t pkt_id, nb_cpt_bypass = 0;
 	struct __dao_lc_req_asym *asym;
 	struct __dao_lc_req_sym *sym;
@@ -61,8 +62,8 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 	uint64_t ctrl_word_be;
 	union cpt_inst_w4 w4;
 	uint64_t ctrl_word;
-	uint16_t label_len;
 	uint8_t lcore_id;
+	uint16_t exp_len;
 	uint64_t head;
 	int rc = 0;
 
@@ -153,7 +154,7 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			/* stage-0 will be OAEP */
 			infl_req->stage = 0;
 			infl_req->max_stage = 2;
-			infl_req->rsa_oaep.rsa_exp_len = asym->exp_len;
+			infl_req->rsa_pad_scheme.rsa_exp_len = asym->exp_len;
 			infl_req->rsa_mod_len = w4.s.param1;
 			inst[cpt_inst_cnt].w4.u64 = asym->w4;
 			inst[cpt_inst_cnt].w5.u64 =
@@ -177,12 +178,12 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			asym_resp = (struct __dao_lc_resp_asym *)req;
 			w4.u64 = asym->w4;
 			/* Extract label length from control word (bits 31:15 of dptr) */
-			ctrl_word = *(uint64_t *)(asym->dptr);
+			memcpy(&ctrl_word, asym->dptr, sizeof(ctrl_word));
 			ctrl_word_be = rte_be_to_cpu_64(ctrl_word);
 			label_len = (ctrl_word_be >> 16) & 0xFFFF;
 			infl_req->oaep_label_len = label_len;
 
-			infl_req->rsa_oaep.hash_type = asym->hash_type;
+			infl_req->rsa_pad_scheme.hash_type = asym->hash_type;
 			infl_req->rsa_mod_len = w4.s.param1;
 			inst[cpt_inst_cnt].w4.u64 = asym->w4;
 			inst[cpt_inst_cnt].w5.u64 =
@@ -196,6 +197,90 @@ process_pkts(struct rte_mbuf **rx_pkts, uint16_t nb_pkts, struct pending_queue *
 			infl_req->op_type = asym->op_type;
 			infl_req->stage = 0;
 			infl_req->max_stage = 2;
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_SIGN:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
+
+			/* stage-0 will be PSS Encode
+			 * stage-1 will be RSA Exp Sign or CRT Sign
+			 */
+			asym = (struct __dao_lc_req_asym *)req;
+			asym_resp = (struct __dao_lc_resp_asym *)req;
+			w4.u64 = asym->w4;
+
+			exp_len = asym->exp_len;
+
+			/* stage-0 will be PSS ENCODE */
+			infl_req->stage = 0;
+			infl_req->max_stage = 2;
+			infl_req->rsa_pad_scheme.rsa_exp_len = exp_len;
+			infl_req->rsa_mod_len = w4.s.param1;
+			infl_req->op_type = asym->op_type;
+
+			if (exp_len) {
+				/* For non-CRT sign, dptr and rptr point after
+				 * | mod | exp |
+				 * Each of exp and mod are of rsa_mod_len size
+				 */
+				inst[cpt_inst_cnt].w5.u64 =
+					(uint64_t)(asym->dptr + exp_len + infl_req->rsa_mod_len);
+				inst[cpt_inst_cnt].w6.u64 = (uint64_t)(asym_resp->rptr + exp_len +
+								       infl_req->rsa_mod_len);
+			} else {
+				/* For CRT sign, dptr and rptr point after
+				 * | p | q | dp | dq | qinv |
+				 * Each of p,q,dp,dq,qinv are of rsa_mod_len/2 size
+				 */
+				inst[cpt_inst_cnt].w5.u64 =
+					(uint64_t)(asym->dptr + ((infl_req->rsa_mod_len / 2) * 5));
+				inst[cpt_inst_cnt].w6.u64 =
+					(uint64_t)(asym_resp->rptr +
+						   ((infl_req->rsa_mod_len / 2) * 5));
+			}
+			inst[cpt_inst_cnt].w4.u64 = asym->w4;
+			inst[cpt_inst_cnt].w7.u64 = 0;
+			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+			pending_queue_advance(&head, pq_mask);
+			cpt_inst_cnt++;
+			break;
+		case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_VERIFY:
+			infl_req = &pq->cpt_req_queue[head];
+			cpt_infl_req_init(infl_req, rx_pkts[pkt_id]);
+			cpt_inst_init(infl_req, &inst[cpt_inst_cnt]);
+
+			/* stage-0 will be RSA Decrypt
+			 * stage-1 will be PSS Verify
+			 */
+			asym = (struct __dao_lc_req_asym *)req;
+			asym_resp = (struct __dao_lc_resp_asym *)req;
+			w4.u64 = asym->w4;
+
+			/* Extract msg length and salt length from control word */
+			memcpy(&ctrl_word, asym->dptr, sizeof(ctrl_word));
+			ctrl_word_be = rte_be_to_cpu_64(ctrl_word);
+			rsa_pss_msg_len = ctrl_word_be & 0xFFFF;
+
+			infl_req->rsa_pad_scheme.hash_type = asym->hash_type;
+			infl_req->rsa_mod_len = w4.s.param1;
+			infl_req->rsa_pss_msg_len = rsa_pss_msg_len;
+			infl_req->op_type = asym->op_type;
+			infl_req->stage = 0;
+			infl_req->max_stage = 2;
+
+			inst[cpt_inst_cnt].w4.u64 = asym->w4;
+			inst[cpt_inst_cnt].w5.u64 =
+				(uint64_t)(asym->dptr + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE +
+					   rsa_pss_msg_len);
+			inst[cpt_inst_cnt].w6.u64 =
+				(uint64_t)((uint8_t *)asym_resp->rptr +
+					   CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE +
+					   rsa_pss_msg_len);
+			inst[cpt_inst_cnt].w7.u64 = 0;
+			inst[cpt_inst_cnt].w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
 			pending_queue_advance(&head, pq_mask);
 			cpt_inst_cnt++;
 			break;

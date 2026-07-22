@@ -171,6 +171,7 @@ ca_cpt_post_process_oaep_enc(struct cpt_inflight_req *infl_req, union dao_cpt_re
 
 		/* Error case marking current stage to max stage */
 		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
 		goto rlen_set;
 	}
 
@@ -186,8 +187,15 @@ ca_cpt_post_process_oaep_enc(struct cpt_inflight_req *infl_req, union dao_cpt_re
 		rlen = infl_req->rsa_mod_len;
 		/* Set the length of the response buffer */
 		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		/* Final stage processed. */
+		resp->status_flags |= DAO_FLAG_FINAL_STAGE_DONE;
 		break;
 	default:
+		rlen = 0;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
 		break;
 	}
 
@@ -228,6 +236,7 @@ ca_cpt_post_process_oaep_dec(struct cpt_inflight_req *infl_req, union dao_cpt_re
 
 		/* Error Case marking current stage to max stage */
 		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
 		goto rlen_set;
 	}
 
@@ -240,8 +249,15 @@ ca_cpt_post_process_oaep_dec(struct cpt_inflight_req *infl_req, union dao_cpt_re
 		rlen = rte_cpu_to_be_16(*((uint16_t *)RTE_PTR_SUB(resp->rptr, 2)));
 		/* Set the length of the response buffer */
 		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		/* Final stage processed. */
+		resp->status_flags |= DAO_FLAG_FINAL_STAGE_DONE;
 		break;
 	default:
+		rlen = 0;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
 		break;
 	}
 
@@ -258,6 +274,130 @@ rlen_set:
 		pkt_len = mb->buf_len;
 	}
 #endif /* CA_DEBUG_ENABLE */
+	/* Set the length of the packet */
+	mb->pkt_len = pkt_len;
+	mb->data_len = pkt_len;
+}
+
+static inline void
+ca_cpt_post_process_pss_sign(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
+{
+	struct __dao_lc_resp_asym *resp;
+	uint16_t rlen = 0, pkt_len = 0;
+	struct rte_mbuf *mb;
+
+	mb = infl_req->mbuf;
+	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_asym *);
+
+	if (unlikely(infl_req->res.cn9k.uc_compcode != DAO_UC_SUCCESS)) {
+		rlen = 0;
+		pkt_len = sizeof(struct __dao_lc_resp_asym);
+
+		/* Error case marking current stage to max stage */
+		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
+		goto rlen_set;
+	}
+
+	switch (infl_req->op_type) {
+	case LC_ASYM_RSA_PSS_ENCODE:
+		/* No error detected; proceed to RSA encryption in the next stage */
+		return;
+	case LC_ASYM_RSA_PSS_SIGN:
+		/* Final stage. No further processing */
+		/* For RSA operations, the length of the modulus is used as the length of
+		 * the output data.
+		 */
+		rlen = infl_req->rsa_mod_len;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		/* Final stage processed. */
+		resp->status_flags |= DAO_FLAG_FINAL_STAGE_DONE;
+		break;
+	default:
+		rlen = 0;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
+		break;
+	}
+
+rlen_set:
+	/* Copy the response in reserved field of response buffer */
+	res->cn9k.reserved_17_63 = rlen;
+	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+
+	pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
+	resp->hdr.trs_hdr.op_len = pkt_len;
+
+#ifdef CA_DEBUG_ENABLE
+	if (unlikely(pkt_len > mb->buf_len)) {
+		CA_ERR("Response buffer too small. Trimming buffer.");
+		pkt_len = mb->buf_len;
+	}
+#endif /* CA_DEBUG_ENABLE */
+
+	/* Set the length of the packet */
+	mb->pkt_len = pkt_len;
+	mb->data_len = pkt_len;
+}
+
+static inline void
+ca_cpt_post_process_pss_verify(struct cpt_inflight_req *infl_req, union dao_cpt_res_s *res)
+{
+	struct __dao_lc_resp_asym *resp;
+	uint16_t pkt_len, rlen = 0;
+	struct rte_mbuf *mb;
+
+	mb = infl_req->mbuf;
+	resp = rte_pktmbuf_mtod(mb, struct __dao_lc_resp_asym *);
+
+	if (unlikely(infl_req->res.cn9k.uc_compcode != DAO_UC_SUCCESS)) {
+		rlen = 0;
+		pkt_len = sizeof(struct __dao_lc_resp_asym);
+
+		/* Error Case marking current stage to max stage */
+		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
+		goto rlen_set;
+	}
+
+	switch (infl_req->op_type) {
+	case LC_ASYM_RSA_PSS_VERIFY:
+		/* Moving to next stage which is PSS decode */
+		return;
+	case LC_ASYM_RSA_PSS_DECODE:
+		/* Final stage. No further processing */
+		rlen = 0;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		/* Final stage processed. */
+		resp->status_flags |= DAO_FLAG_FINAL_STAGE_DONE;
+		break;
+	default:
+		rlen = 0;
+		/* Set the length of the response buffer */
+		pkt_len = sizeof(struct __dao_lc_resp_asym) + rlen;
+		infl_req->stage = infl_req->max_stage;
+		resp->status_flags &= ~DAO_FLAG_FINAL_STAGE_DONE;
+		break;
+	}
+rlen_set:
+	/* Copy the response in reserved field of response buffer */
+	res->cn9k.reserved_17_63 = rlen;
+	memcpy(&resp->res, res, sizeof(union dao_cpt_res_s));
+
+	pkt_len = RTE_MAX(pkt_len, ETH_DEV_MIN_BUF_LEN);
+	resp->hdr.trs_hdr.op_len = pkt_len;
+
+#ifdef CA_DEBUG_ENABLE
+	if (unlikely(pkt_len > mb->buf_len)) {
+		CA_ERR("Response buffer too small. Trimming buffer.");
+		pkt_len = mb->buf_len;
+	}
+#endif /* CA_DEBUG_ENABLE */
+
 	/* Set the length of the packet */
 	mb->pkt_len = pkt_len;
 	mb->data_len = pkt_len;
@@ -308,6 +448,12 @@ ca_cpt_post_process(struct cpt_inflight_req *req, union dao_cpt_res_s *res)
 	case DAO_ETH_TRS_OP_TYPE_CRYPTO_PQC:
 		ca_cpt_post_process_pqc(req, res);
 		break;
+	case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_SIGN:
+		ca_cpt_post_process_pss_sign(req, res);
+		break;
+	case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_VERIFY:
+		ca_cpt_post_process_pss_verify(req, res);
+		break;
 	default:
 		break;
 	}
@@ -329,8 +475,10 @@ ca_cpt_build_next_stage(struct cpt_inflight_req *infl_req, struct cpt_inst_s *in
 	struct dao_eth_trs_pkt *req = rte_pktmbuf_mtod(infl_req->mbuf, struct dao_eth_trs_pkt *);
 	struct __dao_lc_resp_asym *asym_resp = (struct __dao_lc_resp_asym *)req;
 	struct __dao_lc_req_asym *asym = (struct __dao_lc_req_asym *)req;
-	uint16_t mod_len, exp_len, hash_type;
-	uint8_t *rptr;
+	uint16_t mod_len, exp_len, hash_type, half_mod_len, pss_msg_len;
+	uint64_t ctrl_word, ctrl_word_be;
+	uint8_t *dptr, *rptr;
+	uint16_t label_len;
 
 	memset(inst, 0, sizeof(*inst));
 	inst->res_addr = (uint64_t)&infl_req->res;
@@ -342,7 +490,7 @@ ca_cpt_build_next_stage(struct cpt_inflight_req *infl_req, struct cpt_inst_s *in
 		inst->w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
 		inst->w4.s.opcode_minor = ROC_AE_MINOR_OP_MODEX_EXP;
 		mod_len = infl_req->rsa_mod_len;
-		exp_len = infl_req->rsa_oaep.rsa_exp_len;
+		exp_len = infl_req->rsa_pad_scheme.rsa_exp_len;
 		inst->w4.s.param1 = mod_len;
 		inst->w4.s.param2 = exp_len;
 		/* Copy encoded message from asym_resp->rptr + exp_len + mod_len
@@ -359,12 +507,11 @@ ca_cpt_build_next_stage(struct cpt_inflight_req *infl_req, struct cpt_inst_s *in
 		break;
 	case DAO_ETH_TRS_OP_TYPE_CRYPTO_OAEP_DEC:
 		/* Populate and submit for OAEP Decode operation */
-		uint64_t ctrl_word = *(uint64_t *)(asym->dptr);
-		uint64_t ctrl_word_be = rte_be_to_cpu_64(ctrl_word);
-		uint16_t label_len = (ctrl_word_be >> 16) & 0xFFFF;
-		uint8_t *dptr;
+		memcpy(&ctrl_word, asym->dptr, sizeof(ctrl_word));
+		ctrl_word_be = rte_be_to_cpu_64(ctrl_word);
+		label_len = (ctrl_word_be >> 16) & 0xFFFF;
 
-		hash_type = infl_req->rsa_oaep.hash_type;
+		hash_type = infl_req->rsa_pad_scheme.hash_type;
 		mod_len = infl_req->rsa_mod_len;
 
 		inst->w4.s.opcode_major = ROC_SE_MAJOR_OP_PAD_SCHEME_ENCODE_DECODE;
@@ -386,6 +533,70 @@ ca_cpt_build_next_stage(struct cpt_inflight_req *infl_req, struct cpt_inst_s *in
 		inst->w7.u64 = 0;
 		inst->w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
 		infl_req->op_type = LC_ASYM_RSA_OAEP_DECODE;
+		break;
+	case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_SIGN:
+		/* Stage-1 will be RSA sign */
+		/* Populate and submit for RSA exp sign or CRT sign operation */
+
+		if (infl_req->rsa_pad_scheme.rsa_exp_len) {
+			/* RSA exp sign */
+			inst->w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+			inst->w4.s.opcode_minor = ROC_AE_MINOR_OP_MODEX_EXP;
+			mod_len = infl_req->rsa_mod_len;
+			exp_len = infl_req->rsa_pad_scheme.rsa_exp_len;
+			inst->w4.s.param2 = exp_len;
+			/* Copy encoded message from asym_resp->rptr + exp_len + mod_len
+			 * up to mod_len bytes, copied after in asym->dptr + mod_len + exp_len
+			 */
+			memcpy((uint8_t *)asym->dptr + mod_len + exp_len,
+			       (uint8_t *)asym_resp->rptr + exp_len + mod_len, mod_len);
+			inst->w4.s.dlen = (mod_len * 2) + exp_len;
+		} else {
+			/* RSA CRT sign */
+			inst->w4.s.opcode_major = ROC_AE_MAJOR_OP_MODEX;
+			inst->w4.s.opcode_minor = ROC_AE_MINOR_OP_MODEX_EXP_CRT;
+			half_mod_len = infl_req->rsa_mod_len / 2;
+			mod_len = infl_req->rsa_mod_len;
+			inst->w4.s.param2 = 0;
+			/* Copy encoded message from asym_resp->rptr + (5 * half_mod_len)
+			 * up to mod_len bytes, copied after in asym->dptr + (5 * half_mod_len)
+			 */
+			memcpy((uint8_t *)asym->dptr + (5 * half_mod_len),
+			       (uint8_t *)asym_resp->rptr + (5 * half_mod_len), mod_len);
+			inst->w4.s.dlen = (5 * half_mod_len) + mod_len;
+		}
+
+		inst->w4.s.param1 = mod_len;
+		inst->w5.s.dptr = (uint64_t)asym->dptr;
+		inst->w6.s.rptr = (uint64_t)asym_resp->rptr;
+		inst->w7.u64 = 0;
+		inst->w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_AE;
+		infl_req->op_type = LC_ASYM_RSA_PSS_SIGN;
+		break;
+	case DAO_ETH_TRS_OP_TYPE_CRYPTO_PSS_VERIFY:
+		/* Populate and submit for PSS VERIFY operation */
+		mod_len = infl_req->rsa_mod_len;
+		hash_type = infl_req->rsa_pad_scheme.hash_type;
+		pss_msg_len = infl_req->rsa_pss_msg_len;
+
+		inst->w4.s.opcode_major = ROC_SE_MAJOR_OP_PAD_SCHEME_ENCODE_DECODE;
+		inst->w4.s.opcode_minor = ROC_SE_MINOR_OP_PSS_DECODE;
+		inst->w4.s.param1 = mod_len;
+		inst->w4.s.param2 = (hash_type & 0xF) << 8;
+		inst->w4.s.dlen = mod_len + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE + pss_msg_len;
+
+		rptr = asym_resp->rptr + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE + pss_msg_len;
+
+		/* Copy the decrypted encoded message to the dptr to verify using PSS */
+		memcpy((uint8_t *)asym->dptr + CPT_AE_RSA_PAD_SCHEME_CONTROL_WORD_SIZE +
+			       pss_msg_len,
+		       rptr, infl_req->rsa_mod_len);
+
+		inst->w5.s.dptr = (uint64_t)asym->dptr;
+		inst->w6.s.rptr = (uint64_t)asym_resp->rptr;
+		inst->w7.u64 = 0;
+		inst->w7.s.egrp = ROC_LEGACY_CPT_DFLT_ENG_GRP_SE;
+		infl_req->op_type = LC_ASYM_RSA_PSS_DECODE;
 		break;
 	default:
 		break;
