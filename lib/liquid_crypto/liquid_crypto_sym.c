@@ -1106,12 +1106,6 @@ lc_sym_op_validate(struct dao_lc_sym_op *op)
 		return ret;
 	}
 
-	ret = lc_out_buffer_validate(op, op_type, is_empty_buf_allowed);
-	if (ret != 0) {
-		dao_err("Invalid output buffer.");
-		return ret;
-	}
-
 	switch (op_type) {
 	case LC_SYM_OP_CIPHER_ONLY:
 		ret = lc_sym_op_cipher_only_validate(op, sess_meta);
