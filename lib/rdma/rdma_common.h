@@ -28,20 +28,36 @@ rdma_delete_all_wqe(struct rdma_qp *qp)
 
 	STAILQ_FOREACH_SAFE(wqe_next, &qp->req.wqe_head, next, tmp)
 	{
+		struct rte_mbuf *read_mbuf = wqe_next->read_mbuf;
+
+		STAILQ_REMOVE(&qp->req.wqe_head, wqe_next, rdma_send_wqe, next);
 		STAILQ_FOREACH_SAFE(rmbuf, &wqe_next->mbuf_list, next, tmp_rmbuf)
 		{
 			rdma_free_mbuf_list(rmbuf);
 			STAILQ_REMOVE(&wqe_next->mbuf_list, rmbuf, rdma_mbufs, next);
 			/* rmbuf embedded; no free */
 		}
-		STAILQ_REMOVE(&qp->req.wqe_head, wqe_next, rdma_send_wqe, next);
+		if (read_mbuf)
+			rte_pktmbuf_free(read_mbuf);
 		/* wqe embedded; no free */
 	}
+
+	STAILQ_INIT(&qp->req.wqe_head);
+	qp->req.cur_wqe = NULL;
+	qp->req.cur_mbuf = NULL;
+
 	/* Free up ack_pending_list */
 	STAILQ_FOREACH_SAFE(ack_next, &qp->resp.ack_pending_list, next, tmp_ack)
 	{
 		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack_next, rdma_ack, next);
 		rte_pktmbuf_free(ack_next->mbuf);
+	}
+
+	/* Free partial responder assembly chain (SEND/WRITE in progress) */
+	if (qp->resp.wqe.mbuf) {
+		rte_pktmbuf_free(qp->resp.wqe.mbuf);
+		qp->resp.wqe.mbuf = NULL;
+		qp->resp.wqe.tail = NULL;
 	}
 }
 

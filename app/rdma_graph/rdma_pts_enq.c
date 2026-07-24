@@ -77,7 +77,12 @@ rdma_pts_enq_node_process(struct rte_graph *graph, struct rte_node *node, void *
 
 		/* Redirect unsent pkts to drop node */
 		if (todo > 0) {
-			mbuf->ol_flags = 0;
+			for (uint16_t k = 0; k < todo; k++) {
+				struct rte_mbuf *m = (struct rte_mbuf *)objs[i + sent + k];
+
+				m->ol_flags &= ~(0x7ULL << 60);
+				m->packet_type = 0;
+			}
 			rte_node_enqueue(graph, node, 0, &objs[i + sent], todo);
 			RDMA_ADD_QP_COUNTER(rte_lcore_id(), devid, qp_id, RDMA_TX_QP_PTS_ENQ_FAIL,
 					    todo);

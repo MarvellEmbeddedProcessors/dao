@@ -88,7 +88,8 @@ typedef struct rdma_cb {
 	rdma_map_cb_t rdma_map_cb;
 } rdma_cb_t;
 
-int dao_rdma_rx_process(struct rte_mbuf **mbuf, uint16_t rx_queue, uint32_t *qpn, int devid);
+int dao_rdma_rx_process(struct rte_mbuf **mbuf, uint16_t rx_queue, uint32_t *qpn, int devid,
+			bool burst_start);
 int dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
 			uint16_t *n_mbufs, uint16_t burst_limit);
 int dao_rdma_get_pvt_len(void);

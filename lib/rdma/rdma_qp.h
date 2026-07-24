@@ -216,6 +216,18 @@ typedef struct rdma_send_wqe {
 	uint8_t has_read_req;
 } rdma_send_wqe_t;
 
+static inline uint32_t
+rdma_get_sge_length(struct rdma_send_wr *wr)
+{
+	uint32_t length = 0;
+	int i;
+
+	for (i = 0; i < wr->num_sges; i++)
+		length += wr->sges0[i].length;
+
+	return length;
+}
+
 struct retransmit {
 	rdma_send_wqe_t *curr_wqe;
 	struct rdma_mbufs *curr_mbuf;
@@ -377,6 +389,10 @@ typedef struct rdma_qp {
 	uint32_t mtu;
 	uint32_t lcore;
 	uint8_t valid;
+	/* PTS resource budget for current graph iteration (per-QP resources) */
+	struct {
+		uint16_t rqe_avail;
+	} pts_resource;
 	/* DCQCN congestion control state (NP + RP) */
 	struct dcqcn_state cc;
 } rdma_qp_t;
@@ -551,5 +567,9 @@ int rdma_check_keys(struct rdma_pkt_info *pinfo, uint32_t qpn, struct rdma_qp *q
 int rdma_qp_state_check(struct rdma_pkt_info *pinfo, struct rdma_qp *qp);
 int dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf);
 int rdma_cb_register(rdma_cb_t *cb);
+
+/* Per-lcore DMA segment budget (shared across all QPs on the same lcore) */
+RTE_DECLARE_PER_LCORE(uint32_t, rdma_dma_m2d_budget);
+RTE_DECLARE_PER_LCORE(uint32_t, rdma_dma_d2m_budget);
 
 #endif /* __RDMA_QP_H__ */

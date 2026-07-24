@@ -232,31 +232,66 @@ check_op_valid(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 }
 
 static inline bool
-check_rq_resource(struct rdma_qp *qp)
+check_rq_resource(struct rdma_qp *qp, struct pkt_info *pinfo)
 {
-	RTE_SET_USED(qp);
-	/* TODO: check RQ status from PTS */
-	// dao_pts_rdma_rq_avail_get(qp);
-	return 1;
+	struct rdma_pkt_info *pkt = &pinfo->rinfo;
+	uint16_t rqe_needed = 0;
+	uint32_t dma_needed = 0;
+
+	if (!(pkt->mask & RDMA_END_MASK))
+		return true;
+
+	if (qp->resp.wqe.mbuf)
+		dma_needed = (uint32_t)qp->resp.wqe.mbuf->nb_segs + pinfo->mbuf->nb_segs;
+	else
+		dma_needed = pinfo->mbuf->nb_segs;
+
+	if (pkt->mask & RDMA_SEND_MASK)
+		rqe_needed = 1;
+
+	if (qp->pts_resource.rqe_avail < rqe_needed ||
+	    RTE_PER_LCORE(rdma_dma_m2d_budget) < dma_needed) {
+		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					RDMA_RX_QP_CHK_RES_PTS_EXHAUSTED);
+		return false;
+	}
+
+	qp->pts_resource.rqe_avail -= rqe_needed;
+	RTE_PER_LCORE(rdma_dma_m2d_budget) -= dma_needed;
+
+	return true;
 }
 
 static resp_states_t
-check_resource(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
+check_resource(struct rdma_qp *qp, struct pkt_info *pinfo)
 {
+	struct rdma_pkt_info *pkt = &pinfo->rinfo;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
 	if (pkt->mask & RDMA_READ_MASK) {
-		if (likely(qp->resp.resp_read_rq_bal > 0))
-			return RDMA_RESPST_CHK_LENGTH;
+		uint32_t dma_len, nb_segs;
 
-		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_RES_NO_READ_REQ_RES);
-		return RDMA_RESPST_ERR_TOO_MANY_RDMA_ATM_REQ;
+		if (unlikely(qp->resp.resp_read_rq_bal <= 0)) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_RX_QP_CHK_RES_NO_READ_REQ_RES);
+			return RDMA_RESPST_ERR_TOO_MANY_RDMA_ATM_REQ;
+		}
+
+		dma_len = rte_be_to_cpu_32(pkt->reth->len);
+		nb_segs = (dma_len + qp->mtu - 1) / qp->mtu;
+		if (unlikely(RTE_PER_LCORE(rdma_dma_d2m_budget) < nb_segs)) {
+			RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+						RDMA_RX_QP_CHK_RES_PTS_EXHAUSTED);
+			return RDMA_RESPST_ERR_RNR;
+		}
+		RTE_PER_LCORE(rdma_dma_d2m_budget) -= nb_segs;
+		return RDMA_RESPST_CHK_LENGTH;
 	}
 
-	if (pkt->mask & RDMA_RWR_MASK) {
-		if (likely(check_rq_resource(qp)))
+	if (pkt->mask & RDMA_WRITE_OR_SEND_MASK) {
+		if (likely(check_rq_resource(qp, pinfo)))
 			return RDMA_RESPST_CHK_LENGTH;
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_RES_RNR_ERR);
 		return RDMA_RESPST_ERR_RNR;
@@ -475,6 +510,28 @@ rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
 		rmbuf = next_rmbuf;
 	}
 	memset(wqe, 0, sizeof(*wqe));
+	STAILQ_INIT(&wqe->mbuf_list);
+}
+
+static inline void
+rdma_read_reply_cleanup_all(struct rdma_send_wqe *wqe)
+{
+	struct rdma_mbufs *rmbuf, *next_rmbuf;
+	struct rte_mbuf *seg;
+
+	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	while (rmbuf) {
+		next_rmbuf = STAILQ_NEXT(rmbuf, next);
+
+		for (seg = rmbuf->mbuf; seg; seg = seg->next)
+			rte_mbuf_refcnt_update(seg, -1);
+
+		if (rmbuf->mbuf)
+			rte_pktmbuf_free(rmbuf->mbuf);
+		rmbuf = next_rmbuf;
+	}
+	memset(wqe, 0, sizeof(*wqe));
+	STAILQ_INIT(&wqe->mbuf_list);
 }
 
 /*
@@ -576,6 +633,9 @@ rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_mbufs *rmbuf, struct rte_mb
 			while (seg) {
 				struct rte_mbuf *next_seg = seg->next;
 
+				if (unlikely(rte_mbuf_refcnt_read(seg) != 2))
+					RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+							    RDMA_TX_QP_READ_REPLY_REFCNT_ERR);
 				rte_mbuf_refcnt_update(seg, -1);
 				seg = next_seg;
 			}
@@ -597,6 +657,7 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 {
 	struct rdma_ack *ack;
 	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
+	struct rdma_mbufs *first_rmbuf;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
@@ -607,6 +668,32 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_TX_QP_PROC_READ_REPLY_ACK_MISMATCH);
 		rdma_read_reply_cleanup(wqe);
+		return -1;
+	}
+
+	first_rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
+	if (unlikely(first_rmbuf && first_rmbuf->mbuf != ack->mbuf)) {
+		struct rdma_ack *stale, *tmp;
+
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_TX_QP_PROC_READ_REPLY_MBUF_PSN_MISMATCH);
+
+		/* Remove chain_B's ack before freeing its segments to
+		 * prevent stale ack->mbuf references.
+		 */
+		STAILQ_FOREACH_SAFE(stale, &qp->resp.ack_pending_list, next, tmp)
+		{
+			if (stale->mbuf == first_rmbuf->mbuf) {
+				STAILQ_REMOVE(&qp->resp.ack_pending_list, stale, rdma_ack, next);
+				if (stale->is_requeue)
+					qp->resp.resp_read_requeue_inflight--;
+				else
+					qp->resp.resp_read_rq_bal++;
+				break;
+			}
+		}
+
+		rdma_read_reply_cleanup_all(wqe);
 		return -1;
 	}
 
@@ -807,6 +894,8 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 	uint32_t mtu = qp->mtu;
 	struct rdma_pkt_info *rinfo = &pinfo->rinfo;
 	uint32_t dma_len = rte_be_to_cpu_32(rinfo->reth->len);
+	uint64_t reth_va = rte_be_to_cpu_64(rinfo->reth->va);
+	uint32_t reth_rkey = rte_be_to_cpu_32(rinfo->reth->rkey);
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
@@ -855,7 +944,14 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 		pinfo->mbuf->pkt_len = (uint32_t)(pinfo->mbuf->pkt_len + mbuf->pkt_len);
 	}
 
-	rdma_populate_dma_info(pinfo, DAO_PTS_RDMA_ENQ_D2M);
+	{
+		struct dao_pts_rdma_sge *sge = rdma_rx_priv_sge_base(pinfo->mbuf);
+
+		sge->addr = reth_va;
+		sge->length = dma_len;
+		sge->lkey = reth_rkey;
+	}
+	pinfo->mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS;
 	pinfo->mbuf->port = port;
 	qp->resp.resp_read_rq_bal--;
 	pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
@@ -873,12 +969,14 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	uint32_t qp_id = qp->qid;
 
 	if (dma_len > RDMA_PORT_MAX_MSG_SZ) {
+		RTE_PER_LCORE(rdma_dma_d2m_budget) += (dma_len + qp->mtu - 1) / qp->mtu;
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_RX_QP_HANDLE_READ_REQ_DMA_LEN_EXC);
 		return RDMA_RESPST_ERR_LENGTH;
 	}
 
 	if (rdma_read_prep_for_pts(qp, pinfo, &npkts) < 0) {
+		RTE_PER_LCORE(rdma_dma_d2m_budget) += (dma_len + qp->mtu - 1) / qp->mtu;
 		qp->resp.wqe.mbuf = NULL;
 		qp->resp.wqe.tail = NULL;
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
@@ -1150,43 +1248,21 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 	} else if (pkt->rinfo.mask & RDMA_READ_MASK) {
 		struct rte_mbuf *old_mbuf;
 		bool requeue_dma = false;
-		bool enq_requeue = false;
-
-		/* All read credits in use — original is still in-flight,
-		 * drop the duplicate to avoid TX congestion amplification.
-		 * requeue_dma borrows back resp_read_rq_bal, so account
-		 * for both: gate when inflight >= max_dest_rd_atomic.
-		 */
-		if (qp->resp.resp_read_rq_bal <= qp->resp.resp_read_requeue_inflight) {
-			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
-					    RDMA_RX_QP_READ_DUP_DMA_INFLIGHT);
-			return RDMA_RESPST_CLEANUP;
-		}
 
 		/* Check if request is in ack pending list */
 		old_mbuf = rdma_ack_pending_list_find_mbuf_by_psn(qp, pkt->rinfo.psn);
 		if (old_mbuf) {
-			/* refcnt == 1: enqueue failed, chain parked intact by the
-			 * prep ref - the only state safe to resubmit. refcnt 0
-			 * (freed) or >= 2 (DMA in flight) must not be resubmitted.
-			 */
-			if (rte_mbuf_refcnt_read(old_mbuf) == 1) {
+			if (rte_mbuf_refcnt_read(old_mbuf) == 1 &&
+			    old_mbuf->packet_type != DAO_PTS_RDMA_D2M_COMPL) {
 				struct rte_mbuf *m;
-				uint16_t linked = 0;
+				uint32_t dma_len_req = rte_be_to_cpu_32(pkt->rinfo.reth->len);
+				uint32_t nb_segs_req = (dma_len_req + qp->mtu - 1) / qp->mtu;
 
-				/* Resubmit only if still fully linked; the enqueuer
-				 * walks exactly nb_segs via ->next.
-				 */
-				for (m = old_mbuf; m; m = m->next)
-					linked++;
-
-				/* A chain already DMA-completed (packet_type set by
-				 * process_rdma_read_req) must never be resubmitted:
-				 * its segments are owned by the reply path and may be
-				 * freed/recycled, so re-enqueuing corrupts the chain.
-				 */
-				if (likely(linked == old_mbuf->nb_segs &&
-					   old_mbuf->packet_type != DAO_PTS_RDMA_D2M_COMPL)) {
+				if (RTE_PER_LCORE(rdma_dma_d2m_budget) < nb_segs_req) {
+					RDMA_INC_QP_COUNTER(
+						qp->lcore, qp->port_id, qp->qid,
+						RDMA_RX_QP_READ_DUP_ENQ_REQUEUE_NO_D2M_RES);
+				} else {
 					for (m = old_mbuf; m; m = m->next)
 						rte_mbuf_refcnt_update(m, 1);
 					old_mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_D2M
@@ -1195,29 +1271,43 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 					rte_pktmbuf_free(pkt->mbuf);
 					pkt->mbuf = old_mbuf;
 					pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
-					enq_requeue = true;
+					RTE_PER_LCORE(rdma_dma_d2m_budget) -= nb_segs_req;
+					RDMA_INC_QP_COUNTER(
+						qp->lcore, qp->port_id, qp->qid,
+						RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE);
 				}
 			} else {
 				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						    RDMA_RX_QP_READ_DUP_DMA_INFLIGHT);
 			}
-		} else if (rdma_is_previously_acked_request(qp, pkt->rinfo.psn, pkt) &&
-			   rdma_read_rkey_validate(qp, pkt)) {
-			/* Last read reply lost - reread and retransmit */
-			requeue_dma = true;
+		} else {
+			/* No existing chain; requeue_dma needs a new credit */
+			if (qp->resp.resp_read_rq_bal <= qp->resp.resp_read_requeue_inflight) {
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_RX_QP_READ_DUP_DMA_INFLIGHT);
+				return RDMA_RESPST_CLEANUP;
+			}
+			if (rdma_is_previously_acked_request(qp, pkt->rinfo.psn, pkt) &&
+			    rdma_read_rkey_validate(qp, pkt))
+				requeue_dma = true;
 		}
 
-		/* A previously enqueued chain was lost; re-enqueued to PTS. */
-		if (enq_requeue)
-			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
-					    RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE);
-
 		if (requeue_dma) {
+			uint32_t dma_len = rte_be_to_cpu_32(pkt->rinfo.reth->len);
+			uint32_t nb_segs = (dma_len + qp->mtu - 1) / qp->mtu;
+
+			if (RTE_PER_LCORE(rdma_dma_d2m_budget) < nb_segs) {
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_RX_QP_READ_DUP_REQUEUE_NO_D2M_RES);
+				return RDMA_RESPST_CLEANUP;
+			}
+
 			if (rdma_read_prep_for_pts(qp, pkt, &npkts) < 0) {
 				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						    RDMA_RX_QP_HANDLE_READ_REQ_READ_PREP_PTS_FAIL);
 				return RDMA_RESPST_CLEANUP;
 			}
+			RTE_PER_LCORE(rdma_dma_d2m_budget) -= nb_segs;
 			qp->resp.resp_read_rq_bal++;
 			qp->resp.resp_read_requeue_inflight++;
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,
@@ -1288,7 +1378,7 @@ rdma_responder(struct pkt_info *pinfo)
 			state = check_op_valid(qp, &pinfo->rinfo);
 			break;
 		case RDMA_RESPST_CHK_RESOURCE:
-			state = check_resource(qp, &pinfo->rinfo);
+			state = check_resource(qp, pinfo);
 			break;
 		case RDMA_RESPST_CHK_LENGTH:
 			state = check_length(qp, &pinfo->rinfo);
@@ -1337,8 +1427,15 @@ rdma_responder(struct pkt_info *pinfo)
 			}
 			return -1;
 		case RDMA_RESPST_ERR_RKEY_VIOLATION:
-			do_class_ac_error(qp, AETH_NAK_REM_ACC_ERR, RDMA_WC_REM_ACCESS_ERR);
-			state = RDMA_RESPST_COMPLETE;
+			if (pinfo->rinfo.mask & RDMA_IMMDT_MASK) {
+				/* IB Spec C9-222.1: error can be tied to an RX WQE */
+				do_class_ac_error(qp, AETH_NAK_REM_ACC_ERR, RDMA_WC_REM_ACCESS_ERR);
+				state = RDMA_RESPST_COMPLETE;
+			} else {
+				send_ack(qp, AETH_NAK_REM_ACC_ERR, pinfo,
+					 RDMA_OPCODE_RC_ACKNOWLEDGE, NULL);
+				state = RDMA_RESPST_CLEANUP;
+			}
 			break;
 		case RDMA_RESPST_ERR_CQ_OVERFLOW:
 			/* All - Class G */

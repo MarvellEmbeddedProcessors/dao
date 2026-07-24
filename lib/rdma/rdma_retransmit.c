@@ -37,7 +37,14 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 	first_psn = wqe->first_psn;
 
 	if (wqe->mask & WR_READ_MASK) {
-		/* READ: always retransmit from the first mbuf */
+		if (wqe->read_mbuf) {
+			rte_pktmbuf_free(wqe->read_mbuf);
+			wqe->read_mbuf = NULL;
+			wqe->read_tail = NULL;
+			wqe->dma_length = rdma_get_sge_length(wqe->wr);
+		}
+		qp->comp.psn = wqe->first_psn;
+		qp->comp.opcode = -1;
 		qp->req.retransmit.curr_mbuf = rmbuf;
 		qp->req.in_retransmission = 1;
 		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RETRANSMIT);

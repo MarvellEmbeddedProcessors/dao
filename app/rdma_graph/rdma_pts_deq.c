@@ -116,12 +116,14 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		}
 
 		count = dao_is_qp_stalled(qp_id, devid);
-		if (!count)
+		if (!count) {
+			RDMA_INC_QP_COUNTER(rte_lcore_id(), devid, qp_id,
+					    RDMA_TX_QP_PTS_DEQ_QP_STALLED);
 			goto next_qp;
+		}
 
 		{
-			struct rte_mbuf *sched_mbuf =
-				dao_rdma_need_qp_schedule(qp_id, devid);
+			struct rte_mbuf *sched_mbuf = dao_rdma_need_qp_schedule(qp_id, devid);
 
 			if (sched_mbuf) {
 				mbufs[nb_pkts++] = sched_mbuf;

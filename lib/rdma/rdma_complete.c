@@ -272,8 +272,6 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 {
 	struct rte_mbuf *mbuf = pkt->mbuf;
 
-	RTE_SET_USED(qp);
-
 	if (!mbuf) {
 		return RDMA_COMPST_ERROR;
 	}
@@ -303,6 +301,18 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 	}
 	pkt->mbuf = NULL;
 	if (wqe->dma_length == 0 && (pkt->rinfo.mask & RDMA_END_MASK)) {
+		uint32_t nb_segs = wqe->read_mbuf->nb_segs;
+
+		if (unlikely(RTE_PER_LCORE(rdma_dma_m2d_budget) < nb_segs)) {
+			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					    RDMA_RX_QP_READ_REPLY_DROP_NO_M2D_RES);
+			rte_pktmbuf_free(wqe->read_mbuf);
+			wqe->read_mbuf = NULL;
+			wqe->read_tail = NULL;
+			wqe->dma_length = rdma_get_sge_length(wqe->wr);
+			return RDMA_COMPST_ERROR_RETRY;
+		}
+		RTE_PER_LCORE(rdma_dma_m2d_budget) -= nb_segs;
 		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 					RDMA_RX_QP_READ_MSG_COMPLETE);
 		rdma_populate_wr(pkt, wqe);
@@ -331,21 +341,26 @@ rdma_write_send(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *
 static inline void
 rdma_delete_wqe(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 {
-	struct rdma_send_wqe *wqe_next, *tmp;
+	struct rdma_send_wqe *wqe_next;
 	struct rdma_mbufs *rmbuf = NULL, *temp_rmbuf = NULL;
 
-	STAILQ_FOREACH_SAFE(wqe_next, &qp->req.wqe_head, next, tmp)
-	{
-		STAILQ_REMOVE(&qp->req.wqe_head, wqe_next, rdma_send_wqe, next);
+	while (!STAILQ_EMPTY(&qp->req.wqe_head)) {
+		struct rte_mbuf *read_mbuf;
+
+		wqe_next = STAILQ_FIRST(&qp->req.wqe_head);
+		STAILQ_REMOVE_HEAD(&qp->req.wqe_head, next);
+
+		read_mbuf = wqe_next->read_mbuf;
+
 		STAILQ_FOREACH_SAFE(rmbuf, &wqe_next->mbuf_list, next, temp_rmbuf)
 		{
-			STAILQ_REMOVE(&wqe_next->mbuf_list, rmbuf, rdma_mbufs, next);
 			rdma_free_mbuf_list(rmbuf);
 		}
 
+		if (read_mbuf)
+			rte_pktmbuf_free(read_mbuf);
 		if (qp->req.cur_wqe == wqe_next)
 			qp->req.cur_wqe = NULL;
-
 		if (wqe_next == wqe)
 			break;
 	}

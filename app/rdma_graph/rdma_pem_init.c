@@ -57,6 +57,12 @@ rdma_tx_lcore_pool_create(rdma_ethdev_param_t *eth_prm, rdma_config_param_t *cfg
 		rte_exit(EXIT_FAILURE, "Invalid worker count");
 
 	per_lcore_mbufs = cfg_prm->num_mbufs ? cfg_prm->num_mbufs : RDMA_PER_LCORE_NB_MBUFS;
+
+	/* Transfer 20% of each TX pool to the shared RX pool */
+	uint32_t tx_donate = per_lcore_mbufs / 5;
+
+	per_lcore_mbufs -= tx_donate;
+
 	RTE_LCORE_FOREACH_WORKER(lcore_id)
 	{
 		if (lcore_prm->lcore_conf[lcore_id].service_lcore)

@@ -195,6 +195,8 @@ rdma_counter_update_lcore(void)
 	X(RDMA_RX_QP_CHK_RES_NO_READ_REQ_RES)                                                      \
 	/** RNR: receiver not ready (insufficient RQ resources) */                                 \
 	X(RDMA_RX_QP_CHK_RES_RNR_ERR)                                                              \
+	/** PTS resource exhausted (RQE/CQE/DMA insufficient) */                                   \
+	X(RDMA_RX_QP_CHK_RES_PTS_EXHAUSTED)                                                        \
 	/** Invalid RKEY index during RKEY validation. */                                          \
 	X(RDMA_RX_QP_VAL_RKEY_INV_RKEY_INDEX)                                                      \
 	/** Protection Domain (PD) not found during RKEY validation. */                            \
@@ -271,6 +273,8 @@ rdma_counter_update_lcore(void)
 	X(RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL)                                           \
 	/** Failed to extract WQE from mbuf during preprocessing of dequeued packets. */           \
 	X(RDMA_TX_QP_PREPROC_DEQ_PKTS_EXTRACT_WQE_FAIL)                                            \
+	/** D2M completion ACK not at head of ack_pending_list - skipped. */                       \
+	X(RDMA_TX_QP_PREPROC_DEQ_D2M_ACK_HEAD_MISMATCH)                                            \
 	/** Invalid DMA length detected during preprocessing of dequeued packets. */               \
 	X(RDMA_TX_QP_PREPROC_DEQ_PKTS_DMA_LEN_INV)                                                 \
 	/** Preprocessing of dequeued RC packet(s) failed. */                                      \
@@ -325,16 +329,28 @@ rdma_counter_update_lcore(void)
 	X(RDMA_TX_QP_TX_PROC_REQUESTER_FAIL)                                                       \
 	/** Failed to insert network headers. */                                                   \
 	X(RDMA_QP_NET_HDR_INSERT_FAIL)                                                             \
+	/** ICRC append required mbuf tail extend (new segment allocated). */                      \
+	X(RDMA_QP_ICRC_GEN_MBUF_TAIL_EXTEND)                                                       \
 	/** Failed to append generated ICRC to packet. */                                          \
 	X(RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL)                                                       \
+	/** QP stalled detected during PTS dequeue processing. */                                  \
+	X(RDMA_TX_QP_PTS_DEQ_QP_STALLED)                                                           \
 	/** PTS enqueue failed after retries exhausted; packets dropped. */                        \
 	X(RDMA_TX_QP_PTS_ENQ_FAIL)                                                                 \
 	/** Duplicate READ: a previously enqueued (but lost) chain is re-enqueued to PTS. */       \
 	X(RDMA_RX_QP_READ_DUP_ENQ_PKT_LOST_PTS_REQUEUE)                                            \
 	/** Duplicate READ: last read reply lost on the wire; re-read and re-enqueue to PTS. */    \
 	X(RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE)                                           \
+	/** Duplicate READ: requeue_dma skipped - insufficient D2M DMA budget. */                  \
+	X(RDMA_RX_QP_READ_DUP_REQUEUE_NO_D2M_RES)                                                  \
+	/** Duplicate READ: enq_requeue skipped - insufficient D2M DMA budget. */                  \
+	X(RDMA_RX_QP_READ_DUP_ENQ_REQUEUE_NO_D2M_RES)                                              \
 	/** Duplicate READ: DMA in-flight or reply active; retransmit deferred. */                 \
 	X(RDMA_RX_QP_READ_DUP_DMA_INFLIGHT)                                                        \
+	/** READ reply segment refcnt != 2; buffer freed prematurely. */                           \
+	X(RDMA_TX_QP_READ_REPLY_REFCNT_ERR)                                                        \
+	/** Assembled READ reply dropped: insufficient M2D DMA resources for PTS enqueue. */       \
+	X(RDMA_RX_QP_READ_REPLY_DROP_NO_M2D_RES)                                                   \
 	/** READ retransmission triggered (full request re-sent from first segment). */            \
 	X(RDMA_TX_QP_READ_RETRANSMIT)                                                              \
 	/** SEND retransmission triggered. */                                                      \

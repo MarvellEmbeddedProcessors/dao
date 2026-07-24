@@ -309,11 +309,15 @@ rdma_qp_update_from_attr(struct rdma_qp *qp, struct octep_rdma_user_qp_modify_re
 	if (mask & RDMA_QP_MIN_RNR_TIMER)
 		qp->attr.min_rnr_timer = req->min_rnr_timer;
 
-	if (mask & RDMA_QP_RETRY_CNT)
+	if (mask & RDMA_QP_RETRY_CNT) {
 		qp->attr.max_retry_cnt = req->retry_cnt;
+		qp->comp.retry_cnt = req->retry_cnt;
+	}
 
-	if (mask & RDMA_QP_RNR_RETRY)
+	if (mask & RDMA_QP_RNR_RETRY) {
 		qp->attr.max_rnr_retry = req->rnr_retry_cnt;
+		qp->comp.rnr_retry = req->rnr_retry_cnt;
+	}
 
 	if (mask & RDMA_QP_TIMEOUT) {
 		qp->attr.timeout = req->timeout;

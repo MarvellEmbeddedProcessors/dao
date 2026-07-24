@@ -454,6 +454,7 @@ rdma_icrc_generate(struct rte_mbuf *mbuf, struct rdma_pkt_info *pinfo)
 					    RDMA_QP_ICRC_GEN_APPEND_ICRC_FAIL);
 			return -1;
 		}
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_QP_ICRC_GEN_MBUF_TAIL_EXTEND);
 	}
 	*icrcp = ~icrc;
 

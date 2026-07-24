@@ -29,6 +29,7 @@
 #define MAX_RTE_FLOW_PATTERN       10
 #define MAX_RTE_FLOW_ACTIONS       10
 #define RDMA_MBUF_DEFAULT_BUF_SIZE 4228
+#define RDMA_TX_DONATE_DIVISOR     5
 
 uint8_t rss_key[48] = {0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2, 0x41, 0x67, 0x25, 0x3d,
 		       0x2d, 0x8a, 0x60, 0x6d, 0x1e, 0x9f, 0x5e, 0x4f, 0x3b, 0x7d, 0x4b, 0x3c,
@@ -284,8 +285,7 @@ init_mem(struct rdma_main_cfg_data *rdma_main_cfg, uint16_t portid, uint32_t nb_
 			/* Create a pool with priv size of a cacheline */
 			uint32_t data_room = cfg_prm->mbuf_data_size ? cfg_prm->mbuf_data_size :
 								       RDMA_MBUF_DEFAULT_BUF_SIZE;
-			/* num mbufs: use override if provided, else nb_mbuf passed by caller */
-			uint32_t pool_mbufs = cfg_prm->num_mbufs ? cfg_prm->num_mbufs : nb_mbuf;
+			uint32_t pool_mbufs = nb_mbuf;
 
 			dao_info("Creating mbuf pool %s on socket %d with %u mbufs, "
 				 "data room size %u, pvt size %u",
@@ -365,6 +365,12 @@ port_init(struct rdma_main_cfg_data *rdma_main_cfg, uint16_t portid, uint16_t nb
 	print_ethaddr(" Destination:", (const struct rte_ether_addr *)&dest_eth_addr[portid]);
 
 	uint32_t eff_nb_mbuf = cfg_prm->num_mbufs ? cfg_prm->num_mbufs : RDMA_DEFAULT_NB_MBUF;
+
+	/* RX pool receives 20% of each worker's TX pool mbufs */
+	uint32_t tx_donate_per_worker = eff_nb_mbuf / RDMA_TX_DONATE_DIVISOR;
+
+	eff_nb_mbuf += tx_donate_per_worker * nb_rx_queue;
+
 	/* Init memory */
 	if (!cfg_prm->per_port_pool) {
 		/* portid = 0; this is *not* signifying the first port,

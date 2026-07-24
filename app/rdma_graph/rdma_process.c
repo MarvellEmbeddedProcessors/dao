@@ -75,6 +75,7 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 	void *tx_next[APP_RDMA_ETH_DEQ_BURST_MAX] = {NULL};
 	uint16_t last_spec = 0;
 	struct rte_mbuf *mbuf;
+	bool burst_start = true;
 	uint16_t held = 0;
 	int i, ret;
 
@@ -138,7 +139,8 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 
 			node_mbuf_priv1(mbuf, dyn)->nb_pkts = 1;
 			ret = dao_rdma_rx_process(&mbuf, queue, &node_mbuf_priv1(mbuf, dyn)->qp_id,
-						  devid);
+						  devid, burst_start);
+			burst_start = false;
 			if (ret < 0) {
 				next = RDMA_NEXT_PKT_DROP;
 			} else if (ret == RDMA_RESPONDER_MBUF_CONSUMED) {

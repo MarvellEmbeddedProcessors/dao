@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Marvell.
  */
 #include "dao_rdma_fp.h"
+#include "rdma_hdr.h"
 #include <dao_log.h>
 #include <rte_common.h>
 #include <rte_eal.h>
@@ -19,6 +20,7 @@ dao_rdma_register_rdma_map_cb(rdma_map_cb_t cb)
 int
 dao_rdma_update_mtu(uint16_t port_id, uint16_t mtu)
 {
+	uint16_t eth_mtu = mtu + RDMA_MAX_L3_OVERHEAD;
 	struct rte_eth_dev_info dev_info;
 	int ret = 0;
 
@@ -36,13 +38,11 @@ dao_rdma_update_mtu(uint16_t port_id, uint16_t mtu)
 	}
 
 	/* Check if the MTU is supported */
-	if (mtu < dev_info.min_mtu || mtu > dev_info.max_mtu) {
-		dao_err("MTU %u is not supported. Supported range: [%u, %u]\n", mtu,
-			dev_info.min_mtu, dev_info.max_mtu);
+	if (eth_mtu < dev_info.min_mtu || eth_mtu > dev_info.max_mtu) {
+		dao_err("ETH MTU %u (RDMA %u + hdr %u) not supported. Range: [%u, %u]\n", eth_mtu,
+			mtu, RDMA_MAX_L3_OVERHEAD, dev_info.min_mtu, dev_info.max_mtu);
 		return -EINVAL;
 	}
-
-	dao_dbg("Updating MTU for port %u to %u", port_id, mtu);
 
 	/* Stop the ethernet device before MTU update */
 	ret = rte_eth_dev_stop(port_id);
@@ -52,7 +52,7 @@ dao_rdma_update_mtu(uint16_t port_id, uint16_t mtu)
 	}
 
 	/* Set the MTU */
-	ret = rte_eth_dev_set_mtu(port_id, mtu);
+	ret = rte_eth_dev_set_mtu(port_id, eth_mtu);
 	if (ret != 0) {
 		dao_err("Error setting MTU: %s\n", strerror(-ret));
 		/* Try to restart the device even if MTU setting failed */
@@ -67,7 +67,7 @@ dao_rdma_update_mtu(uint16_t port_id, uint16_t mtu)
 		return ret;
 	}
 
-	dao_info("Successfully updated MTU for port %u to %u", port_id, mtu);
+	dao_info("Successfully updated MTU for port %u: RDMA %u -> ETH %u", port_id, mtu, eth_mtu);
 
 	return 0;
 }

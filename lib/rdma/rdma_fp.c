@@ -110,14 +110,26 @@ struct rdma_wr_opcode_info rdma_wr_opcode_info[] = {
 
 /* clang-format on */
 
+static RTE_DEFINE_PER_LCORE(uint8_t, qp_resource_check_status[RDMA_QP_MAX]);
+static RTE_DEFINE_PER_LCORE(bool, dma_resource_fetched);
+RTE_DEFINE_PER_LCORE(uint32_t, rdma_dma_m2d_budget);
+RTE_DEFINE_PER_LCORE(uint32_t, rdma_dma_d2m_budget);
+
 int
-dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, int devid)
+dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, int devid,
+		    bool burst_start)
 {
+	uint8_t *qp_res_status = RTE_PER_LCORE(qp_resource_check_status);
 	struct pkt_info pinfo = {0};
 	struct rte_mbuf *mbuf = *mbuf_p;
 	unsigned int lcore_id = rte_lcore_id();
 	uint32_t port_id;
 	uint32_t qp_id;
+
+	if (burst_start) {
+		memset(qp_res_status, 0, sizeof(RTE_PER_LCORE(qp_resource_check_status)));
+		RTE_PER_LCORE(dma_resource_fetched) = false;
+	}
 
 	rdma_pkt_extract(mbuf, &pinfo, rx_queue, devid);
 	*qpn = bth_qpn(&pinfo.rinfo);
@@ -129,6 +141,30 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 	}
 
 	qp_id = ((struct rdma_qp *)pinfo.rinfo.qp)->qid;
+
+	/* Fetch PTS resource budget once per QP per graph iteration */
+	if (!qp_res_status[qp_id]) {
+		struct rdma_qp *qp = (struct rdma_qp *)pinfo.rinfo.qp;
+		uint64_t avail = 0;
+
+		if (dao_pts_rdma_res_avail_get(devid, qp_id, &avail) == 0) {
+			qp->pts_resource.rqe_avail = (uint16_t)(avail & DAO_PTS_RDMA_RES_RQ_MASK);
+
+			/* DMA resources are per-lcore; fetch once per iteration */
+			if (!RTE_PER_LCORE(dma_resource_fetched)) {
+				RTE_PER_LCORE(rdma_dma_m2d_budget) =
+					(uint32_t)((avail >> DAO_PTS_RDMA_RES_NON_READ_SHIFT) &
+						   DAO_PTS_RDMA_RES_NON_READ_MASK);
+				RTE_PER_LCORE(rdma_dma_d2m_budget) =
+					(uint32_t)((avail >> DAO_PTS_RDMA_RES_READ_SHIFT) &
+						   DAO_PTS_RDMA_RES_READ_MASK);
+				RTE_PER_LCORE(dma_resource_fetched) = true;
+			}
+		} else {
+			qp->pts_resource.rqe_avail = 0;
+		}
+		qp_res_status[qp_id] = 1;
+	}
 	if (rdma_icrc_check(mbuf, &pinfo)) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RX_PROC_ICRC_CHK_FAIL);
 		return -1;
@@ -314,6 +350,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
+	uint16_t flushed_mbufs = 0;
 
 	/*
 	 * A burst-limited READ reply in progress takes priority. Resume on its
@@ -326,12 +363,18 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		rdma_read_reply_flush_all(qp, mbufs, n_mbufs);
 	}
 
+	flushed_mbufs = *n_mbufs;
+
 	if (wqe && (wqe->state == wqe_state_processing || qp->req.cur_mbuf)) {
 		if (mbuf != qp->req.dummy_mbuf) {
 			ret = dao_rdma_preprocess_dequeued_pkts(qp, mbuf);
 			if (ret < 0) {
 				RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 						    RDMA_TX_QP_PROC_RC_PKTS_PREPROC_DEQ_PKTS_FAIL);
+				if (flushed_mbufs) {
+					rte_pktmbuf_free(mbuf);
+					return 0;
+				}
 				return -1;
 			}
 			if (qp->resp.read_reply.n_rdma_segs) {
@@ -341,7 +384,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 					RDMA_INC_QP_COUNTER(
 						lcore_id, port_id, qp_id,
 						RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL);
-					return -1;
+					return flushed_mbufs ? 0 : -1;
 				}
 				return 0;
 			}
@@ -358,6 +401,10 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	if (ret < 0) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_TX_QP_PROC_RC_PKTS_PREPROC_DEQ_PKTS_FAIL);
+		if (flushed_mbufs) {
+			rte_pktmbuf_free(mbuf);
+			return 0;
+		}
 		return -1;
 	}
 	if (qp->resp.read_reply.n_rdma_segs) {
@@ -365,7 +412,7 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 		if (ret < 0) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_TX_QP_PROC_RC_PKTS_READ_REPLY_FAIL);
-			return -1;
+			return flushed_mbufs ? 0 : -1;
 		}
 		return 0;
 	}
@@ -546,18 +593,6 @@ rdma_free_mbuf_generate_cqe(struct rdma_qp *qp, struct rdma_send_wr *wr, uint32_
 	return 0;
 }
 
-static inline uint32_t
-rdma_get_sge_length(struct rdma_send_wr *wr)
-{
-	uint32_t length = 0;
-	int i;
-
-	for (i = 0; i < wr->num_sges; i++)
-		length += wr->sges0[i].length;
-
-	return length;
-}
-
 /**
  * @function - dao_rdma_preprocess_dequeued_pkts
  * @qp: RDMA QP structure pointer
@@ -580,6 +615,14 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	uint32_t qp_id = qp->qid;
 
 	if (packet_type == DAO_PTS_RDMA_D2M_COMPL) {
+		struct rdma_ack *head_ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
+
+		if (!head_ack || !head_ack->is_read || head_ack->mbuf != mbuf) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_TX_QP_PREPROC_DEQ_D2M_ACK_HEAD_MISMATCH);
+			mbuf->packet_type = 0;
+			return -1;
+		}
 		wqe = &qp->resp.read_reply;
 		wr = NULL;
 	} else {
