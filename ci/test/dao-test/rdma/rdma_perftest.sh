@@ -10,11 +10,8 @@
 # Each case runs (a) EP_HOST as server, then (b) EP_REMOTE_HOST as server.
 #
 # Connection establishment:
-#   * SEND tests (ib_send_bw / ib_send_lat) for both UD and RC are run over
-#     rdma_cm (-R), except where the CM client would be an octep VF (RoCE v1
-#     GID octep_rdma can't use) - see run_perftest_case.
-#   * RDMA WRITE and READ tests (ib_write_*/ib_read_*) do not require rdma_cm;
-#     QP information is exchanged out-of-band over the management socket.
+#   * All tests (SEND / WRITE / READ, UD and RC) are connected through
+#     rdma_cm (-R), for both scenarios and both directions.
 
 set -euo pipefail
 
@@ -91,21 +88,9 @@ function run_perftest_case()
 	# -F              : do not fail on CPU frequency scaling (CI hosts)
 	# --report_gbits  : report bandwidth in Gb/sec
 	# -a              : run over all message sizes (single connection)
-	# rdma_cm on this setup makes the Octeon the CM client in the host-as-client
-	# direction (server_node=remote) and selects a RoCE v1 GID that the
-	# octep_rdma path can't use, so that direction stalls on large transfers.
-	# Force the socket-based QP exchange there so the script-selected RoCE v2
-	# GID (-x) is honored. The reverse direction (Octeon as CM server) is fine.
+	# rdma_cm (-R) is enabled for every case, both scenarios and both
+	# directions, per configuration.
 	local eff_use_cm=$use_cm
-	if [[ "$use_cm" == "yes" ]]; then
-		# In Octeon<->Octeon both ends are octep_rdma, so the RoCE v1 GID issue
-		# (rdma_cm picking an unsupported GID when Octeon is the CM client)
-		# affects both directions; otherwise only the host-as-client direction
-		# (server_node=remote) is affected.
-		if [[ "$pt_scenario" == "Octeon<->Octeon" || "$server_node" == "remote" ]]; then
-			eff_use_cm="no"
-		fi
-	fi
 
 	local cm_opt=""
 	[[ "$eff_use_cm" == "yes" ]] && cm_opt="-R"
@@ -207,19 +192,19 @@ function run_all_perftests()
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_SEND_BW"
 	fi
 
-	# Reliable Connection (RC) RDMA WRITE - no rdma_cm required
-	if ! run_perftest_bidir "RC_WRITE_LAT" "ib_write_lat" "RC" "no"; then
+	# Reliable Connection (RC) RDMA WRITE - connected through rdma_cm
+	if ! run_perftest_bidir "RC_WRITE_LAT" "ib_write_lat" "RC" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_WRITE_LAT"
 	fi
-	if ! run_perftest_bidir "RC_WRITE_BW" "ib_write_bw" "RC" "no"; then
+	if ! run_perftest_bidir "RC_WRITE_BW" "ib_write_bw" "RC" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_WRITE_BW"
 	fi
 
-	# Reliable Connection (RC) RDMA READ - no rdma_cm required
-	if ! run_perftest_bidir "RC_READ_LAT" "ib_read_lat" "RC" "no"; then
+	# Reliable Connection (RC) RDMA READ - connected through rdma_cm
+	if ! run_perftest_bidir "RC_READ_LAT" "ib_read_lat" "RC" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_READ_LAT"
 	fi
-	if ! run_perftest_bidir "RC_READ_BW" "ib_read_bw" "RC" "no"; then
+	if ! run_perftest_bidir "RC_READ_BW" "ib_read_bw" "RC" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_READ_BW"
 	fi
 }
