@@ -140,7 +140,7 @@ jobs:
             sudo apt-get install -y  libtext-iconv-perl libtiff6 libtinfo-dev libtirpc-dev libtsan0 libtsan2 libtypes-serialiser-perl
             sudo apt-get install -y  libubsan1 libuchardet0 libuv1 libwebp7 libwireshark-data libwireshark17t64 libwiretap14t64 libwsutil15t64 libx11-6
             sudo apt-get install -y  libx11-data libxau6 libxcb1 libxdmcp6 libxext6 libxml2 libxml2-dev libxmuu1 libxpm4 libxslt1.1
-            sudo apt-get install -y  libyaml-0-2 libz3-4 libz3-dev linux-headers-6.8.0-51 linux-headers-6.8.0-51-generic
+            sudo apt-get install -y  libyaml-0-2 libz3-4 libz3-dev
             sudo apt-get install -y  linux-headers-generic linux-libc-dev llvm-14 llvm-14-dev llvm-14-linker-tools llvm-14-runtime
             sudo apt-get install -y  llvm-14-tools lsb-release lto-disabled-list m4 man-db manpages manpages-dev media-types netbase
             sudo apt-get install -y  openssh-client openssl patch perl perl-modules-5.38 pinentry-curses po-debconf publicsuffix
