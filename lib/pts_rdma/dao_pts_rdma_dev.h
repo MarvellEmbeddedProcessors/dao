@@ -204,6 +204,18 @@ struct dao_pts_rdma_dev_info {
 	((struct dao_pts_rdma_cqe *)((uint8_t *)rte_mbuf_to_priv(mbuf) + DAO_PTS_RDMA_SGE_OFFSET + \
 				     ((mbuf)->l2_len * sizeof(struct dao_pts_rdma_sge))))
 
+#define DAO_PTS_RDMA_RES_RQ_BITS       20
+#define DAO_PTS_RDMA_RES_READ_BITS     22
+#define DAO_PTS_RDMA_RES_NON_READ_BITS 22
+
+#define DAO_PTS_RDMA_RES_RQ_SHIFT       0
+#define DAO_PTS_RDMA_RES_READ_SHIFT     DAO_PTS_RDMA_RES_RQ_BITS
+#define DAO_PTS_RDMA_RES_NON_READ_SHIFT (DAO_PTS_RDMA_RES_RQ_BITS + DAO_PTS_RDMA_RES_READ_BITS)
+
+#define DAO_PTS_RDMA_RES_RQ_MASK       ((1ULL << DAO_PTS_RDMA_RES_RQ_BITS) - 1)
+#define DAO_PTS_RDMA_RES_READ_MASK     ((1ULL << DAO_PTS_RDMA_RES_READ_BITS) - 1)
+#define DAO_PTS_RDMA_RES_NON_READ_MASK ((1ULL << DAO_PTS_RDMA_RES_NON_READ_BITS) - 1)
+
 /**
  * Get max supported read requests
  *
@@ -240,6 +252,22 @@ int dao_pts_rdma_qp_mtu_set(uint16_t devid, uint16_t qp_id, uint16_t mtu);
  *   0 on success, negative on error
  */
 int dao_pts_rdma_rq_avail_get(uint16_t devid, uint16_t qp_id, uint16_t *avail);
+
+/**
+ * Get RDMA dev resource availability
+ *
+ * @param devid
+ *   RDMA dev id
+ * @param qp_id
+ *   RDMA dev qp id
+ * @param avail
+ *   bits [19:0]  — RQ descriptor depth
+ *   bits [41:20]  — non-read desc count available
+ *   bits [63:42] — read desc count available
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_res_avail_get(uint16_t devid, uint16_t qp_id, uint64_t *avail);
 
 /**
  * Get RDMA TR device info.

@@ -18,7 +18,7 @@
 #define PTS_RDMA_DATA_OFF   (RTE_PKTMBUF_HEADROOM)
 
 /* Up to 512 batch is supported */
-#define DEQ_BULK_MBUF_ALLOC 512U
+#define DEQ_BULK_MBUF_ALLOC 64U
 
 static __rte_always_inline uint16_t
 post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d_mbufs,
@@ -118,6 +118,19 @@ cal_num_dst_mbufs(uint32_t slen, uint32_t buf_len, uint32_t mtu)
 	return n_mbufs;
 }
 
+static __rte_always_inline bool
+dma_capa_check(struct dao_dma_vchan_state *vchan, uint32_t n_dst_mbufs)
+{
+	uint32_t n_dma_ops, pending;
+	uint32_t burst_capa;
+
+	n_dma_ops = (n_dst_mbufs + vchan->flush_thr - 1) / vchan->flush_thr;
+	pending = (vchan->src_i > 0) ? 1 : 0;
+	burst_capa = rte_dma_burst_capacity(vchan->devid, vchan->vchan);
+
+	return burst_capa >= n_dma_ops + 1 + pending;
+}
+
 static __rte_always_inline int16_t
 alloc_and_chain_mbufs(struct pts_rdma_qp_sq *sq, struct rte_mbuf *mb, uint32_t n_mbufs,
 		      uint64_t rearm_data)
@@ -151,11 +164,12 @@ alloc_and_chain_mbufs(struct pts_rdma_qp_sq *sq, struct rte_mbuf *mb, uint32_t n
 }
 
 static __rte_always_inline int16_t
-process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct pts_rdma_qp_sq *sq,
+process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct pts_rdma_qp *qp,
 		   struct rte_mbuf *mbuf, uint16_t off, uint32_t nb_src_segs, uint32_t slen)
 {
 	const uint64_t rearm_data =
 		(0x100010000ULL | PTS_RDMA_DATA_OFF | ((uint64_t)(devid + RTE_MAX_ETHPORTS) << 48));
+	struct pts_rdma_qp_sq *sq = &qp->sq;
 	uintptr_t desc_base = (uintptr_t)sq->sd_desc_base;
 	uint8_t flush_thr = dev2mem->flush_thr;
 	uint16_t buf_len, mtu;
@@ -178,14 +192,17 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 	/* Calculate total required mbufs based on MTU requirement */
 	n_dst_mbufs = cal_num_dst_mbufs(slen, buf_len, mtu);
 
-	if (alloc_and_chain_mbufs(sq, mbuf, n_dst_mbufs, rearm_data) < 0)
+	if (alloc_and_chain_mbufs(sq, mbuf, n_dst_mbufs, rearm_data) < 0) {
+		qp->err.deq_alloc_fail++;
 		return -1;
+	}
 
 	mbuf->nb_segs = n_dst_mbufs;
 	n_sge_idx = 0;
 	n_mbuf_idx = 0;
 
-	if (unlikely(!dao_dma_desc_avail_get(dev2mem, nb_src_segs, n_dst_mbufs))) {
+	if (unlikely(!dma_capa_check(dev2mem, n_dst_mbufs))) {
+		qp->err.deq_dma_full++;
 		free_mbuf_seg_chain(mbuf->next);
 		mbuf->next = NULL;
 		mbuf->nb_segs = 1;
@@ -194,6 +211,9 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 
 	while (n_sge_idx < nb_src_segs && max_src_len > 0) {
 		if (unlikely(!dao_dma_flush(dev2mem, flush_thr))) {
+			qp->err.deq_flush_thr_fail++;
+			dev2mem->src_i = 0;
+			dev2mem->dst_i = 0;
 			free_mbuf_seg_chain(mbuf->next);
 			mbuf->next = NULL;
 			mbuf->nb_segs = 1;
@@ -270,11 +290,12 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 }
 
 static __rte_always_inline uint16_t
-fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_state *vchan,
+fetch_host_data(uint16_t devid, struct pts_rdma_qp *qp, struct dao_dma_vchan_state *vchan,
 		uint16_t hint, const uint16_t flags)
 {
 	const uint64_t rearm_data =
 		(0x100010000ULL | PTS_RDMA_DATA_OFF | ((uint64_t)(devid + RTE_MAX_ETHPORTS) << 48));
+	struct pts_rdma_qp_sq *sq = &qp->sq;
 	uintptr_t desc_base = (uintptr_t)sq->sd_desc_base;
 	struct rte_dma_sge *src = NULL, *dst = NULL;
 	uint32_t sd_desc_dma_off, sd_mbuf_off, q_sz;
@@ -286,11 +307,10 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 	uint32_t nb_mbufs, nb_desc;
 	uint32_t i = 0, slen, dlen, len;
 	struct rte_mbuf **mbuf_arr;
-	uint32_t unused_mbuf_off;
 	uint8_t opcode, next_desc;
 	uint32_t off, mbuf_off;
 	int last_idx = 0;
-	uint32_t j;
+	uint32_t j, n_dst_mbufs;
 	uint64_t d_flags;
 
 	RTE_SET_USED(flags);
@@ -311,8 +331,10 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 	mbuf_arr = sq->mbuf_arr;
 
 	/* Flush to get minimum space */
-	if (!dao_dma_flush(vchan, 1))
+	if (!dao_dma_flush(vchan, 1)) {
+		qp->err.deq_flush_single_fail++;
 		return 0;
+	}
 
 	if (!mtu)
 		mtu = buf_len;
@@ -356,6 +378,15 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 			continue;
 		}
 
+		if (unlikely(dlen > buf_len || dlen > mtu || num_sges > 1)) {
+			n_dst_mbufs = cal_num_dst_mbufs(dlen, buf_len, mtu);
+
+			if (!(dma_capa_check(vchan, n_dst_mbufs))) {
+				qp->err.deq_dma_full++;
+				goto exit;
+			}
+		}
+
 		if (likely(num_sges == 1 && dlen <= buf_len && dlen <= mtu)) {
 			src[0].addr = *SQ_DESC_PTR_OFF(desc_base, off, 32) & PTS_RDMA_DEV_IOVA_MASK;
 			src[0].length = slen;
@@ -370,21 +401,23 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct dao_dma_vchan_
 				len = *SQ_DESC_PTR_OFF(desc_base, off, 40 + 16 * j);
 				slen += len;
 			}
+			mbuf->pkt_len = slen;
+			if (process_multi_mbuf(devid, vchan, qp, mbuf, off, num_sges, slen) < 0)
+				goto exit;
 			/* Free the mbuf which was allocated for next_desc > 2 */
 			if (next_desc) {
-				unused_mbuf_off = (off + 1) & (q_sz - 1);
-				rte_pktmbuf_free(mbuf_arr[unused_mbuf_off]);
+				for (j = 1; j <= (uint32_t)next_desc; j++)
+					rte_pktmbuf_free(mbuf_arr[(off + j) & (q_sz - 1)]);
 			}
-			mbuf->pkt_len = slen;
-			if (process_multi_mbuf(devid, vchan, sq, mbuf, off, num_sges, slen) < 0)
-				goto exit;
 		}
 		i += (next_desc + 1);
 		off = (off + next_desc + 1) & (q_sz - 1);
 		used = i;
 		last_idx = vchan->tail;
-		if (!dao_dma_flush(vchan, 1))
+		if (!dao_dma_flush(vchan, 1)) {
+			qp->err.deq_flush_single_fail++;
 			break;
+		}
 	}
 
 exit:
@@ -461,7 +494,7 @@ pts_rdma_dequeue_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf *
 	nb_read = fetch_pending_read(qp, nb_read_hint, mbufs, flags);
 
 	nb_deq_hint = nb_host_pkts;
-	fetch_host_data(devid, sq, vchan, nb_deq_hint, flags);
+	fetch_host_data(devid, qp, vchan, nb_deq_hint, flags);
 	sd_mbuf_dma_off = sq->sd_mbuf_dma_off;
 	last_off = sq->last_off;
 

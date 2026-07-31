@@ -371,6 +371,47 @@ dao_pts_rdma_rq_avail_get(uint16_t devid, uint16_t qp_id, uint16_t *avail)
 }
 
 int
+dao_pts_rdma_res_avail_get(uint16_t devid, uint16_t qp_id, uint64_t *avail)
+{
+	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
+	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_dma_vchan_state *mem2dev, *dev2mem;
+	uint32_t read_avail, non_read_avail;
+	uint16_t m2d_inflight, d2m_inflight;
+	uint16_t dma_vchan, rq_depth;
+
+	if (unlikely(!qp))
+		return -EINVAL;
+
+	dao_pts_rdma_rq_avail_get(devid, qp_id, &rq_depth);
+
+	dma_vchan = qp->rq.dma_vchan;
+	mem2dev = &vchan_info->mem2dev[dma_vchan];
+	dev2mem = &vchan_info->dev2mem[dma_vchan];
+
+	m2d_inflight = mem2dev->tail - mem2dev->head;
+	non_read_avail = m2d_inflight < DAO_DMA_MAX_INFLIGHT_MDATA ?
+				 DAO_DMA_MAX_INFLIGHT_MDATA - m2d_inflight :
+				 0;
+	non_read_avail = RTE_MIN(non_read_avail, dao_dma_burst_capacity(mem2dev));
+	non_read_avail *= mem2dev->flush_thr;
+
+	d2m_inflight = dev2mem->tail - dev2mem->head;
+	read_avail = d2m_inflight < DAO_DMA_MAX_INFLIGHT_MDATA ?
+			     DAO_DMA_MAX_INFLIGHT_MDATA - d2m_inflight :
+			     0;
+	read_avail = RTE_MIN(read_avail, dao_dma_burst_capacity(dev2mem));
+	read_avail *= dev2mem->flush_thr;
+
+	*avail = ((uint64_t)(non_read_avail & DAO_PTS_RDMA_RES_NON_READ_MASK)
+		  << DAO_PTS_RDMA_RES_NON_READ_SHIFT) |
+		 ((uint64_t)(read_avail & DAO_PTS_RDMA_RES_READ_MASK)
+		  << DAO_PTS_RDMA_RES_READ_SHIFT) |
+		 ((uint64_t)rq_depth & DAO_PTS_RDMA_RES_RQ_MASK);
+	return 0;
+}
+
+int
 dao_pts_rdma_dev_info_get(uint16_t pem_devid, uint16_t dev_id, struct dao_pts_rdma_dev_info *info)
 {
 	uint64_t bar4_sz, notify_off_mltpr;

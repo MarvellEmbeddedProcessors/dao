@@ -186,6 +186,16 @@ struct pts_rdma_qp {
 	RTE_CACHE_GUARD;
 	uint32_t r_mbuf_dma_off __rte_cache_aligned;
 	uint32_t r_last_off;
+
+	RTE_CACHE_GUARD;
+	struct {
+		uint64_t deq_alloc_fail;
+		uint64_t deq_dma_full;
+		uint64_t deq_flush_thr_fail;
+		uint64_t deq_flush_single_fail;
+		uint64_t enq_dma_full;
+		uint64_t enq_op_fail;
+	} err;
 };
 
 struct pts_rdma_dev {
