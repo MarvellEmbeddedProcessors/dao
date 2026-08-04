@@ -365,7 +365,7 @@ function dao_rdma_setup()
 	echo "Setting up EP device for rdma tests"
 	ep_device_op dpi_setup
 
-	ep_device_op hugepage_setup 524288 24 24
+	ep_device_op hugepage_setup 524288 72 72
 
 	ep_device_op pem_setup
 

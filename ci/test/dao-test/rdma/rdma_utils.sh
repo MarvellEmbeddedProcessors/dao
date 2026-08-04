@@ -22,7 +22,7 @@ function rdma_app_launch()
 	local num_cores=$(ep_device_get_num_cores)
 	local pci_devs=""
 	local maxpktlen=9600
-	local num_mbuf=131072
+	local num_mbuf=531072
 	local num_dma_desc=32768
 	local max_cores=$num_cores
 	local cpu_mask="0xf"
@@ -70,6 +70,9 @@ function rdma_app_launch()
 		done
 	fi
 
+	free -h
+	cat /proc/meminfo
+	cat /proc/cmdline
 	# Add DPDK options.
 	app_cmd="$app_cmd --file-prefix=$file_prefix -- -p $port_mask -P --max-pkt-len=$maxpktlen -n $num_queues -r 0x1 --num-mbufs $num_mbuf --dma-nb-desc $num_dma_desc"
 
