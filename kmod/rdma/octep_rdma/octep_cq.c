@@ -16,9 +16,12 @@ octep_rdma_poll_one_cqe(struct octep_rdma_cq *cq, struct ib_wc *wc, int num_entr
 {
 	struct octep_rdma_cqe *q_base, *cqe;
 	struct octep_rdma_kcq_info *kcq;
+	struct octep_rdma_dev *rdma_dev;
 	u32 ci, pi, avail;
 	u32 qmask;
 	int i;
+
+	rdma_dev = to_octep_rdma_dev(cq->ibcq.device);
 
 	/* Cache frequently accessed pointers for better performance */
 	kcq = &cq->kern_cq;
@@ -52,9 +55,29 @@ octep_rdma_poll_one_cqe(struct octep_rdma_cq *cq, struct ib_wc *wc, int num_entr
 
 		/* Optimized field copying - group related fields together */
 		wc[i].wr_id = cqe->wr_id;
-		wc[i].qp = (struct ib_qp *)cqe->ibqp;
-		wc[i].src_qp = cqe->qp_id;
+		/* Normal CQEs carry the kernel ibqp address directly.
+		 * Synthesized CQEs (e.g. mgmt QP recv on EP) set ibqp=0
+		 * and use qp_id; resolve the pointer via qp_table here.
+		 *
+		 * The qp_table slot is written/cleared by create_qp/destroy_qp
+		 * under qp_table_lock. Take the same lock (and READ_ONCE the
+		 * slot) so we never dereference a QP that is being torn down
+		 * concurrently by octep_rdma_destroy_qp().
+		 */
+		if (cqe->ibqp) {
+			wc[i].qp = (struct ib_qp *)cqe->ibqp;
+		} else if (rdma_dev && rdma_dev->qp_table && cqe->qp_id < rdma_dev->max_qps) {
+			struct octep_rdma_qp *tqp;
+			unsigned long flags;
 
+			spin_lock_irqsave(&rdma_dev->qp_table_lock, flags);
+			tqp = READ_ONCE(rdma_dev->qp_table[cqe->qp_id]);
+			wc[i].qp = tqp ? &tqp->ibqp : NULL;
+			spin_unlock_irqrestore(&rdma_dev->qp_table_lock, flags);
+		} else {
+			wc[i].qp = NULL;
+		}
+		wc[i].src_qp = cqe->qp_id;
 		wc[i].status = cqe->status;
 		wc[i].opcode = cqe->opcode;
 		wc[i].vendor_err = cqe->vendor_err;

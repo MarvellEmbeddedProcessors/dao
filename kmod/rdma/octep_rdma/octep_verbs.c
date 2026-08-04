@@ -677,15 +677,65 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 		octep_plat_write32(0, cq_db + 4);
 	}
 
+	/* CQ interrupt notification: initialize BAR4 notify/arm addresses */
+	if (rdma_dev->cq_intr_enabled) {
+		struct octep_caps_region *caps = rdma_dev->caps_rgn;
+		u64 cq_slot_offset;
+
+		/* CQ slot: notify_base + ((cqn * 3 + 2) * notify_off_multiplier) */
+		cq_slot_offset = ((u64)cq->cqn * 3 + 2) * caps->notify_off_multiplier;
+		cq->cb_notify_addr =
+			(volatile u8 __iomem *)((u8 __iomem *)caps->notify_base + cq_slot_offset +
+						OCTEP_RDMA_CQ_NOTIFY_OFFSET);
+		cq->arm_byte_addr =
+			(volatile u8 __iomem *)((u8 __iomem *)caps->notify_base + cq_slot_offset +
+						OCTEP_RDMA_CQ_ARM_OFFSET);
+		cq->armed = OCTEP_RDMA_CQ_DISARMED;
+
+		/*
+		 * The EP initializes the cb_notify byte to 1 when it creates
+		 * the CQ (during the prepare_cq_cmd mbox round-trip above).
+		 * The ISR (octep_cq_intr_handler) scans every CQ on each
+		 * interrupt and fires comp_handler for any CQ whose cb_notify
+		 * byte is nonzero. Left as-is, the first interrupt from ANY CQ
+		 * would also fire a spurious completion event on this freshly
+		 * created CQ - before it has ever produced a CQE - which makes
+		 * userspace (e.g. ibv_get_cq_event + a single ibv_poll_cq in
+		 * event mode) read an uninitialized ibv_wc. Clear the stale
+		 * value now so the byte is only ever nonzero when the EP
+		 * signals a real completion.
+		 */
+		writeb(0, cq->cb_notify_addr);
+
+		/* Publish in the CQ table for the ISR BH / watchdog scans. Use
+		 * rcu_assign_pointer() so a reader that sees this slot also sees
+		 * the fully initialized cq above (paired with rcu_dereference()).
+		 */
+		if (cq->cqn < rdma_dev->max_cqs)
+			rcu_assign_pointer(rdma_dev->cq_table[cq->cqn], cq);
+	}
+
 	if (is_user == false) {
 		ret = octep_rdma_kern_cq_poll_insert(cq);
 		if (ret < 0) {
 			ibdev_err(ibcq->device, "Failed to insert CQ for poll\n");
-			goto err_free_res;
+			goto err_free_cq_table;
 		}
 	}
 
 	return 0;
+
+err_free_cq_table:
+	/*
+	 * The CQ was already published in cq_table above, so retract it before
+	 * the core frees this cq. Mirror octep_rdma_destroy_cq(): clear the slot
+	 * with rcu_assign_pointer() and synchronize_rcu() so any in-flight BH /
+	 * watchdog scan that loaded the pointer leaves its RCU read section first.
+	 */
+	if (rdma_dev->cq_intr_enabled && cq->cqn < rdma_dev->max_cqs) {
+		rcu_assign_pointer(rdma_dev->cq_table[cq->cqn], NULL);
+		synchronize_rcu();
+	}
 
 err_free_res:
 	if (!rdma_is_kernel_res(&ibcq->res)) {
@@ -725,14 +775,30 @@ octep_rdma_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc)
 	return npolled;
 }
 
-int
-octep_rdma_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
+int octep_rdma_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 {
 	struct octep_rdma_cq *cq = to_octep_rdma_cq(ibcq);
+	struct octep_rdma_dev *rdma_dev = to_octep_rdma_dev(ibcq->device);
 	int ret = 0;
 
 	if (cq->notify != IB_CQ_NEXT_COMP)
 		cq->notify = flags & IB_CQ_SOLICITED_MASK;
+
+	/* If CQ interrupt mode is enabled, write arm_byte to BAR4 */
+	if (rdma_dev->cq_intr_enabled && cq->arm_byte_addr) {
+		u8 arm_val;
+
+		if (flags & IB_CQ_NEXT_COMP)
+			arm_val = OCTEP_RDMA_CQ_ARM_NEXT_COMP;
+		else if (flags & IB_CQ_SOLICITED)
+			arm_val = OCTEP_RDMA_CQ_ARM_SOLICITED;
+		else
+			arm_val = OCTEP_RDMA_CQ_DISARMED;
+
+		/* Write arm_byte to BAR4 - EP will see this */
+		writeb(arm_val, cq->arm_byte_addr);
+		cq->armed = arm_val;
+	}
 
 	return ret;
 }
@@ -762,6 +828,14 @@ octep_rdma_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata)
 
 	/* Always continue with local cleanup */
 	ibdev_info(ibcq->device, "[%s:%d] cq->cqn %d\n", __func__, __LINE__, cq->cqn);
+
+	/*
+	 * Deregister from the CQ interrupt table for BOTH kernel and user CQs
+	 * so a later reuse of this cqn never leaves a stale/dangling pointer
+	 * that the ISR could dereference.
+	 */
+	if (rdma_dev->cq_intr_enabled && cq->cqn < rdma_dev->max_cqs)
+		rdma_dev->cq_table[cq->cqn] = NULL;
 
 	if (rdma_is_kernel_res(&cq->ibcq.res)) {
 		/* Remove from polling list before freeing */
@@ -904,6 +978,16 @@ octep_rdma_create_qp(struct ib_qp *ibqp, struct ib_qp_init_attr *attrs, struct i
 	}
 
 	spin_lock_init(&qp->lock);
+
+	/* Register in QP table for poll_cq qp_id -> ib_qp* lookup */
+	if (rdma_dev->qp_table && qp->ibqp.qp_num < rdma_dev->max_qps) {
+		unsigned long flags;
+
+		spin_lock_irqsave(&rdma_dev->qp_table_lock, flags);
+		WRITE_ONCE(rdma_dev->qp_table[qp->ibqp.qp_num], qp);
+		spin_unlock_irqrestore(&rdma_dev->qp_table_lock, flags);
+	}
+
 	return 0;
 err_out_cmd:
 	if (uctx) {
@@ -1059,6 +1143,30 @@ octep_rdma_destroy_qp(struct ib_qp *ibqp, struct ib_udata *udata)
 
 	ibdev_info(ibqp->device, "Destroying qp->ibqp.qp_num %d\n", qp->ibqp.qp_num);
 
+	/*
+	 * Retract from the QP table before the device-side teardown or freeing
+	 * any QP resources, so a concurrent octep_rdma_poll_one_cqe() can no
+	 * longer resolve a CQE's qp_id to this QP while it is being destroyed.
+	 * The qp_table_lock drop here pairs with the lock taken in the poll
+	 * path: once released, every later poll observes NULL, and any poll
+	 * already past the lock has captured only &qp->ibqp (which stays valid
+	 * until the core frees the QP after this call returns), never the
+	 * resources freed below.
+	 *
+	 * This must clear the slot for ALL QPs, including qp_num == 1 (the GSI /
+	 * management QP): octep_rdma_create_qp() registers every QP in the
+	 * table, so skipping qp_num == 1 here would leave a dangling pointer at
+	 * qp_table[1] when the mgmt QP is torn down. The qp_num != 1 guard below
+	 * applies only to freeing the index, which the mgmt QP does not own.
+	 */
+	if (rdma_dev->qp_table && qp->ibqp.qp_num < rdma_dev->max_qps) {
+		unsigned long flags;
+
+		spin_lock_irqsave(&rdma_dev->qp_table_lock, flags);
+		WRITE_ONCE(rdma_dev->qp_table[qp->ibqp.qp_num], NULL);
+		spin_unlock_irqrestore(&rdma_dev->qp_table_lock, flags);
+	}
+
 	/* Check if device is still active for communication */
 	device_active = octep_rdma_device_ready(rdma_dev);
 
@@ -1093,6 +1201,9 @@ octep_rdma_destroy_qp(struct ib_qp *ibqp, struct ib_udata *udata)
 		}
 	}
 
+	/* The table slot was already cleared at the top, so no poll can resolve
+	 * this qp_num anymore; free the index now that its resources are gone.
+	 */
 	if (qp->ibqp.qp_num != 1)
 		octep_rdma_free_idx(&rdma_dev->res_cb[OCTEP_RDMA_RES_TYPE_QP], qp->ibqp.qp_num);
 

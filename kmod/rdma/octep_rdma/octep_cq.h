@@ -35,11 +35,18 @@ struct octep_rdma_ucq_info {
 struct octep_rdma_cq {
 	/* First cache line: Hot data - frequently accessed in polling path */
 	struct ib_cq ibcq; /* IB CQ structure - hot */
-	u32 depth;         /* Queue depth - hot */
-	u32 qmask;         /* Queue mask - hot */
-	u32 cqn;           /* CQ number - medium frequency */
-	u8 notify;         /* Notification flags - hot */
-	u8 __pad[3];       /* Padding for alignment */
+	u32 depth; /* Queue depth - hot */
+	u32 qmask; /* Queue mask - hot */
+	u32 cqn; /* CQ number - medium frequency */
+	u8 notify; /* Notification flags - hot */
+	u8 armed; /* CQ arm state: 0=disarmed, 1=solicited, 2=next_comp */
+	u8 __pad[2]; /* Padding for alignment */
+
+	/* CQ interrupt notification - outside union, used for both user and kernel CQs */
+	volatile u8 __iomem
+		*cb_notify_addr; /* BAR4 slot+16 ((u32*)pi+4): EP writes 1 when data ready */
+	volatile u8 __iomem
+		*arm_byte_addr; /* BAR4 slot+12 ((u32*)(pi+6)): host writes to arm (req_notify) */
 
 	/* Second cache line onwards: Cold data - rarely accessed after init */
 	union {

@@ -7,6 +7,7 @@
  */
 
 #include "octep_rdma.h"
+#include "octep_cq.h"
 #include "octep_ep.h"
 #include "octep_ep_regs.h"
 #include "octep_pfvf_mbox.h"
@@ -87,12 +88,62 @@ static irqreturn_t octep_rsvd_intr_handler(int irq, void *data)
 	return octep_dev->hw_ops.rsvd_intr_handler(octep_dev);
 }
 
+/*
+ * CQ Completion Interrupt Handler (Option B)
+ * EP fires this after writing cb_notify_addr=1 to BAR4.
+ * We check arm_byte to decide whether to wake the application.
+ */
+static irqreturn_t octep_cq_intr_handler(int irq, void *data)
+{
+	struct octep_ep_dev *octep_dev = data;
+	struct octep_rdma_dev *rdma_dev;
+	struct octep_rdma_cq *cq;
+	u8 notify_val;
+	u32 i;
+
+	rdma_dev = pci_get_drvdata(octep_dev->pdev);
+	if (!rdma_dev || !rdma_dev->cq_table)
+		return IRQ_HANDLED;
+
+	/* Scan all CQs to find which one(s) triggered */
+	for (i = 0; i < rdma_dev->max_cqs; i++) {
+		cq = rdma_dev->cq_table[i];
+		if (!cq || !cq->cb_notify_addr)
+			continue;
+
+		notify_val = readb(cq->cb_notify_addr);
+		if (!notify_val)
+			continue;
+
+		/* Clear cb_notify so EP can set it again */
+		writeb(0, cq->cb_notify_addr);
+
+		/*
+		 * Do NOT write arm_byte here (no disarm).
+		 * arm_byte is managed exclusively by userspace poll_cq:
+		 * it writes arm_byte only after CQ is polled empty.
+		 * This prevents the storm caused by immediate re-arm
+		 * while CQEs are still un-consumed.
+		 */
+
+		/* Signal IB core - wake ibv_get_cq_event() / completion handler */
+		if (cq->ibcq.comp_handler)
+			cq->ibcq.comp_handler(&cq->ibcq, cq->ibcq.cq_context);
+	}
+
+	return IRQ_HANDLED;
+}
+
 static int octep_enable_msix_range(struct octep_ep_dev *octep_dev)
 {
 	int num_msix, msix_allocated;
 	int i;
 
-	octep_dev->num_custom_irqs = 5;
+	/*
+	 * num_custom_irqs is seeded from the firmware caps (caps_rgn->nb_irqs)
+	 * in octep_rdma_setup_task() before probe, so the CQ vector count tracks
+	 * what the firmware actually uses instead of a fixed value.
+	 */
 	num_msix = CFG_GET_NON_IOQ_MSIX(octep_dev->conf) + octep_dev->num_custom_irqs;
 	octep_dev->msix_entries = kcalloc(num_msix, sizeof(struct msix_entry), GFP_KERNEL);
 	if (!octep_dev->msix_entries)
@@ -200,6 +251,70 @@ static void octep_free_non_ioq_irqs(struct octep_ep_dev *octep_dev)
 
 	kfree(octep_dev->non_ioq_irq_names);
 	octep_dev->non_ioq_irq_names = NULL;
+}
+
+/*
+ * Register CQ completion interrupt handlers on the "custom" MSI-X vectors.
+ * These are vectors at indices [num_non_ioq_msix .. num_non_ioq_msix + num_custom_irqs - 1].
+ */
+int octep_request_cq_irqs(struct octep_ep_dev *octep_dev)
+{
+	int num_non_ioq_msix = CFG_GET_NON_IOQ_MSIX(octep_dev->conf);
+	int num_cq_irqs = octep_dev->num_custom_irqs;
+	struct msix_entry *msix_entry;
+	int ret, i;
+
+	if (!num_cq_irqs) {
+		dev_info(&octep_dev->pdev->dev,
+			 "[CQ_INTR] No CQ interrupt vectors available (custom_irqs=%d)\n",
+			 num_cq_irqs);
+		return 0;
+	}
+
+	for (i = 0; i < num_cq_irqs; i++) {
+		msix_entry = &octep_dev->msix_entries[num_non_ioq_msix + i];
+
+		dev_info(&octep_dev->pdev->dev,
+			 "[CQ_INTR] Registering CQ interrupt %d: vector=%d\n", i,
+			 msix_entry->vector);
+
+		ret = request_irq(msix_entry->vector, octep_cq_intr_handler, 0, "octep_rdma_cq",
+				  octep_dev);
+		if (ret) {
+			dev_err(&octep_dev->pdev->dev,
+				"[CQ_INTR] request_irq failed for CQ vec %d; err=%d\n", i, ret);
+			goto cq_irq_err;
+		}
+	}
+
+	dev_info(&octep_dev->pdev->dev, "[CQ_INTR] Registered %d CQ interrupt vectors\n",
+		 num_cq_irqs);
+	return 0;
+
+cq_irq_err:
+	while (i) {
+		--i;
+		msix_entry = &octep_dev->msix_entries[num_non_ioq_msix + i];
+		free_irq(msix_entry->vector, octep_dev);
+	}
+	return ret;
+}
+
+void octep_free_cq_irqs(struct octep_ep_dev *octep_dev)
+{
+	int num_non_ioq_msix = CFG_GET_NON_IOQ_MSIX(octep_dev->conf);
+	int num_cq_irqs = octep_dev->num_custom_irqs;
+	struct msix_entry *msix_entry;
+	int i;
+
+	if (!num_cq_irqs)
+		return;
+
+	for (i = 0; i < num_cq_irqs; i++) {
+		msix_entry = &octep_dev->msix_entries[num_non_ioq_msix + i];
+		free_irq(msix_entry->vector, octep_dev);
+	}
+	dev_info(&octep_dev->pdev->dev, "[CQ_INTR] Freed %d CQ interrupt vectors\n", num_cq_irqs);
 }
 
 int octep_setup_msix(struct octep_ep_dev *octep_dev)

@@ -261,6 +261,8 @@ static inline void OCTEP_PCI_WIN_WRITE(struct octep_ep_dev *octep_dev, u64 addr,
 
 int octep_setup_msix(struct octep_ep_dev *octep_dev);
 void octep_cleanup_msix(struct octep_ep_dev *octep_dev);
+int octep_request_cq_irqs(struct octep_ep_dev *octep_dev);
+void octep_free_cq_irqs(struct octep_ep_dev *octep_dev);
 void octep_device_setup_cnxk_pf(struct octep_ep_dev *octep_dev);
 void octep_device_setup_cnxk_vf(struct octep_ep_dev *octep_dev);
 int octep_rdma_probe_dev(struct octep_ep_dev *octep_dev);

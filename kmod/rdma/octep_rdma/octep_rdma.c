@@ -551,6 +551,9 @@ octep_rdma_dev_release(struct octep_rdma_dev *rdma_dev)
 	 */
 	if (status >= OCTEP_RDMA_DEV_STATUS_IBDEV_READY) {
 		dev_info(&rdma_dev->pdev->dev, "Unregistering IB device...\n");
+		/* Free CQ interrupts before IB device removal */
+		if (rdma_dev->cq_intr_enabled && rdma_dev->octep_dev)
+			octep_free_cq_irqs(rdma_dev->octep_dev);
 		octep_rdma_ib_device_remove(rdma_dev);
 	}
 
@@ -754,6 +757,16 @@ octep_rdma_setup_task(struct work_struct *work)
 	rdma_dev->netdev = netdev;
 	octep_dev->pdev = pdev;
 
+	/*
+	 * Number of CQ completion (custom) MSI-X vectors comes from the firmware
+	 * caps, not a fixed value: octep_enable_msix_range() allocates exactly
+	 * non_ioq + num_custom_irqs and octep_request_cq_irqs() registers a
+	 * handler per vector. caps_rgn->nb_irqs was already validated to
+	 * 1..OCTEP_MAX_CB_INTR above, so use it directly - a handler exists for
+	 * every vector the firmware can fire and none are wasted.
+	 */
+	octep_dev->num_custom_irqs = caps_rgn->nb_irqs;
+
 	/* Probing PCIe endpoint hardware device for RDMA verb path */
 	ret = octep_rdma_probe_dev(octep_dev);
 	if (ret) {
@@ -768,6 +781,42 @@ octep_rdma_setup_task(struct work_struct *work)
 		goto err_device_cleanup;
 	}
 
+	/* CQ interrupt notification setup (always enabled when vectors are available). */
+	rdma_dev->cq_intr_enabled = true;
+	rdma_dev->nb_cq_irqs = caps_rgn->nb_irqs;
+	/*
+	 * cq_table must span the ENTIRE CQ id space (attr.max_cq), not just
+	 * nb_irqs*32. CQ ids are allocated from [0, attr.max_cq); any CQ whose
+	 * cqn falls outside cq_table is invisible to the ISR
+	 * (octep_cq_intr_handler only scans cq_table[0..max_cqs-1]) so its
+	 * completions are never delivered and a cq-intr consumer hangs forever.
+	 * MSI-X vectors are shared across CQs via (cqn % nb_irqs), so supporting
+	 * more CQs than vectors is the intended model.
+	 */
+	rdma_dev->max_cqs = rdma_dev->attr.max_cq ? rdma_dev->attr.max_cq : caps_rgn->nb_irqs * 32;
+	rdma_dev->cq_table = devm_kcalloc(&pdev->dev, rdma_dev->max_cqs,
+					  sizeof(struct octep_rdma_cq *), GFP_KERNEL);
+	if (!rdma_dev->cq_table) {
+		rdma_dev->cq_intr_enabled = false;
+	} else {
+		ret = octep_request_cq_irqs(octep_dev);
+		if (ret) {
+			dev_warn(&pdev->dev, "[CQ_INTR] Failed to register CQ IRQs, disabling\n");
+			rdma_dev->cq_intr_enabled = false;
+		} else {
+			dev_info(&pdev->dev, "[CQ_INTR] CQ interrupts enabled: %u vectors\n",
+				 rdma_dev->nb_cq_irqs);
+		}
+	}
+
+	/* QP lookup table: allows poll_cq to resolve qp_id -> ib_qp* for
+	 * synthesized CQEs that carry only a QP number (not the kernel pointer).
+	 */
+	rdma_dev->max_qps = rdma_dev->attr.max_qp;
+	spin_lock_init(&rdma_dev->qp_table_lock);
+	rdma_dev->qp_table = devm_kcalloc(&pdev->dev, rdma_dev->max_qps,
+					  sizeof(struct octep_rdma_qp *), GFP_KERNEL);
+
 	/* Non-RDMA packet path: management QP-based netdev */
 	ret = octep_rdma_mgmt_qp_netdev_init(rdma_dev, octep_dev, caps_rgn);
 	if (ret) {
@@ -781,6 +830,16 @@ octep_rdma_setup_task(struct work_struct *work)
 	return;
 
 err_ibdev_cleanup:
+	/*
+	 * CQ IRQs/watchdog were requested above (octep_request_cq_irqs). Release
+	 * them before removing the IB device - same order as the normal
+	 * teardown - so a later setup failure (e.g. mgmt QP netdev init) does
+	 * not leak the handlers or leave the watchdog/BH queued against a device
+	 * being freed. Guarded so it is a no-op when CQ interrupts were never
+	 * enabled (alloc/request failure already cleaned up and cleared the flag).
+	 */
+	if (rdma_dev->cq_intr_enabled && rdma_dev->octep_dev)
+		octep_free_cq_irqs(rdma_dev->octep_dev, rdma_dev);
 	octep_rdma_ib_device_remove(rdma_dev);
 err_device_cleanup:
 	octep_device_cleanup(octep_dev);

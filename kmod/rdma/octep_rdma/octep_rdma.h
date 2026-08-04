@@ -22,25 +22,45 @@
 #include "octterm_cdev.h"
 #endif
 
-#define OCTEP_RDMA_DRV_NAME  "octep_rdma"
-#define OCTEP_DRV_STRING     "Marvell Octeon EndPoint RDMA Adaptor Driver"
+#define OCTEP_RDMA_DRV_NAME "octep_rdma"
+#define OCTEP_DRV_STRING "Marvell Octeon EndPoint RDMA Adaptor Driver"
 #define OCTEP_RDMA_NODE_DESC OCTEP_DRV_STRING
 
-#define OCTEP_RDMA_DB_SIZE           8
+#define OCTEP_RDMA_DB_SIZE 8
 #define OCTEP_RDMA_EXTRA_BUFFER_SIZE OCTEP_RDMA_DB_SIZE
-#define WARPPED_BUFSIZE(size)        ((size) + OCTEP_RDMA_EXTRA_BUFFER_SIZE)
+#define WARPPED_BUFSIZE(size) ((size) + OCTEP_RDMA_EXTRA_BUFFER_SIZE)
+
+/* CQ doorbell slot offsets within BAR4 notify region (relative to CQ slot base)
+ * CQ slot base = notify_base + (cqn * 3 + 2) * notify_off_multiplier
+ * pi_dbl is at offset +0 (uint16_t *)
+ *
+ * EP (pts_rdma) computes (note the different parenthesization / units):
+ *   cb_notify_addr        = (uint32_t *)pi_addr + 4   → byte offset +16
+ *   cb_cq_req_notify_addr = (uint32_t *)(pi_addr + 6) → byte offset +12
+ *
+ * Kernel must read/write at the SAME byte offsets as the EP. The EP accesses
+ * these as uint32_t; the host uses byte I/O (works on LE).
+ */
+#define OCTEP_RDMA_CQ_NOTIFY_OFFSET \
+	16 /* cb_notify_addr ((u32*)pi+4): EP writes 1 when data ready */
+#define OCTEP_RDMA_CQ_ARM_OFFSET 12 /* req_notify_addr ((u32*)(pi+6)): host writes to arm CQ */
+
+/* arm_byte values */
+#define OCTEP_RDMA_CQ_DISARMED 0
+#define OCTEP_RDMA_CQ_ARM_SOLICITED 1
+#define OCTEP_RDMA_CQ_ARM_NEXT_COMP 2
 
 /* RDMA Capability. */
-#define OCTEP_RDMA_MAX_SEND_WR  8192
-#define OCTEP_RDMA_MAX_RECV_WR  8192
-#define OCTEP_RDMA_MIN_SEND_WR  64
-#define OCTEP_RDMA_MIN_RECV_WR  64
-#define OCTEP_RDMA_MAX_CONTEXT  (128 * 1024)
+#define OCTEP_RDMA_MAX_SEND_WR 8192
+#define OCTEP_RDMA_MAX_RECV_WR 8192
+#define OCTEP_RDMA_MIN_SEND_WR 64
+#define OCTEP_RDMA_MIN_RECV_WR 64
+#define OCTEP_RDMA_MAX_CONTEXT (128 * 1024)
 
-#define OCTEP_RDMA_SET_FIELD(ptr, mask, value)                                                     \
-	({                                                                                         \
-		typeof(*(ptr)) *_ptr = (ptr);                                                      \
-		*_ptr = (*_ptr & ~(mask)) | FIELD_PREP(mask, value);                               \
+#define OCTEP_RDMA_SET_FIELD(ptr, mask, value)                       \
+	({                                                           \
+		typeof(*(ptr)) *_ptr = (ptr);                        \
+		*_ptr = (*_ptr & ~(mask)) | FIELD_PREP(mask, value); \
 	})
 
 struct octep_rdma_port {
@@ -104,6 +124,19 @@ struct octep_rdma_dev {
 	struct octterm_cdev *octterm;
 	struct device *dma_dev;
 #endif
+
+	/* CQ interrupt notification support */
+	bool cq_intr_enabled; /* CQ IRQ registration succeeded */
+	u8 nb_cq_irqs; /* Number of CQ interrupt vectors available */
+	struct octep_rdma_cq __rcu **cq_table; /* CQ lookup table indexed by cqn; RCU-protected */
+	u32 max_cqs; /* Max CQ entries */
+
+	/* QP lookup table for poll_cq: resolves qp_id -> ib_qp* for
+	 * synthesized CQEs that carry only qp_id and not the kernel ibqp pointer.
+	 */
+	struct octep_rdma_qp **qp_table; /* QP lookup table indexed by qp_num */
+	u32 max_qps; /* Max QP entries (= attr.max_qp) */
+	spinlock_t qp_table_lock; /* serializes qp_table slot access vs QP teardown */
 };
 
 int octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev);
