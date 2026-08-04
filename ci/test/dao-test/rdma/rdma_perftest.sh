@@ -12,6 +12,12 @@
 # Connection establishment:
 #   * All tests (SEND / WRITE / READ, UD and RC) are connected through
 #     rdma_cm (-R), for both scenarios and both directions.
+#
+# Completion handling:
+#   * SEND / READ tests run in CQ event mode (-e), sleeping on CQ events
+#     (interrupt-driven completions) instead of busy-polling the CQ.
+#   * WRITE tests stay in poll mode: perftest rejects -e on the WRITE verb
+#     ("Events feature not available on WRITE verb").
 
 set -euo pipefail
 
@@ -58,6 +64,7 @@ function cleanup_perftest_processes()
 #   $3 conn_type   - connection type (UD or RC)
 #   $4 use_cm      - "yes" to connect QPs through rdma_cm (-R), else "no"
 #   $5 server_node - "host" (EP_HOST is server) or "remote" (EP_REMOTE_HOST is server)
+#   $6 use_events  - "yes" to sleep on CQ events (-e), else poll (default)
 function run_perftest_case()
 {
 	local test_name=$1
@@ -65,6 +72,7 @@ function run_perftest_case()
 	local conn_type=$3
 	local use_cm=$4
 	local server_node=$5
+	local use_events=${6:-no}
 
 	local server_env server_dev server_gid server_ssh
 	local client_env client_dev client_gid client_ssh
@@ -88,6 +96,7 @@ function run_perftest_case()
 	# -F              : do not fail on CPU frequency scaling (CI hosts)
 	# --report_gbits  : report bandwidth in Gb/sec
 	# -a              : run over all message sizes (single connection)
+	# -e              : sleep on CQ events (interrupt-driven) instead of polling
 	# rdma_cm (-R) is enabled for every case, both scenarios and both
 	# directions, per configuration.
 	local eff_use_cm=$use_cm
@@ -100,15 +109,28 @@ function run_perftest_case()
 	local q_opt=""
 	[[ "$binary" == *_bw ]] && q_opt="-q 16"
 
-	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a $q_opt"
+	# CQ event mode (-e): sleep on CQ events instead of the default busy poll.
+	local event_opt=""
+	[[ "$use_events" == "yes" ]] && event_opt="-e"
+
+	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt $event_opt -F --report_gbits -a $q_opt"
+
+	# Client stays in poll mode: the feature under test is the octeon
+	# server's CQ event/watchdog path.  mlx5 client event mode has a
+	# timing-dependent edge-loss when paired with event-mode server
+	# (last recv CQE notification coalesced/dropped), causing hangs at
+	# size transitions for RC.
+
 	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a $q_opt"
 
 	local log_path="${EP_LOG_PATH:-/tmp}"
 	local server_log="$log_path/${binary}_${test_name}_server.log"
 
-	echo "  --- $test_name ($server_node server, $conn_type, rdma_cm=$eff_use_cm) ---"
+	echo "  --- $test_name ($server_node, $conn_type," \
+		"cm=$eff_use_cm, events=$use_events) ---"
 
-	local server_cmd="bash -c \"( time ( ${server_env} setsid $binary $server_opts ) ) >$server_log 2>&1 &\""
+	local srv_run="${server_env} setsid stdbuf -oL $binary $server_opts"
+	local server_cmd="bash -c \"( time ( ${srv_run} ) ) >$server_log 2>&1 &\""
 	local client_cmd="bash -c \"time ( ${client_env} $binary $client_opts $server_ip )\""
 
 	# A single case can transiently time out on the octep_rdma path even though
@@ -119,8 +141,22 @@ function run_perftest_case()
 		cleanup_perftest_processes
 
 		$server_ssh "$server_cmd"
-		# Allow the server to reach the accept/listen state.
-		sleep 3
+		# Wait for the server to reach rdma_cm listen state by polling
+		# its log for the "Waiting for client" banner. First-time init
+		# (CQ table alloc, MSI-X setup) can exceed a fixed sleep.
+		local _sw
+		local server_ready=""
+		for _sw in $(seq 1 30); do
+			if $server_ssh "grep -q 'Waiting for client' $server_log 2>/dev/null"; then
+				server_ready=1
+				break
+			fi
+			sleep 1
+		done
+		if [[ -z "$server_ready" ]]; then
+			echo "  WARNING: server log did not show 'Waiting for client' after 30s, proceeding with fallback sleep"
+			sleep 5
+		fi
 
 		set +e
 		$client_ssh "timeout ${PERFTEST_CLIENT_TIMEOUT} $client_cmd"
@@ -154,62 +190,74 @@ function run_perftest_case()
 }
 
 # Run a perftest case in both directions (Host server and Remote server).
-#   $1 test_name $2 binary $3 conn_type $4 use_cm
+#   $1 test_name $2 binary $3 conn_type $4 use_cm $5 use_events
+# Filter: set PERFTEST_FILTER=<substring> to run only matching cases.
 function run_perftest_bidir()
 {
 	local test_name=$1
+	if [[ -n "${PERFTEST_FILTER:-}" && "$test_name" != *"$PERFTEST_FILTER"* ]]; then
+		echo "  Skipping $test_name (PERFTEST_FILTER=$PERFTEST_FILTER)"
+		return 0
+	fi
 	local binary=$2
 	local conn_type=$3
 	local use_cm=$4
+	local use_events=${5:-no}
 	local rc=0
 
 	echo "=========================================================================================="
 	echo "[$pt_scenario] $test_name"
 	echo "=========================================================================================="
 
-	if ! run_perftest_case "$test_name" "$binary" "$conn_type" "$use_cm" "host"; then
+	if ! run_perftest_case "$test_name" "$binary" \
+		"$conn_type" "$use_cm" "host" "$use_events"; then
 		rc=1
 	fi
-	if ! run_perftest_case "$test_name" "$binary" "$conn_type" "$use_cm" "remote"; then
+	if ! run_perftest_case "$test_name" "$binary" \
+		"$conn_type" "$use_cm" "remote" "$use_events"; then
 		rc=1
 	fi
 	echo ""
 	return $rc
 }
 
-# Run the full perftest matrix for the current scenario. The run_perftest_bidir
-# invocations are unchanged; only the failed_tests label carries the scenario.
+# Run the full perftest matrix for the current scenario. SEND/READ cases run
+# with CQ event mode (-e) enabled (sleep on CQ events instead of busy polling);
+# WRITE cases stay in poll mode (perftest rejects -e on the WRITE verb). All
+# cases use rdma_cm (-R). Only the failed_tests label carries the scenario.
 function run_all_perftests()
 {
-	# Unreliable Datagram (UD) SEND - connected through rdma_cm
-	if ! run_perftest_bidir "UD_SEND_LAT" "ib_send_lat" "UD" "yes"; then
+	# Unreliable Datagram (UD) SEND - connected through rdma_cm, CQ event mode
+	if ! run_perftest_bidir "UD_SEND_LAT" "ib_send_lat" "UD" "yes" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] UD_SEND_LAT"
 	fi
-	if ! run_perftest_bidir "UD_SEND_BW" "ib_send_bw" "UD" "yes"; then
+	if ! run_perftest_bidir "UD_SEND_BW" "ib_send_bw" "UD" "yes" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] UD_SEND_BW"
 	fi
 
-	# Reliable Connection (RC) SEND - connected through rdma_cm
-	if ! run_perftest_bidir "RC_SEND_LAT" "ib_send_lat" "RC" "yes"; then
+	# Reliable Connection (RC) SEND - connected through rdma_cm, CQ event mode
+	if ! run_perftest_bidir "RC_SEND_LAT" "ib_send_lat" "RC" "yes" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_SEND_LAT"
 	fi
-	if ! run_perftest_bidir "RC_SEND_BW" "ib_send_bw" "RC" "yes"; then
+	if ! run_perftest_bidir "RC_SEND_BW" "ib_send_bw" "RC" "yes" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_SEND_BW"
 	fi
 
-	# Reliable Connection (RC) RDMA WRITE - connected through rdma_cm
-	if ! run_perftest_bidir "RC_WRITE_LAT" "ib_write_lat" "RC" "yes"; then
+	# Reliable Connection (RC) RDMA WRITE - connected through rdma_cm.
+	# perftest rejects -e on the WRITE verb ("Events feature not available on
+	# WRITE verb"), so WRITE stays in poll mode.
+	if ! run_perftest_bidir "RC_WRITE_LAT" "ib_write_lat" "RC" "yes" "no"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_WRITE_LAT"
 	fi
-	if ! run_perftest_bidir "RC_WRITE_BW" "ib_write_bw" "RC" "yes"; then
+	if ! run_perftest_bidir "RC_WRITE_BW" "ib_write_bw" "RC" "yes" "no"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_WRITE_BW"
 	fi
 
-	# Reliable Connection (RC) RDMA READ - connected through rdma_cm
-	if ! run_perftest_bidir "RC_READ_LAT" "ib_read_lat" "RC" "yes"; then
+	# Reliable Connection (RC) RDMA READ - connected through rdma_cm, CQ event mode
+	if ! run_perftest_bidir "RC_READ_LAT" "ib_read_lat" "RC" "yes" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_READ_LAT"
 	fi
-	if ! run_perftest_bidir "RC_READ_BW" "ib_read_bw" "RC" "yes"; then
+	if ! run_perftest_bidir "RC_READ_BW" "ib_read_bw" "RC" "yes" "yes"; then
 		failed_tests="$failed_tests\n  [$pt_scenario] RC_READ_BW"
 	fi
 }
