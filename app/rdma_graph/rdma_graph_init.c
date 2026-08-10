@@ -2,7 +2,9 @@
  * Copyright (c) 2025 Marvell.
  */
 
+#include <inttypes.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "rdma_dma_init.h"
 #include "rdma_eth_rx_priv.h"
@@ -24,6 +26,40 @@ rte_node_t rdma_pts_enq_nodes[DAO_PTS_RDMA_MAX_DEVS];
 static uint16_t pts_deq_tx_edge_idx[DAO_PTS_RDMA_MAX_DEVS];
 static bool pts_deq_tx_edge_idx_init;
 
+static void
+pktpool_stats_cb(struct rte_mempool *mp, void *arg)
+{
+	FILE *f = (FILE *)arg;
+
+	if (strstr(mp->name, "mbuf_pool") || strstr(mp->name, "tx_mbuf_pool"))
+		fprintf(f, "  %-32s  size=%-6u  avail=%-6u  inuse=%-6u\n", mp->name, mp->size,
+			rte_mempool_avail_count(mp), rte_mempool_in_use_count(mp));
+}
+
+static void
+rdma_ethdev_stats_dump(FILE *f)
+{
+	struct rte_eth_stats eth_stats;
+	uint16_t port_id;
+
+	fprintf(f, "\n--- Ethdev Stats ---\n");
+	RTE_ETH_FOREACH_DEV(port_id) {
+		if (rte_eth_stats_get(port_id, &eth_stats) == 0) {
+			fprintf(f,
+				"  Port %-2u RX: pkts=%-12" PRIu64 " bytes=%-14" PRIu64
+				" imissed=%-10" PRIu64 " ierrors=%-10" PRIu64 " nombuf=%-10" PRIu64
+				"\n",
+				port_id, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
+				eth_stats.ierrors, eth_stats.rx_nombuf);
+			fprintf(f,
+				"  Port %-2u TX: pkts=%-12" PRIu64 " bytes=%-14" PRIu64
+				" oerrors=%-10" PRIu64 "\n",
+				port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.oerrors);
+		}
+	}
+	fprintf(f, "--------------------\n");
+}
+
 static uint32_t
 graph_print_stats(void *arg)
 {
@@ -34,6 +70,9 @@ graph_print_stats(void *arg)
 	struct rte_graph_cluster_stats *stats;
 	const char **s_patterns;
 	uint16_t nb_patterns;
+	char *buf = NULL;
+	size_t buf_sz = 0;
+	FILE *memfp;
 	static const char *const patterns[] = {
 		"worker_*",
 	};
@@ -48,24 +87,44 @@ graph_print_stats(void *arg)
 	memcpy(s_patterns, patterns, nb_patterns * sizeof(*s_patterns));
 
 	/* Prepare stats object */
+	memfp = open_memstream(&buf, &buf_sz);
+	if (!memfp)
+		DAO_ERR_GOTO(-ENOMEM, fail, "Failed to open memstream for stats");
+
 	memset(&s_param, 0, sizeof(s_param));
-	s_param.f = stdout;
+	s_param.f = memfp;
 	s_param.socket_id = SOCKET_ID_ANY;
 	s_param.graph_patterns = s_patterns;
 	s_param.nb_graph_patterns = nb_patterns;
 
 	stats = rte_graph_cluster_stats_create(&s_param);
-	if (stats == NULL)
+	if (stats == NULL) {
+		fclose(memfp);
+		free(buf);
 		DAO_ERR_GOTO(-EINVAL, fail, "Unable to create stats object");
+	}
 
 	while (!rdma_main_cfg->force_quit) {
-		/* Clear screen and move to top left */
-		printf("%s%s", clr, topLeft);
+		rewind(memfp);
 		rte_graph_cluster_stats_get(stats, 0);
+		rdma_ethdev_stats_dump(memfp);
+		fprintf(memfp, "\n--- Packet Pool Stats ---\n");
+		rte_mempool_walk(pktpool_stats_cb, memfp);
+		fprintf(memfp, "-------------------------\n");
+		fflush(memfp);
+
+		flockfile(stdout);
+		fputs(clr, stdout);
+		fputs(topLeft, stdout);
+		fwrite(buf, 1, buf_sz, stdout);
+		fflush(stdout);
+		funlockfile(stdout);
 		rte_delay_ms(1E3);
 	}
 
 	rte_graph_cluster_stats_destroy(stats);
+	fclose(memfp);
+	free(buf);
 	free(s_patterns);
 
 fail:
