@@ -22,3 +22,4 @@ Application User Guide
     k8s-cni-offload
     envoy
     rdma
+    nvme-of-rdma
