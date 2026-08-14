@@ -557,12 +557,13 @@ cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr, 
 	struct dao_vfio_device *sdp_pdev = &pem->cn10k.plat.sdp_pdev;
 	int idx, ring_idx;
 	uint64_t reg_val;
-	uint8_t rpvf;
+	uint8_t rpvf, srn;
 
 	if (pem->cdev_inuse)
 		return 0;
 
-	reg_val = sdp_reg_read(sdp_pdev, SDP_VF_MBOX_DATA(0));
+	reg_val = sdp_reg_read(sdp_pdev, SDP_EPFX_RINFO(0));
+	srn = reg_val & SDP_EPFX_RINFO_SRN_MASK;
 	rpvf = (reg_val >> SDP_EPFX_RINFO_RPVF_SHIFT) & 0xf;
 	pem->rpvf = rpvf;
 
@@ -572,7 +573,7 @@ cn10k_sdp_host_interrupt_setup(struct pem *pem, int vfid, uint64_t **intr_addr, 
 	}
 
 	for (idx = 0; idx < rpvf; idx++) {
-		ring_idx = idx + (vfid - 1) * rpvf;
+		ring_idx = srn + idx + (vfid - 1) * rpvf;
 
 		sdp_reg_write(sdp_pdev, SDP_RX_OUT_ENABLE(ring_idx), 0x1);
 		sdp_reg_write(sdp_pdev, SDP_RX_OUT_CNTS(ring_idx), 0x1);
