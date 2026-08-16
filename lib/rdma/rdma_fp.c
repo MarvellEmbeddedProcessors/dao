@@ -357,6 +357,12 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	 * dummy trigger; on a new D2M completion in the same run, flush it first
 	 * since the preprocess below memsets the read_reply WQE.
 	 */
+	if (qp->resp.read_chunk.needs_pts_enqueue) {
+		dao_rdma_read_chunk_flush_pending(qp->qid, qp->dev_id);
+		if (mbuf == qp->resp.resp_dummy_mbuf && !qp->resp.resp_cur_rmbuf)
+			return 0;
+	}
+
 	if (qp->resp.resp_cur_rmbuf) {
 		if (mbuf == qp->resp.resp_dummy_mbuf)
 			return rdma_process_read_reply_remaining(qp, mbufs, n_mbufs, burst_limit);
@@ -615,9 +621,18 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	uint32_t qp_id = qp->qid;
 
 	if (packet_type == DAO_PTS_RDMA_D2M_COMPL) {
-		struct rdma_ack *head_ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
+		struct rdma_ack *read_ack = NULL;
+		struct rdma_ack *ack;
 
-		if (!head_ack || !head_ack->is_read || head_ack->mbuf != mbuf) {
+		/* clang-format off */
+		STAILQ_FOREACH(ack, &qp->resp.ack_pending_list, next) {
+			/* clang-format on */
+			if (ack->is_read && ack->mbuf == mbuf) {
+				read_ack = ack;
+				break;
+			}
+		}
+		if (!read_ack) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_TX_QP_PREPROC_DEQ_D2M_ACK_HEAD_MISMATCH);
 			mbuf->packet_type = 0;
@@ -779,7 +794,8 @@ dao_is_qp_stalled(uint32_t qp_id, int devid)
 		qp->attr.sq_draining = 0;
 
 	/* Always let an in-progress READ reply drain to free its WQE/DMA credit. */
-	if (qp && qp->resp.resp_cur_rmbuf)
+	if (qp && (qp->resp.resp_cur_rmbuf || qp->resp.read_chunk.in_progress ||
+		   qp->resp.read_chunk.needs_pts_enqueue || qp->resp.read_chunk.needs_chunk_retry))
 		return (uint16_t)1 << 8;
 
 	if (unlikely(!qp || qp->attr.sq_draining))
@@ -809,7 +825,8 @@ dao_rdma_need_qp_schedule(uint32_t qp_id, int devid)
 		return NULL;
 
 	/* Responder READ reply has priority; finish it before the requester. */
-	if (qp->resp.resp_cur_rmbuf)
+	if (qp->resp.resp_cur_rmbuf || qp->resp.read_chunk.needs_pts_enqueue ||
+	    qp->resp.read_chunk.needs_chunk_retry)
 		return qp->resp.resp_dummy_mbuf;
 
 	/* Check if we have pending requester segments to send */

@@ -73,6 +73,52 @@ rdma_update_ack_pending_list(struct rdma_qp *qp, struct rte_mbuf *mbuf, uint32_t
 	return 0;
 }
 
+/* Find the READ ack whose D2M mbuf matches @mbuf (not necessarily list head). */
+static inline struct rdma_ack *
+rdma_ack_find_read_by_mbuf(struct rdma_qp *qp, struct rte_mbuf *mbuf)
+{
+	struct rdma_ack *ack;
+
+	/* clang-format off */
+	STAILQ_FOREACH(ack, &qp->resp.ack_pending_list, next) {
+		/* clang-format on */
+		if (ack->is_read && ack->mbuf == mbuf)
+			return ack;
+	}
+
+	return NULL;
+}
+
+/* Remove and return the READ ack whose D2M mbuf matches @mbuf. */
+static inline struct rdma_ack *
+rdma_ack_remove_read_by_mbuf(struct rdma_qp *qp, struct rte_mbuf *mbuf)
+{
+	struct rdma_ack *ack, *tmp;
+
+	STAILQ_FOREACH_SAFE(ack, &qp->resp.ack_pending_list, next, tmp)
+	{
+		if (ack->is_read && ack->mbuf == mbuf) {
+			STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
+			return ack;
+		}
+	}
+
+	return NULL;
+}
+
+static inline void
+rdma_read_emit_ack_snap_copy(struct rdma_ack *dst, const struct rdma_ack *src)
+{
+	dst->psn = src->psn;
+	dst->opcode = src->opcode;
+	dst->msn = src->msn;
+	dst->aeth_syndrome = src->aeth_syndrome;
+	dst->is_read = src->is_read;
+	dst->is_requeue = src->is_requeue;
+	dst->last_psn = src->last_psn;
+	dst->mbuf = src->mbuf;
+}
+
 static inline enum resp_states
 queue_check(struct rdma_qp *qp)
 {
@@ -271,7 +317,7 @@ check_resource(struct rdma_qp *qp, struct pkt_info *pinfo)
 	uint32_t qp_id = qp->qid;
 
 	if (pkt->mask & RDMA_READ_MASK) {
-		uint32_t dma_len, nb_segs;
+		uint32_t dma_len, nb_segs, chunk_segs;
 
 		if (unlikely(qp->resp.resp_read_rq_bal <= 0)) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
@@ -281,12 +327,13 @@ check_resource(struct rdma_qp *qp, struct pkt_info *pinfo)
 
 		dma_len = rte_be_to_cpu_32(pkt->reth->len);
 		nb_segs = (dma_len + qp->mtu - 1) / qp->mtu;
-		if (unlikely(RTE_PER_LCORE(rdma_dma_d2m_budget) < nb_segs)) {
+		chunk_segs = RTE_MIN(nb_segs, (uint32_t)RDMA_READ_CHUNK_MBUFS);
+		if (unlikely(RTE_PER_LCORE(rdma_dma_d2m_budget) < chunk_segs)) {
 			RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 						RDMA_RX_QP_CHK_RES_PTS_EXHAUSTED);
 			return RDMA_RESPST_ERR_RNR;
 		}
-		RTE_PER_LCORE(rdma_dma_d2m_budget) -= nb_segs;
+		RTE_PER_LCORE(rdma_dma_d2m_budget) -= chunk_segs;
 		return RDMA_RESPST_CHK_LENGTH;
 	}
 
@@ -488,29 +535,81 @@ rdma_prep_read_ack(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rdma_ack *a
 	return opcode;
 }
 
-/* Free all mbufs in wqe->mbuf_list except the first (owned by the caller). */
 static inline void
-rdma_read_reply_cleanup(struct rdma_send_wqe *wqe)
+rdma_update_mbuf(struct rte_mbuf *mbuf, uint32_t dma_len, uint32_t *mtu, uint32_t *offset)
 {
-	struct rdma_mbufs *rmbuf, *next_rmbuf;
-	struct rte_mbuf *seg;
-	bool first = true;
+	uint32_t minimum;
 
-	rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
-	while (rmbuf) {
-		next_rmbuf = STAILQ_NEXT(rmbuf, next);
+	minimum = RTE_MIN(RTE_MIN(*mtu, dma_len - *offset), rte_pktmbuf_tailroom(mbuf));
+	rte_pktmbuf_append(mbuf, minimum);
+	*offset += minimum;
+	*mtu -= minimum;
+}
 
-		/* Release extra refcnt taken in rdma_read_prep_for_pts() */
-		for (seg = rmbuf->mbuf; seg; seg = seg->next)
-			rte_mbuf_refcnt_update(seg, -1);
+/*
+ * Free a D2M prep chain built by rdma_read_build_d2m_chain().
+ */
+static inline void
+rdma_read_d2m_chain_drop(struct rte_mbuf *head)
+{
+	struct rte_mbuf *m, *next;
 
-		if (!first && rmbuf->mbuf)
-			rte_pktmbuf_free(rmbuf->mbuf);
-		first = false;
-		rmbuf = next_rmbuf;
+	for (m = head; m; m = next) {
+		next = m->next;
+		m->next = NULL;
+		/* Undo the prep refcnt bump from rdma_read_build_d2m_chain(). */
+		rte_mbuf_refcnt_update(m, -1);
+		rte_pktmbuf_free(m);
 	}
-	memset(wqe, 0, sizeof(*wqe));
-	STAILQ_INIT(&wqe->mbuf_list);
+}
+
+/*
+ * Build a D2M mbuf chain starting at @head for @prep_len bytes from host
+ * address @reth_va.  Bumps refcnt on every segment so the chain survives
+ * PTS enqueue failures.  On allocation failure the partial chain's refcnt
+ * bumps are undone and -1 is returned.
+ */
+static inline int
+rdma_read_build_d2m_chain(struct rdma_qp *qp, struct rte_mbuf *head, uint32_t prep_len,
+			  uint64_t reth_va, uint32_t reth_rkey)
+{
+	uint32_t offset = 0, mtu = qp->mtu;
+	struct rte_mbuf *tail = head;
+	struct rte_mbuf *mbuf;
+
+	rdma_update_mbuf(head, prep_len, &mtu, &offset);
+	rte_mbuf_refcnt_update(head, 1);
+
+	while (offset < prep_len) {
+		if (!mtu)
+			mtu = qp->mtu;
+		mbuf = rte_pktmbuf_alloc(head->pool);
+		if (!mbuf) {
+			rdma_read_d2m_chain_drop(head);
+			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					    RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR);
+			return -1;
+		}
+		rte_pktmbuf_reset_headroom(mbuf);
+		rdma_update_mbuf(mbuf, prep_len, &mtu, &offset);
+		rte_mbuf_refcnt_update(mbuf, 1);
+		tail->next = mbuf;
+		tail = mbuf;
+		tail->next = NULL;
+		head->nb_segs = (uint16_t)(head->nb_segs + mbuf->nb_segs);
+		head->pkt_len = (uint32_t)(head->pkt_len + mbuf->pkt_len);
+	}
+
+	{
+		struct dao_pts_rdma_sge *sge = rdma_rx_priv_sge_base(head);
+
+		sge->addr = reth_va;
+		sge->length = prep_len;
+		sge->lkey = reth_rkey;
+	}
+	head->ol_flags |= DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS;
+
+	return 0;
 }
 
 static inline void
@@ -534,40 +633,188 @@ rdma_read_reply_cleanup_all(struct rdma_send_wqe *wqe)
 	STAILQ_INIT(&wqe->mbuf_list);
 }
 
+void
+rdma_read_reply_abort(struct rdma_qp *qp)
+{
+	rdma_read_reply_cleanup_all(&qp->resp.read_reply);
+	qp->resp.resp_cur_rmbuf = NULL;
+	qp->resp.read_emit_ack_valid = false;
+
+	if (qp->resp.read_chunk.needs_pts_enqueue && qp->resp.read_chunk.pending_pts_head) {
+		STAILQ_REMOVE(&qp->resp.ack_pending_list,
+			      rdma_rx_priv_ack(qp->resp.read_chunk.pending_pts_head), rdma_ack,
+			      next);
+		rdma_read_d2m_chain_drop(qp->resp.read_chunk.pending_pts_head);
+	}
+	memset(&qp->resp.read_chunk, 0, sizeof(qp->resp.read_chunk));
+}
+
+/*
+ * Allocate the next chunk of mbufs for a multi-chunk READ reply and defer
+ * PTS enqueue to flush_pending.  Called from rdma_read_reply_finish when the
+ * current chunk has been fully emitted but more data remains.
+ *
+ * Budget is NOT checked here — PTS capacity is the real throttle, enforced
+ * by flush_pending.  This avoids the starvation spiral where QPs processed
+ * later in the deq loop never obtain budget.
+ *
+ * Returns 0 on success, -1 on failure (pool exhaustion; requester retries).
+ */
+static inline int
+rdma_read_chunk_continue(struct rdma_qp *qp)
+{
+	struct rdma_read_chunk_state *rc = &qp->resp.read_chunk;
+	uint32_t remaining = rc->total_len - rc->bytes_prepared;
+	uint32_t chunk_bytes, prep_len;
+	struct rte_mbuf *head;
+
+	if (rc->needs_pts_enqueue) {
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+				    RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL);
+		return -1;
+	}
+
+	chunk_bytes = (uint32_t)RDMA_READ_CHUNK_MBUFS * qp->mtu;
+	prep_len = RTE_MIN(remaining, chunk_bytes);
+
+	head = rte_pktmbuf_alloc(rc->pool);
+	if (!head) {
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+				    RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL);
+		return -1;
+	}
+	rte_pktmbuf_reset(head);
+	head->l2_len = 1;
+	head->port = rc->port;
+
+	if (rdma_read_build_d2m_chain(qp, head, prep_len, rc->remote_addr, rc->rkey) < 0) {
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+				    RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL);
+		return -1;
+	}
+
+	rdma_update_ack_pending_list(qp, head, rc->next_psn, AETH_ACK_UNLIMITED, true);
+
+	/* Defer PTS enqueue to rdma_pts_deq; avoid nested enqueue from TX finish. */
+	rc->pending_pts_head = head;
+	rc->needs_pts_enqueue = true;
+	RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_CHUNK_CONTINUE);
+
+	return 0;
+}
+
+/*
+ * Submit a deferred continuation D2M chain to PTS.  Called from rdma_pts_deq
+ * before the stalled check so chunk pipelines keep moving.
+ *
+ * If PTS rejects the chain (capacity full), the chain is kept pending and
+ * retried next cycle — no drop, no budget refund, no crash-prone free path.
+ */
+int
+dao_rdma_read_chunk_flush_pending(uint32_t qp_id, int devid)
+{
+	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
+	struct rdma_read_chunk_state *rc;
+	struct rte_mbuf *head;
+	uint32_t prep_len;
+	uint16_t ret;
+
+	if (!qp || !qp->resp.read_chunk.needs_pts_enqueue)
+		return 0;
+
+	rc = &qp->resp.read_chunk;
+	head = rc->pending_pts_head;
+
+	ret = dao_pts_rdma_enqueue_burst(devid, qp_id, &head, 1);
+	if (ret == 0) {
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp_id,
+				    RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL);
+		return 0;
+	}
+
+	rc->needs_pts_enqueue = false;
+	rc->pending_pts_head = NULL;
+
+	prep_len = head->pkt_len;
+	rc->remote_addr += prep_len;
+	rc->bytes_prepared += prep_len;
+
+	return 1;
+}
+
+/*
+ * Retry a deferred chunk_continue (pool exhaustion or prior PTS chain pending).
+ * Called from the PTS deq node each cycle.
+ * Returns 1 if a chain was successfully built, 0 if no retry needed or
+ * still unable to continue.
+ */
+int
+dao_rdma_read_chunk_retry(uint32_t qp_id, int devid)
+{
+	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
+	struct rdma_read_chunk_state *rc;
+
+	if (!qp || !qp->resp.read_chunk.needs_chunk_retry)
+		return 0;
+
+	rc = &qp->resp.read_chunk;
+	rc->needs_chunk_retry = false;
+
+	if (rdma_read_chunk_continue(qp) < 0) {
+		rc->needs_chunk_retry = true;
+		return 0;
+	}
+
+	return 1;
+}
+
 /*
  * Complete an in-progress READ reply: drop the READ ack, drain non-READ acks
  * queued behind it, release the head, and restore the responder credit.
+ * For chunked READs, triggers continuation D2M if more data remains.
  */
 static inline void
 rdma_read_reply_finish(struct rdma_qp *qp)
 {
 	struct rdma_ack *ack;
-	struct rte_mbuf *head = qp->resp.read_reply.read_mbuf;
 	bool is_requeue = false;
+	bool chunk_active = qp->resp.read_chunk.in_progress;
 
-	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
-	if (likely(ack)) {
+	if (qp->resp.read_emit_ack_valid) {
+		ack = &qp->resp.read_emit_ack_snap;
 		is_requeue = ack->is_requeue;
-		STAILQ_REMOVE(&qp->resp.ack_pending_list, ack, rdma_ack, next);
-	}
-
-	/* Drop the emit pin and free the last ref so the head (and any chained
-	 * ICRC tail) returns to the pool; refcnt_update alone never frees it.
-	 */
-	if (likely(head)) {
-		rte_mbuf_refcnt_update(head, -1);
-		rte_pktmbuf_free(head);
+		qp->resp.read_emit_ack_valid = false;
+	} else {
+		ack = NULL;
 	}
 
 	qp->resp.resp_cur_rmbuf = NULL;
 	memset(&qp->resp.read_reply, 0, sizeof(qp->resp.read_reply));
 	STAILQ_INIT(&qp->resp.read_reply.mbuf_list);
-	if (ack) {
-		if (is_requeue)
-			qp->resp.resp_read_requeue_inflight--;
-		else
-			qp->resp.resp_read_rq_bal++;
+
+	if (chunk_active) {
+		struct rdma_read_chunk_state *rc = &qp->resp.read_chunk;
+
+		if (ack)
+			rc->is_requeue = is_requeue;
+
+		if (rc->bytes_prepared < rc->total_len) {
+			if (rdma_read_chunk_continue(qp) < 0) {
+				rc->needs_chunk_retry = true;
+				return;
+			}
+			RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						RDMA_TX_QP_READ_RSP_COMPLETE);
+			return;
+		}
+		rc->in_progress = false;
+		is_requeue = rc->is_requeue;
 	}
+
+	if (is_requeue)
+		qp->resp.resp_read_requeue_inflight--;
+	else if (ack || chunk_active)
+		qp->resp.resp_read_rq_bal++;
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RSP_COMPLETE);
 }
 
@@ -577,15 +824,20 @@ rdma_read_reply_finish(struct rdma_qp *qp)
  * all. Finishes the reply once its last segment is emitted.
  */
 static inline void
-rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_mbufs *rmbuf, struct rte_mbuf **mbufs,
-		     uint16_t *n_mbufs, bool burst_limited, uint16_t burst_limit)
+rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_ack *ack, struct rdma_mbufs *rmbuf,
+		     struct rte_mbuf **mbufs, uint16_t *n_mbufs, bool burst_limited,
+		     uint16_t burst_limit)
 {
 	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
-	struct rdma_ack *ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
 	int opcode = qp->resp.read_reply_opcode;
 	uint32_t psn = qp->resp.read_reply_psn;
 	uint16_t read_pkt_start = *n_mbufs;
 	bool m_segs;
+
+	if (unlikely(!ack)) {
+		rdma_read_reply_finish(qp);
+		return;
+	}
 
 	while (rmbuf) {
 		struct rdma_mbufs *next_rmbuf = STAILQ_NEXT(rmbuf, next);
@@ -600,10 +852,6 @@ rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_mbufs *rmbuf, struct rte_mb
 			return;
 		}
 
-		/* DCQCN RP pacing for READ replies; flush_all bypasses so the
-		 * read_reply WQE slot can always free. On postpone, park the cursor
-		 * and let the dummy reschedule resume once the TSC gate opens.
-		 */
 		if (burst_limited && qp->cc.enabled &&
 		    dcqcn_rp_pacing_check(&qp->cc,
 					  rmbuf->mbuf->pkt_len + DCQCN_ROCEV2_HDR_OVERHEAD)) {
@@ -617,17 +865,14 @@ rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_mbufs *rmbuf, struct rte_mb
 		}
 
 		m_segs = wqe->n_rdma_segs > 1 ? true : false;
+		/* Non-final chunks must never emit LAST; force MIDDLE */
+		if (!m_segs && qp->resp.read_chunk.in_progress &&
+		    qp->resp.read_chunk.bytes_prepared < qp->resp.read_chunk.total_len)
+			m_segs = true;
 		opcode = rdma_prep_read_ack(qp, rmbuf->mbuf, ack, m_segs, opcode, &psn);
 		wqe->n_rdma_segs--;
 
-		if (rmbuf->mbuf == ack->mbuf) {
-			/* Head: pin to refcnt >= 2 so duplicate_request() sees
-			 * "DMA in flight"; released in finish.
-			 */
-			rte_mbuf_refcnt_update(rmbuf->mbuf, 1);
-			wqe->read_mbuf = rmbuf->mbuf;
-		} else {
-			/* Drop the prep ref so the NIC frees the segment on TX. */
+		{
 			struct rte_mbuf *seg = rmbuf->mbuf;
 
 			while (seg) {
@@ -643,11 +888,19 @@ rdma_read_reply_emit(struct rdma_qp *qp, struct rdma_mbufs *rmbuf, struct rte_mb
 
 		mbufs[*n_mbufs] = rmbuf->mbuf;
 		(*n_mbufs)++;
+		STAILQ_REMOVE_HEAD(&wqe->mbuf_list, next);
 		rmbuf = next_rmbuf;
 	}
 
 	RDMA_DBG_ADD_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RSP_PKT_SENT,
 				*n_mbufs - read_pkt_start);
+
+	/* Save continuation PSN and opcode before finish clears the WQE */
+	if (qp->resp.read_chunk.in_progress) {
+		qp->resp.read_chunk.next_psn = psn;
+		qp->resp.read_chunk.next_opcode = opcode;
+	}
+
 	rdma_read_reply_finish(qp);
 }
 
@@ -657,52 +910,42 @@ rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 {
 	struct rdma_ack *ack;
 	struct rdma_send_wqe *wqe = &qp->resp.read_reply;
-	struct rdma_mbufs *first_rmbuf;
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
-	/* ACK list is in receive order; replies must be sent in order. */
-	ack = STAILQ_FIRST(&qp->resp.ack_pending_list);
-	if (!ack || !ack->is_read) {
+	RTE_SET_USED(burst_limit);
+
+	ack = rdma_ack_find_read_by_mbuf(qp, mbuf);
+	if (!ack) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_TX_QP_PROC_READ_REPLY_ACK_MISMATCH);
-		rdma_read_reply_cleanup(wqe);
-		return -1;
-	}
-
-	first_rmbuf = STAILQ_FIRST(&wqe->mbuf_list);
-	if (unlikely(first_rmbuf && first_rmbuf->mbuf != ack->mbuf)) {
-		struct rdma_ack *stale, *tmp;
-
-		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-				    RDMA_TX_QP_PROC_READ_REPLY_MBUF_PSN_MISMATCH);
-
-		/* Remove chain_B's ack before freeing its segments to
-		 * prevent stale ack->mbuf references.
-		 */
-		STAILQ_FOREACH_SAFE(stale, &qp->resp.ack_pending_list, next, tmp)
-		{
-			if (stale->mbuf == first_rmbuf->mbuf) {
-				STAILQ_REMOVE(&qp->resp.ack_pending_list, stale, rdma_ack, next);
-				if (stale->is_requeue)
-					qp->resp.resp_read_requeue_inflight--;
-				else
-					qp->resp.resp_read_rq_bal++;
-				break;
-			}
-		}
-
-		rdma_read_reply_cleanup_all(wqe);
+		rdma_read_reply_abort(qp);
+		qp->resp.resp_read_rq_bal++;
 		return -1;
 	}
 
 	mbuf->ol_flags &= ~(DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS);
 
-	/* Fresh reply: first response packet carries the request's first PSN */
-	qp->resp.read_reply_opcode = -1;
+	if (qp->resp.read_chunk.in_progress && qp->resp.read_chunk.next_opcode >= 0)
+		qp->resp.read_reply_opcode = qp->resp.read_chunk.next_opcode;
+	else
+		qp->resp.read_reply_opcode = -1;
 	qp->resp.read_reply_psn = ack->psn;
-	rdma_read_reply_emit(qp, STAILQ_FIRST(&wqe->mbuf_list), mbufs, n_mbufs, true, burst_limit);
+	rdma_read_emit_ack_snap_copy(&qp->resp.read_emit_ack_snap, ack);
+	qp->resp.read_emit_ack_valid = true;
+	/* Remove ack from list NOW, before emit hands the head mbuf to TX.
+	 * The ack node lives in the head mbuf's private area; if emit is
+	 * burst-limited TX can free the head before finish() runs, leaving
+	 * the list with a dangling pointer.  The snapshot has all needed fields.
+	 */
+	rdma_ack_remove_read_by_mbuf(qp, ack->mbuf);
+	rdma_read_reply_emit(qp, &qp->resp.read_emit_ack_snap, STAILQ_FIRST(&wqe->mbuf_list), mbufs,
+			     n_mbufs, false, 0);
+
+	/* Flush any chunk continuation immediately to avoid one-cycle delay */
+	if (qp->resp.read_chunk.needs_pts_enqueue)
+		dao_rdma_read_chunk_flush_pending(qp->qid, qp->dev_id);
 
 	return 0;
 }
@@ -714,12 +957,19 @@ rdma_process_read_reply_remaining(struct rdma_qp *qp, struct rte_mbuf **mbufs, u
 {
 	struct rdma_mbufs *rmbuf = qp->resp.resp_cur_rmbuf;
 
-	if (unlikely(!rmbuf)) {
-		rdma_read_reply_finish(qp);
-		return 0;
-	}
+	RTE_SET_USED(burst_limit);
 
-	rdma_read_reply_emit(qp, rmbuf, mbufs, n_mbufs, true, burst_limit);
+	if (unlikely(!rmbuf))
+		return 0;
+
+	if (unlikely(!qp->resp.read_emit_ack_valid))
+		return 0;
+
+	rdma_read_reply_emit(qp, &qp->resp.read_emit_ack_snap, rmbuf, mbufs, n_mbufs, false, 0);
+
+	/* Flush any chunk continuation immediately to avoid one-cycle delay */
+	if (qp->resp.read_chunk.needs_pts_enqueue)
+		dao_rdma_read_chunk_flush_pending(qp->qid, qp->dev_id);
 
 	return 0;
 }
@@ -734,12 +984,19 @@ rdma_read_reply_flush_all(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t 
 {
 	struct rdma_mbufs *rmbuf = qp->resp.resp_cur_rmbuf;
 
-	if (unlikely(!rmbuf)) {
-		rdma_read_reply_finish(qp);
+	if (unlikely(!rmbuf))
+		return;
+
+	if (unlikely(!qp->resp.read_emit_ack_valid)) {
+		rdma_read_reply_abort(qp);
 		return;
 	}
 
-	rdma_read_reply_emit(qp, rmbuf, mbufs, n_mbufs, false, 0);
+	rdma_read_reply_emit(qp, &qp->resp.read_emit_ack_snap, rmbuf, mbufs, n_mbufs, false, 0);
+
+	/* Flush any chunk continuation immediately to avoid one-cycle delay */
+	if (qp->resp.read_chunk.needs_pts_enqueue)
+		dao_rdma_read_chunk_flush_pending(qp->qid, qp->dev_id);
 }
 
 static inline void
@@ -874,24 +1131,9 @@ rdma_update_write_final_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_WRITE_REQ_RECVD);
 }
 
-static inline void
-rdma_update_mbuf(struct rte_mbuf *mbuf, uint32_t dma_len, uint32_t *mtu, uint32_t *offset)
-{
-	uint32_t minimum;
-
-	minimum = RTE_MIN(RTE_MIN(*mtu, dma_len - *offset), rte_pktmbuf_tailroom(mbuf));
-	rte_pktmbuf_append(mbuf, minimum);
-	*offset += minimum;
-	*mtu -= minimum;
-}
-
 static inline int
 rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npkts)
 {
-	uint32_t offset = 0;
-	uint16_t port = 0;
-	struct rte_mbuf *mbuf;
-	uint32_t mtu = qp->mtu;
 	struct rdma_pkt_info *rinfo = &pinfo->rinfo;
 	uint32_t dma_len = rte_be_to_cpu_32(rinfo->reth->len);
 	uint64_t reth_va = rte_be_to_cpu_64(rinfo->reth->va);
@@ -899,62 +1141,45 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
+	uint16_t port;
+
+	/* Total reply segments for PSN advancement (covers all chunks) */
+	*npkts = (dma_len + qp->mtu - 1) / qp->mtu;
+
+	/* Limit first-chunk allocation to RDMA_READ_CHUNK_MBUFS segments */
+	uint32_t chunk_bytes = (uint32_t)RDMA_READ_CHUNK_MBUFS * qp->mtu;
+	uint32_t prep_len = RTE_MIN(dma_len, chunk_bytes);
+	bool chunked = dma_len > chunk_bytes;
 
 	port = pinfo->mbuf->port;
 	rte_pktmbuf_reset(pinfo->mbuf);
 	pinfo->mbuf->l2_len = 1;
-	rdma_update_mbuf(pinfo->mbuf, dma_len, &mtu, &offset);
 
-	/* Bump refcnt: the chain is also referenced via ack_pending_list;
-	 * the extra reference prevents use-after-free when PTS enqueue
-	 * fails and the drop path frees the chain.
-	 */
-	rte_mbuf_refcnt_update(pinfo->mbuf, 1);
-
-	/* Build chain with a local tail pointer to avoid repeated scans */
-	struct rte_mbuf *tail = pinfo->mbuf;
-
-	while (offset < dma_len) {
-		if (!mtu) {
-			mtu = qp->mtu;
-			*npkts += 1;
-		}
-		mbuf = rte_pktmbuf_alloc(pinfo->mbuf->pool);
-		if (!mbuf) {
-			struct rte_mbuf *m = pinfo->mbuf;
-
-			/* Undo refcnt bumps on the partial chain so the
-			 * caller's free brings each segment back to 0.
-			 */
-			while (m) {
-				rte_mbuf_refcnt_update(m, -1);
-				m = m->next;
-			}
-			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-					    RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR);
-			return -1;
-		}
-		rte_pktmbuf_reset_headroom(mbuf);
-		rdma_update_mbuf(mbuf, dma_len, &mtu, &offset);
-		rte_mbuf_refcnt_update(mbuf, 1);
-		tail->next = mbuf;
-		tail = mbuf;
-		tail->next = NULL;
-		pinfo->mbuf->nb_segs = (uint16_t)(pinfo->mbuf->nb_segs + mbuf->nb_segs);
-		pinfo->mbuf->pkt_len = (uint32_t)(pinfo->mbuf->pkt_len + mbuf->pkt_len);
+	if (rdma_read_build_d2m_chain(qp, pinfo->mbuf, prep_len, reth_va, reth_rkey) < 0) {
+		/* rdma_read_d2m_chain_drop() already freed pinfo->mbuf. */
+		pinfo->mbuf = NULL;
+		pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR);
+		return -1;
 	}
 
-	{
-		struct dao_pts_rdma_sge *sge = rdma_rx_priv_sge_base(pinfo->mbuf);
-
-		sge->addr = reth_va;
-		sge->length = dma_len;
-		sge->lkey = reth_rkey;
-	}
-	pinfo->mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_D2M << OFFLD_UPPER_BITS;
 	pinfo->mbuf->port = port;
 	qp->resp.resp_read_rq_bal--;
 	pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
+
+	if (chunked) {
+		qp->resp.read_chunk = (struct rdma_read_chunk_state){
+			.remote_addr = reth_va + prep_len,
+			.total_len = dma_len,
+			.bytes_prepared = prep_len,
+			.rkey = reth_rkey,
+			.next_opcode = -1,
+			.pool = pinfo->mbuf->pool,
+			.port = port,
+			.in_progress = true,
+		};
+	}
 
 	return 0;
 }
@@ -964,19 +1189,21 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 {
 	uint32_t npkts = 1;
 	uint32_t dma_len = rte_be_to_cpu_32(pinfo->rinfo.reth->len);
+	uint32_t nb_segs = (dma_len + qp->mtu - 1) / qp->mtu;
+	uint32_t chunk_segs = RTE_MIN(nb_segs, (uint32_t)RDMA_READ_CHUNK_MBUFS);
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
 	if (dma_len > RDMA_PORT_MAX_MSG_SZ) {
-		RTE_PER_LCORE(rdma_dma_d2m_budget) += (dma_len + qp->mtu - 1) / qp->mtu;
+		RTE_PER_LCORE(rdma_dma_d2m_budget) += chunk_segs;
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_RX_QP_HANDLE_READ_REQ_DMA_LEN_EXC);
 		return RDMA_RESPST_ERR_LENGTH;
 	}
 
 	if (rdma_read_prep_for_pts(qp, pinfo, &npkts) < 0) {
-		RTE_PER_LCORE(rdma_dma_d2m_budget) += (dma_len + qp->mtu - 1) / qp->mtu;
+		RTE_PER_LCORE(rdma_dma_d2m_budget) += chunk_segs;
 		qp->resp.wqe.mbuf = NULL;
 		qp->resp.wqe.tail = NULL;
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
@@ -1183,12 +1410,25 @@ rdma_ack_pending_list_remove_by_psn(struct rdma_qp *qp, uint32_t psn)
 	return old_mbuf;
 }
 
+static inline bool
+rdma_read_reply_in_progress(struct rdma_qp *qp)
+{
+	return qp->resp.read_chunk.in_progress || qp->resp.resp_cur_rmbuf ||
+	       qp->resp.read_reply.n_rdma_segs > 0;
+}
+
 static inline int
 rdma_is_previously_acked_request(struct rdma_qp *qp, uint32_t psn, struct pkt_info *pkt)
 {
 	uint32_t dma_len = rte_be_to_cpu_32(pkt->rinfo.reth->len);
 	uint32_t npkts;
 	uint32_t last_req_psn;
+
+	/* Chunked READ still emitting: ack_psn was advanced at request time but
+	 * responses are not fully on the wire yet.  Do not treat as complete.
+	 */
+	if (rdma_read_reply_in_progress(qp))
+		return 0;
 
 	npkts = dma_len / qp->mtu + ((dma_len % qp->mtu) ? 1 : 0);
 	last_req_psn = (psn + npkts - 1) & BTH_PSN_MASK;
@@ -1249,6 +1489,19 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 		struct rte_mbuf *old_mbuf;
 		bool requeue_dma = false;
 
+		/* Chunked/partial READ reply still in flight; do not re-DMA.
+		 * Drop the duplicate request mbuf but keep servicing the original
+		 * reply via resp_cur_rmbuf / read_reply scheduling.
+		 */
+		if (rdma_read_reply_in_progress(qp)) {
+			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+					    RDMA_RX_QP_READ_DUP_DMA_INFLIGHT);
+			rte_pktmbuf_free(pkt->mbuf);
+			pkt->mbuf = NULL;
+			pkt->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
+			return RDMA_RESPST_CLEANUP;
+		}
+
 		/* Check if request is in ack pending list */
 		old_mbuf = rdma_ack_pending_list_find_mbuf_by_psn(qp, pkt->rinfo.psn);
 		if (old_mbuf) {
@@ -1295,19 +1548,34 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 		if (requeue_dma) {
 			uint32_t dma_len = rte_be_to_cpu_32(pkt->rinfo.reth->len);
 			uint32_t nb_segs = (dma_len + qp->mtu - 1) / qp->mtu;
+			uint32_t requeue_chunk = RTE_MIN(nb_segs, (uint32_t)RDMA_READ_CHUNK_MBUFS);
 
-			if (RTE_PER_LCORE(rdma_dma_d2m_budget) < nb_segs) {
+			if (RTE_PER_LCORE(rdma_dma_d2m_budget) < requeue_chunk) {
 				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						    RDMA_RX_QP_READ_DUP_REQUEUE_NO_D2M_RES);
 				return RDMA_RESPST_CLEANUP;
 			}
+
+			/* Abort any stale reply state before a full re-DMA. */
+			if (qp->resp.read_chunk.needs_pts_enqueue &&
+			    qp->resp.read_chunk.pending_pts_head) {
+				STAILQ_REMOVE(
+					&qp->resp.ack_pending_list,
+					rdma_rx_priv_ack(qp->resp.read_chunk.pending_pts_head),
+					rdma_ack, next);
+				rdma_read_d2m_chain_drop(qp->resp.read_chunk.pending_pts_head);
+			}
+			qp->resp.resp_cur_rmbuf = NULL;
+			qp->resp.read_emit_ack_valid = false;
+			memset(&qp->resp.read_chunk, 0, sizeof(qp->resp.read_chunk));
+			rdma_read_reply_cleanup_all(&qp->resp.read_reply);
 
 			if (rdma_read_prep_for_pts(qp, pkt, &npkts) < 0) {
 				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						    RDMA_RX_QP_HANDLE_READ_REQ_READ_PREP_PTS_FAIL);
 				return RDMA_RESPST_CLEANUP;
 			}
-			RTE_PER_LCORE(rdma_dma_d2m_budget) -= nb_segs;
+			RTE_PER_LCORE(rdma_dma_d2m_budget) -= requeue_chunk;
 			qp->resp.resp_read_rq_bal++;
 			qp->resp.resp_read_requeue_inflight++;
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,

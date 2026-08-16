@@ -32,10 +32,11 @@ rdma_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **
 	struct rte_mbuf *mbuf;
 	uint16_t port, queue;
 	uint16_t count = 0, sent = 0;
-	/* throttle huge bursts to avoid NIC backpressure */
-	const uint16_t max_burst = 256;
-	/* retry knobs: aggressive but bounded to preserve graph liveness */
-	const uint16_t max_retries_per_chunk = 64;
+	/* Send in up to 512-packet windows; retry for a bounded time before dropping. */
+	const uint16_t max_burst = 512;
+	/* RDMA wire packets should not be dropped; retry until sent or hard stall. */
+	const uint32_t max_stall = 1000000;
+	uint32_t stall = 0;
 
 	if (unlikely(nb_objs == 0))
 		return 0;
@@ -47,39 +48,24 @@ rdma_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **
 	mbuf = (struct rte_mbuf *)objs[0];
 	queue = node_mbuf_priv1(mbuf, dyn)->queue;
 
-	/* Send in chunks to improve fairness and reduce 0-sent on huge bursts */
 	while (sent < nb_objs) {
-		uint16_t todo = RTE_MIN((uint16_t)(nb_objs - sent), max_burst);
-		uint16_t retries = 0;
+		uint16_t batch = RTE_MIN((uint16_t)(nb_objs - sent), max_burst);
+		uint16_t n = rte_eth_tx_burst(port, queue, (struct rte_mbuf **)&objs[sent], batch);
 
-		/* Keep submitting the same contiguous window until all are enqueued or retries
-		 * exhausted. */
-		while (todo > 0 && retries <= max_retries_per_chunk) {
-			uint16_t n = rte_eth_tx_burst(port, queue, (struct rte_mbuf **)&objs[sent],
-						      todo);
-			if (likely(n > 0)) {
-				sent += n;
-				todo -= n;
-				/* If not all sent, try again for remainder without advancing
-				 * pointer beyond 'sent' */
-				continue;
-			}
-
-			/* No immediate progress; try to free done mbufs and backoff briefly */
-			(void)rte_eth_tx_done_cleanup(port, queue, 0);
-			retries++;
-			rte_pause();
-			/* Optional tiny sleep every few retries to give HW room without stalling
-			 * the graph */
-			if ((retries & 0x7) == 0)
-				rte_delay_us_block(1);
+		if (likely(n > 0)) {
+			sent += n;
+			stall = 0;
+			continue;
 		}
 
-		/* If still have unsent items in this chunk after retries, stop and drop the rest */
-		if (todo > 0) {
-			dao_dbg("RDMA ETH TX: enqueue partial on port %u queue %u; "
-				"failed within chunk: %u (retries=%u)",
-				port, queue, todo, retries);
+		(void)rte_eth_tx_done_cleanup(port, queue, 0);
+		stall++;
+		rte_pause();
+		if ((stall & 0x7) == 0)
+			rte_delay_us_block(1);
+		if (unlikely(stall >= max_stall)) {
+			dao_dbg("RDMA ETH TX: stall limit on port %u queue %u; unsent=%u", port,
+				queue, (uint16_t)(nb_objs - sent));
 			break;
 		}
 	}

@@ -216,6 +216,8 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
  * Keep full nanosecond precision (4096 ns) and defer the division
  * to avoid truncation at small timeout values.
  */
+#define RDMA_MIN_LOCAL_ACK_TIMEOUT 15
+
 static inline void
 rdma_convert_timeout_cycles(uint8_t timeout, uint64_t *timeout_cycles)
 {
@@ -223,6 +225,8 @@ rdma_convert_timeout_cycles(uint8_t timeout, uint64_t *timeout_cycles)
 
 	if (timeout > 31)
 		timeout = 31;
+	if (timeout && timeout < RDMA_MIN_LOCAL_ACK_TIMEOUT)
+		timeout = RDMA_MIN_LOCAL_ACK_TIMEOUT;
 
 	timeout_ns = 4096ULL << timeout;
 	tsc_mhz = rte_get_tsc_hz() / 1000000ULL;

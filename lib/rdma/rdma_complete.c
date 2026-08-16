@@ -61,7 +61,6 @@ reset_retry_counters(struct rdma_qp *qp)
 {
 	qp->comp.retry_cnt = qp->attr.max_retry_cnt;
 	qp->comp.rnr_retry = qp->attr.max_rnr_retry;
-	// qp->comp.started_retry = 0; compare with in_retransmission
 }
 
 static inline comp_state_t
@@ -76,6 +75,16 @@ rdma_check_psn(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 	if (diff > 0) {
 		if (wqe->state == wqe_state_pending) {
 			if (wqe->mask & WR_READ_MASK) {
+				struct rdma_send_wqe *nxt = STAILQ_NEXT(wqe, next);
+
+				if (nxt && nxt->state >= wqe_state_pending &&
+				    psn_compare(pkt->rinfo.psn, nxt->first_psn) >= 0 &&
+				    psn_compare(pkt->rinfo.psn, nxt->last_psn) <= 0) {
+					RDMA_DBG_INC_QP_COUNTER(
+						qp->lcore, qp->port_id, qp->qid,
+						RDMA_RX_QP_CHK_PSN_READ_PSN_AHEAD_RETRY);
+					return RDMA_COMPST_DONE;
+				}
 				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						    RDMA_RX_QP_CHK_PSN_READ_PSN_AHEAD_RETRY);
 				return RDMA_COMPST_ERROR_RETRY;
@@ -115,12 +124,15 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 	uint32_t qp_id = qp->qid;
 	uint8_t syn;
 
+#define CHK_ACK_SEQ_ERR(wqe)                                                                       \
+	(((wqe)->mask & WR_READ_MASK) ? RDMA_COMPST_ERROR_RETRY : RDMA_COMPST_ERROR)
+
 	/* Check the sequence only */
 	switch (qp->comp.opcode) {
 	case -1:
 		/* Will catch all *_ONLY cases. */
 		if (!(mask & RDMA_START_MASK))
-			return RDMA_COMPST_ERROR;
+			return CHK_ACK_SEQ_ERR(wqe);
 
 		break;
 
@@ -141,7 +153,7 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 			     pkt->rinfo.opcode == RDMA_OPCODE_RC_RDMA_READ_RESPONSE_ONLY))
 				break;
 
-			return RDMA_COMPST_ERROR;
+			return CHK_ACK_SEQ_ERR(wqe);
 		}
 		break;
 	default:
@@ -156,7 +168,7 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		syn = aeth_syn(&pkt->rinfo);
 
 		if ((syn & AETH_TYPE_MASK) != AETH_ACK)
-			return RDMA_COMPST_ERROR;
+			return CHK_ACK_SEQ_ERR(wqe);
 
 		__attribute__((fallthrough));
 		/* (RDMA_OPCODE_RC_RDMA_READ_RESPONSE_MIDDLE doesn't have an AETH)
@@ -216,7 +228,7 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 			}
 
 		default:
-			return RDMA_COMPST_ERROR;
+			return CHK_ACK_SEQ_ERR(wqe);
 		}
 		break;
 
@@ -224,7 +236,8 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_ACK_UNEXPECTED_OPCODE);
 	}
 
-	return RDMA_COMPST_ERROR;
+	return CHK_ACK_SEQ_ERR(wqe);
+#undef CHK_ACK_SEQ_ERR
 }
 
 static inline void
@@ -237,32 +250,67 @@ populate_cqe(struct dao_pts_rdma_cqe *cqe, struct rdma_qp *qp, rdma_send_wr_t *w
 	cqe->qp_id = qp->qid;
 }
 
+/*
+ * Build an adjusted SGE list in @mbuf's private area, skipping @byte_offset
+ * bytes into the original WR SGE scatter list.  Returns the number of SGEs
+ * written (always >= 1 when the chain has data).
+ */
+static inline uint8_t
+rdma_populate_sge_with_offset(struct rte_mbuf *mbuf, struct rdma_send_wqe *wqe,
+			      uint32_t byte_offset)
+{
+	struct dao_pts_rdma_sge *dst = rdma_rx_priv_sge_base(mbuf);
+	struct octep_rdma_sge *src = &wqe->wr->sges0[0];
+	uint8_t num_sges = wqe->wr->num_sges;
+	uint32_t skip = byte_offset;
+	uint32_t data_left = mbuf->pkt_len;
+	uint8_t out = 0;
+	uint8_t i;
+
+	for (i = 0; i < num_sges && data_left > 0; i++) {
+		uint32_t sge_len = src[i].length;
+
+		if (skip >= sge_len) {
+			skip -= sge_len;
+			continue;
+		}
+
+		uint32_t avail = sge_len - skip;
+		uint32_t use = RTE_MIN(avail, data_left);
+
+		dst[out].addr = src[i].addr + skip;
+		dst[out].length = use;
+		dst[out].lkey = src[i].lkey;
+		out++;
+		data_left -= use;
+		skip = 0;
+	}
+
+	return out;
+}
+
 static inline void
-rdma_populate_wr(struct pkt_info *pkt, struct rdma_send_wqe *wqe)
+rdma_populate_wr(struct pkt_info *pkt, struct rdma_send_wqe *wqe, bool with_cqe)
 {
 	struct rdma_qp *qp = pkt->rinfo.qp;
 	struct rte_mbuf *mbuf = wqe->read_mbuf;
-	uint8_t *sges = (uint8_t *)rdma_rx_priv_sge_base(mbuf);
-	struct dao_pts_rdma_cqe *cqe;
-	bool need_cqe;
+	uint8_t nsge;
 	uint64_t enq_flag;
 
-	memcpy(sges, &wqe->wr->sges0[0], sizeof(struct octep_rdma_sge) * wqe->wr->num_sges);
+	nsge = rdma_populate_sge_with_offset(mbuf, wqe, wqe->read_bytes_flushed);
 	pkt->mbuf = mbuf;
-	mbuf->l2_len = wqe->wr->num_sges;
-	cqe = rdma_rx_priv_cqe(mbuf);
+	mbuf->l2_len = nsge;
 	pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
 
-	need_cqe = ((qp->sq_sig_type == RDMA_SIGNAL_ALL_WR) ||
-		    (wqe->wr->send_flags & RDMA_SEND_SIGNALED));
-	if (need_cqe) {
-		populate_cqe(cqe, qp, wqe->wr);
+	enq_flag = DAO_PTS_RDMA_ENQ_M2D_SQE;
+	if (with_cqe && ((qp->sq_sig_type == RDMA_SIGNAL_ALL_WR) ||
+			 (wqe->wr->send_flags & RDMA_SEND_SIGNALED))) {
+		populate_cqe(rdma_rx_priv_cqe(mbuf), qp, wqe->wr);
 		enq_flag = DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE;
-	} else {
-		enq_flag = DAO_PTS_RDMA_ENQ_M2D_SQE;
 	}
 	mbuf->ol_flags |= enq_flag << OFFLD_UPPER_BITS;
 
+	wqe->read_bytes_flushed += mbuf->pkt_len;
 	wqe->read_mbuf = NULL;
 	wqe->read_tail = NULL;
 }
@@ -272,51 +320,73 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 {
 	struct rte_mbuf *mbuf = pkt->mbuf;
 
-	if (!mbuf) {
+	if (!mbuf)
 		return RDMA_COMPST_ERROR;
-	}
 
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_READ_RSP_RCVD);
 
 	wqe->dma_length -= rte_pktmbuf_pkt_len(mbuf);
 	pkt->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
 	if (!wqe->read_mbuf) {
-		/* Initialize chain */
 		wqe->read_mbuf = mbuf;
 		wqe->read_tail = rte_pktmbuf_lastseg(mbuf);
 	} else {
-		/* Append in O(1) using maintained tail pointer */
 		if (likely(wqe->read_tail)) {
 			wqe->read_tail->next = mbuf;
 			wqe->read_tail = rte_pktmbuf_lastseg(mbuf);
 		} else {
-			/* Fallback: tail missing, rebuild quickly */
 			wqe->read_tail = rte_pktmbuf_lastseg(wqe->read_mbuf);
 			wqe->read_tail->next = mbuf;
 			wqe->read_tail = rte_pktmbuf_lastseg(mbuf);
 		}
-		/* Update aggregate lengths on head */
 		wqe->read_mbuf->nb_segs = (uint16_t)(wqe->read_mbuf->nb_segs + mbuf->nb_segs);
 		wqe->read_mbuf->pkt_len = (uint32_t)(wqe->read_mbuf->pkt_len + mbuf->pkt_len);
 	}
 	pkt->mbuf = NULL;
+
 	if (wqe->dma_length == 0 && (pkt->rinfo.mask & RDMA_END_MASK)) {
 		uint32_t nb_segs = wqe->read_mbuf->nb_segs;
+		uint32_t budget_cost = nb_segs + RDMA_DMA_FLUSH_THR;
 
-		if (unlikely(RTE_PER_LCORE(rdma_dma_m2d_budget) < nb_segs)) {
-			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
-					    RDMA_RX_QP_READ_REPLY_DROP_NO_M2D_RES);
-			rte_pktmbuf_free(wqe->read_mbuf);
-			wqe->read_mbuf = NULL;
-			wqe->read_tail = NULL;
-			wqe->dma_length = rdma_get_sge_length(wqe->wr);
-			return RDMA_COMPST_ERROR_RETRY;
+		if (unlikely(RTE_PER_LCORE(rdma_dma_m2d_budget) < budget_cost)) {
+			if (wqe->read_bytes_flushed == 0) {
+				/*
+				 * No partial DMA happened — safe to drop
+				 * and retransmit the whole response.
+				 */
+				RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+						    RDMA_RX_QP_READ_REPLY_DROP_NO_M2D_RES);
+				rte_pktmbuf_free(wqe->read_mbuf);
+				wqe->read_mbuf = NULL;
+				wqe->read_tail = NULL;
+				wqe->dma_length = rdma_get_sge_length(wqe->wr);
+				return RDMA_COMPST_ERROR_RETRY;
+			}
+			if (RTE_PER_LCORE(rdma_dma_m2d_budget) >= nb_segs)
+				RTE_PER_LCORE(rdma_dma_m2d_budget) -= nb_segs;
+			else
+				RTE_PER_LCORE(rdma_dma_m2d_budget) = 0;
+		} else {
+			RTE_PER_LCORE(rdma_dma_m2d_budget) -= budget_cost;
 		}
-		RTE_PER_LCORE(rdma_dma_m2d_budget) -= nb_segs;
+
 		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 					RDMA_RX_QP_READ_MSG_COMPLETE);
-		rdma_populate_wr(pkt, wqe);
+		rdma_populate_wr(pkt, wqe, true);
+		wqe->read_bytes_flushed = 0;
 		return RDMA_COMPST_COMP_ACK;
+	}
+
+	/* Partial chunk: flush to PTS without CQE when threshold reached */
+	if (wqe->read_mbuf->nb_segs >= RDMA_READ_CHUNK_MBUFS) {
+		uint32_t nb_segs = wqe->read_mbuf->nb_segs;
+		uint32_t budget_cost = nb_segs + RDMA_DMA_FLUSH_THR;
+
+		if (likely(RTE_PER_LCORE(rdma_dma_m2d_budget) >= budget_cost)) {
+			RTE_PER_LCORE(rdma_dma_m2d_budget) -= budget_cost;
+			rdma_populate_wr(pkt, wqe, false);
+			return RDMA_COMPST_UPDATE_COMP;
+		}
 	}
 
 	return RDMA_COMPST_UPDATE_COMP;
@@ -570,6 +640,10 @@ rdma_error(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 	RTE_SET_USED(pkt);
 
 	RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RDMA_COMPST_ERR);
+
+	if (wqe->status == RDMA_WC_SUCCESS)
+		wqe->status = RDMA_WC_FATAL_ERR;
+
 	do_complete(qp, wqe);
 	return RDMA_COMPST_DONE;
 }

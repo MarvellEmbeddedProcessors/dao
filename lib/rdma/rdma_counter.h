@@ -349,6 +349,10 @@ rdma_counter_update_lcore(void)
 	X(RDMA_RX_QP_READ_DUP_DMA_INFLIGHT)                                                        \
 	/** READ reply segment refcnt != 2; buffer freed prematurely. */                           \
 	X(RDMA_TX_QP_READ_REPLY_REFCNT_ERR)                                                        \
+	/** Chunked READ: continuation chunk allocated and submitted to PTS D2M. */                \
+	X(RDMA_TX_QP_READ_CHUNK_CONTINUE)                                                          \
+	/** Chunked READ: continuation allocation or PTS enqueue failed. */                        \
+	X(RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL)                                                     \
 	/** Assembled READ reply dropped: insufficient M2D DMA resources for PTS enqueue. */       \
 	X(RDMA_RX_QP_READ_REPLY_DROP_NO_M2D_RES)                                                   \
 	/** READ retransmission triggered (full request re-sent from first segment). */            \

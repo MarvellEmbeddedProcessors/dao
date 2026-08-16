@@ -65,6 +65,7 @@ int rdma_process_read_reply(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rt
 			    uint16_t *n_mbufs, uint16_t burst_limit);
 int rdma_process_read_reply_remaining(struct rdma_qp *qp, struct rte_mbuf **mbufs,
 				      uint16_t *n_mbufs, uint16_t burst_limit);
+void rdma_read_reply_abort(struct rdma_qp *qp);
 void rdma_read_reply_flush_all(struct rdma_qp *qp, struct rte_mbuf **mbufs, uint16_t *n_mbufs);
 int dao_send_cqe(struct rdma_qp *qp, bool host_recv, struct rdma_send_wqe *wqe);
 #endif

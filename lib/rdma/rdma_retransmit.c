@@ -41,8 +41,9 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 			rte_pktmbuf_free(wqe->read_mbuf);
 			wqe->read_mbuf = NULL;
 			wqe->read_tail = NULL;
-			wqe->dma_length = rdma_get_sge_length(wqe->wr);
 		}
+		wqe->read_bytes_flushed = 0;
+		wqe->dma_length = rdma_get_sge_length(wqe->wr);
 		qp->comp.psn = wqe->first_psn;
 		qp->comp.opcode = -1;
 		qp->req.retransmit.curr_mbuf = rmbuf;

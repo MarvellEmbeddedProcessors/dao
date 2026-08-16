@@ -24,8 +24,8 @@
 #include "rdma_node_ctrl.h"
 #include "rdma_pts_deq_priv.h"
 
-#define APP_RDMA_PTS_DEQ_RTR_MAX   64
-#define APP_RDMA_PTS_DEQ_BURST_MAX 32
+#define APP_RDMA_PTS_DEQ_RTR_MAX   128
+#define APP_RDMA_PTS_DEQ_BURST_MAX 128
 
 extern int node_mbuf_priv1_dynfield_queue;
 
@@ -115,12 +115,9 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 			goto next_qp;
 		}
 
-		count = dao_is_qp_stalled(qp_id, devid);
-		if (!count) {
-			RDMA_INC_QP_COUNTER(rte_lcore_id(), devid, qp_id,
-					    RDMA_TX_QP_PTS_DEQ_QP_STALLED);
-			goto next_qp;
-		}
+		dao_rdma_read_chunk_flush_pending(qp_id, devid);
+		if (dao_rdma_read_chunk_retry(qp_id, devid))
+			dao_rdma_read_chunk_flush_pending(qp_id, devid);
 
 		{
 			struct rte_mbuf *sched_mbuf = dao_rdma_need_qp_schedule(qp_id, devid);
@@ -138,9 +135,15 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 			}
 		}
 
+		count = dao_is_qp_stalled(qp_id, devid);
+		if (!count) {
+			RDMA_INC_QP_COUNTER(rte_lcore_id(), devid, qp_id,
+					    RDMA_TX_QP_PTS_DEQ_QP_STALLED);
+			goto next_qp;
+		}
+
 		{
-			uint16_t limit = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP,
-						 max_pkts - nb_pkts);
+			uint16_t limit = RTE_MIN(APP_RDMA_PTS_DEQ_BURST_PER_QP, max_pkts - nb_pkts);
 
 			count = dao_rdma_adjust_burst_count(count, limit);
 		}

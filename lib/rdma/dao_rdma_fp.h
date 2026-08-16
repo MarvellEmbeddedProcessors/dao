@@ -16,7 +16,7 @@
 #define RDMA_ROCEV2_PORT              4791
 #define APP_RDMA_PTS_DEQ_BURST_PER_QP 8
 #define RDMA_REQUESTER_POSTPONED_RC   1
-#define RDMA_MAX_ENQ_BURST            64
+#define RDMA_MAX_ENQ_BURST            256
 
 /* RC emitted nothing (parked/dummy): input mbuf must not be forwarded. Unlike a
  * 0 return (MGMT/UD) where n_segs==0 means forward the input in place.
@@ -104,6 +104,8 @@ uint16_t dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts,
 uint16_t dao_is_qp_stalled(uint32_t qp_id, int devid);
 uint16_t dao_rdma_ack_dequeue_until_read(uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
 					 uint16_t max_pkts);
+int dao_rdma_read_chunk_flush_pending(uint32_t qp_id, int devid);
+int dao_rdma_read_chunk_retry(uint32_t qp_id, int devid);
 struct rte_mbuf *dao_rdma_need_qp_schedule(uint32_t qp_id, int devid);
 
 #endif /* __RDMA_FP_H__ */

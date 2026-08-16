@@ -27,7 +27,9 @@
 #define RDMA_QPN_MASK      0xFFFFFF
 #define RDMA_MULTICAST_QPN 0xFFFFFF
 
-#define MAX_RESP_BUCKET 32
+#define MAX_RESP_BUCKET       32
+#define RDMA_READ_CHUNK_MBUFS 8192
+#define RDMA_DMA_FLUSH_THR    8
 
 enum rdma_wr_opcode {
 	RDMA_WR_RDMA_WRITE = 0,
@@ -212,6 +214,7 @@ typedef struct rdma_send_wqe {
 	uint32_t ack_length;
 	uint32_t dma_length;
 	uint32_t n_rdma_segs;
+	uint32_t read_bytes_flushed; /* bytes already submitted to PTS M2D */
 	enum rdma_wqe_state state;
 	uint8_t has_read_req;
 } rdma_send_wqe_t;
@@ -303,6 +306,22 @@ struct rdma_ack {
 	STAILQ_ENTRY(rdma_ack) next;
 };
 
+struct rdma_read_chunk_state {
+	uint64_t remote_addr;              /* next host address for continuation D2M */
+	uint32_t total_len;                /* total READ DMA length (all chunks) */
+	uint32_t bytes_prepared;           /* bytes already submitted to PTS D2M */
+	uint32_t rkey;                     /* remote key for continuation */
+	uint32_t next_psn;                 /* PSN for next chunk's reply segments */
+	int next_opcode;                   /* wire opcode to resume from (-1 = fresh) */
+	struct rte_mempool *pool;          /* mbuf pool for continuation allocations */
+	uint16_t port;                     /* NIC port for continuation mbufs */
+	struct rte_mbuf *pending_pts_head; /* next chunk D2M chain awaiting PTS enqueue */
+	bool in_progress;                  /* multi-chunk READ is active */
+	bool is_requeue;                   /* original READ was a dup-request requeue */
+	bool needs_pts_enqueue;            /* pending_pts_head must be submitted to PTS */
+	bool needs_chunk_retry;            /* chunk_continue deferred; retry next cycle */
+};
+
 struct rdma_resp_info {
 	enum rdma_wc_status status;
 	struct rdma_recv_wqe wqe;
@@ -323,6 +342,10 @@ struct rdma_resp_info {
 	int resp_read_rq_bal;
 	int resp_read_requeue_inflight;
 	uint8_t aeth_syndrome;
+	struct rdma_ack read_emit_ack_snap;
+	bool read_emit_ack_valid;
+
+	struct rdma_read_chunk_state read_chunk;
 
 	STAILQ_HEAD(ack_list, rdma_ack) ack_pending_list;
 };
