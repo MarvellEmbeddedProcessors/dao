@@ -27,9 +27,10 @@
 #define RDMA_QPN_MASK      0xFFFFFF
 #define RDMA_MULTICAST_QPN 0xFFFFFF
 
-#define MAX_RESP_BUCKET       32
-#define RDMA_READ_CHUNK_MBUFS 8192
-#define RDMA_DMA_FLUSH_THR    8
+#define MAX_RESP_BUCKET        32
+#define RDMA_READ_CHUNK_MBUFS  8192
+#define RDMA_WRITE_CHUNK_MBUFS 2048
+#define RDMA_DMA_FLUSH_THR     8
 
 enum rdma_wr_opcode {
 	RDMA_WR_RDMA_WRITE = 0,
@@ -154,6 +155,7 @@ struct rdma_recv_wqe {
 	struct rte_mbuf *mbuf;
 	struct rte_mbuf *tail;
 	struct rdma_reth reth;
+	uint32_t write_bytes_flushed; /* bytes already submitted to PTS M2D */
 	uint8_t opcode;
 };
 

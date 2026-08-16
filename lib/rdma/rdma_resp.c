@@ -295,6 +295,7 @@ check_rq_resource(struct rdma_qp *qp, struct pkt_info *pinfo)
 	if (pkt->mask & RDMA_SEND_MASK)
 		rqe_needed = 1;
 
+	dma_needed += RDMA_DMA_FLUSH_THR;
 	if (qp->pts_resource.rqe_avail < rqe_needed ||
 	    RTE_PER_LCORE(rdma_dma_m2d_budget) < dma_needed) {
 		RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
@@ -1077,7 +1078,8 @@ rdma_save_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 		wqe->mbuf = pinfo->mbuf;
 		wqe->tail = rte_pktmbuf_lastseg(pinfo->mbuf);
 		wqe->opcode = pinfo->rinfo.opcode;
-		wqe->reth = *pinfo->rinfo.reth;
+		if (pinfo->rinfo.mask & RDMA_RETH_MASK)
+			wqe->reth = *pinfo->rinfo.reth;
 	} else {
 		struct rte_mbuf *last = rte_pktmbuf_lastseg(pinfo->mbuf);
 
@@ -1107,10 +1109,53 @@ rdma_update_final_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_SEND_REQ_RECVD);
 }
 
+/*
+ * Flush the accumulated WRITE mbuf chain to PTS without CQE.
+ * Constructs an SGE targeting reth.va + write_bytes_flushed so each
+ * partial flush lands at the correct offset in the remote region.
+ * Returns true if a flush was performed (pinfo->mbuf is ready for PTS).
+ */
+static inline bool
+rdma_write_partial_flush(struct rdma_qp *qp, struct pkt_info *pinfo)
+{
+	struct rdma_recv_wqe *wqe = &qp->resp.wqe;
+	struct dao_pts_rdma_sge *sge;
+	uint32_t nb_segs, budget_cost;
+
+	if (!wqe->mbuf || wqe->mbuf->nb_segs < RDMA_WRITE_CHUNK_MBUFS)
+		return false;
+
+	nb_segs = wqe->mbuf->nb_segs;
+	budget_cost = nb_segs + RDMA_DMA_FLUSH_THR;
+	if (RTE_PER_LCORE(rdma_dma_m2d_budget) < budget_cost)
+		return false;
+
+	RTE_PER_LCORE(rdma_dma_m2d_budget) -= budget_cost;
+
+	pinfo->mbuf = wqe->mbuf;
+	pinfo->mbuf->l2_len = 1;
+
+	sge = (struct dao_pts_rdma_sge *)rdma_rx_priv_sge_base(pinfo->mbuf);
+	sge->addr = rte_be_to_cpu_64(wqe->reth.va) + wqe->write_bytes_flushed;
+	sge->length = pinfo->mbuf->pkt_len;
+	sge->lkey = rte_be_to_cpu_32(wqe->reth.rkey);
+	pinfo->mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D << OFFLD_UPPER_BITS;
+
+	wqe->write_bytes_flushed += pinfo->mbuf->pkt_len;
+
+	wqe->tail->next = NULL;
+	wqe->mbuf = NULL;
+	wqe->tail = NULL;
+
+	pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
+	return true;
+}
+
 static inline void
 rdma_update_write_final_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 {
 	struct rdma_recv_wqe *wqe = &qp->resp.wqe;
+	struct dao_pts_rdma_sge *sge;
 
 	rdma_save_mbuf(qp, pinfo);
 	pinfo->mbuf = wqe->mbuf;
@@ -1124,10 +1169,19 @@ rdma_update_write_final_mbuf(struct rdma_qp *qp, struct pkt_info *pinfo)
 
 	pinfo->rinfo.opcode = wqe->opcode;
 	pinfo->rinfo.reth = &wqe->reth;
-	if (pinfo->rinfo.mask & RDMA_IMMDT_MASK)
+	if (pinfo->rinfo.mask & RDMA_IMMDT_MASK) {
 		rdma_populate_dma_and_cqe(qp, pinfo);
-	else
-		rdma_populate_dma_info(pinfo, DAO_PTS_RDMA_ENQ_M2D);
+		sge = (struct dao_pts_rdma_sge *)rdma_rx_priv_sge_base(pinfo->mbuf);
+		sge->addr += wqe->write_bytes_flushed;
+		sge->length -= wqe->write_bytes_flushed;
+	} else {
+		sge = (struct dao_pts_rdma_sge *)rdma_rx_priv_sge_base(pinfo->mbuf);
+		sge->addr = rte_be_to_cpu_64(wqe->reth.va) + wqe->write_bytes_flushed;
+		sge->length = pinfo->mbuf->pkt_len;
+		sge->lkey = rte_be_to_cpu_32(wqe->reth.rkey);
+		pinfo->mbuf->ol_flags |= DAO_PTS_RDMA_ENQ_M2D << OFFLD_UPPER_BITS;
+	}
+	wqe->write_bytes_flushed = 0;
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_WRITE_REQ_RECVD);
 }
 
@@ -1254,6 +1308,7 @@ execute(struct rdma_qp *qp, struct pkt_info *pinfo)
 	} else if (rinfo->mask & RDMA_WRITE_MASK) {
 		if (!(rinfo->mask & RDMA_END_MASK)) {
 			rdma_save_mbuf(qp, pinfo);
+			rdma_write_partial_flush(qp, pinfo);
 		} else {
 			rdma_update_write_final_mbuf(qp, pinfo);
 			RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
@@ -1294,6 +1349,7 @@ do_complete(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 
 	qp->resp.wqe.mbuf = NULL;
 	qp->resp.wqe.tail = NULL;
+	qp->resp.wqe.write_bytes_flushed = 0;
 	qp->resp.opcode = -1;
 
 	if (unlikely(qp->state == QP_STATE_ERROR)) {
@@ -1723,6 +1779,7 @@ rdma_responder(struct pkt_info *pinfo)
 		case RDMA_RESPST_RESET:
 			qp->resp.wqe.mbuf = NULL;
 			qp->resp.wqe.tail = NULL;
+			qp->resp.wqe.write_bytes_flushed = 0;
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RSP_RESPST_RESET);
 			goto exit;
 		case RDMA_RESPST_ERROR:
