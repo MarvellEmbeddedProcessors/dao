@@ -56,9 +56,13 @@ Asymmetric Cryptography
 |                +------------------+
 |                | Encrypt, decrypt |
 +----------------+------------------+
-| RSA-OAEP       | max: 988 bytes   |
+| RSA-OAEP       | Max: 988 bytes   |
 |                +------------------+
 |                | Encrypt, decrypt |
++----------------+------------------+
+| RSA-PSS        | Max: 988 bytes   |
+|                +------------------+
+|                | Sign, verify     |
 +----------------+------------------+
 | Modex EXP      | 17 - 1024 bytes  |
 |                +------------------+
@@ -80,6 +84,9 @@ Asymmetric Cryptography
     * For RSA-OAEP operations, the modulus length must be at least twice the hash length used in OAEP padding,
       and not less than the minimum required for secure encryption. Ensure the input data length does not exceed
       the maximum allowed by the selected modulus and padding scheme.
+    * For RSA-PSS operations, the modulus length must be large enough to accommodate the selected hash and salt
+      lengths. Ensure the salt and message lengths do not exceed the maximum allowed by the selected modulus
+      and padding scheme.
 
 Post-Quantum Cryptography (PQC)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -517,6 +524,9 @@ The following APIs are used to enqueue asymmetric cryptographic operations:
 #. ``dao_liquid_crypto_enq_op_ecdsa_verify`` : Enqueue ECDSA verification operation.
 #. ``dao_liquid_crypto_enq_op_rsa_oaep_enc`` : Enqueue RSA OAEP encryption operation.
 #. ``dao_liquid_crypto_enq_op_rsa_oaep_exp_dec`` : Enqueue RSA OAEP decryption (exponent method) operation.
+#. ``dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc`` : Enqueue RSA-PSS exponent private key signing operation.
+#. ``dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc`` : Enqueue RSA-PSS CRT private key signing operation.
+#. ``dao_liquid_crypto_enq_op_rsa_pss_pub_ver`` : Enqueue RSA-PSS public key verification operation.
 
 Enqueue API - Symmetric Crypto
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
