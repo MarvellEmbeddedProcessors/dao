@@ -216,6 +216,7 @@ typedef struct rdma_send_wqe {
 	uint32_t ack_length;
 	uint32_t dma_length;
 	uint32_t n_rdma_segs;
+	uint32_t n_segs_acked;       /* non-owner segments freed via partial ACK */
 	uint32_t read_bytes_flushed; /* bytes already submitted to PTS M2D */
 	enum rdma_wqe_state state;
 	uint8_t has_read_req;

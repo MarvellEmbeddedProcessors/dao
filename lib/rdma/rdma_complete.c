@@ -392,6 +392,50 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 	return RDMA_COMPST_UPDATE_COMP;
 }
 
+static inline void
+rdma_partial_free_acked_segs(struct rdma_qp *qp, struct rdma_send_wqe *wqe, uint32_t comp_psn)
+{
+	struct rdma_mbufs *owner, *rmbuf, *nxt;
+	uint32_t segs_covered, target_freed, to_free;
+
+	if (wqe->mask & WR_READ_MASK)
+		return;
+
+	if (qp->req.in_retransmission)
+		return;
+
+	if (psn_compare(comp_psn, wqe->first_psn) <= 0)
+		return;
+
+	segs_covered = (comp_psn - wqe->first_psn) & BTH_PSN_MASK;
+
+	/* Segment 0 is the owner — never freed early */
+	if (segs_covered <= 1)
+		return;
+
+	target_freed = segs_covered - 1;
+	if (target_freed <= wqe->n_segs_acked)
+		return;
+
+	to_free = target_freed - wqe->n_segs_acked;
+
+	owner = STAILQ_FIRST(&wqe->mbuf_list);
+	if (!owner)
+		return;
+
+	rmbuf = STAILQ_NEXT(owner, next);
+	while (to_free > 0 && rmbuf) {
+		nxt = STAILQ_NEXT(rmbuf, next);
+		STAILQ_NEXT(owner, next) = nxt;
+		if (!nxt)
+			wqe->mbuf_list.stqh_last = &STAILQ_NEXT(owner, next);
+		rdma_free_mbuf_list(rmbuf);
+		rmbuf = nxt;
+		to_free--;
+		wqe->n_segs_acked++;
+	}
+}
+
 static inline comp_state_t
 rdma_write_send(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
@@ -502,7 +546,7 @@ rdma_complete_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe
 }
 
 static inline comp_state_t
-rdma_update_comp(struct rdma_qp *qp, struct pkt_info *pkt, __rte_unused struct rdma_send_wqe *wqe)
+rdma_update_comp(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
 {
 	if (pkt->rinfo.mask & RDMA_END_MASK)
 		qp->comp.opcode = -1;
@@ -513,6 +557,13 @@ rdma_update_comp(struct rdma_qp *qp, struct pkt_info *pkt, __rte_unused struct r
 		qp->comp.psn = (pkt->rinfo.psn + 1) & BTH_PSN_MASK;
 		qp->req.unacked_window =
 			RDMA_MAX_UNACKED_PSNS - (int32_t)(qp->req.psn - qp->comp.psn);
+
+		/* Guard: rdma_complete_ack → do_complete may have already
+		 * deleted this WQE before transitioning to UPDATE_COMP.
+		 * Verify the WQE is still the live head before touching it.
+		 */
+		if (!STAILQ_EMPTY(&qp->req.wqe_head) && STAILQ_FIRST(&qp->req.wqe_head) == wqe)
+			rdma_partial_free_acked_segs(qp, wqe, qp->comp.psn);
 
 		/*
 		 * Reset retransmission timer on forward progress.

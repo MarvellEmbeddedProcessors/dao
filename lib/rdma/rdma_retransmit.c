@@ -52,6 +52,15 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 		return;
 	}
 
+	/* Skip past owner (first entry); account for segments freed by
+	 * partial ACK — they were removed from mbuf_list, creating a
+	 * PSN gap between the owner and the next remaining entry.
+	 */
+	if (rmbuf && psn_compare(first_psn, qp->comp.psn) < 0) {
+		rmbuf = STAILQ_NEXT(rmbuf, next);
+		first_psn += 1 + wqe->n_segs_acked;
+	}
+
 	while (rmbuf && psn_compare(first_psn, qp->comp.psn) < 0) {
 		rmbuf = STAILQ_NEXT(rmbuf, next);
 		first_psn++;
