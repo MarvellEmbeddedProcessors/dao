@@ -188,7 +188,7 @@ Export DPI device list and run application:
    export DPI_DEV="-a 0000:06:00.1 -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 -a 0000:06:00.6 \
    -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5"
    scp dao-rdma_graph root@OCTEON_IP:/root/
-   /root/dao-rdma_graph -c 0xf -a 0002:02:00.0 $DPI_DEV --file-prefix=ep -- -p 0x1 -P --max-pkt-len=9600 -n 1 -r 0x1 --num-mbufs 1048576 --dma-nb-desc 8192
+   /root/dao-rdma_graph -c 0xf -a 0002:02:00.0 $DPI_DEV --file-prefix=ep -- -p 0x1 -P --max-pkt-len=9600 -n 1 -r 0x1 --num-mbufs 1048576
 
 Sample boot log excerpt:
 
@@ -232,6 +232,27 @@ Handles Queue Pairs (QPs), Completion Queues (CQs), memory registration, and DMA
 Setting up Environment
 ----------------------
 
+Configure the required host kernel bootargs by updating the
+``GRUB_CMDLINE_LINUX`` line in ``/etc/default/grub``. ``aw_bits=39`` is required
+on all hosts; on Intel hosts also enable the IOMMU with
+``iommu=on intel_iommu=on`` (these two are Intel specific).
+
+On an Intel host:
+
+.. code-block:: console
+
+   GRUB_CMDLINE_LINUX="iommu=on intel_iommu=on aw_bits=39"
+
+On a non-Intel host:
+
+.. code-block:: console
+
+   GRUB_CMDLINE_LINUX="aw_bits=39"
+
+Regenerate the GRUB configuration and reboot for the changes to take effect
+(for example, ``update-grub`` on Debian/Ubuntu or ``grub2-mkconfig`` on
+RHEL-based systems).
+
 Clone DAO sources for host kernel driver:
 
 .. code-block:: bash
@@ -244,6 +265,14 @@ Build DAO for x86 host
 
 ``rdma-core`` is defined as a subproject, kernel header updates and its compilation
 will be handled with following instructions.
+
+.. note::
+  ``pciutils`` (which provides ``lspci``) is required on the machine where the
+  sources are compiled. Install it before building:
+
+  .. code-block:: bash
+
+     sudo apt install pciutils
 
 .. note::
   Meson version 1.8.0 or higher is mandatory for RDMA host build.
@@ -610,6 +639,9 @@ RDMA Counters
 
       meson setup build -Drdma_debug=true
 
+   Most counters are always available; only the counters listed under
+   :ref:`rdma-debug-only-counters` are gated behind this option.
+
 Connection & Access Overview
 ----------------------------
 
@@ -776,6 +808,28 @@ Example output:
      }
    }
 
+Checking Per-QP Status
+----------------------
+
+To inspect the status of a single Queue Pair, first discover the active QPs and
+then query the counters for a specific one:
+
+#. List active QPs to find valid ``port`` / ``qp`` pairs (see above). In the
+   example, ``port_0`` reports ``valid_qps`` of ``1`` and ``1023``.
+#. Query counters for the chosen QP using ``/rdma/qp/counters,<port>,<qp>``.
+   For ``port_0`` QP ``1``:
+
+   .. code-block:: console
+
+      --> /rdma/qp/counters,0,1
+
+.. note::
+
+   The endpoint takes exactly two parameters in the order ``port,qp`` (for
+   example ``/rdma/qp/counters,0,1``). The owning lcore is resolved
+   automatically and reported in the output key (e.g. ``lcore_5_port_0_qp_1``);
+   it is not supplied as a parameter.
+
 RDMA Queue Pair Statistics
 --------------------------
 
@@ -788,7 +842,8 @@ Returns RDMA statistics for a specific Queue Pair (QP) on a given port.
 
 * **Endpoint:** ``/rdma/qp/counters,port,qp``
 
-Example output (specific port and QP):
+Example output (specific port and QP). Here ``port`` ``0`` and ``qp`` ``1`` are
+taken from the ``valid_qps`` list returned by ``/rdma/qp/list`` above:
 
 .. code-block:: console
 
@@ -1016,3 +1071,104 @@ Special cases:
 
 * If ``port = -1`` and ``qp = -1``: Aggregate statistics across all QPs and all ports.
 * If ``qp = -1``: Aggregate statistics across all QPs for the specified port.
+
+RDMA Ethdev Statistics
+----------------------
+
+Returns DPDK ethdev hardware statistics (as reported by ``rte_eth_stats_get``)
+for each active port: received/transmitted packets and bytes, along with
+missed/error counters.
+
+* **Parameters:** None
+* **Endpoint:** ``/rdma/ethdev/stats``
+
+Example output (polled repeatedly; values are cumulative and keep increasing
+between consecutive queries):
+
+.. code-block:: console
+
+   --> /rdma/ethdev/stats
+   {
+     "/rdma/ethdev/stats": {
+       "port_0": {
+         "ipackets": 15795736,
+         "opackets": 492417620,
+         "ibytes": 979354096,
+         "obytes": 532533349180,
+         "imissed": 0,
+         "ierrors": 0,
+         "oerrors": 0,
+         "rx_nombuf": 0
+       }
+     }
+   }
+
+   --> /rdma/ethdev/stats
+   {
+     "/rdma/ethdev/stats": {
+       "port_0": {
+         "ipackets": 15840492,
+         "opackets": 493849734,
+         "ibytes": 982128968,
+         "obytes": 534082894364,
+         "imissed": 0,
+         "ierrors": 0,
+         "oerrors": 0,
+         "rx_nombuf": 0
+       }
+     }
+   }
+
+Counter Lifecycle
+-----------------
+
+All RDMA telemetry counters (port, QP, and ethdev) are cumulative from
+application start. They increase monotonically for the lifetime of the
+``dao-rdma_graph`` process. There is no reset or clear endpoint; counters can
+only be cleared by restarting the application.
+
+To observe rates or trends, poll an endpoint at a regular interval (for
+example, every ~5 seconds) and compute the difference between consecutive
+samples, since counters are cumulative. The interval is only a recommendation;
+choose one that suits your monitoring needs.
+
+.. _rdma-debug-only-counters:
+
+Debug-Only Counters
+-------------------
+
+Most counters are always available. The counters listed below are compiled in
+only when the application is built with ``-Drdma_debug=true``
+(``DAO_RDMA_DEBUG``). When enabled, they appear appended to the end of the
+respective ``port_counters`` / ``qp_counters`` output; without the debug build
+they are absent.
+
+Port debug-only counters:
+
+* ``RDMA_RX_PORT_ETH_RX_RECVD``
+* ``RDMA_TX_PORT_ETH_TX_SENT``
+
+Queue Pair debug-only counters:
+
+* ``RDMA_RX_QP_PKT_RECV``
+* ``RDMA_TX_QP_PTS_ENQUEUE``
+* ``RDMA_TX_QP_PTS_DEQUEUE``
+* ``RDMA_TX_QP_SEND_WQE_PROCESSED``
+* ``RDMA_TX_QP_WRITE_WQE_PROCESSED``
+* ``RDMA_TX_QP_READ_WQE_PROCESSED``
+* ``RDMA_TX_QP_SEND_REQ_PKT_SENT``
+* ``RDMA_TX_QP_WRITE_REQ_PKT_SENT``
+* ``RDMA_TX_QP_READ_REQ_PKT_SENT``
+* ``RDMA_RX_QP_SEND_REQ_RECVD``
+* ``RDMA_RX_QP_WRITE_REQ_RECVD``
+* ``RDMA_RX_QP_ACK_RECVD``
+* ``RDMA_RX_QP_READ_REQ_RCVD``
+* ``RDMA_RX_QP_READ_DUP_REQ``
+* ``RDMA_TX_QP_READ_RSP_PKT_SENT``
+* ``RDMA_TX_QP_READ_RSP_COMPLETE``
+* ``RDMA_TX_QP_READ_REQ_SENT``
+* ``RDMA_RX_QP_READ_RSP_RCVD``
+* ``RDMA_RX_QP_READ_MSG_COMPLETE``
+* ``RDMA_TX_QP_READ_RETRANSMIT``
+* ``RDMA_TX_QP_SEND_RETRANSMIT``
+* ``RDMA_TX_QP_WRITE_RETRANSMIT``
