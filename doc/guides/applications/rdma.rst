@@ -22,8 +22,23 @@ verbs and core functionality, while on the Octeon CN10K, a DPDK-based firmware
 application maintains RDMA resource contexts and performs RoCEv2 encapsulation
 for high-performance data transfer
 
-Octeon RDMA Firmware
+RDMA Operation Modes
 ====================
+
+OCTEON RDMA can operate in two modes:
+
+* **Endpoint Mode**: the OCTEON acts as an RDMA adapter (NIC) for the
+  x86 host, which terminates the RDMA endpoint. This mode is described in the
+  Octeon RDMA End Point Mode subsection below.
+* **Termination mode**: the OCTEON terminates the RDMA endpoint locally instead
+  of passing RDMA traffic through to the host. This mode is described in the
+  Octeon RDMA Termination Mode subsection below.
+
+Octeon RDMA End Point Mode
+--------------------------
+
+.. figure:: ./img/rdma.png
+   :alt: RDMA End Point Mode Overview
 
 ``dao-rdma_graph`` (referred to here as ``rdma``) is a DPDK based application
 that exercises RDMA (RoCEv2/IB verbs) dataplane paths on OCTEON and host
@@ -39,11 +54,8 @@ across host <-> OCTEON or multi-device setups. Non-RDMA host stack traffic
 using BAR4 doorbells and DMA passthrough, eliminating the previous SDP
 dependency.
 
-.. figure:: ./img/rdma.png
-   :alt: RDMA Application Overview
-
 Features
---------
+~~~~~~~~
  * DPDK based RDMA dataplane orchestration on OCTEON (RPM + DPI VFs)
  * Management QP ring-based netdev for non-RDMA host traffic (ARP, ICMP, RDMA CM)
  * Supports UD transport ping/pong validation (``ibv_ud_pingpong``)
@@ -57,7 +69,7 @@ Features
  * Supports high-performance RDMA memory allocations and multi-QP resource scaling
 
 Setting up Environment
-----------------------
+~~~~~~~~~~~~~~~~~~~~~~
 Bind RPM device to ``vfio-pci``:
 
 .. code-block:: bash
@@ -67,7 +79,7 @@ Bind RPM device to ``vfio-pci``:
 .. _rdma-obtain-dao:
 
 Obtain DAO sources and checkout DAO 26.02 branch
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 .. code-block:: bash
 
@@ -76,7 +88,7 @@ Obtain DAO sources and checkout DAO 26.02 branch
    git checkout dao-26.02
 
 Enable and bind DPI/NPA devices (helper script)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The ``dpi-test-setup.sh`` helper configures DPI VFs and related devices for the
 RDMA dataplane. It is supplied with the DAO/OCTEON SDK deliverable for your
@@ -176,11 +188,11 @@ above, configure hugepages separately on the OCTEON:
    echo 12 > /sys/kernel/mm/hugepages/hugepages-524288kB/nr_hugepages
 
 Cross Compile for ARM64:
-~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^
 Follow: https://marvellembeddedprocessors.github.io/dao/guides/gsg/build.html#compiling-and-installing
 
 Launching RDMA Application on OCTEON
-------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Export DPI device list and run application:
 
 .. code-block:: bash
@@ -207,13 +219,13 @@ Sample boot log excerpt:
  Ensure that the Octeon CN10K firmware is fully initialized and running before
  configuring the RDMA software components on the host.
 
-Host Software Architecture
-==========================
+Host Setup Environment
+~~~~~~~~~~~~~~~~~~~~~~
 
 The host initiates RDMA communication using the RDMA verbs API provided by rdma-core.
 
 a. User Space
--------------
+^^^^^^^^^^^^^
 
 ``Application``: Uses RDMA verbs (e.g., ibv_post_send, ibv_post_recv) through libibverbs.
 ``rdma-core``: Provides libraries and utilities for RDMA (e.g., libibverbs, libmlx5, etc.).
@@ -223,14 +235,14 @@ Provider translates generic verbs into hardware-specific operations.
 
 
 b. Kernel Space
----------------
+^^^^^^^^^^^^^^^
 
 ``ib_core``: RDMA core kernel module providing common RDMA infrastructure.
 Vendor-specific kernel driver: Implements low-level hardware interaction for the RDMA adaptor.
 Handles Queue Pairs (QPs), Completion Queues (CQs), memory registration, and DMA mapping.
 
 Setting up Environment
-----------------------
+^^^^^^^^^^^^^^^^^^^^^^
 
 Configure the required host kernel bootargs by updating the
 ``GRUB_CMDLINE_LINUX`` line in ``/etc/default/grub``. ``aw_bits=39`` is required
@@ -322,6 +334,148 @@ Partner Machine Setup (MLX example):
    ibv_devices
    ibv_devinfo
 
+Octeon RDMA Termination Mode
+----------------------------
+
+.. figure:: ./img/rdma_termination.png
+   :alt: RDMA Termination Mode Overview
+
+In termination mode the OCTEON terminates the RDMA endpoint locally instead of
+passing RDMA traffic through to the host. It is enabled by launching
+``dao-rdma_graph`` with the ``--enable-termination`` option; the periodic
+heartbeat is disabled in this mode.
+
+Required versions:
+
+* **DPDK** 25.11 or newer.
+* **DAO** ``dao-devel`` (tip-of-tree); this mode is not yet part of a release
+  branch.
+* **OCTEON kernel** Marvell Linux 6.6, built from
+  https://github.com/Marvell-Lab/linux-kernel.
+
+.. note::
+   The OCTEON must run the **Marvell Linux 6.6** kernel
+   (https://github.com/Marvell-Lab/linux-kernel), which provides the
+   ``octeontx2_dpi`` module parameters used during setup.
+
+Steps to Compile DAO
+~~~~~~~~~~~~~~~~~~~~
+Build on an x86 host and copy the resulting binaries to the OCTEON DUT. The
+``octep_rdma`` kernel module must be built with ``-DCONFIG_OCTEP_RDMA_OCTTERM``,
+which selects termination mode. ``<linux-6.6-kernel-path>`` must point to the
+OCTEON Linux 6.6 kernel source tree.
+
+.. code-block:: bash
+
+   # Compile and install DPDK 25.11 (or newer), then point pkg-config at it
+   export PKG_CONFIG_PATH=<dpdk-install-dir>/lib/pkgconfig
+
+   # Obtain DAO sources (tip-of-tree; termination mode is not on a release branch)
+   git clone https://github.com/MarvellEmbeddedProcessors/dao.git
+   cd dao
+   git checkout dao-devel
+
+   # Cross-compile DAO (firmware / dao-rdma_graph)
+   meson setup build --buildtype=debug --cross=config/arm64_cn10k_linux_gcc \
+     -Denable_docs=false -Dc_args='-ggdb3' --prefer-static --werror
+   ninja -C build
+
+   # Cross-compile the octep_rdma kmod in termination mode
+   make -C <linux-6.6-kernel-path> M=$PWD/kmod/rdma/octep_rdma \
+     ARCH=arm64 CROSS_COMPILE=aarch64-marvell-linux-gnu- \
+     MODULE_CFLAGS="-DCONFIG_OCTEP_RDMA_OCTTERM" modules
+
+   # Copy the firmware (dao-rdma_graph) and octep-rdma.ko to the DUT
+
+The following steps are performed on the OCTEON DUT.
+
+Configure Hugepages and VFIO
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   mkdir -p /mnt/huge
+   mount -t hugetlbfs nodev /mnt/huge
+   modprobe vfio-pci
+   echo 36 > /proc/sys/vm/nr_hugepages
+
+Configure DPI and Bind VFs
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Discover the DPI PF, tune the ``octeontx2_dpi`` module parameters, create DPI
+VFs, and bind them to ``vfio-pci``. Leave at least one VF unbound so the kernel
+can take it up and create a netdev:
+
+.. code-block:: bash
+
+   DPI_PF=$(lspci -d :a080 | awk '{print $1}')
+
+   echo 0x10101010 > /sys/module/octeontx2_dpi/parameters/eng_fifo_buf
+   echo 512 > /sys/module/octeontx2_dpi/parameters/mrrs
+   echo 256 > /sys/module/octeontx2_dpi/parameters/mps
+
+   echo 32 > /sys/bus/pci/devices/$DPI_PF/sriov_numvfs
+   # Bind all but at least one VF; the unbound VF lets the kernel create a netdev
+   DPI_VF=$(lspci -d :a081 | awk '{print $1}' | head -22)
+   usertools/dpdk-devbind.py -b vfio-pci $DPI_VF
+
+Create and Bind RPM VFs
+~~~~~~~~~~~~~~~~~~~~~~~
+Create the RPM VFs used for connectivity with the remote machine and bind them
+to ``vfio-pci`` (adjust the BDFs to match your setup):
+
+.. code-block:: bash
+
+   echo 3 > /sys/bus/pci/devices/0002:03:00.0/sriov_numvfs
+   usertools/dpdk-devbind.py -b vfio-pci 0002:03:00.1 0002:03:00.2 0002:03:00.3
+
+Load RDMA Kernel Modules
+~~~~~~~~~~~~~~~~~~~~~~~~
+Load the modules on the OCTEON. This creates the ``/dev/octterm0`` character
+device that ``dao-rdma_graph`` requires in termination mode:
+
+.. code-block:: bash
+
+   modprobe ib_uverbs
+   insmod kmod/rdma/octep_rdma/octep-rdma.ko
+
+Launch the Application
+~~~~~~~~~~~~~~~~~~~~~~
+Export the DPI device list and launch ``dao-rdma_graph`` with
+``--enable-termination`` (adjust the Ethernet BDFs to match your setup):
+
+.. code-block:: bash
+
+   export DPI_DEV="-a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 \
+   -a 0000:06:00.6 -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 -a 0000:06:01.2 \
+   -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5 -a 0000:06:01.6 -a 0000:06:01.7"
+   build/app/dao-rdma_graph -c 0x3f $DPI_DEV -a 0002:03:00.1 --file-prefix=ep -- \
+   -p 0x1 --max-pkt-len=9600 -P -n 1 -r 0x1 --num-mbufs 1048576 \
+   --enable-termination
+
+Bring up the Interface
+~~~~~~~~~~~~~~~~~~~~~~
+Find the VF interface name (format ``enp6s0vxx``, where ``xx`` is a number)
+using ``ifconfig``, then assign an IP address in the same subnet as the remote
+machine:
+
+.. code-block:: bash
+
+   ifconfig enp6s0v22 30.0.0.3/24 up
+
+Run UD Ping-Pong Test
+~~~~~~~~~~~~~~~~~~~~~
+With the termination VF interface up and addressed in the same subnet as the
+remote machine (previous step), verify connectivity and run a UD ping-pong
+test:
+
+.. code-block:: bash
+
+   ping 30.0.0.11
+   ibv_ud_pingpong -g 1 -d <device-name> -i 1 30.0.0.11
+
+Testing
+=======
+
 UD Ping-Pong Test
 -----------------
 Server (partner MLX device):
@@ -408,7 +562,7 @@ Check GIDs:
 
    ./subprojects/rdma-core/build/bin/ibv_devinfo -v
 
-Partner device RPM VFs & RXE configuration:
+Partner device RPM VFs:
 
 .. code-block:: bash
 
@@ -416,9 +570,6 @@ Partner device RPM VFs & RXE configuration:
    ifconfig enP2p2s0v0 30.0.0.2
    ifconfig enP2p2s0v1 31.0.0.2
    ifconfig enP2p2s0v2 32.0.0.2
-   rdma link add rxe1 type rxe netdev enP2p2s0v0
-   rdma link add rxe2 type rxe netdev enP2p2s0v1
-   rdma link add rxe3 type rxe netdev enP2p2s0v2
 
 Connectivity validation (ping multiple IPs)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -430,7 +581,7 @@ Partner:
 
 .. code-block:: bash
 
-   ibv_ud_pingpong -g 1 -d rxe1 -i 1
+   ibv_ud_pingpong -g 1 -d <device-name> -i 1
 
 Host:
 
@@ -516,25 +667,6 @@ Server:
    ./subprojects/rdma-core/build/bin/ibv_rdma_mq_trf -q 1 -t 8 -c 1000 --nb-sge=2
 
 Client UD / RC loops similar to SGE=1 case adding ``--nb-sge=2``.
-
-Planned Enhancements
---------------------
-* Extended statistics and graphs for RDMA nodes
-* Automated multi-QP stress scripts
-* IPv6 focused examples
-* Integration with perf benchmarks
-
-Known Issues
-------------
-* Empty GID requires manual IP configuration or correct GID index selection
-* Some platform device probes may fail harmlessly (logged) depending on FW
-* Multi-device setups rely on correct VF ordering; mismatches can cause mask errors
-
-References
-----------
-* rdma-core upstream documentation
-* OCTEON SDK Getting Started Guide
-* DPDK Programmer's Guide (EAL & VFIO binding)
 
 Performance Testing (Perftest Suite)
 ------------------------------------
@@ -1172,3 +1304,22 @@ Queue Pair debug-only counters:
 * ``RDMA_TX_QP_READ_RETRANSMIT``
 * ``RDMA_TX_QP_SEND_RETRANSMIT``
 * ``RDMA_TX_QP_WRITE_RETRANSMIT``
+
+Planned Enhancements
+====================
+* Extended statistics and graphs for RDMA nodes
+* Automated multi-QP stress scripts
+* IPv6 focused examples
+* Integration with perf benchmarks
+
+Known Issues
+============
+* Empty GID requires manual IP configuration or correct GID index selection
+* Some platform device probes may fail harmlessly (logged) depending on FW
+* Multi-device setups rely on correct VF ordering; mismatches can cause mask errors
+
+References
+==========
+* rdma-core upstream documentation
+* OCTEON SDK Getting Started Guide
+* DPDK Programmer's Guide (EAL & VFIO binding)
