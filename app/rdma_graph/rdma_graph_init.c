@@ -26,40 +26,6 @@ rte_node_t rdma_pts_enq_nodes[DAO_PTS_RDMA_MAX_DEVS];
 static uint16_t pts_deq_tx_edge_idx[DAO_PTS_RDMA_MAX_DEVS];
 static bool pts_deq_tx_edge_idx_init;
 
-static void
-pktpool_stats_cb(struct rte_mempool *mp, void *arg)
-{
-	FILE *f = (FILE *)arg;
-
-	if (strstr(mp->name, "mbuf_pool") || strstr(mp->name, "tx_mbuf_pool"))
-		fprintf(f, "  %-32s  size=%-6u  avail=%-6u  inuse=%-6u\n", mp->name, mp->size,
-			rte_mempool_avail_count(mp), rte_mempool_in_use_count(mp));
-}
-
-static void
-rdma_ethdev_stats_dump(FILE *f)
-{
-	struct rte_eth_stats eth_stats;
-	uint16_t port_id;
-
-	fprintf(f, "\n--- Ethdev Stats ---\n");
-	RTE_ETH_FOREACH_DEV(port_id) {
-		if (rte_eth_stats_get(port_id, &eth_stats) == 0) {
-			fprintf(f,
-				"  Port %-2u RX: pkts=%-12" PRIu64 " bytes=%-14" PRIu64
-				" imissed=%-10" PRIu64 " ierrors=%-10" PRIu64 " nombuf=%-10" PRIu64
-				"\n",
-				port_id, eth_stats.ipackets, eth_stats.ibytes, eth_stats.imissed,
-				eth_stats.ierrors, eth_stats.rx_nombuf);
-			fprintf(f,
-				"  Port %-2u TX: pkts=%-12" PRIu64 " bytes=%-14" PRIu64
-				" oerrors=%-10" PRIu64 "\n",
-				port_id, eth_stats.opackets, eth_stats.obytes, eth_stats.oerrors);
-		}
-	}
-	fprintf(f, "--------------------\n");
-}
-
 static uint32_t
 graph_print_stats(void *arg)
 {
@@ -107,10 +73,6 @@ graph_print_stats(void *arg)
 	while (!rdma_main_cfg->force_quit) {
 		rewind(memfp);
 		rte_graph_cluster_stats_get(stats, 0);
-		rdma_ethdev_stats_dump(memfp);
-		fprintf(memfp, "\n--- Packet Pool Stats ---\n");
-		rte_mempool_walk(pktpool_stats_cb, memfp);
-		fprintf(memfp, "-------------------------\n");
 		fflush(memfp);
 
 		flockfile(stdout);
