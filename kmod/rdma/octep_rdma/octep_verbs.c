@@ -691,12 +691,16 @@ octep_rdma_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *init_attr
 			(volatile u8 __iomem *)((u8 __iomem *)caps->notify_base + cq_slot_offset +
 						OCTEP_RDMA_CQ_ARM_OFFSET);
 		cq->armed = OCTEP_RDMA_CQ_DISARMED;
+		/* pi starts at 0 (doorbell zeroed at CQ init); no work
+		 * signalled yet, so the delivery watermark starts at 0 too.
+		 */
+		cq->last_signaled_pi = 0;
 
 		/*
 		 * The EP initializes the cb_notify byte to 1 when it creates
 		 * the CQ (during the prepare_cq_cmd mbox round-trip above).
-		 * The ISR (octep_cq_intr_handler) scans every CQ on each
-		 * interrupt and fires comp_handler for any CQ whose cb_notify
+		 * The CQ bottom half (octep_cq_work_fn) scans every CQ after
+		 * each interrupt and fires comp_handler for any CQ whose cb_notify
 		 * byte is nonzero. Left as-is, the first interrupt from ANY CQ
 		 * would also fire a spurious completion event on this freshly
 		 * created CQ - before it has ever produced a CQE - which makes

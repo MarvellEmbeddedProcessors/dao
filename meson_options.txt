@@ -31,3 +31,5 @@ option('rdma_debug', type: 'boolean', value: false, description:
        'Enable RDMA debug logs (defines DAO_RDMA_DEBUG).')
 option('build_host_dir', type: 'string', value: '', description:
        'Build host directory path for rdma-core prefix installation.')
+option('build_perftest', type: 'boolean', value: true, description:
+       'Build the perftest benchmark subproject (needs network to fetch). Set to false to build the kmod offline.')

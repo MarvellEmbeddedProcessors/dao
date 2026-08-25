@@ -6,6 +6,9 @@
  * implemented in octep_rdma_netdev.c.
  */
 
+#include <linux/moduleparam.h>
+#include <linux/rcupdate.h>
+
 #include "octep_rdma.h"
 #include "octep_cq.h"
 #include "octep_ep.h"
@@ -14,6 +17,97 @@
 
 #define OCTEP_INTR_POLL_TIME_MSECS 100
 struct workqueue_struct *octep_wq;
+
+/*
+ * Debug: pointer to the CQ-IRQ-enabled device, used only by the read-only
+ * cq_dump parameter below. Set when CQ IRQs are registered and cleared at
+ * teardown. Not referenced on any data path.
+ */
+static struct octep_rdma_dev *octep_cq_dbg_dev;
+
+/*
+ * CQ interrupt diagnostics (read via cq_dump):
+ *   fires      - times the CQ ISR ran
+ *   comps      - times comp_handler was invoked (cb_notify was set)
+ *   zero       - times the ISR read cb_notify==0 and skipped (stale-read race)
+ */
+static atomic_t octep_cq_bh_fires = ATOMIC_INIT(0);
+static atomic_t octep_cq_bh_comps = ATOMIC_INIT(0);
+static atomic_t octep_cq_bh_zero = ATOMIC_INIT(0);
+
+/*
+ * Live per-CQ interrupt state, read-only at
+ * /sys/module/octep_rdma/parameters/cq_dump. This executes ONLY when the file
+ * is read - never from the ISR, bottom half, or poll_cq - so it adds zero
+ * fast-path cost (it carries no counters; it just snapshots BAR4 at read time).
+ * For each CQ it reads the doorbell slot with the SAME offsets the bottom half
+ * uses:
+ *   pi/ci     producer/consumer indices (slot+0 / slot+4)
+ *   pending   !queue_empty(pi,ci) -> host has un-consumed CQEs
+ *   cbnotify  EP-written notify byte (slot+16)
+ *   arm       EP-visible arm byte (slot+12)
+ *   sw_armed  cq->armed shadow; notify=cq->notify; sig_pi=last_signaled_pi
+ *   comp      comp_handler registered (1) -> event-mode consumer attached
+ * Read this while an -e run is hung to locate the stall:
+ *   pending=1 with pi>ci  -> the tail IS in host memory but no wakeup was
+ *                            delivered (host-side lost edge; a watchdog fixes).
+ *   pi==ci                -> the last CQE is NOT in host memory yet
+ *                            (DPU-side producer/publish stall).
+ */
+static int cq_dump_get(char *buffer, const struct kernel_param *kp)
+{
+	struct octep_rdma_dev *rdma_dev = octep_cq_dbg_dev;
+	struct octep_rdma_cq *cq;
+	u8 __iomem *slot;
+	u32 i, pi, ci, cbn, arm;
+	int len = 0;
+
+	if (!rdma_dev || !rdma_dev->cq_table)
+		return scnprintf(buffer, PAGE_SIZE, "(no cq-intr device)\n");
+
+	len += scnprintf(
+		buffer + len, PAGE_SIZE - len,
+		"dev max_cqs=%u cq_intr_enabled=%d nb_cq_irqs=%u isr_fires=%d comp_calls=%d zero_skips=%d\n",
+		rdma_dev->max_cqs, rdma_dev->cq_intr_enabled, rdma_dev->nb_cq_irqs,
+		atomic_read(&octep_cq_bh_fires), atomic_read(&octep_cq_bh_comps),
+		atomic_read(&octep_cq_bh_zero));
+
+	rcu_read_lock();
+	for (i = 0; i < rdma_dev->max_cqs; i++) {
+		cq = rcu_dereference(rdma_dev->cq_table[i]);
+		if (!cq || !cq->cb_notify_addr)
+			continue;
+
+		slot = (u8 __iomem *)cq->cb_notify_addr - OCTEP_RDMA_CQ_NOTIFY_OFFSET;
+		pi = readl((u32 __iomem *)slot);
+		ci = readl((u32 __iomem *)(slot + 4));
+		cbn = readb(cq->cb_notify_addr);
+		arm = cq->arm_byte_addr ? readb(cq->arm_byte_addr) : 0xff;
+
+		if (len >= PAGE_SIZE - 200) {
+			len += scnprintf(buffer + len, PAGE_SIZE - len, "...(truncated)\n");
+			break;
+		}
+
+		len += scnprintf(
+			buffer + len, PAGE_SIZE - len,
+			"cq[%u] pi=%u ci=%u u16pi=%u u16ci=%u pending=%d cbnotify=%u arm=%u sw_armed=%u notify=%u sig_pi=%u comp=%d ctx=%p ccalls=%u depth=%u qmask=0x%x\n",
+			cq->cqn, pi, ci, (u16)pi, (u16)ci, !octep_rdma_is_queue_empty(pi, ci), cbn,
+			arm, cq->armed, cq->notify, cq->last_signaled_pi,
+			cq->ibcq.comp_handler ? 1 : 0, cq->ibcq.cq_context, cq->dbg_comp_calls,
+			cq->depth, cq->qmask);
+	}
+	rcu_read_unlock();
+	return len;
+}
+
+static const struct kernel_param_ops cq_dump_ops = {
+	.get = cq_dump_get,
+};
+module_param_cb(cq_dump, &cq_dump_ops, NULL, 0444);
+MODULE_PARM_DESC(
+	cq_dump,
+	"Live per-CQ interrupt state (pi/ci/cbnotify/arm/sig_pi); read-only, no fast-path cost");
 
 static const char *octep_devid_to_str(struct octep_ep_dev *octep_dev)
 {
@@ -89,47 +183,131 @@ static irqreturn_t octep_rsvd_intr_handler(int irq, void *data)
 }
 
 /*
- * CQ Completion Interrupt Handler (Option B)
- * EP fires this after writing cb_notify_addr=1 to BAR4.
- * We check arm_byte to decide whether to wake the application.
+ * CQ completion bottom half.
+ * Deferred from the (thin) hardirq via schedule_work(). Scans registered CQs
+ * and, for each whose EP notify byte is set, clears the byte and (if the CQ is
+ * armed for NEXT_COMP with unconsumed CQEs) wakes the consumer via a one-shot
+ * comp_handler delivery. Shares the arm-state (cq->armed) and delivery policy
+ * with octep_cq_watchdog_fn so the interrupt path and the lost-edge watchdog
+ * never double-deliver. Running in process context keeps the BAR4 MMIO
+ * reads/writes and the comp_handler wakeup off the hardirq path.
  */
-static irqreturn_t octep_cq_intr_handler(int irq, void *data)
+static void octep_cq_work_fn(struct work_struct *work)
 {
-	struct octep_ep_dev *octep_dev = data;
-	struct octep_rdma_dev *rdma_dev;
+	struct octep_rdma_dev *rdma_dev = container_of(work, struct octep_rdma_dev, cq_work);
 	struct octep_rdma_cq *cq;
+	u8 __iomem *slot;
 	u8 notify_val;
-	u32 i;
+	u32 i, pi, ci;
 
-	rdma_dev = pci_get_drvdata(octep_dev->pdev);
-	if (!rdma_dev || !rdma_dev->cq_table)
-		return IRQ_HANDLED;
+	if (!rdma_dev->cq_table)
+		return;
 
+	/*
+	 * RCU read side keeps every cq we touch alive for the whole scan:
+	 * octep_rdma_destroy_cq() clears the slot with rcu_assign_pointer() and
+	 * synchronize_rcu()s before freeing, so a concurrent destroy can't free
+	 * a cq out from under this loop (comp_handler must not sleep here).
+	 */
+	rcu_read_lock();
 	/* Scan all CQs to find which one(s) triggered */
 	for (i = 0; i < rdma_dev->max_cqs; i++) {
-		cq = rdma_dev->cq_table[i];
+		cq = rcu_dereference(rdma_dev->cq_table[i]);
 		if (!cq || !cq->cb_notify_addr)
 			continue;
 
 		notify_val = readb(cq->cb_notify_addr);
-		if (!notify_val)
+		if (!notify_val) {
+			/*
+			 * BH ran but this CQ's cb_notify reads 0. Either it
+			 * wasn't the CQ that triggered, or the EP's cb_notify
+			 * store hasn't reached BAR4 memory yet (write-visibility
+			 * race). Counted for diagnostics.
+			 */
+			atomic_inc(&octep_cq_bh_zero);
 			continue;
+		}
 
-		/* Clear cb_notify so EP can set it again */
+		/*
+		 * Always clear cb_notify on a set byte so the EP can signal
+		 * the next completion, even if we decide below not to wake a
+		 * consumer for this edge.
+		 */
 		writeb(0, cq->cb_notify_addr);
 
 		/*
-		 * Do NOT write arm_byte here (no disarm).
-		 * arm_byte is managed exclusively by userspace poll_cq:
-		 * it writes arm_byte only after CQ is polled empty.
-		 * This prevents the storm caused by immediate re-arm
-		 * while CQEs are still un-consumed.
+		 * Deliver a completion event only when it is real and wanted -
+		 * identical policy to octep_cq_watchdog_fn so the interrupt
+		 * path and the watchdog can't disagree or double-deliver:
+		 *   - user completion context present (skip rdma_cm internal CQs
+		 *     whose ctx==NULL; firing on them corrupts the state machine)
+		 *   - host-side one-shot: armed for NEXT_COMP (cq->armed==2)
+		 *   - unconsumed CQEs actually exist (pi != ci)
+		 *
+		 * The EP never resets arm_byte, so it keeps firing an interrupt
+		 * on every completion while armed - those are harmless extra
+		 * interrupts, not extra events. The host-side one-shot below
+		 * collapses them into exactly one completion event per arm
+		 * cycle: comp_handler wakes the consumer, which drains all CQEs
+		 * and re-arms via req_notify_cq. A bare cb_notify with pi==ci
+		 * (EP init value, a neighbour CQ's edge, or a store-visibility
+		 * race) is dropped instead of waking ibv_get_cq_event() with
+		 * nothing to poll (which made the consumer read a stale ibv_wc).
 		 */
+		if (!cq->ibcq.cq_context)
+			continue;
+
+		if (cq->armed != OCTEP_RDMA_CQ_ARM_NEXT_COMP)
+			continue;
+
+		/* Read pi/ci from the BAR4 slot (same layout as the watchdog) */
+		slot = (u8 __iomem *)cq->cb_notify_addr - OCTEP_RDMA_CQ_NOTIFY_OFFSET;
+		pi = readl((u32 __iomem *)slot);
+		ci = readl((u32 __iomem *)(slot + 4));
+		if (pi == ci)
+			continue;
+
+		/*
+		 * One-shot: atomically consume the arm so the BH and the
+		 * watchdog can never both deliver the same arm cycle. Only the
+		 * winner clears cq->armed and fires comp_handler; the consumer
+		 * re-arms (req_notify_cq) to get the next event.
+		 */
+		if (cmpxchg(&cq->armed, OCTEP_RDMA_CQ_ARM_NEXT_COMP, OCTEP_RDMA_CQ_DISARMED) !=
+		    OCTEP_RDMA_CQ_ARM_NEXT_COMP)
+			continue;
 
 		/* Signal IB core - wake ibv_get_cq_event() / completion handler */
-		if (cq->ibcq.comp_handler)
+		if (cq->ibcq.comp_handler) {
+			atomic_inc(&octep_cq_bh_comps);
+			cq->dbg_comp_calls++;
 			cq->ibcq.comp_handler(&cq->ibcq, cq->ibcq.cq_context);
+		}
 	}
+	rcu_read_unlock();
+}
+
+/*
+ * CQ Completion Interrupt Handler - thin hardirq (pure deferral).
+ * EP fires this after writing cb_notify_addr=1 to BAR4. data is the
+ * struct octep_rdma_dev registered at request_irq() time, so no
+ * pci_get_drvdata() lookup is needed here.
+ *
+ * The hardirq does nothing but count the raw interrupt and kick the
+ * bottom half (octep_cq_work_fn), which does the BAR4 scan + comp_handler
+ * wakeup in process context. Note schedule_work() coalesces: multiple
+ * interrupts arriving while the BH is queued/running collapse into fewer
+ * BH passes (isr_fires can exceed comp_calls).
+ */
+static irqreturn_t octep_cq_intr_handler(int irq, void *data)
+{
+	struct octep_rdma_dev *rdma_dev = data;
+
+	if (!rdma_dev)
+		return IRQ_HANDLED;
+
+	atomic_inc(&octep_cq_bh_fires);
+	schedule_work(&rdma_dev->cq_work);
 
 	return IRQ_HANDLED;
 }
@@ -257,7 +435,7 @@ static void octep_free_non_ioq_irqs(struct octep_ep_dev *octep_dev)
  * Register CQ completion interrupt handlers on the "custom" MSI-X vectors.
  * These are vectors at indices [num_non_ioq_msix .. num_non_ioq_msix + num_custom_irqs - 1].
  */
-int octep_request_cq_irqs(struct octep_ep_dev *octep_dev)
+int octep_request_cq_irqs(struct octep_ep_dev *octep_dev, struct octep_rdma_dev *rdma_dev)
 {
 	int num_non_ioq_msix = CFG_GET_NON_IOQ_MSIX(octep_dev->conf);
 	int num_cq_irqs = octep_dev->num_custom_irqs;
@@ -271,6 +449,12 @@ int octep_request_cq_irqs(struct octep_ep_dev *octep_dev)
 		return 0;
 	}
 
+	/* Bottom half must be ready before any vector can fire. */
+	INIT_WORK(&rdma_dev->cq_work, octep_cq_work_fn);
+
+	/* Expose this device to the read-only cq_dump debug parameter. */
+	octep_cq_dbg_dev = rdma_dev;
+
 	for (i = 0; i < num_cq_irqs; i++) {
 		msix_entry = &octep_dev->msix_entries[num_non_ioq_msix + i];
 
@@ -278,8 +462,9 @@ int octep_request_cq_irqs(struct octep_ep_dev *octep_dev)
 			 "[CQ_INTR] Registering CQ interrupt %d: vector=%d\n", i,
 			 msix_entry->vector);
 
+		/* Pass rdma_dev as dev_id so the ISR avoids a pci_get_drvdata() lookup. */
 		ret = request_irq(msix_entry->vector, octep_cq_intr_handler, 0, "octep_rdma_cq",
-				  octep_dev);
+				  rdma_dev);
 		if (ret) {
 			dev_err(&octep_dev->pdev->dev,
 				"[CQ_INTR] request_irq failed for CQ vec %d; err=%d\n", i, ret);
@@ -295,12 +480,16 @@ cq_irq_err:
 	while (i) {
 		--i;
 		msix_entry = &octep_dev->msix_entries[num_non_ioq_msix + i];
-		free_irq(msix_entry->vector, octep_dev);
+		free_irq(msix_entry->vector, rdma_dev);
 	}
+	if (octep_cq_dbg_dev == rdma_dev)
+		octep_cq_dbg_dev = NULL;
+	/* No vector can fire now; flush any bottom half already queued. */
+	cancel_work_sync(&rdma_dev->cq_work);
 	return ret;
 }
 
-void octep_free_cq_irqs(struct octep_ep_dev *octep_dev)
+void octep_free_cq_irqs(struct octep_ep_dev *octep_dev, struct octep_rdma_dev *rdma_dev)
 {
 	int num_non_ioq_msix = CFG_GET_NON_IOQ_MSIX(octep_dev->conf);
 	int num_cq_irqs = octep_dev->num_custom_irqs;
@@ -312,8 +501,15 @@ void octep_free_cq_irqs(struct octep_ep_dev *octep_dev)
 
 	for (i = 0; i < num_cq_irqs; i++) {
 		msix_entry = &octep_dev->msix_entries[num_non_ioq_msix + i];
-		free_irq(msix_entry->vector, octep_dev);
+		free_irq(msix_entry->vector, rdma_dev);
 	}
+
+	if (octep_cq_dbg_dev == rdma_dev)
+		octep_cq_dbg_dev = NULL;
+
+	/* No vector can fire now; flush any bottom half still in flight. */
+	cancel_work_sync(&rdma_dev->cq_work);
+
 	dev_info(&octep_dev->pdev->dev, "[CQ_INTR] Freed %d CQ interrupt vectors\n", num_cq_irqs);
 }
 

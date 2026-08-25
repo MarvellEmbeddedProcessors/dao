@@ -259,10 +259,12 @@ static inline void OCTEP_PCI_WIN_WRITE(struct octep_ep_dev *octep_dev, u64 addr,
 	dev_dbg(&octep_dev->pdev->dev, "%s: reg: 0x%016llx val: 0x%016llx\n", __func__, addr, val);
 }
 
+struct octep_rdma_dev;
+
 int octep_setup_msix(struct octep_ep_dev *octep_dev);
 void octep_cleanup_msix(struct octep_ep_dev *octep_dev);
-int octep_request_cq_irqs(struct octep_ep_dev *octep_dev);
-void octep_free_cq_irqs(struct octep_ep_dev *octep_dev);
+int octep_request_cq_irqs(struct octep_ep_dev *octep_dev, struct octep_rdma_dev *rdma_dev);
+void octep_free_cq_irqs(struct octep_ep_dev *octep_dev, struct octep_rdma_dev *rdma_dev);
 void octep_device_setup_cnxk_pf(struct octep_ep_dev *octep_dev);
 void octep_device_setup_cnxk_vf(struct octep_ep_dev *octep_dev);
 int octep_rdma_probe_dev(struct octep_ep_dev *octep_dev);

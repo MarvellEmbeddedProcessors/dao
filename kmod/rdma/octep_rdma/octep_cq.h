@@ -48,6 +48,22 @@ struct octep_rdma_cq {
 	volatile u8 __iomem
 		*arm_byte_addr; /* BAR4 slot+12 ((u32*)(pi+6)): host writes to arm (req_notify) */
 
+	/*
+	 * Producer index (pi) watermark we have already delivered a completion
+	 * event up to. Deliver iff pi != last_signaled_pi, then advance it.
+	 * Dedups ISR vs arm-time delivery so each completion is signalled
+	 * exactly once. Compared against pi (NOT ci): ci advances only when
+	 * userspace polls, which happens after we signal - a ci-based check
+	 * would re-fire an already-delivered completion.
+	 */
+	u32 last_signaled_pi;
+
+	/* Debug: per-CQ comp_handler invocation count (read via cq_dump).
+	 * Lets us confirm the stuck CQ's handler is actually the one firing,
+	 * vs. all the interrupt hits landing on a different (drained) CQ.
+	 */
+	u32 dbg_comp_calls;
+
 	/* Second cache line onwards: Cold data - rarely accessed after init */
 	union {
 		struct octep_rdma_kcq_info kern_cq;

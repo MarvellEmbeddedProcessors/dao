@@ -553,7 +553,7 @@ octep_rdma_dev_release(struct octep_rdma_dev *rdma_dev)
 		dev_info(&rdma_dev->pdev->dev, "Unregistering IB device...\n");
 		/* Free CQ interrupts before IB device removal */
 		if (rdma_dev->cq_intr_enabled && rdma_dev->octep_dev)
-			octep_free_cq_irqs(rdma_dev->octep_dev);
+			octep_free_cq_irqs(rdma_dev->octep_dev, rdma_dev);
 		octep_rdma_ib_device_remove(rdma_dev);
 	}
 
@@ -787,8 +787,8 @@ octep_rdma_setup_task(struct work_struct *work)
 	/*
 	 * cq_table must span the ENTIRE CQ id space (attr.max_cq), not just
 	 * nb_irqs*32. CQ ids are allocated from [0, attr.max_cq); any CQ whose
-	 * cqn falls outside cq_table is invisible to the ISR
-	 * (octep_cq_intr_handler only scans cq_table[0..max_cqs-1]) so its
+	 * cqn falls outside cq_table is invisible to the CQ bottom half
+	 * (octep_cq_work_fn only scans cq_table[0..max_cqs-1]) so its
 	 * completions are never delivered and a cq-intr consumer hangs forever.
 	 * MSI-X vectors are shared across CQs via (cqn % nb_irqs), so supporting
 	 * more CQs than vectors is the intended model.
@@ -799,7 +799,7 @@ octep_rdma_setup_task(struct work_struct *work)
 	if (!rdma_dev->cq_table) {
 		rdma_dev->cq_intr_enabled = false;
 	} else {
-		ret = octep_request_cq_irqs(octep_dev);
+		ret = octep_request_cq_irqs(octep_dev, rdma_dev);
 		if (ret) {
 			dev_warn(&pdev->dev, "[CQ_INTR] Failed to register CQ IRQs, disabling\n");
 			rdma_dev->cq_intr_enabled = false;

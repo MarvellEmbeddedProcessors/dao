@@ -130,6 +130,7 @@ struct octep_rdma_dev {
 	u8 nb_cq_irqs; /* Number of CQ interrupt vectors available */
 	struct octep_rdma_cq __rcu **cq_table; /* CQ lookup table indexed by cqn; RCU-protected */
 	u32 max_cqs; /* Max CQ entries */
+	struct work_struct cq_work; /* Bottom half: scans cq_table + wakes consumers */
 
 	/* QP lookup table for poll_cq: resolves qp_id -> ib_qp* for
 	 * synthesized CQEs that carry only qp_id and not the kernel ibqp pointer.
