@@ -790,7 +790,7 @@ int octep_rdma_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 
 	/* If CQ interrupt mode is enabled, write arm_byte to BAR4 */
 	if (rdma_dev->cq_intr_enabled && cq->arm_byte_addr) {
-		u8 arm_val;
+		u8 arm_val, old;
 
 		if (flags & IB_CQ_NEXT_COMP)
 			arm_val = OCTEP_RDMA_CQ_ARM_NEXT_COMP;
@@ -799,9 +799,40 @@ int octep_rdma_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 		else
 			arm_val = OCTEP_RDMA_CQ_DISARMED;
 
-		/* Write arm_byte to BAR4 - EP will see this */
+		/*
+		 * Set the host-side arm state first, then enable the EP.
+		 * cq->armed is updated with an atomic xchg so the NEXT_COMP arm
+		 * transition is observed exactly once and paired with the
+		 * armed_nc counter, even against a concurrent one-shot consume
+		 * (cmpxchg) in the BH or watchdog. armed_nc must reflect the
+		 * true number of NEXT_COMP-armed CQs, or the watchdog could
+		 * self-stop while a CQ is still armed and miss a lost-edge
+		 * recovery.
+		 */
+		old = xchg(&cq->armed, arm_val);
+		if (arm_val == OCTEP_RDMA_CQ_ARM_NEXT_COMP) {
+			if (old != OCTEP_RDMA_CQ_ARM_NEXT_COMP)
+				atomic_inc(&rdma_dev->armed_nc);
+			/*
+			 * (Re)start the watchdog for this arm. Done after the
+			 * inc so the watchdog can never observe this CQ armed
+			 * yet remain stopped: schedule_delayed_work() re-queues
+			 * even a work that just self-stopped.
+			 */
+			octep_rdma_cq_watchdog_kick(rdma_dev);
+		} else if (old == OCTEP_RDMA_CQ_ARM_NEXT_COMP) {
+			atomic_dec(&rdma_dev->armed_nc);
+		}
+
+		/*
+		 * Enable the EP last. The EP fires an MSI-X only while arm_byte
+		 * is set, and the BH/watchdog clear it on delivery (one-shot).
+		 * Writing it after cq->armed guarantees any interrupt the EP
+		 * raises for this arm sees cq->armed already set, so the edge is
+		 * delivered promptly instead of being dropped until the ~1ms
+		 * watchdog scan.
+		 */
 		writeb(arm_val, cq->arm_byte_addr);
-		cq->armed = arm_val;
 	}
 
 	return ret;
@@ -838,8 +869,23 @@ octep_rdma_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata)
 	 * so a later reuse of this cqn never leaves a stale/dangling pointer
 	 * that the ISR could dereference.
 	 */
-	if (rdma_dev->cq_intr_enabled && cq->cqn < rdma_dev->max_cqs)
-		rdma_dev->cq_table[cq->cqn] = NULL;
+	if (rdma_dev->cq_intr_enabled && cq->cqn < rdma_dev->max_cqs) {
+		rcu_assign_pointer(rdma_dev->cq_table[cq->cqn], NULL);
+		/*
+		 * If this CQ was still armed for NEXT_COMP, drop it from the
+		 * arm count so the watchdog can self-stop once the last armed
+		 * CQ is gone. xchg makes the transition exclusive against a
+		 * concurrent one-shot consume so armed_nc is decremented once.
+		 */
+		if (xchg(&cq->armed, OCTEP_RDMA_CQ_DISARMED) == OCTEP_RDMA_CQ_ARM_NEXT_COMP)
+			atomic_dec(&rdma_dev->armed_nc);
+		/*
+		 * Wait for any in-flight BH / watchdog scan that may have loaded
+		 * this cq pointer to leave its RCU read section before we free
+		 * the CQ below, closing the use-after-free window on the table.
+		 */
+		synchronize_rcu();
+	}
 
 	if (rdma_is_kernel_res(&cq->ibcq.res)) {
 		/* Remove from polling list before freeing */

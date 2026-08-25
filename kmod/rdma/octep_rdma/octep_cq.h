@@ -64,6 +64,14 @@ struct octep_rdma_cq {
 	 */
 	u32 dbg_comp_calls;
 
+	/* Watchdog state: fire comp_handler once per stall, then wait for
+	 * ci to advance (app consumed) before firing again. Prevents
+	 * GFP_ATOMIC storms on CQs the app isn't actively polling.
+	 */
+	u32 wd_last_pi;  /* pi at last watchdog fire */
+	u32 wd_last_ci;  /* ci at last watchdog fire */
+	u32 wd_fires;    /* diagnostic: total watchdog deliveries */
+
 	/* Second cache line onwards: Cold data - rarely accessed after init */
 	union {
 		struct octep_rdma_kcq_info kern_cq;

@@ -784,6 +784,7 @@ octep_rdma_setup_task(struct work_struct *work)
 	/* CQ interrupt notification setup (always enabled when vectors are available). */
 	rdma_dev->cq_intr_enabled = true;
 	rdma_dev->nb_cq_irqs = caps_rgn->nb_irqs;
+	atomic_set(&rdma_dev->armed_nc, 0);
 	/*
 	 * cq_table must span the ENTIRE CQ id space (attr.max_cq), not just
 	 * nb_irqs*32. CQ ids are allocated from [0, attr.max_cq); any CQ whose

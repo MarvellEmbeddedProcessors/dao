@@ -131,6 +131,8 @@ struct octep_rdma_dev {
 	struct octep_rdma_cq __rcu **cq_table; /* CQ lookup table indexed by cqn; RCU-protected */
 	u32 max_cqs; /* Max CQ entries */
 	struct work_struct cq_work; /* Bottom half: scans cq_table + wakes consumers */
+	struct delayed_work cq_watchdog; /* Periodic scan: recover lost MSI-X edges */
+	atomic_t armed_nc; /* # of CQs currently armed for NEXT_COMP; gates the watchdog */
 
 	/* QP lookup table for poll_cq: resolves qp_id -> ib_qp* for
 	 * synthesized CQEs that carry only qp_id and not the kernel ibqp pointer.
@@ -142,6 +144,12 @@ struct octep_rdma_dev {
 
 int octep_rdma_ib_device_add(struct octep_rdma_dev *rdma_dev);
 void octep_rdma_ib_device_remove(struct octep_rdma_dev *rdma_dev);
+
+/* (Re)start the CQ watchdog; safe to call repeatedly (idempotent while queued).
+ * Called when a CQ is armed for NEXT_COMP so the watchdog runs only while there
+ * is at least one such CQ to service.
+ */
+void octep_rdma_cq_watchdog_kick(struct octep_rdma_dev *rdma_dev);
 
 static inline bool
 octep_rdma_device_ready(struct octep_rdma_dev *rdma_dev)

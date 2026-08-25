@@ -91,11 +91,11 @@ static int cq_dump_get(char *buffer, const struct kernel_param *kp)
 
 		len += scnprintf(
 			buffer + len, PAGE_SIZE - len,
-			"cq[%u] pi=%u ci=%u u16pi=%u u16ci=%u pending=%d cbnotify=%u arm=%u sw_armed=%u notify=%u sig_pi=%u comp=%d ctx=%p ccalls=%u depth=%u qmask=0x%x\n",
+			"cq[%u] pi=%u ci=%u u16pi=%u u16ci=%u pending=%d cbnotify=%u arm=%u sw_armed=%u notify=%u sig_pi=%u comp=%d ctx=%p ccalls=%u wd=%u depth=%u qmask=0x%x\n",
 			cq->cqn, pi, ci, (u16)pi, (u16)ci, !octep_rdma_is_queue_empty(pi, ci), cbn,
 			arm, cq->armed, cq->notify, cq->last_signaled_pi,
 			cq->ibcq.comp_handler ? 1 : 0, cq->ibcq.cq_context, cq->dbg_comp_calls,
-			cq->depth, cq->qmask);
+			cq->wd_fires, cq->depth, cq->qmask);
 	}
 	rcu_read_unlock();
 	return len;
@@ -182,6 +182,137 @@ static irqreturn_t octep_rsvd_intr_handler(int irq, void *data)
 	return octep_dev->hw_ops.rsvd_intr_handler(octep_dev);
 }
 
+/* Watchdog interval: 1ms — fast enough to recover lost MSI-X edges
+ * without noticeable latency; slow enough to avoid meaningful CPU cost.
+ */
+#define CQ_WATCHDOG_INTERVAL_MS 1
+
+/*
+ * CQ watchdog — periodic safety net for lost MSI-X edges.
+ *
+ * The firmware fires a one-shot MSI-X when a new CQE is produced. If that
+ * edge is lost (PCIe/APIC coalescing, timing), the host never wakes up.
+ * This timer scans all armed CQs every ~1ms: if pi != ci (unconsumed
+ * completions exist), call comp_handler directly — no interrupt needed.
+ *
+ * This replaces the firmware-side bounded-retry watchdog with a host-side
+ * mechanism that cannot itself be lost (it's a local function call).
+ */
+static void octep_cq_watchdog_fn(struct work_struct *work)
+{
+	struct octep_rdma_dev *rdma_dev =
+		container_of(to_delayed_work(work), struct octep_rdma_dev, cq_watchdog);
+	struct octep_rdma_cq *cq;
+	u8 __iomem *slot;
+	u32 i, pi, ci;
+
+	if (!rdma_dev->cq_table)
+		goto resched;
+
+	/*
+	 * RCU read side keeps every cq we touch alive for the whole scan:
+	 * octep_rdma_destroy_cq() clears the slot with rcu_assign_pointer() and
+	 * synchronize_rcu()s before freeing, so a concurrent destroy can't free
+	 * a cq out from under this loop (comp_handler must not sleep here).
+	 */
+	rcu_read_lock();
+	for (i = 0; i < rdma_dev->max_cqs; i++) {
+		cq = rcu_dereference(rdma_dev->cq_table[i]);
+		if (!cq || !cq->cb_notify_addr)
+			continue;
+
+		/* Skip CQs without a user completion handler context.
+		 * rdma_cm internal CQs have ctx=NULL and use solicited-only
+		 * arming. Firing comp_handler on them delivers a spurious
+		 * event that corrupts the rdma_cm state machine.
+		 */
+		if (!cq->ibcq.cq_context)
+			continue;
+
+		/* Host-side one-shot: only deliver while armed for NEXT_COMP.
+		 * Solicited-only (cq->armed==1) is rdma_cm internal — the
+		 * watchdog cannot verify the solicited bit in the CQE, so
+		 * firing would be a spurious wakeup.
+		 */
+		if (cq->armed != OCTEP_RDMA_CQ_ARM_NEXT_COMP)
+			continue;
+
+		/* Read pi/ci from the BAR4 slot */
+		slot = (u8 __iomem *)cq->cb_notify_addr - OCTEP_RDMA_CQ_NOTIFY_OFFSET;
+		pi = readl((u32 __iomem *)slot);
+		ci = readl((u32 __iomem *)(slot + 4));
+
+		if (pi == ci)
+			continue;
+
+		/*
+		 * One-shot consume shared with the BH: whichever path observes
+		 * the unconsumed completions first (the interrupt BH, or this
+		 * watchdog on a lost MSI-X edge) atomically clears cq->armed,
+		 * disarms the EP (arm_byte) and delivers exactly one event. The
+		 * consumer re-arms to get the next one, so there is no
+		 * GFP_ATOMIC storm on an un-drained CQ.
+		 */
+		if (cmpxchg(&cq->armed, OCTEP_RDMA_CQ_ARM_NEXT_COMP, OCTEP_RDMA_CQ_DISARMED) !=
+		    OCTEP_RDMA_CQ_ARM_NEXT_COMP)
+			continue;
+
+		/* Won the arm: this CQ left NEXT_COMP, drop it from the count. */
+		atomic_dec(&rdma_dev->armed_nc);
+
+		/*
+		 * Disarm the EP before waking the consumer so it stops firing
+		 * until the next req_notify_cq. Writing arm_byte=0 here (not
+		 * after comp_handler) means a consumer that re-arms from inside
+		 * the wakeup can't be clobbered: its arm_byte=2 lands after ours.
+		 */
+		if (cq->arm_byte_addr)
+			writeb(OCTEP_RDMA_CQ_DISARMED, cq->arm_byte_addr);
+
+		if (cq->ibcq.comp_handler) {
+			cq->dbg_comp_calls++;
+			cq->wd_fires++;
+			atomic_inc(&octep_cq_bh_comps);
+			cq->ibcq.comp_handler(&cq->ibcq, cq->ibcq.cq_context);
+		}
+	}
+	rcu_read_unlock();
+
+resched:
+	/*
+	 * Self-stop when no CQ is armed for NEXT_COMP. req_notify_cq restarts
+	 * the watchdog (octep_rdma_cq_watchdog_kick) on the next arm, so it runs
+	 * only while there is work to service. schedule_delayed_work() there is
+	 * idempotent, making the restart race-free against this self-stop.
+	 *
+	 * Also honor cq_intr_enabled: octep_free_cq_irqs() clears it (with a
+	 * barrier) before cancel_delayed_work_sync(), so once teardown starts
+	 * this instance will not re-arm onto a device that is going away.
+	 */
+	if (READ_ONCE(rdma_dev->cq_intr_enabled) && atomic_read(&rdma_dev->armed_nc) > 0)
+		schedule_delayed_work(&rdma_dev->cq_watchdog,
+				      msecs_to_jiffies(CQ_WATCHDOG_INTERVAL_MS));
+}
+
+/*
+ * (Re)start the CQ watchdog. Called from req_notify_cq when a CQ is armed for
+ * NEXT_COMP. schedule_delayed_work() is a no-op if the work is already queued,
+ * and will re-queue a work that has just self-stopped, so this closes the race
+ * with the self-stop check in octep_cq_watchdog_fn: after any NEXT_COMP arm the
+ * watchdog is guaranteed to be (re)scheduled.
+ *
+ * The cq_intr_enabled check prevents a req_notify_cq racing with teardown from
+ * re-arming the watchdog after octep_free_cq_irqs() has cancelled it: teardown
+ * clears the flag (with a barrier) before the cancel, so a kick that observes
+ * the cleared flag will not schedule.
+ */
+void octep_rdma_cq_watchdog_kick(struct octep_rdma_dev *rdma_dev)
+{
+	if (READ_ONCE(rdma_dev->cq_intr_enabled))
+		schedule_delayed_work(&rdma_dev->cq_watchdog,
+				      msecs_to_jiffies(CQ_WATCHDOG_INTERVAL_MS));
+}
+
 /*
  * CQ completion bottom half.
  * Deferred from the (thin) hardirq via schedule_work(). Scans registered CQs
@@ -244,15 +375,15 @@ static void octep_cq_work_fn(struct work_struct *work)
 		 *   - host-side one-shot: armed for NEXT_COMP (cq->armed==2)
 		 *   - unconsumed CQEs actually exist (pi != ci)
 		 *
-		 * The EP never resets arm_byte, so it keeps firing an interrupt
-		 * on every completion while armed - those are harmless extra
-		 * interrupts, not extra events. The host-side one-shot below
-		 * collapses them into exactly one completion event per arm
-		 * cycle: comp_handler wakes the consumer, which drains all CQEs
-		 * and re-arms via req_notify_cq. A bare cb_notify with pi==ci
-		 * (EP init value, a neighbour CQ's edge, or a store-visibility
-		 * race) is dropped instead of waking ibv_get_cq_event() with
-		 * nothing to poll (which made the consumer read a stale ibv_wc).
+		 * On the winning consume the host clears both cq->armed and the
+		 * EP arm_byte (below), so the EP stops firing until the consumer
+		 * re-arms via req_notify_cq - exactly one completion event per
+		 * arm cycle. Any interrupt still in flight from before the
+		 * disarm is dropped here: cq->armed already consumed, or a set
+		 * cb_notify with pi==ci (EP init value, a neighbour CQ's edge,
+		 * or a store-visibility race) never wakes ibv_get_cq_event()
+		 * with nothing to poll (which made the consumer read a stale
+		 * ibv_wc).
 		 */
 		if (!cq->ibcq.cq_context)
 			continue;
@@ -270,12 +401,25 @@ static void octep_cq_work_fn(struct work_struct *work)
 		/*
 		 * One-shot: atomically consume the arm so the BH and the
 		 * watchdog can never both deliver the same arm cycle. Only the
-		 * winner clears cq->armed and fires comp_handler; the consumer
-		 * re-arms (req_notify_cq) to get the next event.
+		 * winner clears cq->armed, disarms the EP and fires
+		 * comp_handler; the consumer re-arms (req_notify_cq) to get the
+		 * next event.
 		 */
 		if (cmpxchg(&cq->armed, OCTEP_RDMA_CQ_ARM_NEXT_COMP, OCTEP_RDMA_CQ_DISARMED) !=
 		    OCTEP_RDMA_CQ_ARM_NEXT_COMP)
 			continue;
+
+		/* Won the arm: this CQ left NEXT_COMP, drop it from the count. */
+		atomic_dec(&rdma_dev->armed_nc);
+
+		/*
+		 * Disarm the EP before waking the consumer so it stops firing
+		 * until the next req_notify_cq. Writing arm_byte=0 here (not
+		 * after comp_handler) means a consumer that re-arms from inside
+		 * the wakeup can't be clobbered: its arm_byte=2 lands after ours.
+		 */
+		if (cq->arm_byte_addr)
+			writeb(OCTEP_RDMA_CQ_DISARMED, cq->arm_byte_addr);
 
 		/* Signal IB core - wake ibv_get_cq_event() / completion handler */
 		if (cq->ibcq.comp_handler) {
@@ -449,8 +593,13 @@ int octep_request_cq_irqs(struct octep_ep_dev *octep_dev, struct octep_rdma_dev 
 		return 0;
 	}
 
-	/* Bottom half must be ready before any vector can fire. */
+	/* Bottom half must be ready before any vector can fire. The watchdog is
+	 * left un-scheduled here; req_notify_cq starts it (via
+	 * octep_rdma_cq_watchdog_kick) only when a CQ is armed for NEXT_COMP,
+	 * and it self-stops once the last such CQ disarms.
+	 */
 	INIT_WORK(&rdma_dev->cq_work, octep_cq_work_fn);
+	INIT_DELAYED_WORK(&rdma_dev->cq_watchdog, octep_cq_watchdog_fn);
 
 	/* Expose this device to the read-only cq_dump debug parameter. */
 	octep_cq_dbg_dev = rdma_dev;
@@ -484,7 +633,11 @@ cq_irq_err:
 	}
 	if (octep_cq_dbg_dev == rdma_dev)
 		octep_cq_dbg_dev = NULL;
+	/* Stop any re-arm (watchdog resched / req_notify kick) before cancel. */
+	WRITE_ONCE(rdma_dev->cq_intr_enabled, false);
+	smp_wmb();
 	/* No vector can fire now; flush any bottom half already queued. */
+	cancel_delayed_work_sync(&rdma_dev->cq_watchdog);
 	cancel_work_sync(&rdma_dev->cq_work);
 	return ret;
 }
@@ -507,7 +660,18 @@ void octep_free_cq_irqs(struct octep_ep_dev *octep_dev, struct octep_rdma_dev *r
 	if (octep_cq_dbg_dev == rdma_dev)
 		octep_cq_dbg_dev = NULL;
 
-	/* No vector can fire now; flush any bottom half still in flight. */
+	/*
+	 * Stop the watchdog from re-arming before we cancel it. Both the
+	 * watchdog resched and req_notify_cq's kick honor cq_intr_enabled, so
+	 * clearing it (ordered before the cancel by smp_wmb) makes the cancel
+	 * final even though the IB device is still registered at this point and
+	 * a verbs req_notify_cq could otherwise kick the watchdog concurrently.
+	 */
+	WRITE_ONCE(rdma_dev->cq_intr_enabled, false);
+	smp_wmb();
+
+	/* No vector can fire now; flush watchdog + bottom half still in flight. */
+	cancel_delayed_work_sync(&rdma_dev->cq_watchdog);
 	cancel_work_sync(&rdma_dev->cq_work);
 
 	dev_info(&octep_dev->pdev->dev, "[CQ_INTR] Freed %d CQ interrupt vectors\n", num_cq_irqs);
