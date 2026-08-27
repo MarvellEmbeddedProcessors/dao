@@ -666,7 +666,7 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 		}
 	}
 
-	if (!wqe->dma_length || wqe->dma_length > RDMA_PORT_MAX_MSG_SZ) {
+	if (!wqe->dma_length || wqe->dma_length > port_attr.max_msg_sz) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_TX_QP_PREPROC_DEQ_PKTS_DMA_LEN_INV);
 		if (packet_type != DAO_PTS_RDMA_D2M_COMPL) {
@@ -747,7 +747,8 @@ dao_rdma_get_pvt_len(void)
  * @brief: This function initializes the RDMA library.
  */
 int
-dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport)
+dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport, uint32_t max_qp,
+		  uint32_t max_msg_sz)
 {
 	int ret = 0;
 	/* Initialize the timer subsystem */
@@ -773,6 +774,27 @@ dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport)
 	dcqcn_global_disable_set(disable_cc);
 	if (disable_cc)
 		dao_info("RDMA DCQCN globally disabled via init param");
+
+	/* Override global device cap and port attr if application passes non-zero values */
+	if (max_qp) {
+		if (max_qp > (uint32_t)RDMA_MAX_QP) {
+			dao_warn("Requested max_qp %u exceeds limit %u, capping", max_qp,
+				 (uint32_t)RDMA_MAX_QP);
+			max_qp = (uint32_t)RDMA_MAX_QP;
+		}
+		dev_cap.max_qp = max_qp;
+		dao_info("RDMA max_qp overridden to %u", max_qp);
+	}
+
+	if (max_msg_sz) {
+		if (max_msg_sz > (uint32_t)RDMA_PORT_MAX_MSG_SZ) {
+			dao_warn("Requested max_msg_sz 0x%x exceeds limit 0x%x, capping",
+				 max_msg_sz, (uint32_t)RDMA_PORT_MAX_MSG_SZ);
+			max_msg_sz = (uint32_t)RDMA_PORT_MAX_MSG_SZ;
+		}
+		port_attr.max_msg_sz = max_msg_sz;
+		dao_info("RDMA max_msg_sz overridden to 0x%x", max_msg_sz);
+	}
 
 	return ret;
 }

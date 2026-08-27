@@ -28,6 +28,8 @@
 #define CMD_LINE_OPT_DISABLE_CC         "disable-cc"
 #define CMD_LINE_OPT_ENABLE_TERMINATION "enable-termination"
 #define CMD_LINE_OPT_ENABLE_PFC         "enable-pfc"
+#define CMD_LINE_OPT_MAX_QP             "max-qp"
+#define CMD_LINE_OPT_MAX_MSG_SZ         "max-msg-sz"
 
 static const char short_options[] = "p:" /* portmask */
 				    "P"  /* promiscuous */
@@ -54,6 +56,8 @@ enum {
 	CMD_LINE_OPT_PARSE_DISABLE_CC,
 	CMD_LINE_OPT_PARSE_ENABLE_TERMINATION,
 	CMD_LINE_OPT_PARSE_ENABLE_PFC,
+	CMD_LINE_OPT_PARSE_MAX_QP,
+	CMD_LINE_OPT_PARSE_MAX_MSG_SZ,
 };
 
 enum fld_type {
@@ -77,6 +81,8 @@ static const struct option lgopts[] = {
 	{CMD_LINE_OPT_DISABLE_CC, 0, 0, CMD_LINE_OPT_PARSE_DISABLE_CC},
 	{CMD_LINE_OPT_ENABLE_TERMINATION, 0, 0, CMD_LINE_OPT_PARSE_ENABLE_TERMINATION},
 	{CMD_LINE_OPT_ENABLE_PFC, 1, 0, CMD_LINE_OPT_PARSE_ENABLE_PFC},
+	{CMD_LINE_OPT_MAX_QP, 1, 0, CMD_LINE_OPT_PARSE_MAX_QP},
+	{CMD_LINE_OPT_MAX_MSG_SZ, 1, 0, CMD_LINE_OPT_PARSE_MAX_MSG_SZ},
 	{NULL, 0, 0, 0}};
 
 /* display usage */
@@ -108,7 +114,9 @@ rdma_print_usage(const char *prgname)
 		"  --dma-nb-desc N   : DMA vchan ring descriptors (default 32768)\n\n"
 		"  --disable-cc      : Disable RDMA congestion control (ECN/CNP)\n\n"
 		"  --enable-termination : Enable termination mode\n\n"
-		"  --enable-pfc \"class <N>,pause_time <T>\" : Enable PFC (class 0-7, pause_time 1-65535)\n\n",
+		"  --enable-pfc \"class <N>,pause_time <T>\" : Enable PFC (class 0-7, pause_time 1-65535)\n\n"
+		"  --max-qp N       : Max number of QPs supported (default: library limit)\n\n"
+		"  --max-msg-sz N   : Max message size in bytes (default: library limit)\n\n",
 		prgname);
 }
 
@@ -289,6 +297,8 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 	cfg_prm->disable_cc = false;
 	cfg_prm->termination_enabled = false;
 	cfg_prm->pfc_tc = -1;
+	cfg_prm->max_qp = 0;     /* 0 = use library default */
+	cfg_prm->max_msg_sz = 0; /* 0 = use library default */
 	cfg_prm->pfc_pause_time = 0xFFFF;
 	while ((opt = getopt_long(argc, argvopt, short_options, lgopts, &option_index)) != EOF) {
 		switch (opt) {
@@ -450,6 +460,31 @@ rdma_parse_args(int argc, char **argv, struct rdma_main_cfg_data *rdma_main_cfg)
 			cfg_prm->pfc_pause_time = (uint16_t)pt;
 			dao_info("PFC enabled: class %d, pause_time %u", cfg_prm->pfc_tc,
 				 cfg_prm->pfc_pause_time);
+			break;
+		}
+		case CMD_LINE_OPT_PARSE_MAX_QP: {
+			uint32_t val = parse_u32_decimal(optarg);
+
+			if (!val) {
+				dao_err("invalid max-qp value");
+				rdma_print_usage(prgname);
+				return -1;
+			}
+			cfg_prm->max_qp = val;
+			dao_info("Max QP set to %u", cfg_prm->max_qp);
+			break;
+		}
+		case CMD_LINE_OPT_PARSE_MAX_MSG_SZ: {
+			uint32_t val = parse_u32_decimal(optarg);
+
+			if (!val) {
+				dao_err("invalid max-msg-sz value");
+				rdma_print_usage(prgname);
+				return -1;
+			}
+			cfg_prm->max_msg_sz = val;
+			dao_info("Max message size set to 0x%x (%u bytes)", cfg_prm->max_msg_sz,
+				 cfg_prm->max_msg_sz);
 			break;
 		}
 		default:

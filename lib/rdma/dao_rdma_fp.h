@@ -93,8 +93,12 @@ int dao_rdma_rx_process(struct rte_mbuf **mbuf, uint16_t rx_queue, uint32_t *qpn
 int dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
 			uint16_t *n_mbufs, uint16_t burst_limit);
 int dao_rdma_get_pvt_len(void);
-/* Initialize RDMA library; disable_cc=1 disables baseline congestion control for all new QPs */
-int dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport);
+/* Initialize RDMA library; disable_cc=1 disables baseline congestion control for all new QPs.
+ * max_qp: max QPs supported (0 = use default RDMA_MAX_QP).
+ * max_msg_sz: max message size in bytes (0 = use default RDMA_PORT_MAX_MSG_SZ).
+ */
+int dao_rdma_lib_init(rdma_cb_t *cb, int disable_cc, uint8_t nport, uint32_t max_qp,
+		      uint32_t max_msg_sz);
 void dao_rdma_lib_close(void);
 int dump_few_bytes(struct rte_mbuf *mbuf);
 void dao_rdma_register_rdma_map_cb(rdma_map_cb_t cb);

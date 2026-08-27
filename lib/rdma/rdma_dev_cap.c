@@ -79,6 +79,8 @@ rdma_query_device_cap(int port, void *cap)
 	memcpy(dev_cap_ptr, &dev_cap, sizeof(dev_cap));
 
 	dev_cap_ptr->max_qp = RTE_MIN((uint32_t)info.max_qps, (uint32_t)RDMA_MAX_QP_INDEX);
+	/* Also apply application-configured max_qp limit */
+	dev_cap_ptr->max_qp = RTE_MIN(dev_cap_ptr->max_qp, dev_cap.max_qp);
 	dev_cap_ptr->max_cq = RTE_MIN((uint32_t)info.max_cqs, (uint32_t)RDMA_MAX_CQ);
 
 	if (info.max_qps > (uint32_t)RDMA_MAX_QP_INDEX)

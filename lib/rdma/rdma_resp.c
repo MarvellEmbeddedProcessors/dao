@@ -1249,7 +1249,7 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	uint32_t lcore_id = qp->lcore;
 	uint32_t qp_id = qp->qid;
 
-	if (dma_len > RDMA_PORT_MAX_MSG_SZ) {
+	if (dma_len > port_attr.max_msg_sz) {
 		RTE_PER_LCORE(rdma_dma_d2m_budget) += chunk_segs;
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 				    RDMA_RX_QP_HANDLE_READ_REQ_DMA_LEN_EXC);

@@ -62,6 +62,10 @@ typedef struct rdma_config_param {
 	int8_t pfc_tc;
 	/* PFC pause time */
 	uint16_t pfc_pause_time;
+	/* Max QPs supported (0 = use library default) */
+	uint32_t max_qp;
+	/* Max message size in bytes (0 = use library default) */
+	uint32_t max_msg_sz;
 } rdma_config_param_t;
 
 /* display usage */

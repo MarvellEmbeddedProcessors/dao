@@ -8,6 +8,7 @@
 #include <rte_byteorder.h>
 
 #include "dao_rdma_fp.h"
+#include "rdma_kernel_abi.h"
 
 #define DEFAULT_MAX_VALUE (1 << 20)
 
@@ -115,6 +116,9 @@ enum rdma_port_param {
 	RDMA_PORT_PHYS_STATE = 2, /* POLLING */
 	RDMA_PORT_SUBNET_PREFIX = 0xfe80000000000000ULL,
 };
+
+extern struct rdma_device_cap dev_cap;
+extern struct rdma_port_attr port_attr;
 
 int rdma_query_device_cap(int port, void *cap);
 int rdma_query_port_attr(int port, void *attr);
