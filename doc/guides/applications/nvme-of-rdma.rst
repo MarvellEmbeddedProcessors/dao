@@ -8,7 +8,7 @@ NVMe-oF Storage Target on OCTEON
 Introduction
 ============
 
-Data centers increasingly disaggregate storage from compute: NVMe SSDs are pooled behind storage
+Storage is increasingly disaggregated from compute: NVMe SSDs are pooled behind storage
 nodes and served to remote machines over the network, rather than sitting inside each server. NVMe
 over Fabrics (NVMe-oF) is the protocol that makes this practical.
 
@@ -84,10 +84,19 @@ Hardware
 Software
 --------
 
-* Component versions used in this guide: DPDK ``25.11``, DAO ``dao-devel``, SPDK ``v26.01``,
-  and the ARM GNU toolchain ``aarch64-none-linux-gnu 14.2`` for cross-compiling the OCTEON RDMA
-  data plane (``dao-rdma_graph`` and ``octep-rdma.ko``). SPDK (``nvmf_tgt`` and the initiator tools)
-  is built natively.
+* Component versions used in this guide: DPDK ``25.11``, DAO ``nvmeof-dao-release``, SPDK ``v26.01``,
+  marvell-rdma-core ``nvmeof-rdma-core-release``, and the ARM GNU toolchain ``aarch64-none-linux-gnu 14.2``
+  for cross-compiling the OCTEON RDMA data plane (``dao-rdma_graph`` and ``octep-rdma.ko``).
+  SPDK (``nvmf_tgt`` and the initiator tools) is built natively.
+
+.. note::
+   The ``dao`` sources are maintained on the ``nvmeof-dao-release`` branch and the
+   ``marvell-rdma-core`` sources on the ``nvmeof-rdma-core-release`` branch.
+   Please build with sources from these release branches.
+
+.. note::
+   This guide assumes the OCTEON already boots the **Marvell Linux 6.6** kernel (6.6.46) with Ubuntu 24.04.
+   See :doc:`../gsg/kernel` for building and deploying the OCTEON kernel (use the linux-6.6.x-release branch).
 
 System configuration
 --------------------
@@ -101,15 +110,27 @@ The exact commands to apply these prerequisites are provided in the Environment 
 per-step instructions below.
 
 .. note::
-   The OCTEON coremasks must lie within the ``isolcpus`` range and must not overlap each other. The RDMA
-   graph (``dao-rdma_graph -c``) and the target (``nvmf_tgt -m``) run on separate isolated cores: in
-   this guide the target (``nvmf_tgt``) uses ``-m 0x10000`` (core 16) and the graph (``dao-rdma_graph``) uses ``-c 0x3C0000``
-   (cores 18--21), all inside the isolated range 16--23.
+   * The OCTEON coremasks must lie within the ``isolcpus`` range and must not overlap each other.
+   * The RDMA graph (``dao-rdma_graph -c``) and the target (``nvmf_tgt -m``) run on separate
+     isolated cores: in this guide the target (``nvmf_tgt``) uses ``-m 0x10000`` (core 16) and
+     the graph (``dao-rdma_graph``) uses ``-c 0x3C0000`` (cores 18--21), all inside the isolated
+     range 16--23.
 
 .. note::
-   Throughout this guide, the OCTEON data port uses the example address ``192.168.1.80/24`` and the
-   initiator uses ``192.168.1.40/24``; the target subsystem is ``nqn.2016-06.io.spdk:cnode1`` on RDMA port
-   ``4420``. Substitute the addresses, device names and file paths for your own environment.
+   * Throughout this guide, the OCTEON data port uses the example address ``192.168.1.80/24`` and
+     the initiator uses ``192.168.1.40/24``.
+   * The target subsystem is ``nqn.2016-06.io.spdk:cnode1`` on RDMA port ``4420``.
+   * Three per-machine directory placeholders are used:
+
+     * ``<dao>`` is the DAO source tree on the x86 **build host** (after ``ninja -C build`` the
+       artifacts are under ``<dao>/build/`` and ``<dao>/subprojects/rdma-core/build/``).
+     * ``<octeon-dir>`` is the directory on the **OCTEON target** that holds the deployed
+       ``dao-rdma_graph``, ``octep-rdma.ko``, the RDMA-core provider (``rdma-core/``) and the
+       natively-built SPDK (``spdk/``).
+     * ``<initiator-dir>`` is the directory on the **NVMe-oF initiator** that holds the
+       natively-built SPDK (``spdk/``).
+
+   * Substitute the addresses, device names and file paths for your own environment.
 
 Building the Components
 =======================
@@ -117,36 +138,31 @@ Building the Components
 DAO data plane
 --------------
 
-The DAO data plane -- ``dao-rdma_graph`` and the ``octep-rdma.ko`` kernel module compilation instructions
-can be found in the :doc:`./rdma` guide:
+Build ``dao-rdma_graph`` and the ``octep-rdma.ko`` kernel module by cross-compiling on an x86 host,
+then copy both artifacts to the OCTEON (see *Deploying the artifacts* below):
 
-* Getting Started build guide: https://marvellembeddedprocessors.github.io/dao/guides/gsg/build.html
-* :doc:`./rdma` -- environment setup and launch of the RDMA data plane.
+* :doc:`./rdma` -- **Octeon RDMA Termination Mode -> Steps to Compile DAO** builds,
+  in a single step::
 
-Building the OCTEON RDMA provider on OCTEON
--------------------------------------------
+     Firmware:      dao-rdma_graph
+     Kernel module: octep-rdma.ko
+     rdma-core:     libibverbs, librdmacm, provider
 
-The provider produces ``liboctep_rp-rdmav34.so`` together with the ``libibverbs`` / ``librdmacm`` and ``ibv_*`` tools
-that the target (``nvmf_tgt``) and the perftest utilities load at run time to see ``octep_rdma_0``.
+  :doc:`./rdma` checks out DAO from ``dao-devel``; for this guide, check out the
+  validated ``nvmeof-dao-release`` branch instead.
 
-.. code-block:: bash
+* :doc:`../gsg/build` -- the general DAO/DPDK cross-compilation, toolchain and meson-option
+  reference that the recipe above builds on.
 
-   # Native compilation
-   apt-get update
-   apt-get install -y build-essential cmake ninja-build pkg-config \
-     libnl-3-dev libnl-route-3-dev libudev-dev python3-docutils
-
-   git clone https://github.com/MarvellEmbeddedProcessors/marvell-rdma-core -b rdma-core-57.0-devel
-   cd marvell-rdma-core
-   ./build.sh
-
-Verify the artifacts and note the provider path -- to point the target's ``LD_LIBRARY_PATH`` at it:
-
-.. code-block:: bash
-
-   ls -l build/lib/liboctep_rp-rdmav34.so build/lib/libibverbs.so* \
-         build/lib/librdmacm.so* build/bin/ibv_devices
-   PROVIDER=$PWD
+.. note::
+   * Use the :doc:`./rdma` guide for **building** the data plane.
+   * The runtime bring-up (hugepages, DPI/RPM VFs, and launching the graph with
+     ``--enable-termination``) is covered by *Environment Setup* and *Setting up the OCTEON Target*
+     below, which reference :doc:`./rdma`'s **Octeon RDMA Termination Mode** for the DPI/RPM VF
+     details.
+   * :doc:`./rdma` uses different sample addresses (for example ``30.0.0.x``) whereas this guide
+     uses ``192.168.1.80``/ ``192.168.1.40`` -- keep one addressing scheme consistent across both
+     guides.
 
 Building the NVMe-oF SPDK target on OCTEON
 ------------------------------------------
@@ -156,7 +172,8 @@ support must be enabled explicitly.
 
 .. code-block:: bash
 
-   # Native compilation
+   # Native compilation on the OCTEON
+   cd <octeon-dir>
    git clone https://github.com/spdk/spdk.git
    cd spdk
    git checkout v26.01
@@ -180,6 +197,7 @@ so it links the initiator NIC's inbox RDMA stack.
 .. code-block:: bash
 
    # on the NVMe-oF initiator system
+   cd <initiator-dir>
    git clone https://github.com/spdk/spdk.git
    cd spdk
    git checkout v26.01
@@ -197,20 +215,42 @@ Verify:
 Deploying the artifacts
 -----------------------
 
-Copy the data-plane artifacts ``dao-rdma_graph`` and ``octep-rdma.ko`` to OCTEON.
+On the x86 build host, the ``ninja -C build`` step (see :doc:`./rdma`) produces, under ``<dao>``::
+
+   Firmware:      build/app/dao-rdma_graph
+   Kernel module: build/kmod/rdma/octep_rdma/octep-rdma.ko
+   rdma-core:     subprojects/rdma-core/build/{lib,bin} (libibverbs, librdmacm, provider, ibv_* tools)
+
+Copy the firmware and kernel module to ``<octeon-dir>`` and the RDMA-core provider to
+``<octeon-dir>/rdma-core`` on the OCTEON. Use ``rsync -a`` for the provider so the ``.so`` symlinks
+are preserved:
+
+.. code-block:: bash
+
+   # on the x86 build host, from <dao>:
+   scp   build/app/dao-rdma_graph                 <octeon>:<octeon-dir>/
+   scp   build/kmod/rdma/octep_rdma/octep-rdma.ko <octeon>:<octeon-dir>/
+   rsync -a subprojects/rdma-core/build/lib \
+            subprojects/rdma-core/build/bin       <octeon>:<octeon-dir>/rdma-core/
+
+Verify the provider on the OCTEON and export the provider path -- the target's ``LD_LIBRARY_PATH``
+points at it:
+
+.. code-block:: bash
+
+   ls -l <octeon-dir>/rdma-core/lib/liboctep_rp-rdmav34.so \
+         <octeon-dir>/rdma-core/lib/libibverbs.so* \
+         <octeon-dir>/rdma-core/lib/librdmacm.so*
+   export PROVIDER=<octeon-dir>/rdma-core
 
 Environment Setup
 =================
 
-On OCTEON, bind the RPM/DPI virtual functions to ``vfio-pci`` and mount hugepages as described
-in the :doc:`./rdma` guide (the ``dpi-test-setup.sh`` helper performs this). A minimal hugepage mount
-is:
+On OCTEON, perform the following as described in the :doc:`./rdma` guide:
 
-.. code-block:: bash
-
-   mkdir -p /dev/huge
-   mount -t hugetlbfs nodev /dev/huge
-   echo 12 > /sys/kernel/mm/hugepages/hugepages-524288kB/nr_hugepages
+* Configure Hugepages and VFIO
+* Configure DPI and Bind VFs
+* Create and Bind RPM VFs
 
 Setting up the OCTEON Target
 ============================
@@ -221,30 +261,29 @@ target (``nvmf_tgt``), and the RPC configuration that sets up NVMe-RDMA on the t
 Step 1 -- launch the RDMA data plane
 ------------------------------------
 
-Before launching ``dao-rdma_graph``, prepare the RPM PF that carries the RoCEv2 data path
-(``0002:03:00.0`` in this example). Confirm you are using the correct RPM PF interface and that it is
-reachable from the NVMe-oF initiator with ``ping``, then bind the RPM PF to ``vfio-pci``:
+The DPI and RPM VFs were created and bound to ``vfio-pci`` in *Environment Setup* (per the
+:doc:`./rdma` guide). Confirm the graph's data-port VF (``0002:03:00.1`` in this example) is bound, then load
+the module and launch the graph:
 
 .. code-block:: bash
 
-   # confirm the RPM PF interface is reachable from the initiator, then bind it for dao-rdma_graph
-   dpdk-devbind.py -b vfio-pci 0002:03:00.0
-   dpdk-devbind.py --status | grep 0002:03:00.0
+   dpdk-devbind.py --status | grep 0002:03:00.1
 
 .. code-block:: bash
 
+   # Load RDMA Kernel Modules
    modprobe ib_uverbs
-   insmod <build-dir>/octep-rdma.ko
-   <build-dir>/dao-rdma_graph -c 0x3C0000 \
+   insmod <octeon-dir>/octep-rdma.ko
+   <octeon-dir>/dao-rdma_graph -c 0x3C0000 \
      -a 0000:06:00.2 -a 0000:06:00.3 -a 0000:06:00.4 -a 0000:06:00.5 \
      -a 0000:06:00.6 -a 0000:06:00.7 -a 0000:06:01.0 -a 0000:06:01.1 \
      -a 0000:06:01.2 -a 0000:06:01.3 -a 0000:06:01.4 -a 0000:06:01.5 \
-     -a 0000:06:01.6 -a 0000:06:01.7 -a 0002:03:00.0 \
+     -a 0000:06:01.6 -a 0000:06:01.7 -a 0002:03:00.1 \
      --file-prefix=ep -- -p 0x1 --max-pkt-len=9600 -P -n 1 -r 0x1 \
      --num-mbufs 524288 --enable-termination
 
-The device (PCIe) addresses and the coremask (``-c 0x3C0000`` = cores 18--21) are examples; use the
-values for your platform. A healthy start prints:
+The device (PCIe) addresses and the coremask (``-c 0x3C0000`` = cores 18--21) are examples, use the
+correct values for your platform. A healthy start prints:
 
 .. code-block:: console
 
@@ -256,24 +295,25 @@ Leave the graph (``dao-rdma_graph``) running.
 
 .. note::
    For details on inserting ``octep-rdma.ko`` and running ``dao-rdma_graph``, refer to the
-   :doc:`./rdma` guide; the only difference in this setup is that ``dao-rdma_graph`` is launched with
-   the ``--enable-termination`` flag.
+   :doc:`./rdma` guide.
 
 Step 2 -- configure the data interface and start the target
 -----------------------------------------------------------
 
 .. note::
-   Before assigning the IP address, run ``dmesg -w`` and confirm that the expected data interface
-   (for example ``enp6s0v22``) has been detected. After assigning the address, verify that the
-   interface is reachable from the NVMe-oF initiator with ``ping``.
+   * Before assigning the IP address, run ``dmesg -w`` and confirm that the expected data interface
+     (for example ``enp6s0v22``) has been detected.
+   * After assigning the address, verify that the interface is reachable from the NVMe-oF initiator
+     with ``ping``.
 
 .. code-block:: bash
 
    ifconfig enp6s0v22 192.168.1.80/24 up
    ip link set enp6s0v22 mtu 9000
 
-   export LD_LIBRARY_PATH=$PROVIDER/build/lib:$PROVIDER/build/libibverbs:$LD_LIBRARY_PATH
-   <build-dir>/spdk/build/bin/nvmf_tgt -m 0x10000 -r /var/tmp/spdk.sock
+   export LD_LIBRARY_PATH=$PROVIDER/lib:$LD_LIBRARY_PATH
+   $PROVIDER/bin/ibv_devices        # confirm octep_rdma_0 is listed before starting the target
+   <octeon-dir>/spdk/build/bin/nvmf_tgt -m 0x10000 -r /var/tmp/spdk.sock
 
 A healthy start prints:
 
@@ -284,19 +324,24 @@ A healthy start prints:
 Leave the target (``nvmf_tgt``) running.
 
 .. note::
-   Ensure the OCTEON RDMA firmware is fully up (Step 1) before starting ``nvmf_tgt``, and export the
-   provider ``LD_LIBRARY_PATH`` in the same shell that launches it -- otherwise ``nvmf_tgt`` cannot
-   see ``octep_rdma_0``.
+   * Ensure the OCTEON RDMA firmware is fully up (Step 1) before starting ``nvmf_tgt``.
+   * Export the provider ``LD_LIBRARY_PATH`` in the same shell that launches ``nvmf_tgt`` --
+     otherwise it cannot see ``octep_rdma_0``.
 
 Step 3 -- configure the target over RPC
 ---------------------------------------
 
-Create the RDMA transport, an underlying block device, a subsystem with one namespace, and an RDMA
-listener:
+For simplicity of setup and testing, the commands below use a **NULL block device** (``Null0``) as
+the backing store. Although the topology diagram above shows an NVMe SSD, the same steps apply to
+any SPDK block device. Please substitute any SPDK bdev such as an NVMe bdev , a ramdisk , or
+another bdev type. Replace the ``bdev_null_create`` command below with the appropriate bdev
+creation command, and pass the resulting bdev name to ``nvmf_subsystem_add_ns``.
+
+Create the RDMA transport, the block device, a subsystem with one namespace, and an RDMA listener:
 
 .. code-block:: bash
 
-   RPC=<build-dir>/spdk/scripts/rpc.py
+   RPC=<octeon-dir>/spdk/scripts/rpc.py
 
    $RPC nvmf_create_transport -t rdma --num-shared-buffers 1024 --io-unit-size 65536 \
      --max-queue-depth 16 --max-io-size 131072 --in-capsule-data-size 4096 \
@@ -320,12 +365,6 @@ Once the transport and listener are created, the ``nvmf_tgt`` output prints:
    Create IB device octep_rdma_0 ... succeed
    NVMe/RDMA Target Listening on 192.168.1.80 port 4420
 
-.. note::
-   ``Null0`` is an in-memory block device that is ideal for measuring NVMe-oF protocol performance
-   without the overhead of actual disk access. To back the namespace with real storage, create a
-   different block device (for example an NVMe block device or a ``malloc``) and add it with
-   ``nvmf_subsystem_add_ns``.
-
 Setting up the NVMe-oF Initiator
 ================================
 
@@ -338,6 +377,11 @@ Confirm the NVMe-oF initiator RDMA device and its RoCEv2 GID index, then bring u
    ifconfig enp4s0f0np0 192.168.1.40/24 up
    ip link set enp4s0f0np0 mtu 9000
 
+   # the SPDK initiator tools need hugepages
+   mkdir -p /dev/huge
+   mount -t hugetlbfs nodev /dev/huge
+   echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
 Functional Testing
 ==================
 
@@ -345,7 +389,7 @@ Connectivity is confirmed when ``spdk_nvme_identify`` returns the controller and
 
 .. code-block:: bash
 
-   <build-dir>/spdk/build/bin/spdk_nvme_identify \
+   <initiator-dir>/spdk/build/bin/spdk_nvme_identify \
      -r "trtype:RDMA adrfam:IPv4 traddr:192.168.1.80 trsvcid:4420 subnqn:nqn.2016-06.io.spdk:cnode1"
 
 A successful run prints the controller identify data (controller model, namespace size, NQN).
@@ -370,7 +414,7 @@ Baseline (single core, single queue pair)
    R='trtype:RDMA adrfam:IPv4 traddr:192.168.1.80 trsvcid:4420 subnqn:nqn.2016-06.io.spdk:cnode1'
 
    # single baseline run: 4 KB read, queue depth 16, one core, one queue pair
-   <build-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -o 4096 -w read -t 10 -c 0x1 -P 1
+   <initiator-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -o 4096 -w read -t 10 -c 0x1 -P 1
 
 Multi-core, multi-queue-pair testing
 ------------------------------------
@@ -382,7 +426,7 @@ Throughput scales by adding cores (``-c``) and queue pairs (``-P``) together:
    R='trtype:RDMA adrfam:IPv4 traddr:192.168.1.80 trsvcid:4420 subnqn:nqn.2016-06.io.spdk:cnode1'
    for cP in "0x1 1" "0x3 2" "0x7 3" "0xF 4"; do set -- $cP; c=$1; P=$2;
      echo "===== 64K READ cores=$c qpairs=$P q=16 =====";
-     <build-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -o 65536 -w read -t 10 -c $c -P $P;
+     <initiator-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -o 65536 -w read -t 10 -c $c -P $P;
    done
 
 ``spdk_nvme_perf`` reports IOPS, bandwidth (MiB/s) and average/percentile latency.
@@ -393,7 +437,7 @@ Limitations
 Shared Receive Queue (SRQ) not supported
 ----------------------------------------
 
-The ``octep-rdma`` driver rejects SRQ-based QP creation; Shared Receive Queues are
+The ``octep-rdma`` driver rejects SRQ-based QP creation. Shared Receive Queues are
 not supported on the OCTEON RDMA firmware.
 
 **Fix:** Pass ``--no-srq`` to ``nvmf_create_transport``.
@@ -416,24 +460,26 @@ Maximum NVMe queue depth of 16
 .. code-block:: bash
 
    $RPC nvmf_create_transport -t rdma ... --max-queue-depth 16 --no-srq
-   <build-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -P 1 -o 65536 -w read -t 10 -c 0x1
-
-Completion queue resize (``cv_resize_q``) not supported
--------------------------------------------------------
-
-The OCTEON RDMA firmware does not implement ``cv_resize_q`` (dynamic CQ resize); CQ
-depth is fixed at transport creation.
-
-**Fix:** Provision the full CQ capacity at transport creation. The validated OCTEON configuration
-uses ``--num-cqe 32767`` because CQ resources cannot be resized after connection.
-
-**Impact:** Under-provisioned CQ depth cannot be increased at run time; I/O may fail or stall under
-higher queue depth or multi-queue workloads.
+   <initiator-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -P 1 -o 65536 -w read -t 10 -c 0x1
 
 Troubleshooting
 ===============
 
 Work through these checks in order: **environment setup → dao-rdma_graph → nvmf_tgt → RPC → initiator**.
+
+Reset to a clean slate
+----------------------
+
+To restart the target cleanly, stop ``nvmf_tgt`` and remove its control socket before relaunching:
+
+.. code-block:: bash
+
+   pkill -INT -f nvmf_tgt; sleep 2; pkill -KILL -f nvmf_tgt 2>/dev/null
+   rm -f /var/tmp/spdk.sock
+
+To also return the data plane to a clean state, stop ``dao-rdma_graph`` and re-run the bring-up in
+:doc:`./rdma`. A reboot is the simplest way to fully reset the graph, the ``octep-rdma`` module, and
+hugepages.
 
 Bring-up order
 --------------
@@ -453,13 +499,14 @@ Bring-up order
 ``octep_rdma_0`` not found
 --------------------------
 
-* Load modules: ``modprobe ib_uverbs`` and ``insmod <build-dir>/octep-rdma.ko``.
-* Export the provider path in the **same shell** as ``nvmf_tgt``, then confirm the device is visible:
+* Load modules: ``modprobe ib_uverbs`` and ``insmod <octeon-dir>/octep-rdma.ko``.
+* Export the provider path in the **same shell** as ``nvmf_tgt``, then confirm the device is visible
+  (``PROVIDER=<octeon-dir>/rdma-core``):
 
   .. code-block:: bash
 
-     export LD_LIBRARY_PATH=<provider-dir>/build/lib:<provider-dir>/build/libibverbs:$LD_LIBRARY_PATH
-     ibv_devices
+     export LD_LIBRARY_PATH=$PROVIDER/lib:$LD_LIBRARY_PATH
+     $PROVIDER/bin/ibv_devices
 
 ``nvmf_tgt`` / RPC fails
 ------------------------
