@@ -351,11 +351,11 @@ Required versions:
 * **DAO** ``dao-devel`` (tip-of-tree); this mode is not yet part of a release
   branch.
 * **OCTEON kernel** Marvell Linux 6.6, built from
-  https://github.com/Marvell-Lab/linux-kernel.
+  https://github.com/MarvellEmbeddedProcessors/linux-marvell.
 
 .. note::
    The OCTEON must run the **Marvell Linux 6.6** kernel
-   (https://github.com/Marvell-Lab/linux-kernel), which provides the
+   (https://github.com/MarvellEmbeddedProcessors/linux-marvell), which provides the
    ``octeontx2_dpi`` module parameters used during setup.
 
 Steps to Compile DAO
