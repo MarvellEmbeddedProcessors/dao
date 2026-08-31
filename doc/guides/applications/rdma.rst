@@ -385,8 +385,7 @@ the OCTEON Linux 6.6 kernel source tree.
    git checkout dao-devel
 
    # Cross-compile DAO with rdma-core, octep_rdma kmod and dao-rdma_graph
-   meson setup build --buildtype=debug --cross=config/arm64_cn10k_linux_gcc \
-     -Denable_docs=false -Dc_args='-ggdb3' --prefer-static --werror \
+   meson setup build --cross=config/arm64_cn10k_linux_gcc --prefer-static  \
      -Drdma_build=true -Dkernel_dir=<linux-6.6-kernel-path>
    ninja -C build
 
