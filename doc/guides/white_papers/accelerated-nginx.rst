@@ -20,7 +20,6 @@ The result:
 - Up to **5.7** higher TLS handshake rate (CPS).
 - Up to **45 Gbps (50G Line rate)** throughput.
 - **65%** lower CPU utilization.
-- **23W** peak power consumption.
 
 This makes it ideal for **Content Delivery Networks (CDN), Cloud Load Balancer, and Edge TLS Gateway** deployments that demand both
 performance and efficiency.
@@ -43,7 +42,7 @@ Key Benefits
 - Hardware-accelerated TLS encryption and handshake processing
 - Transparent integration using the OpenSSL engine
 - Frees CPU cores for application and networking logic
-- Scales efficiently up to 45 Gbps (50G line rate) at only 23 W power
+- Scales efficiently up to 45 Gbps (50G line rate)
 
 Architecture & Design
 =====================
@@ -109,8 +108,6 @@ And the throughput results indicate that DPU can reach up to 45 Gbps with 12 wor
 | CPU Utilization for     | 24 Cores          | 9-12 Core            | 40-50%          |
 | Peak (20K CPS & 45 Gbps)|                   |                      |                 |
 +-------------------------+-------------------+----------------------+-----------------+
-| Power Draw at Peak      | 60 W              | **23 W**             | 40-50%          |
-+-------------------------+-------------------+----------------------+-----------------+
 
 Performance Insights
 ^^^^^^^^^^^^^^^^^^^^
@@ -139,7 +136,7 @@ Key Takeaways
 =============
 
 #. Up to **3.9×** higher CPS and **65% lower CPU usage** achieved with DAO-based TLS offload.
-#. **45 Gbps throughput** at **only 23 W**, enabling secure, efficient HTTPS at scale.
+#. **45 Gbps throughput**, enabling secure, efficient HTTPS at scale.
 #. **Drop-in integration** through OpenSSL with no code modifications.
 #. Fully supported within **Marvell DAO Release 25.01**, ready for production deployments.
 

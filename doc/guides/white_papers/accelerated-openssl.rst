@@ -16,7 +16,6 @@ Performance Outcomes:
 - **8x** faster RSA-2048 signature generation and **3x** faster verification.
 - **4x** higher ECDSA P-256 sign/verify throughput.
 - **3x** higher TLS bulk encryption throughput with AES-256-GCM (typical TLS record sizes).
-- Peak power consumption of just **23W**.
 
 This makes it ideal for secure web servers, VPN gateways, storage encryption, and high-performance networking equipment that demand both performance and efficiency.
 
