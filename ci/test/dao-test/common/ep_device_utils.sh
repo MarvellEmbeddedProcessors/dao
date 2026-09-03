@@ -398,6 +398,39 @@ function ep_device_rdma_app_cleanup() {
 	return 0
 }
 
+function ep_device_guest_rdma_setup() {
+	local iface=$1
+
+	echo "RDMA setup on remote interface $iface (native RDMA)"
+	ip link set $iface up 2>/dev/null || true
+}
+
+function ep_device_octterm_mgmt_ip_configure() {
+	local ip=$1
+	local mgmt
+
+	mgmt=$(ip -br link show | grep 'octep\|enp[0-9].*v[0-9]' |
+		awk '{print $1}' | head -1) || true
+	if [ -n "$mgmt" ]; then
+		ip addr flush dev $mgmt 2>/dev/null || true
+		ip addr add ${ip}/24 dev $mgmt
+		ip link set $mgmt up
+		echo "Configured $mgmt with IP $ip"
+	else
+		echo "WARNING: Could not find management netdev"
+	fi
+}
+
+function ep_device_guest_rdma_cleanup() {
+	local iface=${1:-}
+
+	set +e
+	killall -q ibv_ud_pingpong ibv_rc_pingpong ibv_rdma_mq_trf \
+		ib_send_bw ib_read_bw udaddy 2>/dev/null
+	set -e
+	echo "Remote RDMA cleanup completed"
+}
+
 # If this script is directly invoked from the shell execute the
 # op specified
 if [[ ${BASH_SOURCE[0]} == ${0} ]]; then

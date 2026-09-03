@@ -483,6 +483,34 @@ function ep_common_bind_driver()
 	echo $dev > /sys/bus/$s/drivers_probe
 }
 
+# When rdma-core is built with CMAKE_INSTALL_PREFIX matching the deployment
+# path (e.g. via symlink staging), libibverbs finds its config files and
+# provider plugins through the baked-in paths.  This helper adds fallback
+# paths as a safety net in case the baked paths don't exist.
+function _ep_common_fixup_rdma_env()
+{
+	local rdma_build="${1:-}"
+	[[ -z "$rdma_build" ]] && return 0
+	local lib_path="$rdma_build/lib"
+
+	if [[ -n "$lib_path" && -d "${lib_path}/libibverbs" ]]; then
+		export LD_LIBRARY_PATH="${lib_path}/libibverbs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+	fi
+
+	local conf_dir="${rdma_build}/etc/libibverbs.d"
+	if [[ -d "$conf_dir" && -z "${IBV_DRIVERS:-}" ]]; then
+		local drivers=""
+		local f
+		for f in "$conf_dir"/*.driver; do
+			[[ -f "$f" ]] || continue
+			local d
+			d=$(awk '/^driver / {print $2}' "$f")
+			[[ -n "$d" ]] && drivers+="${d}:"
+		done
+		[[ -n "$drivers" ]] && export IBV_DRIVERS="${drivers%:}"
+	fi
+}
+
 function ep_common_get_v4_gid_index()
 {
 	local dev="$1"
@@ -493,6 +521,7 @@ function ep_common_get_v4_gid_index()
 
 	[[ -n "$bin_path" ]] && export PATH="${bin_path}:${PATH}"
 	[[ -n "$lib_path"  ]] && export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH:-}"
+	_ep_common_fixup_rdma_env "$rdma_build"
 
 	# Get gid index of 1st ipv4 address configured on the interface
 	gid=$(ibv_devinfo -d "$dev" -vvv 2>/dev/null | \
@@ -544,6 +573,7 @@ function ep_common_get_rdma_device()
 
 	[[ -n "$bin_path" ]] && export PATH="${bin_path}:${PATH}"
 	[[ -n "$lib_path"  ]] && export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH:-}"
+	_ep_common_fixup_rdma_env "$rdma_build"
 
 	devices="$(ibv_devices 2>/dev/null | awk 'NR>2 && NF {print $1}')"
 	if [ -z "$devices" ]; then

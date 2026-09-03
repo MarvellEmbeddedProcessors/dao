@@ -17,6 +17,7 @@ source $EP_TEST_RUN_SCRIPT_PATH/sync.sh
 source $EP_TEST_RUN_SCRIPT_PATH/common_setup.sh
 source $EP_TEST_RUN_SCRIPT_PATH/ovs_setup.sh
 source $EP_TEST_RUN_SCRIPT_PATH/rdma_setup.sh
+source $EP_TEST_RUN_SCRIPT_PATH/rdma_octterm_setup.sh
 source $EP_TEST_RUN_SCRIPT_PATH/virtio_setup.sh
 source $EP_TEST_RUN_SCRIPT_PATH/unit_test_setup.sh
 
