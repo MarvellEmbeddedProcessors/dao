@@ -98,7 +98,7 @@ function run_perftest_case()
 	# Multiple QPs (-q) are only valid for the bandwidth (_bw) benchmarks;
 	# the latency (_lat) binaries reject -q.
 	local q_opt=""
-	[[ "$binary" == *_bw ]] && q_opt="-q 32"
+	[[ "$binary" == *_bw ]] && q_opt="-q 16"
 
 	local server_opts="-d $server_dev -i 1 -x $server_gid -c $conn_type $cm_opt -F --report_gbits -a $q_opt"
 	local client_opts="-d $client_dev -i 1 -x $client_gid -c $conn_type $cm_opt -F --report_gbits -a $q_opt"
