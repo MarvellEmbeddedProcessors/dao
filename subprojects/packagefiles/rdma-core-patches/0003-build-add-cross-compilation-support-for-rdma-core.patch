@@ -3,21 +3,26 @@ From: Amit Prakash Shukla <amitprakashs@marvell.com>
 Date: Thu, 5 Jun 2026 14:14:44 +0530
 Subject: [PATCH 3/3] build: add cross-compilation support for rdma-core
 
-Detect cross-build and propagate CC, CMAKE_C_COMPILER,
+Detect cross-build and propagate CMAKE_C_COMPILER,
 CMAKE_SYSTEM_NAME, CMAKE_SYSTEM_PROCESSOR and related flags to
 the underlying CMake build so that rdma-core can be cross-compiled
 for aarch64 from an x86 host.
 
+The cross-linker sysroot-prefixes -rpath paths, so indirect
+shared-library dependencies (libnl needed by libibverbs) cannot be
+resolved at link time.  Pass -rpath-link via CMAKE_EXE_LINKER_FLAGS_INIT
+to fix this without overwriting other linker flags.
+
 Signed-off-by: Amit Prakash Shukla <amitprakashs@marvell.com>
 ---
- meson.build | 18 ++++++++++++++++++
- 1 file changed, 18 insertions(+)
+ meson.build | 27 +++++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
 
 diff --git a/meson.build b/meson.build
 index 8798ced6..a1b2c3d4 100644
 --- a/meson.build
 +++ b/meson.build
-@@ -48,18 +48,36 @@ if build_host_dir != ''
+@@ -48,18 +48,45 @@
      message('Installing rdma-core to: ' + rdma_prefix)
  endif
  
@@ -27,12 +32,21 @@ index 8798ced6..a1b2c3d4 100644
 +    cc = meson.get_compiler('c')
 +    cc_cmd = cc.cmd_array()
 +    cc_exe = cc_cmd[cc_cmd.length() - 1]
-+    build_env.set('CC', cc_exe)
 +    cmake_cross_flags = '-DCMAKE_C_COMPILER=' + cc_exe
 +    cmake_cross_flags += ' -DCMAKE_SYSTEM_NAME=Linux'
 +    cmake_cross_flags += ' -DCMAKE_SYSTEM_PROCESSOR=' + host_machine.cpu_family()
 +    cmake_cross_flags += ' -DNO_PYVERBS=1'
-+    cmake_cross_flags += ' -DENABLE_RESOLVE_NEIGH=0'
++    cmake_cross_flags += ' -DCMAKE_INSTALL_RUNDIR=/var/run'
++
++    # Cross-linker needs rpath-link to resolve indirect libnl deps
++    nl_dep = dependency('libnl-3.0', required: false)
++    if nl_dep.found()
++        nl_lib_dir = nl_dep.get_variable(pkgconfig: 'libdir', default_value: '')
++        if nl_lib_dir != ''
++            cmake_cross_flags += ' -DCMAKE_EXE_LINKER_FLAGS_INIT=-Wl,-rpath-link=' + nl_lib_dir
++        endif
++    endif
++
 +    build_env.set('EXTRA_CMAKE_FLAGS', cmake_cross_flags)
 +    message('Cross-compiling rdma-core with CC=' + cc_exe)
 +endif
