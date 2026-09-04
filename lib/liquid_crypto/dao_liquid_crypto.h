@@ -60,6 +60,12 @@
 #define DAO_LC_MAX_AAD_LEN 1024
 /** Maximum supported modulus length */
 #define DAO_LC_MAX_MOD_LEN 1024
+/** PQC enabled */
+#define DAO_LC_FEAT_PQC_EN (1ULL << 0)
+/** Compression device enabled */
+#define DAO_LC_FEAT_COMPDEV_EN (1ULL << 1)
+/** Optional features enabled */
+#define DAO_LC_OPTIONAL_FEATURES (DAO_LC_FEAT_PQC_EN | DAO_LC_FEAT_COMPDEV_EN)
 
 /**
  * The params required for KMAC operations.
