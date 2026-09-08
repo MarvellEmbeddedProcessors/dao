@@ -3,8 +3,16 @@
 
 protoc = find_program('protoc', required:false)
 grpc_cpp_plugin = find_program('grpc_cpp_plugin', required:false)
-grpcplus_dep = dependency('grpc++', method : 'pkg-config', version: '>=1.65.0', required:false)
-protobuf_dep = dependency('protobuf', method : 'pkg-config', version:'>=27.2.0', required:false)
+# pkg-config resolves shared libraries by default. Honor Meson's built-in
+# 'prefer_static' core option (set via --prefer-static / -Dprefer_static=true)
+# as well as the project's own 'prefer_static_build' option, so that
+# gRPC/protobuf (and their transitive deps) are resolved as static
+# libraries as well, e.g. for a fully static dao-card-mgr binary. If neither
+# option is set, this falls back to shared linkage as before.
+grpcplus_dep = dependency('grpc++', method : 'pkg-config', version: '>=1.65.0', required:false,
+	static: get_option('prefer_static') or get_option('prefer_static_build'))
+protobuf_dep = dependency('protobuf', method : 'pkg-config', version:'>=27.2.0', required:false,
+	static: get_option('prefer_static') or get_option('prefer_static_build'))
 
 if not protoc.found()
 	message('protobuf compiler (protoc) not found')
