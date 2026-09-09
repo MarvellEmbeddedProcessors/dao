@@ -18,6 +18,18 @@ struct global_params glb_params;
 int
 testsuite_setup(void)
 {
+	uint8_t dev_id = glb_params.dev_id;
+	struct dao_lc_dev_caps caps = {0};
+	int ret;
+
+	ret = dao_liquid_crypto_dev_caps_get(&caps);
+	if (ret < 0) {
+		TEST_LC_ERR(
+			"Could not get liquid crypto device %d capabilities or fw and host caps mismatch",
+			dev_id);
+		return TEST_SKIPPED;
+	}
+
 	return 0;
 }
 
