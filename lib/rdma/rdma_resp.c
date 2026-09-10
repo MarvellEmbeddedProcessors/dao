@@ -567,8 +567,9 @@ rdma_read_d2m_chain_drop(struct rte_mbuf *head)
 /*
  * Build a D2M mbuf chain starting at @head for @prep_len bytes from host
  * address @reth_va.  Bumps refcnt on every segment so the chain survives
- * PTS enqueue failures.  On allocation failure the partial chain's refcnt
- * bumps are undone and -1 is returned.
+ * PTS enqueue failures.  On allocation failure the partial chain after
+ * @head is dropped, @head is not freed (chain metadata rolled back),
+ * and -1 is returned.
  */
 static inline int
 rdma_read_build_d2m_chain(struct rdma_qp *qp, struct rte_mbuf *head, uint32_t prep_len,
@@ -586,7 +587,12 @@ rdma_read_build_d2m_chain(struct rdma_qp *qp, struct rte_mbuf *head, uint32_t pr
 			mtu = qp->mtu;
 		mbuf = rte_pktmbuf_alloc(head->pool);
 		if (!mbuf) {
-			rdma_read_d2m_chain_drop(head);
+			rte_mbuf_refcnt_update(head, -1);
+			if (head->next)
+				rdma_read_d2m_chain_drop(head->next);
+			head->next = NULL;
+			head->nb_segs = 1;
+			head->pkt_len = head->data_len;
 			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 					    RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR);
 			return -1;
@@ -648,6 +654,8 @@ rdma_read_reply_abort(struct rdma_qp *qp)
 		rdma_read_d2m_chain_drop(qp->resp.read_chunk.pending_pts_head);
 	}
 	memset(&qp->resp.read_chunk, 0, sizeof(qp->resp.read_chunk));
+
+	rdma_pending_read_drop(qp);
 }
 
 /*
@@ -689,17 +697,19 @@ rdma_read_chunk_continue(struct rdma_qp *qp)
 	head->port = rc->port;
 
 	if (rdma_read_build_d2m_chain(qp, head, prep_len, rc->remote_addr, rc->rkey) < 0) {
+		rte_pktmbuf_free(head);
 		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 				    RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL);
 		return -1;
 	}
 
 	rdma_update_ack_pending_list(qp, head, rc->next_psn, AETH_ACK_UNLIMITED, true);
+	rdma_rx_priv_ack(head)->msn = rc->msn;
 
 	/* Defer PTS enqueue to rdma_pts_deq; avoid nested enqueue from TX finish. */
 	rc->pending_pts_head = head;
 	rc->needs_pts_enqueue = true;
-	RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_CHUNK_CONTINUE);
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_CHUNK_CONTINUE);
 
 	return 0;
 }
@@ -769,6 +779,98 @@ dao_rdma_read_chunk_retry(uint32_t qp_id, int devid)
 	return 1;
 }
 
+/* Free a parked (queued) chunked READ, if any.  Called on QP teardown/abort. */
+void
+rdma_pending_read_drop(struct rdma_qp *qp)
+{
+	struct rdma_pending_read *pr = &qp->resp.pending_read;
+
+	if (pr->valid && pr->mbuf)
+		rte_pktmbuf_free(pr->mbuf);
+	memset(pr, 0, sizeof(*pr));
+}
+
+static int
+rdma_read_start_pending(struct rdma_qp *qp)
+{
+	struct rdma_read_chunk_state *rc;
+	struct rdma_pending_read *pr;
+	struct rte_mbuf *mbuf;
+	uint32_t dma_len, prep_len, chunk_bytes, npkts;
+
+	if (!qp->resp.pending_read.valid)
+		return 0;
+
+	if (qp->resp.read_chunk.in_progress || qp->resp.read_chunk.needs_pts_enqueue ||
+	    qp->resp.read_chunk.needs_chunk_retry || qp->resp.resp_cur_rmbuf)
+		return 0;
+
+	if (qp->resp.resp_read_rq_bal <= 0)
+		return 0;
+
+	pr = &qp->resp.pending_read;
+	mbuf = pr->mbuf;
+
+	dma_len = pr->dma_len;
+	npkts = (dma_len + qp->mtu - 1) / qp->mtu;
+	chunk_bytes = (uint32_t)RDMA_READ_CHUNK_MBUFS * qp->mtu;
+	prep_len = RTE_MIN(dma_len, chunk_bytes);
+
+	rte_pktmbuf_reset(mbuf);
+	mbuf->l2_len = 1;
+
+	if (rdma_read_build_d2m_chain(qp, mbuf, prep_len, pr->reth_va, pr->reth_rkey) < 0) {
+		mbuf->port = pr->port;
+		return 0;
+	}
+	mbuf->port = pr->port;
+	qp->resp.resp_read_rq_bal--;
+
+	rc = &qp->resp.read_chunk;
+	*rc = (struct rdma_read_chunk_state){
+		.remote_addr = pr->reth_va,
+		.total_len = dma_len,
+		.bytes_prepared = 0,
+		.rkey = pr->reth_rkey,
+		.next_opcode = -1,
+		.pool = mbuf->pool,
+		.port = pr->port,
+		.in_progress = true,
+	};
+
+	qp->resp.msn++;
+	qp->resp.opcode = -1;
+	qp->resp.status = RDMA_WC_SUCCESS;
+	qp->resp.psn = (pr->psn + npkts) & BTH_PSN_MASK;
+	qp->resp.ack_psn = qp->resp.psn;
+
+	rdma_update_ack_pending_list(qp, mbuf, pr->psn, AETH_ACK_UNLIMITED, true);
+
+	/* Pin the MSN for every chunk of this READ (see rdma_handle_read_request). */
+	rc->msn = rdma_rx_priv_ack(mbuf)->msn;
+
+	/* Defer chunk-1 PTS enqueue to flush_pending, like a continuation chunk. */
+	rc->pending_pts_head = mbuf;
+	rc->needs_pts_enqueue = true;
+
+	pr->valid = false;
+	pr->mbuf = NULL;
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_READ_PENDING_SERVICED);
+
+	return 1;
+}
+
+/* Deq-loop entry: retry servicing a parked READ that failed at completion. */
+int
+dao_rdma_read_service_pending(uint32_t qp_id, int devid)
+{
+	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
+
+	if (!qp)
+		return 0;
+	return rdma_read_start_pending(qp);
+}
+
 /*
  * Complete an in-progress READ reply: drop the READ ack, drain non-READ acks
  * queued behind it, release the head, and restore the responder credit.
@@ -817,6 +919,8 @@ rdma_read_reply_finish(struct rdma_qp *qp)
 	else if (ack || chunk_active)
 		qp->resp.resp_read_rq_bal++;
 	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_TX_QP_READ_RSP_COMPLETE);
+
+	rdma_read_start_pending(qp);
 }
 
 /*
@@ -1192,9 +1296,6 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 	uint32_t dma_len = rte_be_to_cpu_32(rinfo->reth->len);
 	uint64_t reth_va = rte_be_to_cpu_64(rinfo->reth->va);
 	uint32_t reth_rkey = rte_be_to_cpu_32(rinfo->reth->rkey);
-	uint32_t port_id = qp->port_id;
-	uint32_t lcore_id = qp->lcore;
-	uint32_t qp_id = qp->qid;
 	uint16_t port;
 
 	/* Total reply segments for PSN advancement (covers all chunks) */
@@ -1209,12 +1310,9 @@ rdma_read_prep_for_pts(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t *npk
 	rte_pktmbuf_reset(pinfo->mbuf);
 	pinfo->mbuf->l2_len = 1;
 
+	/* rdma_read_build_d2m_chain() counts the alloc failure itself. */
 	if (rdma_read_build_d2m_chain(qp, pinfo->mbuf, prep_len, reth_va, reth_rkey) < 0) {
-		/* rdma_read_d2m_chain_drop() already freed pinfo->mbuf. */
-		pinfo->mbuf = NULL;
-		pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
-		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
-				    RDMA_RX_QP_READ_PREP_PTS_ALLOC_MBUF_ERR);
+		pinfo->mbuf->port = port;
 		return -1;
 	}
 
@@ -1256,6 +1354,37 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 		return RDMA_RESPST_ERR_LENGTH;
 	}
 
+	if (unlikely(qp->resp.read_chunk.in_progress &&
+		     dma_len > (uint32_t)RDMA_READ_CHUNK_MBUFS * qp->mtu)) {
+		struct rdma_pending_read *pr = &qp->resp.pending_read;
+
+		/* Budget is re-throttled by PTS capacity at service time. */
+		RTE_PER_LCORE(rdma_dma_d2m_budget) += chunk_segs;
+
+		if (pr->valid) {
+			rte_pktmbuf_free(pinfo->mbuf);
+			pinfo->mbuf = NULL;
+			pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
+			RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+						RDMA_RX_QP_READ_PENDING_DROP_DUP);
+			return RDMA_RESPST_CLEANUP;
+		}
+
+		pr->mbuf = pinfo->mbuf;
+		pr->reth_va = rte_be_to_cpu_64(pinfo->rinfo.reth->va);
+		pr->reth_rkey = rte_be_to_cpu_32(pinfo->rinfo.reth->rkey);
+		pr->dma_len = dma_len;
+		pr->psn = pinfo->rinfo.psn;
+		pr->port = pinfo->mbuf->port;
+		pr->valid = true;
+
+		/* We own the mbuf now; keep it out of the responder pipeline. */
+		pinfo->mbuf = NULL;
+		pinfo->mbuf_flags = RDMA_RESPONDER_MBUF_CONSUMED;
+		RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_READ_PENDING_QUEUED);
+		return RDMA_RESPST_CLEANUP;
+	}
+
 	if (rdma_read_prep_for_pts(qp, pinfo, &npkts) < 0) {
 		RTE_PER_LCORE(rdma_dma_d2m_budget) += chunk_segs;
 		qp->resp.wqe.mbuf = NULL;
@@ -1273,6 +1402,11 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	qp->resp.ack_psn = qp->resp.psn;
 
 	rdma_update_ack_pending_list(qp, pinfo->mbuf, pinfo->rinfo.psn, AETH_ACK_UNLIMITED, true);
+
+	/* Pin the MSN so all continuation chunks emit the same AETH MSN as chunk 1. */
+	if (qp->resp.read_chunk.in_progress)
+		qp->resp.read_chunk.msn = rdma_rx_priv_ack(pinfo->mbuf)->msn;
+
 	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_READ_REQ_RCVD);
 
 	return RDMA_RESPST_DONE;
@@ -1637,6 +1771,9 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 			rdma_update_ack_pending_list(qp, pkt->mbuf, pkt->rinfo.psn,
 						     AETH_ACK_UNLIMITED, true);
 			rdma_rx_priv_ack(pkt->mbuf)->is_requeue = true;
+			/* Pin MSN for continuation chunks of this re-DMA'd READ. */
+			if (qp->resp.read_chunk.in_progress)
+				qp->resp.read_chunk.msn = rdma_rx_priv_ack(pkt->mbuf)->msn;
 			/* Last read reply lost on the wire; re-read and re-enqueue. */
 			RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 					    RDMA_RX_QP_READ_DUP_WIRE_PKT_LOST_PTS_REQUEUE);

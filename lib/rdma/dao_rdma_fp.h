@@ -110,6 +110,7 @@ uint16_t dao_rdma_ack_dequeue_until_read(uint32_t qp_id, int devid, struct rte_m
 					 uint16_t max_pkts);
 int dao_rdma_read_chunk_flush_pending(uint32_t qp_id, int devid);
 int dao_rdma_read_chunk_retry(uint32_t qp_id, int devid);
+int dao_rdma_read_service_pending(uint32_t qp_id, int devid);
 struct rte_mbuf *dao_rdma_need_qp_schedule(uint32_t qp_id, int devid);
 
 #endif /* __RDMA_FP_H__ */

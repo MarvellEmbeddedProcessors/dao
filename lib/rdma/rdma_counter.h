@@ -129,7 +129,15 @@ rdma_counter_update_lcore(void)
 	/** Requester RX: READ response segment received and reassembled. */                       \
 	X(RDMA_RX_QP_READ_RSP_RCVD)                                                                \
 	/** Requester RX: full READ data reassembled (all segments received). */                   \
-	X(RDMA_RX_QP_READ_MSG_COMPLETE)
+	X(RDMA_RX_QP_READ_MSG_COMPLETE)                                                            \
+	/** Chunked READ: continuation chunk allocated and submitted to PTS D2M. */                \
+	X(RDMA_TX_QP_READ_CHUNK_CONTINUE)                                                          \
+	/** New chunked READ queued behind an in-flight multi-chunk READ. */                       \
+	X(RDMA_RX_QP_READ_PENDING_QUEUED)                                                          \
+	/** A queued chunked READ was started once the in-flight READ drained. */                  \
+	X(RDMA_RX_QP_READ_PENDING_SERVICED)                                                        \
+	/** Retransmit of an already-queued chunked READ dropped (slot occupied). */               \
+	X(RDMA_RX_QP_READ_PENDING_DROP_DUP)
 #else
 #define RDMA_QP_DBG_COUNTER_LIST
 #endif
@@ -349,8 +357,6 @@ rdma_counter_update_lcore(void)
 	X(RDMA_RX_QP_READ_DUP_DMA_INFLIGHT)                                                        \
 	/** READ reply segment refcnt != 2; buffer freed prematurely. */                           \
 	X(RDMA_TX_QP_READ_REPLY_REFCNT_ERR)                                                        \
-	/** Chunked READ: continuation chunk allocated and submitted to PTS D2M. */                \
-	X(RDMA_TX_QP_READ_CHUNK_CONTINUE)                                                          \
 	/** Chunked READ: continuation allocation or PTS enqueue failed. */                        \
 	X(RDMA_TX_QP_READ_CHUNK_CONTINUE_FAIL)                                                     \
 	/** Assembled READ reply dropped: insufficient M2D DMA resources for PTS enqueue. */       \

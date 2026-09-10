@@ -187,6 +187,7 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 		qp->resp.resp_dummy_mbuf = NULL;
 	}
 	qp->resp.resp_cur_rmbuf = NULL;
+	rdma_pending_read_drop(qp);
 	qp->resp.resp_read_requeue_inflight = 0;
 	qp->resp.read_reply_opcode = -1;
 	qp->resp.read_reply_psn = 0;

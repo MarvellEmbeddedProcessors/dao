@@ -119,6 +119,10 @@ rdma_pts_deq_node_process_inline(struct rte_graph *graph, struct rte_node *node,
 		if (dao_rdma_read_chunk_retry(qp_id, devid))
 			dao_rdma_read_chunk_flush_pending(qp_id, devid);
 
+		/* Start a chunked READ parked behind a now-drained in-flight READ. */
+		if (dao_rdma_read_service_pending(qp_id, devid))
+			dao_rdma_read_chunk_flush_pending(qp_id, devid);
+
 		{
 			struct rte_mbuf *sched_mbuf = dao_rdma_need_qp_schedule(qp_id, devid);
 

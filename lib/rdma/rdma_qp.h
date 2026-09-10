@@ -28,7 +28,7 @@
 #define RDMA_MULTICAST_QPN 0xFFFFFF
 
 #define MAX_RESP_BUCKET        32
-#define RDMA_READ_CHUNK_MBUFS  8192
+#define RDMA_READ_CHUNK_MBUFS  64
 #define RDMA_WRITE_CHUNK_MBUFS 2048
 #define RDMA_DMA_FLUSH_THR     8
 
@@ -315,6 +315,7 @@ struct rdma_read_chunk_state {
 	uint32_t bytes_prepared;           /* bytes already submitted to PTS D2M */
 	uint32_t rkey;                     /* remote key for continuation */
 	uint32_t next_psn;                 /* PSN for next chunk's reply segments */
+	uint32_t msn;                      /* AETH MSN of the original READ (all chunks) */
 	int next_opcode;                   /* wire opcode to resume from (-1 = fresh) */
 	struct rte_mempool *pool;          /* mbuf pool for continuation allocations */
 	uint16_t port;                     /* NIC port for continuation mbufs */
@@ -323,6 +324,16 @@ struct rdma_read_chunk_state {
 	bool is_requeue;                   /* original READ was a dup-request requeue */
 	bool needs_pts_enqueue;            /* pending_pts_head must be submitted to PTS */
 	bool needs_chunk_retry;            /* chunk_continue deferred; retry next cycle */
+};
+
+struct rdma_pending_read {
+	struct rte_mbuf *mbuf; /* parked request mbuf, reused as chunk-1 head */
+	uint64_t reth_va;      /* decoded RETH virtual address */
+	uint32_t reth_rkey;    /* decoded RETH remote key */
+	uint32_t dma_len;      /* decoded RETH length (total READ bytes) */
+	uint32_t psn;          /* request PSN */
+	uint16_t port;         /* NIC port of the request mbuf */
+	bool valid;            /* a chunked READ is queued */
 };
 
 struct rdma_resp_info {
@@ -349,6 +360,7 @@ struct rdma_resp_info {
 	bool read_emit_ack_valid;
 
 	struct rdma_read_chunk_state read_chunk;
+	struct rdma_pending_read pending_read;
 
 	STAILQ_HEAD(ack_list, rdma_ack) ack_pending_list;
 };
