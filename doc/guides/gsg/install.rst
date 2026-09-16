@@ -22,7 +22,7 @@ Packages available for different distributions
    +-------------------------+-----------------------+-----------------------+
    |   Available Packages    |        Ubuntu         |        RHEL           |
    +=========================+=======================+=======================+
-   | DAO 26.06               | Yes                   | Planned               |
+   | DAO 27.02               | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
    | DPDK 25.11              | Yes                   | Planned               |
    +-------------------------+-----------------------+-----------------------+
@@ -202,7 +202,7 @@ install a specific version, then user can specify the version as below:
 
 .. code-block:: console
 
- # apt-get install dao-cn10k=26.02.0
+ # apt-get install dao-cn10k=27.02.0
 
 .. note:: While installing an older package user may observe some dependency issues:
 
