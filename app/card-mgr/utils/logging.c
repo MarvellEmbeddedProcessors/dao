@@ -55,13 +55,6 @@ dao_card_log_info_internal(const char *fmt, ...)
 	va_start(ap, fmt);
 	vsyslog(LOG_INFO, fmt, ap);
 	va_end(ap);
-
-	/* Also capture info messages to error buffer if empty */
-	if (dao_card_err_buf && dao_card_err_buf_len && dao_card_err_buf[0] == '\0') {
-		va_start(ap, fmt);
-		vsnprintf(dao_card_err_buf, dao_card_err_buf_len, fmt, ap);
-		va_end(ap);
-	}
 }
 
 void
