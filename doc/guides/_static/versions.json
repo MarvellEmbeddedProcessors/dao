@@ -28,5 +28,15 @@
     "version": "dao-26.06",
     "name": "26.06",
     "url": "/dao/guides/dao-26.06/"
+  },
+  {
+    "version": "dao-26.10",
+    "name": "26.10",
+    "url": "/dao/guides/dao-26.10/"
+  },
+  {
+    "version": "nvmeof-dao-release",
+    "name": "NVMe-oF Release",
+    "url": "/dao/guides/nvmeof-dao-release/"
   }
 ]
