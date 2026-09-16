@@ -12,6 +12,8 @@ on:
       - dao-lc-26.01
       - dao-26.02
       - dao-26.06
+      - dao-26.10
+      - nvmeof-dao-release
 
 jobs:
   sync:
