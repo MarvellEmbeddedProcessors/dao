@@ -18,7 +18,7 @@ extensions = [
 
 # Build policy for SMV
 smv_remote_whitelist = r"^origin$"
-smv_branch_whitelist = r"^(dao\-.*|dao\-devel)$"
+smv_branch_whitelist = r"^(dao\-.*|dao\-devel|nvmeof\-.*)$"
 smv_tag_whitelist    = r"^$"
 smv_outputdir_format = "{ref.name}"
 
