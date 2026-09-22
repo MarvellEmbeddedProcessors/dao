@@ -237,10 +237,13 @@ dao_card_app_fallback(struct dao_card_grpc_ctx *ctx)
 int
 dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 {
+	struct dao_card_info info;
 	ClientContext context;
+	bool comp_dev_enabled;
 	grpc::Status status;
 	CardStats resp;
 	Emp empty;
+	int rc;
 
 	if (ctx == NULL || stats == NULL)
 		return -EINVAL;
@@ -252,14 +255,24 @@ dao_card_stats_get(struct dao_card_grpc_ctx *ctx, struct dao_card_stats *stats)
 		return grpc_status_to_errno(status);
 	}
 
+	rc = dao_card_info_get(ctx, &info);
+	if (rc != 0)
+		return rc;
+
+	comp_dev_enabled = info.comp_dev_enabled;
+	memset(stats, 0, sizeof(*stats));
+
 	for (int i = 0; i < CA_MAX_WORKER_CORES; ++i) {
 		stats->rx_packets[i] = resp.rx_packets(i);
 		stats->tx_packets[i] = resp.tx_packets(i);
-		stats->comp_enq[i] = resp.comp_enq(i);
-		stats->comp_deq[i] = resp.comp_deq(i);
-		stats->comp_req_ring_enq[i] = resp.comp_req_ring_enq(i);
-		stats->comp_resp_ring_deq[i] = resp.comp_resp_ring_deq(i);
+		if (comp_dev_enabled) {
+			stats->comp_enq[i] = resp.comp_enq(i);
+			stats->comp_deq[i] = resp.comp_deq(i);
+			stats->comp_req_ring_enq[i] = resp.comp_req_ring_enq(i);
+			stats->comp_resp_ring_deq[i] = resp.comp_resp_ring_deq(i);
+		}
 	}
+
 	return 0;
 }
 
