@@ -109,7 +109,7 @@ function rdma_app_launch()
 function rdma_launch_graph_on_device()
 {
 	local ext_iface=${1:-${EP_DEVICE_EXT_IFACE:-}}
-	local num_mbufs=${2:-131072}
+	local num_mbufs=${2:-531072}
 	local dma_nb_desc=${3:-32768}
 	local pci_devs="$ext_iface"
 	local pci_bdf="${ext_iface%%,*}"
@@ -155,7 +155,7 @@ function rdma_launch_graph_on_device()
 function rdma_launch_graph_on_remote()
 {
 	local ext_iface=${1:-${EP_REMOTE_IFACE:-}}
-	local num_mbufs=${2:-131072}
+	local num_mbufs=${2:-531072}
 	local dma_nb_desc=${3:-32768}
 	local pci_devs="$ext_iface"
 	local pci_bdf="${ext_iface%%,*}"

@@ -44,7 +44,7 @@ function rdma_launch_device_app()
 	local ext_iface=$1
 	local role=${2:-device}
 	local op_fn ssh_fn sudo_var
-	local num_mbufs=131072
+	local num_mbufs=531072
 	local max_pkt_len=9600
 	local dma_nb_desc=32768
 	local pci_devs="$ext_iface"
