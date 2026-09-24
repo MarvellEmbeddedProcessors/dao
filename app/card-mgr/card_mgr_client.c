@@ -80,6 +80,13 @@ dao_card_client_cmd_valid(const char *line, size_t *trimmed_len)
 	if (len == 0)
 		return false;
 
+	/* Reject input too large to fit the server's buffer (with trailing '\n'). */
+	if (len > BUFFER_SIZE - 2) {
+		fprintf(stderr, "Error: command line too long (%zu bytes, max %d).\n", len,
+			BUFFER_SIZE - 2);
+		return false;
+	}
+
 	tmp = strndup(line, len);
 	if (!tmp)
 		return false;
