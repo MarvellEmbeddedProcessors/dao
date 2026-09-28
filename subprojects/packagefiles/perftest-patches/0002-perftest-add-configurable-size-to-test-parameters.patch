@@ -1,0 +1,186 @@
+From 8a38e6919e3ca37a959a730035c4cfea7556fb30 Mon Sep 17 00:00:00 2001
+From: Kommula Shiva Shankar <kshankar@marvell.com>
+Date: Mon, 28 Sep 2026 16:07:08 +0530
+Subject: [PATCH] perftest: add configurable size to test parameters
+
+add configurable size to test parameters
+
+Signed-off-by: Kommula Shiva Shankar <kshankar@marvell.com>
+---
+ src/perftest_parameters.c | 9 ++++++++-
+ src/perftest_parameters.h | 1 +
+ src/read_bw.c             | 4 +++-
+ src/read_lat.c            | 5 ++++-
+ src/send_bw.c             | 6 ++++--
+ src/send_lat.c            | 5 ++++-
+ src/write_bw.c            | 4 +++-
+ src/write_lat.c           | 4 +++-
+ 8 files changed, 30 insertions(+), 8 deletions(-)
+
+diff --git a/src/perftest_parameters.c b/src/perftest_parameters.c
+index 1a95efe..770ea98 100755
+--- a/src/perftest_parameters.c
++++ b/src/perftest_parameters.c
+@@ -1494,7 +1494,8 @@ static void force_dependecies(struct perftest_parameters *user_param)
+ 		user_param->inline_size = 0;
+ 
+ 	if (user_param->test_method == RUN_ALL)
+-		user_param->size = MAX_SIZE;
++		user_param->size = user_param->max_size_mb ?
++			(uint64_t)user_param->max_size_mb * 1024 * 1024 : MAX_SIZE;
+ 
+ 	if (user_param->verb == ATOMIC && user_param->size != DEF_SIZE_ATOMIC) {
+ 		printf(RESULT_LINE);
+@@ -3130,6 +3131,7 @@ int parser(struct perftest_parameters *user_param,char *argv[], int argc)
+ 
+ 	static int data_validation_flag = 0;
+ 	static int data_validation_debug_flag = 0;
++	static int max_size_mb_flag = 0;
+ 
+ 	char *server_ip = NULL;
+ 	char *client_ip = NULL;
+@@ -3328,6 +3330,7 @@ int parser(struct perftest_parameters *user_param,char *argv[], int argc)
+ 			{.name = "data_validation", .has_arg = 0, .flag = &data_validation_flag, .val = 1 },
+ 			{.name = "data_validation_debug", .has_arg = 0, .flag = &data_validation_debug_flag, .val = 1 },
+ 			{.name = "pin_cores", .has_arg = 1, .flag = &pin_cores_flag, .val = 1 },
++			{.name = "max_size_mb", .has_arg = 1, .flag = &max_size_mb_flag, .val = 1 },
+ 			{.name = "numa_node", .has_arg = 1, .flag = &numa_node_flag, .val = 1 },
+ 			{.name = "disable_numa", .has_arg = 0, .flag = &disable_numa_flag, .val = 1 },
+ 			{0}
+@@ -3647,6 +3650,10 @@ int parser(struct perftest_parameters *user_param,char *argv[], int argc)
+ 					CHECK_VALUE_NON_NEGATIVE(user_param->burst_size,int,"Burst size",not_int_ptr);
+ 					burst_size_flag = 0;
+ 				}
++				if (max_size_mb_flag) {
++					CHECK_VALUE_IN_RANGE(user_param->max_size_mb,int,1,1024,"Max size (MB)",not_int_ptr);
++					max_size_mb_flag = 0;
++				}
+ 				if (typical_pkt_size_flag) {
+ 					CHECK_VALUE_IN_RANGE(user_param->typical_pkt_size,int,0,0xFFFF,"Typical pkt size",not_int_ptr);
+ 					typical_pkt_size_flag = 0;
+diff --git a/src/perftest_parameters.h b/src/perftest_parameters.h
+index 9ecafb1..e0c2f88 100755
+--- a/src/perftest_parameters.h
++++ b/src/perftest_parameters.h
+@@ -713,6 +713,7 @@ struct perftest_parameters {
+ 	cpu_set_t			cpu_affinity;     /* CPU mask for affinity */
+ 	int				numa_node;
+ 	int				disable_numa;
++	int				max_size_mb;
+ };
+ 
+ struct report_options {
+diff --git a/src/read_bw.c b/src/read_bw.c
+index 263a423..6fbb473 100755
+--- a/src/read_bw.c
++++ b/src/read_bw.c
+@@ -321,8 +321,10 @@ int main(int argc, char *argv[])
+ 	}
+ 
+ 	if (user_param.test_method == RUN_ALL) {
++		int size_max_pow = user_param.max_size_mb ?
++			(int)MSG_SZ_2_EXP((uint64_t)user_param.max_size_mb * 1024 * 1024) + 1 : 24;
+ 
+-		for (i = 1; i < 24 ; ++i) {
++		for (i = 1; i < size_max_pow ; ++i) {
+ 
+ 			user_param.size = (uint64_t)1 << i;
+ 			ctx_set_send_wqes(&ctx,&user_param,rem_dest);
+diff --git a/src/read_lat.c b/src/read_lat.c
+index 5049f49..fd17a1c 100755
+--- a/src/read_lat.c
++++ b/src/read_lat.c
+@@ -313,7 +313,10 @@ int main(int argc, char *argv[])
+ 	ctx_set_send_wqes(&ctx,&user_param,rem_dest);
+ 
+ 	if (user_param.test_method == RUN_ALL) {
+-		for (i = 1; i < 24 ; ++i) {
++		int size_max_pow = user_param.max_size_mb ?
++			(int)MSG_SZ_2_EXP((uint64_t)user_param.max_size_mb * 1024 * 1024) + 1 : 24;
++
++		for (i = 1; i < size_max_pow ; ++i) {
+ 			user_param.size = (uint64_t)1 << i;
+ 			if(run_iter_lat(&ctx,&user_param)) {
+ 				error = 17;
+diff --git a/src/send_bw.c b/src/send_bw.c
+index 5c57205..afed6ec 100755
+--- a/src/send_bw.c
++++ b/src/send_bw.c
+@@ -170,7 +170,7 @@ int main(int argc, char *argv[])
+ 	struct mcast_parameters     	mcg_params;
+ 	struct bw_report_data		my_bw_rep, rem_bw_rep;
+ 	int                      	ret_parser, i = 0, rc;
+-	int                      	size_max_pow = 24;
++	int                      	size_max_pow;
+ 	int 						error = 1;
+ 	int rdma_cm_flow_destroyed = 0;
+ 
+@@ -429,7 +429,9 @@ int main(int argc, char *argv[])
+ 		}
+ 		printf((user_param.cpu_util_data.enable ? RESULT_EXT_CPU_UTIL : RESULT_EXT));
+ 	}
+-
++	size_max_pow = user_param.max_size_mb ?
++		(int)MSG_SZ_2_EXP((uint64_t)user_param.max_size_mb * 1024 * 1024) + 1 : 24;
++ 
+ 	if (user_param.test_method == RUN_ALL) {
+ 		if (user_param.connection_type == UD)
+ 			size_max_pow = (int)MSG_SZ_2_EXP(MTU_SIZE(user_param.curr_mtu)) + 1;
+diff --git a/src/send_lat.c b/src/send_lat.c
+index db5a8ac..0720f4b 100755
+--- a/src/send_lat.c
++++ b/src/send_lat.c
+@@ -170,7 +170,7 @@ static int send_destroy_ctx(struct pingpong_context *ctx,
+ int main(int argc, char *argv[])
+ {
+ 	int                        i = 0, rc, error = 1;
+-	int                        size_max_pow = 24;
++	int                        size_max_pow;
+ 	int			   ret_val;
+ 	struct report_options      report;
+ 	struct pingpong_context    ctx;
+@@ -421,6 +421,9 @@ int main(int argc, char *argv[])
+ 
+ 	ctx_set_send_wqes(&ctx,&user_param,rem_dest);
+ 
++	size_max_pow = user_param.max_size_mb ?
++		(int)MSG_SZ_2_EXP((uint64_t)user_param.max_size_mb * 1024 * 1024) + 1 : 24;
++
+ 	if (user_param.test_method == RUN_ALL) {
+ 		if (user_param.connection_type == UD)
+ 			size_max_pow = (int)MSG_SZ_2_EXP(MTU_SIZE(user_param.curr_mtu)) + 1;
+diff --git a/src/write_bw.c b/src/write_bw.c
+index d5031f3..43aa0a3 100755
+--- a/src/write_bw.c
++++ b/src/write_bw.c
+@@ -346,8 +346,10 @@ int main(int argc, char *argv[])
+ 		sleep(2);
+ 	}
+ 	if (user_param.test_method == RUN_ALL) {
++		int size_max_pow = user_param.max_size_mb ?
++			(int)MSG_SZ_2_EXP((uint64_t)user_param.max_size_mb * 1024 * 1024) + 1 : 24;
+ 
+-		for (i = 1; i < 24 ; ++i) {
++		for (i = 1; i < size_max_pow ; ++i) {
+ 
+ 			user_param.size = (uint64_t)1 << i;
+ 
+diff --git a/src/write_lat.c b/src/write_lat.c
+index 9dcaf68..6e8e2a9 100755
+--- a/src/write_lat.c
++++ b/src/write_lat.c
+@@ -282,8 +282,10 @@ int main(int argc, char *argv[])
+ 	}
+ 
+ 	if (user_param.test_method == RUN_ALL) {
++		int size_max_pow = user_param.max_size_mb ?
++			(int)MSG_SZ_2_EXP((uint64_t)user_param.max_size_mb * 1024 * 1024) + 1 : 24;
+ 
+-		for (i = 1; i < 24 ; ++i) {
++		for (i = 1; i < size_max_pow ; ++i) {
+ 			user_param.size = (uint64_t)1 << i;
+ 
+ 			if (user_param.verb == WRITE_IMM) {
+-- 
+2.48.1
+
