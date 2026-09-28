@@ -1,5 +1,5 @@
 [wrap-git]
 url = https://github.com/linux-rdma/perftest.git
-revision = master
+revision = f92b285fc31a0fa44232ab9cee8145d50e5c971c
 depth = 1
-diff_files = perftest-patches/0001-build-add-meson-and-build-script-for-perftest.patch
+diff_files = perftest-patches/0001-build-add-meson-and-build-script-for-perftest.patch, perftest-patches/0002-perftest-add-configurable-size-to-test-parameters.patch

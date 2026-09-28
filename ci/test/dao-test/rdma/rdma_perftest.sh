@@ -107,7 +107,7 @@ function run_perftest_case()
 	# Multiple QPs (-q) are only valid for the bandwidth (_bw) benchmarks;
 	# the latency (_lat) binaries reject -q.
 	local q_opt=""
-	[[ "$binary" == *_bw ]] && q_opt="-q 16"
+	[[ "$binary" == *_bw ]] && q_opt="-q 128 --max_size_mb 1 "
 
 	# CQ event mode (-e): sleep on CQ events instead of the default busy poll.
 	local event_opt=""
