@@ -106,26 +106,39 @@ rdma_node_eth_ctrl(rdma_node_eth_ctrl_conf_t *conf, uint16_t nb_confs, uint16_t 
 			dao_dbg("Rx node %s-%s: is at %u", rx_node->name, name, id);
 		}
 
-		/* Create a per port tx node from base node */
-		snprintf(name, sizeof(name), "%u", port_id);
-		/* Clone a new node with same edges as parent */
-		id = rte_node_clone(tx_node->id, name);
-		tx_node_data->nodes[port_id] = id;
+		/* Create node for each tx port queue pair */
+		for (j = 0; j < tx_q_used; j++) {
+			rdma_eth_tx_node_elem_t *tx_elem;
 
-		dao_dbg("Tx node %s-%s: is at %u", tx_node->name, name, id);
+			snprintf(name, sizeof(name), "%u-%u", port_id, j);
+			id = rte_node_clone(tx_node->id, name);
+			if (id == RTE_NODE_ID_INVALID)
+				return -EIO;
 
-		/* Prepare the actual name of the cloned node */
-		snprintf(name, sizeof(name), "rdma_eth_tx-%u", port_id);
+			tx_elem = malloc(sizeof(rdma_eth_tx_node_elem_t));
+			if (tx_elem == NULL)
+				return -ENOMEM;
+			memset(tx_elem, 0, sizeof(*tx_elem));
+			tx_elem->ctx.port = port_id;
+			tx_elem->ctx.queue = j;
+			tx_elem->nid = id;
+			tx_elem->next = tx_node_data->head;
+			tx_node_data->head = tx_elem;
 
-		/* Add this tx port node as next to both rdma nodes to keep edge order identical */
-		rte_node_edge_update(rdma_node->id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
-		rte_node_edge_update(rdma_pts_node->id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
-		/* Use the PTS-process node edge index to program mapping used by PTS path */
-		rc = rdma_set_eth_tx_edge_idx(port_id, rte_node_edge_count(rdma_pts_node->id) - 1);
-		dao_dbg("Setting eth_tx_edge[%d] = %d (from PTS node) for %s", port_id,
-			rte_node_edge_count(rdma_pts_node->id) - 1, name);
-		if (rc < 0)
-			return rc;
+			dao_dbg("Tx node %s-%s: is at %u", tx_node->name, name, id);
+
+			snprintf(name, sizeof(name), "rdma_eth_tx-%u-%u", port_id, j);
+
+			rte_node_edge_update(rdma_node->id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
+			rte_node_edge_update(rdma_pts_node->id, RTE_EDGE_ID_INVALID, &next_nodes,
+					     1);
+			rc = rdma_set_eth_tx_edge_idx(port_id, j,
+						      rte_node_edge_count(rdma_pts_node->id) - 1);
+			dao_dbg("Setting eth_tx_edge[%d][%d] = %d (from PTS node) for %s", port_id,
+				j, rte_node_edge_count(rdma_pts_node->id) - 1, name);
+			if (rc < 0)
+				return rc;
+		}
 	}
 
 	return 0;

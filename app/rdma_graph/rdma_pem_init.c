@@ -4,6 +4,7 @@
 
 #include "rdma_init.h"
 
+#include <rte_ethdev.h>
 #include <rte_mbuf.h>
 
 #include "dao_pem.h"
@@ -84,25 +85,37 @@ rdma_tx_lcore_pool_create(rdma_ethdev_param_t *eth_prm, rdma_config_param_t *cfg
 static inline int
 rdma_update_tx_nodes_to_pts_deq(uint16_t devid, rte_node_t id, uint64_t port_mask)
 {
+	struct rte_eth_dev_info dev_info;
 	const char *next_nodes;
-	char name[32] = {0};
-	uint16_t i;
+	char name[RTE_NODE_NAMESIZE];
+	uint16_t i, q, nb_txq;
 	int rc;
 
-	snprintf(name, sizeof(name), "rdma_pts_deq-%u", devid);
+	RTE_SET_USED(devid);
 
 	for (i = 0; port_mask; i++) {
 		if (!(port_mask & (1ULL << i)))
 			continue;
 		port_mask &= ~(1ULL << i);
 
-		sprintf(name, "rdma_eth_tx-%u", i);
-		next_nodes = name;
+		rc = rte_eth_dev_info_get(i, &dev_info);
+		if (rc < 0)
+			continue;
+		nb_txq = dev_info.nb_tx_queues;
 
-		rc = rte_node_edge_update(id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
-		if (rc < 0) {
-			printf("Error updating edge for rdma_pts_deq node %u, rc=%d\n", id, rc);
-			return rc;
+		if (!nb_txq)
+			nb_txq = 1;
+
+		for (q = 0; q < nb_txq; q++) {
+			snprintf(name, sizeof(name), "rdma_eth_tx-%u-%u", i, q);
+			next_nodes = name;
+
+			rc = rte_node_edge_update(id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
+			if (rc < 0) {
+				printf("Error updating edge for rdma_pts_deq node %u, rc=%d\n", id,
+				       rc);
+				return rc;
+			}
 		}
 	}
 
@@ -218,9 +231,9 @@ rdma_pem_init(struct rdma_main_cfg_data *rdma_main_cfg)
 		next_nodes = name;
 		rte_node_edge_update(rdma_node->id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
 		rte_node_edge_update(rdma_pts_node->id, RTE_EDGE_ID_INVALID, &next_nodes, 1);
-		rc = rdma_set_eth_tx_edge_idx(RTE_MAX_ETHPORTS + devid,
-					      rte_node_edge_count(rdma_node->id) - 1);
-		printf("Setting eth_tx_edge[%d] = %d for node %s\n", RTE_MAX_ETHPORTS + devid,
+		rc = rdma_set_eth_tx_edge_idx_all_queues(RTE_MAX_ETHPORTS + devid,
+							 rte_node_edge_count(rdma_node->id) - 1);
+		printf("Setting eth_tx_edge[%d][*] = %d for node %s\n", RTE_MAX_ETHPORTS + devid,
 		       rte_node_edge_count(rdma_node->id) - 1, name);
 		if (rc < 0)
 			return rc;

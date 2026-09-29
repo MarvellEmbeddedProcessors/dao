@@ -28,8 +28,6 @@ rdma_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **
 			 uint16_t nb_objs)
 {
 	rdma_eth_tx_node_ctx_t *ctx = (rdma_eth_tx_node_ctx_t *)node->ctx;
-	const int dyn = RDMA_ETH_TX_NODE_PRIV1_OFF(node->ctx);
-	struct rte_mbuf *mbuf;
 	uint16_t port, queue;
 	uint16_t count = 0, sent = 0;
 	/* Send in up to 512-packet windows; retry for a bounded time before dropping. */
@@ -43,10 +41,7 @@ rdma_eth_tx_node_process(struct rte_graph *graph, struct rte_node *node, void **
 
 	/* Get Tx port id */
 	port = ctx->port;
-
-	/* Get the queue from the first packet */
-	mbuf = (struct rte_mbuf *)objs[0];
-	queue = node_mbuf_priv1(mbuf, dyn)->queue;
+	queue = ctx->queue;
 
 	while (sent < nb_objs) {
 		uint16_t batch = RTE_MIN((uint16_t)(nb_objs - sent), max_burst);
@@ -87,23 +82,19 @@ static int
 rdma_eth_tx_node_init(const struct rte_graph *graph, struct rte_node *node)
 {
 	rdma_eth_tx_node_ctx_t *ctx = (rdma_eth_tx_node_ctx_t *)node->ctx;
-	uint64_t port_id = RTE_MAX_ETHPORTS;
+	rdma_eth_tx_node_elem_t *elem = rdma_eth_tx_main.head;
 	static bool init_once;
-	int i;
 
 	RTE_SET_USED(graph);
-	/* Find our port id */
-	for (i = 0; i < RTE_MAX_ETHPORTS; i++) {
-		if (rdma_eth_tx_main.nodes[i] == node->id) {
-			port_id = i;
+
+	while (elem) {
+		if (elem->nid == node->id) {
+			memcpy(ctx, &elem->ctx, sizeof(rdma_eth_tx_node_ctx_t));
 			break;
 		}
+		elem = elem->next;
 	}
-	RTE_VERIFY(port_id < RTE_MAX_ETHPORTS);
-
-	/* Update port and queue */
-	ctx->port = port_id;
-	ctx->queue = graph->id;
+	RTE_VERIFY(elem != NULL);
 
 	if (!init_once) {
 		node_mbuf_priv1_dynfield_queue =

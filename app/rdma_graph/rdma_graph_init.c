@@ -22,8 +22,8 @@
 rte_node_t rdma_pts_deq_nodes[DAO_PTS_RDMA_MAX_DEVS];
 rte_node_t rdma_pts_enq_nodes[DAO_PTS_RDMA_MAX_DEVS];
 
-/* Cache edge index from PTS-DEQ node (per RDMA device) to its rdma_eth_tx-<port> */
-static uint16_t pts_deq_tx_edge_idx[DAO_PTS_RDMA_MAX_DEVS];
+/* Cache edge index from PTS-DEQ node */
+static uint16_t pts_deq_tx_edge_idx[DAO_PTS_RDMA_MAX_DEVS][RDMA_ETH_TX_MAX_QUEUES];
 static bool pts_deq_tx_edge_idx_init;
 
 static uint32_t
@@ -166,34 +166,47 @@ rdma_graph_init(struct rdma_main_cfg_data *rdma_main_cfg)
 	if (rc)
 		DAO_ERR_GOTO(errno, fail, "Failed to configure eth nodes");
 
-	/* Initialize PTS-DEQ -> rdma_eth_tx-<port> edges once, prior to graph creation */
+	/* Initialize PTS-DEQ -> rdma_eth_tx-<port>-<queue> edges*/
 	if (!pts_deq_tx_edge_idx_init) {
-		for (uint16_t d = 0; d < DAO_PTS_RDMA_MAX_DEVS; d++)
-			pts_deq_tx_edge_idx[d] = RTE_EDGE_ID_INVALID;
+		memset(pts_deq_tx_edge_idx, 0xFF, sizeof(pts_deq_tx_edge_idx));
 		uint32_t dev_mask = cfg_prm->enabled_dev_mask;
 
 		while (dev_mask) {
-			uint16_t devid = __builtin_ctz(dev_mask);
+			uint16_t mac_port;
+			uint16_t devid, nb_txq = 0, c = 0, q = 0;
 
+			devid = __builtin_ctz(dev_mask);
 			dev_mask &= ~(1u << devid);
-			uint16_t mac_port = rdma_get_mac_port_from_rdevid(devid);
+			mac_port = rdma_get_mac_port_from_rdevid(devid);
 
 			if (mac_port >= RTE_MAX_ETHPORTS) {
 				DAO_ERR_GOTO(-EINVAL, fail, "Invalid MAC port for RDMA devid %u",
 					     devid);
 			}
-			char tx_name[RTE_NODE_NAMESIZE];
-			const char *next_nodes;
 
-			snprintf(tx_name, sizeof(tx_name), "rdma_eth_tx-%u", mac_port);
-			next_nodes = tx_name;
-			/* Append edge to the correct TX node for this RDMA device */
-			rte_node_edge_update(rdma_pts_deq_nodes[devid], RTE_EDGE_ID_INVALID,
-					     &next_nodes, 1);
-			pts_deq_tx_edge_idx[devid] =
-				rte_node_edge_count(rdma_pts_deq_nodes[devid]) - 1;
-			dao_info("PTS-DEQ devid %u mapped to %s (edge idx %u)", devid, tx_name,
-				 pts_deq_tx_edge_idx[devid]);
+			for (c = 0; c < graph_prm->nb_conf; c++) {
+				if (graph_prm->eth_ctrl_cfg[c].port_id == mac_port) {
+					nb_txq = graph_prm->eth_ctrl_cfg[c].num_tx_queues;
+					break;
+				}
+			}
+			if (!nb_txq)
+				nb_txq = 1;
+
+			for (q = 0; q < nb_txq; q++) {
+				char tx_name[RTE_NODE_NAMESIZE];
+				const char *next_nodes;
+
+				snprintf(tx_name, sizeof(tx_name), "rdma_eth_tx-%u-%u", mac_port,
+					 q);
+				next_nodes = tx_name;
+				rte_node_edge_update(rdma_pts_deq_nodes[devid], RTE_EDGE_ID_INVALID,
+						     &next_nodes, 1);
+				pts_deq_tx_edge_idx[devid][q] =
+					rte_node_edge_count(rdma_pts_deq_nodes[devid]) - 1;
+				dao_info("PTS-DEQ devid %u mapped to %s (edge idx %u)", devid,
+					 tx_name, pts_deq_tx_edge_idx[devid][q]);
+			}
 		}
 		pts_deq_tx_edge_idx_init = true;
 	}
@@ -330,7 +343,8 @@ rdma_graph_init(struct rdma_main_cfg_data *rdma_main_cfg)
 						devid, lcore_id, mac_port);
 			}
 			qconf->pts_rdma_deq_list[i].node_ctx->tx_node_idx =
-				pts_deq_tx_edge_idx[devid];
+				pts_deq_tx_edge_idx[devid]
+						   [qconf->pts_rdma_deq_list[i].node_ctx->queue_id];
 			qconf->pts_rdma_deq_list[i].node_ctx->devid = devid;
 			/* Validate tx edge index is within bounds for this node instance */
 			if (qconf->pts_rdma_deq_list[i].node_ctx->tx_node_idx >= node->nb_edges) {

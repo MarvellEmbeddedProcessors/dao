@@ -21,6 +21,7 @@
 #include "rdma_pts_enq_priv.h"
 
 extern int node_mbuf_priv1_dynfield_queue;
+
 static struct rdma_pts_enq_node_main rdma_pts_enq_main;
 
 #define RDMA_PTS_ENQ_NODE_PRIV1_OFF(ctx) (((struct rdma_pts_enq_node_ctx *)ctx)->mbuf_priv1_off)
@@ -104,8 +105,8 @@ static struct rte_node_register rdma_pts_enq_node_base = {
 	.name = "rdma_pts_enq",
 	.nb_edges = 1,
 	.next_nodes = {
-		[0] = "pkt_drop",
-	},
+			[0] = "pkt_drop",
+		},
 };
 
 struct rte_node_register *
