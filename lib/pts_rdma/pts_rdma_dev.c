@@ -16,6 +16,23 @@
 struct dao_pts_rdma_dev_cbs pts_rdma_dev_cbs;
 struct dao_pts_rdma_dev dao_pts_rdma_devs[DAO_PTS_RDMA_MAX_DEVS];
 
+dao_pts_rdma_burst_fn_t dao_pts_rdma_enq_fp = dao_pts_rdma_enqueue_burst_with_meta;
+dao_pts_rdma_burst_fn_t dao_pts_rdma_deq_fp = dao_pts_rdma_dequeue_burst_with_meta;
+dao_pts_rdma_cqe_fn_t dao_pts_rdma_cqe_fp = dao_pts_rdma_enqueue_cqe_with_meta;
+dao_pts_rdma_desc_manage_fn_t dao_pts_rdma_desc_manage_fp = dao_pts_rdma_desc_manage_with_meta;
+dao_dma_flush_submit_fn_t dao_dma_flush_submit_fp = dao_dma_flush_submit_v2;
+
+void
+dao_pts_rdma_ops_mode_set(bool enable)
+{
+	RTE_SET_USED(enable);
+	dao_pts_rdma_enq_fp = dao_pts_rdma_enqueue_burst_with_meta;
+	dao_pts_rdma_deq_fp = dao_pts_rdma_dequeue_burst_with_meta;
+	dao_pts_rdma_cqe_fp = dao_pts_rdma_enqueue_cqe_with_meta;
+	dao_pts_rdma_desc_manage_fp = dao_pts_rdma_desc_manage_with_meta;
+	dao_dma_flush_submit_fp = dao_dma_flush_submit_v2;
+}
+
 static int
 pts_rdma_dev_dev_cfg_cb(void *ctx, uintptr_t shadow, uint32_t offset, uint64_t val,
 			uint64_t shadow_val)
@@ -530,8 +547,8 @@ dao_pts_rdma_meta_data_get(uint16_t devid, void *dest, uint16_t len)
 	return len;
 }
 
-static int
-dao_pts_rdma_desc_manage_meta(uint16_t devid)
+int
+dao_pts_rdma_desc_manage_with_meta(uint16_t devid)
 {
 	struct dao_pts_rdma_dev *dao_dev = &dao_pts_rdma_devs[devid];
 	struct pts_rdma_dev *dev = pts_rdma_dev_priv(dao_dev);
@@ -624,7 +641,34 @@ dao_pts_rdma_desc_manage_meta(uint16_t devid)
 }
 
 int
+dao_pts_rdma_dma_flush(void)
+{
+	return dao_dma_flush_submit_fp();
+}
+
+int
 dao_pts_rdma_desc_manage(uint16_t devid)
 {
-	return dao_pts_rdma_desc_manage_meta(devid);
+	return dao_pts_rdma_desc_manage_fp(devid);
+}
+
+uint16_t
+dao_pts_rdma_enqueue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
+			   uint16_t nb_mbufs)
+{
+	return dao_pts_rdma_enq_fp(devid, qp_id, mbufs, nb_mbufs);
+}
+
+uint16_t
+dao_pts_rdma_dequeue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
+			   uint16_t nb_mbufs)
+{
+	return dao_pts_rdma_deq_fp(devid, qp_id, mbufs, nb_mbufs);
+}
+
+int
+dao_pts_rdma_enqueue_cqe(uint16_t devid, uint16_t qp_id, bool recv, struct dao_pts_rdma_cqe *cqe,
+			 uint16_t nb_cqes)
+{
+	return dao_pts_rdma_cqe_fp(devid, qp_id, recv, cqe, nb_cqes);
 }

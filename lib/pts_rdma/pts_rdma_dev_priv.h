@@ -444,4 +444,25 @@ extern struct dao_pts_rdma_dev dao_pts_rdma_devs[DAO_PTS_RDMA_MAX_DEVS];
 void pts_rdma_clear_qp_info(struct pts_rdma_dev *dev);
 void pts_rdma_sqe_dump(union dao_pts_rdma_sqe *sqe);
 
+typedef uint16_t (*dao_pts_rdma_burst_fn_t)(uint16_t devid, uint16_t qp_id, struct rte_mbuf **pkts,
+					    uint16_t nb_pkts);
+typedef int (*dao_pts_rdma_cqe_fn_t)(uint16_t devid, uint16_t qp_id, bool recv,
+				     struct dao_pts_rdma_cqe *cqe, uint16_t nb_cqes);
+typedef int (*dao_pts_rdma_desc_manage_fn_t)(uint16_t devid);
+typedef int (*dao_dma_flush_submit_fn_t)(void);
+
+extern dao_pts_rdma_burst_fn_t dao_pts_rdma_enq_fp;
+extern dao_pts_rdma_burst_fn_t dao_pts_rdma_deq_fp;
+extern dao_pts_rdma_cqe_fn_t dao_pts_rdma_cqe_fp;
+extern dao_pts_rdma_desc_manage_fn_t dao_pts_rdma_desc_manage_fp;
+extern dao_dma_flush_submit_fn_t dao_dma_flush_submit_fp;
+
+uint16_t dao_pts_rdma_enqueue_burst_with_meta(uint16_t devid, uint16_t qp_id,
+					      struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
+
+uint16_t dao_pts_rdma_dequeue_burst_with_meta(uint16_t devid, uint16_t qp_id,
+					      struct rte_mbuf **tx_pkts, uint16_t nb_pkts);
+int dao_pts_rdma_enqueue_cqe_with_meta(uint16_t devid, uint16_t qp_id, bool recv,
+				       struct dao_pts_rdma_cqe *cqe, uint16_t nb_cqes);
+int dao_pts_rdma_desc_manage_with_meta(uint16_t devid);
 #endif /* __INCLUDE_RDMA_DEV_PRIV_H__ */

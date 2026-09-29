@@ -502,4 +502,20 @@ void dao_pts_rdma_dev_cb_unregister(void);
  */
 uint16_t dao_pts_rdma_meta_data_get(uint16_t devid, void *dest, uint16_t len);
 
+/**
+ * Set DMA ops mode for the library.
+ *
+ * @param enable
+ *   true to use enq/deq based ops.
+ *   false to use meta data mode.
+ */
+void dao_pts_rdma_ops_mode_set(bool enable);
+
+/**
+ * Flush and submit pending DMA operations.
+ *
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_dma_flush(void);
 #endif /* __INCLUDE_DAO_PTS_RDMA_DEV_H__ */

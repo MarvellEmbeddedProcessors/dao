@@ -70,8 +70,8 @@ pts_rdma_enqueue_cqe(struct pts_rdma_cq_data *cq_data, struct dao_pts_rdma_cqe *
 }
 
 int
-dao_pts_rdma_enqueue_cqe(uint16_t devid, uint16_t qp_id, bool recv, struct dao_pts_rdma_cqe *cqe,
-			 uint16_t nb_cqes)
+dao_pts_rdma_enqueue_cqe_with_meta(uint16_t devid, uint16_t qp_id, bool recv,
+				   struct dao_pts_rdma_cqe *cqe, uint16_t nb_cqes)
 {
 	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
@@ -961,8 +961,8 @@ pts_rdma_enq_burst(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbu
 }
 
 uint16_t
-dao_pts_rdma_enqueue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
-			   uint16_t nb_mbufs)
+dao_pts_rdma_enqueue_burst_with_meta(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
+				     uint16_t nb_mbufs)
 {
 	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
 

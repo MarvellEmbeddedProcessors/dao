@@ -263,7 +263,7 @@ service_main_loop(void *conf)
 			dao_pts_rdma_desc_manage(devid);
 
 			/* Flush and submit DMA ops */
-			dao_dma_flush_submit_v2();
+			dao_pts_rdma_dma_flush();
 
 			/* Update quiescent state */
 			rte_rcu_qsbr_quiescent(qs_v, lcore_id);
@@ -339,7 +339,7 @@ rdma_main_loop(void *config)
 			rte_graph_walk(graph);
 
 		/* Flush and submit DMA ops */
-		dao_dma_flush_submit_v2();
+		dao_pts_rdma_dma_flush();
 
 		/* Update quiescent state */
 		rte_rcu_qsbr_quiescent(qs_v, lcore_id);
@@ -451,6 +451,9 @@ main(int argc, char *argv[])
 
 	/* Configure global DMA flush threshold if provided by CLI */
 	dma_flush_thr = rdma_main_cfg->cfg_prm->dma_flush_thr;
+
+	/* Setup ops in meta data mode */
+	dao_pts_rdma_ops_mode_set(0);
 
 	/* Setting up the ethdev ports and queues */
 	rc = rdma_ethdev_init(rdma_main_cfg);

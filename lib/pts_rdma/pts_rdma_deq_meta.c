@@ -511,8 +511,8 @@ exit:
 }
 
 uint16_t
-dao_pts_rdma_dequeue_burst(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
-			   uint16_t nb_mbufs)
+dao_pts_rdma_dequeue_burst_with_meta(uint16_t devid, uint16_t qp_id, struct rte_mbuf **mbufs,
+				     uint16_t nb_mbufs)
 {
 	struct pts_rdma_qp *qp = dao_pts_rdma_devs[devid].qps[qp_id];
 
