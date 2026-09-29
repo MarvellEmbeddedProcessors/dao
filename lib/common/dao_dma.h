@@ -102,7 +102,7 @@ struct dao_dma_vchan_state {
 	/** Ops ring mask (size - 1, must be power of 2) */
 	uint16_t ops_mask;
 	/** DMA events meta data */
-	struct dao_dma_cmpl_mdata mdata[DAO_DMA_MAX_INFLIGHT_MDATA];
+	struct dao_dma_cmpl_mdata *mdata;
 } __rte_cache_aligned;
 
 /** DMA per lcore vchan info */

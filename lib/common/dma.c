@@ -15,6 +15,15 @@ struct dao_dma_vchan_info *vchan_info_p[RTE_MAX_LCORE];
 static int16_t dma_ctrl_dev2mem_id = -1;
 static int16_t dma_ctrl_mem2dev_id = -1;
 
+static int
+dma_vchan_mdata_alloc(struct dao_dma_vchan_state *state)
+{
+	state->mdata = rte_zmalloc("dao_dma_mdata",
+				   sizeof(struct dao_dma_cmpl_mdata) * DAO_DMA_MAX_INFLIGHT_MDATA,
+				   RTE_CACHE_LINE_SIZE);
+	return state->mdata ? 0 : -ENOMEM;
+}
+
 static uint16_t
 resolve_flush_thr(int16_t dma_devid, uint16_t flush_thr)
 {
@@ -53,6 +62,7 @@ int
 dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr)
 {
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_dma_vchan_state *state;
 	uint16_t vchan_idx, i;
 
 	if (!rte_dma_is_valid(dma_devid)) {
@@ -82,15 +92,30 @@ dao_dma_lcore_dev2mem_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_
 	}
 
 	for (i = 0; i < nb_vchans; i++) {
-		vchan_info->dev2mem[vchan_idx + i].devid = dma_devid;
-		vchan_info->dev2mem[vchan_idx + i].vchan = i;
-		vchan_info->dev2mem[vchan_idx + i].flush_thr = flush_thr;
+		state = &vchan_info->dev2mem[vchan_idx + i];
+
+		state->devid = dma_devid;
+		state->vchan = i;
+		state->flush_thr = flush_thr;
+
+		if (dma_vchan_mdata_alloc(state)) {
+			dao_err("Failed to alloc dma meta data for lcore %u", rte_lcore_id());
+			goto err_free;
+		}
 	}
 	vchan_info->nb_dev2mem += nb_vchans;
 
 	dao_dbg("Lcore=%u, dev2mem_id=%d, vchans=%u, flush_thr=%d", rte_lcore_id(), dma_devid,
 		nb_vchans, flush_thr);
 	return 0;
+
+err_free:
+	while (i > 0) {
+		i--;
+		rte_free(vchan_info->dev2mem[vchan_idx + i].mdata);
+		vchan_info->dev2mem[vchan_idx + i].mdata = NULL;
+	}
+	return -ENOMEM;
 }
 
 int
@@ -205,6 +230,7 @@ int
 dao_dma_lcore_mem2dev_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_thr)
 {
 	struct dao_dma_vchan_info *vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	struct dao_dma_vchan_state *state;
 	uint16_t vchan_idx, i;
 
 	if (!rte_dma_is_valid(dma_devid)) {
@@ -234,15 +260,30 @@ dao_dma_lcore_mem2dev_set(int16_t dma_devid, uint16_t nb_vchans, uint16_t flush_
 	}
 
 	for (i = 0; i < nb_vchans; i++) {
-		vchan_info->mem2dev[vchan_idx + i].devid = dma_devid;
-		vchan_info->mem2dev[vchan_idx + i].vchan = i;
-		vchan_info->mem2dev[vchan_idx + i].flush_thr = flush_thr;
+		state = &vchan_info->mem2dev[vchan_idx + i];
+
+		state->devid = dma_devid;
+		state->vchan = i;
+		state->flush_thr = flush_thr;
+
+		if (dma_vchan_mdata_alloc(state)) {
+			dao_err("Failed to alloc dma meta data for lcore %u", rte_lcore_id());
+			goto err_free;
+		}
 	}
 	vchan_info->nb_mem2dev += nb_vchans;
 
 	dao_dbg("Lcore=%u, mem2dev_id=%d, vchans=%u, flush_thr=%d", rte_lcore_id(), dma_devid,
 		nb_vchans, flush_thr);
 	return 0;
+
+err_free:
+	while (i > 0) {
+		i--;
+		rte_free(vchan_info->mem2dev[vchan_idx + i].mdata);
+		vchan_info->mem2dev[vchan_idx + i].mdata = NULL;
+	}
+	return -ENOMEM;
 }
 
 int
