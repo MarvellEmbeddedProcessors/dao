@@ -295,8 +295,8 @@ alloc_mbufs(struct rte_mbuf **mbuf_arr, struct rte_mempool *mp, uint32_t off, ui
 }
 
 static __rte_always_inline uint16_t
-fetch_sq_desc_prep(struct pts_rdma_qp_sq *q, struct dao_dma_vchan_state *dev2mem,
-		   struct rte_dma_sge *src, struct rte_dma_sge *dst)
+fetch_sq_desc_prep_meta(struct pts_rdma_qp_sq *q, struct dao_dma_vchan_state *dev2mem,
+			struct rte_dma_sge *src, struct rte_dma_sge *dst)
 {
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	uintptr_t desc_base = q->desc_base;
@@ -342,8 +342,8 @@ fetch_sq_desc_prep(struct pts_rdma_qp_sq *q, struct dao_dma_vchan_state *dev2mem
 }
 
 static __rte_always_inline uint16_t
-fetch_rq_desc_prep(struct pts_rdma_qp_rq *q, struct dao_dma_vchan_state *dev2mem,
-		   struct rte_dma_sge *src, struct rte_dma_sge *dst)
+fetch_rq_desc_prep_meta(struct pts_rdma_qp_rq *q, struct dao_dma_vchan_state *dev2mem,
+			struct rte_dma_sge *src, struct rte_dma_sge *dst)
 {
 	uintptr_t sd_desc_base = (uintptr_t)q->sd_desc_base;
 	uintptr_t desc_base = q->desc_base;
@@ -381,8 +381,8 @@ fetch_rq_desc_prep(struct pts_rdma_qp_rq *q, struct dao_dma_vchan_state *dev2mem
 }
 
 static __rte_always_inline uint16_t
-push_cq_desc_prep(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *mem2dev,
-		  struct rte_dma_sge *src, struct rte_dma_sge *dst)
+push_cq_desc_prep_meta(struct pts_rdma_cq_data *cq_data, struct dao_dma_vchan_state *mem2dev,
+		       struct rte_dma_sge *src, struct rte_dma_sge *dst)
 {
 	uintptr_t ring_base = (uintptr_t)cq_data->ring_base;
 	struct pts_rdma_cq *cq = cq_data->cq;

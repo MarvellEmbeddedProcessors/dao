@@ -530,8 +530,8 @@ dao_pts_rdma_meta_data_get(uint16_t devid, void *dest, uint16_t len)
 	return len;
 }
 
-int
-dao_pts_rdma_desc_manage(uint16_t devid)
+static int
+dao_pts_rdma_desc_manage_meta(uint16_t devid)
 {
 	struct dao_pts_rdma_dev *dao_dev = &dao_pts_rdma_devs[devid];
 	struct pts_rdma_dev *dev = pts_rdma_dev_priv(dao_dev);
@@ -563,7 +563,7 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 		qp = dao_dev->qps[i];
 		src = dao_dma_sge_src(dev2mem);
 		dst = dao_dma_sge_dst(dev2mem);
-		sg_i = fetch_sq_desc_prep(&qp->sq, dev2mem, src, dst);
+		sg_i = fetch_sq_desc_prep_meta(&qp->sq, dev2mem, src, dst);
 		dev2mem->src_i += sg_i;
 		dev2mem->dst_i += sg_i;
 
@@ -573,7 +573,7 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 		/* Populate pointers for Host Receive queue */
 		src = dao_dma_sge_src(dev2mem);
 		dst = dao_dma_sge_dst(dev2mem);
-		sg_i = fetch_rq_desc_prep(&qp->rq, dev2mem, src, dst);
+		sg_i = fetch_rq_desc_prep_meta(&qp->rq, dev2mem, src, dst);
 		dev2mem->src_i += sg_i;
 		dev2mem->dst_i += sg_i;
 
@@ -584,7 +584,7 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 		cq_data = &qp->sq.cq_data;
 		src = dao_dma_sge_src(mem2dev);
 		dst = dao_dma_sge_dst(mem2dev);
-		sg_i = push_cq_desc_prep(cq_data, mem2dev, src, dst);
+		sg_i = push_cq_desc_prep_meta(cq_data, mem2dev, src, dst);
 		mem2dev->src_i += sg_i;
 		mem2dev->dst_i += sg_i;
 
@@ -595,7 +595,7 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 		cq_data = &qp->rq.cq_data;
 		src = dao_dma_sge_src(mem2dev);
 		dst = dao_dma_sge_dst(mem2dev);
-		sg_i = push_cq_desc_prep(cq_data, mem2dev, src, dst);
+		sg_i = push_cq_desc_prep_meta(cq_data, mem2dev, src, dst);
 		mem2dev->src_i += sg_i;
 		mem2dev->dst_i += sg_i;
 	}
@@ -621,4 +621,10 @@ dao_pts_rdma_desc_manage(uint16_t devid)
 	}
 
 	return 0;
+}
+
+int
+dao_pts_rdma_desc_manage(uint16_t devid)
+{
+	return dao_pts_rdma_desc_manage_meta(devid);
 }
