@@ -50,19 +50,19 @@ flush_speculated(void ***to_next_ptr, void ***from_ptr, uint16_t *last_spec, uin
 
 /* Common helpers for next edge selection */
 static inline rte_edge_t
-rdma_next_edge_for_host(struct rte_mbuf *mbuf)
+rdma_next_edge_for_host(struct rte_mbuf *mbuf, uint16_t queue)
 {
 	uint16_t dport = rdma_nm->nrml_fwd_tbl[mbuf->port];
 
-	return rdma_nm->eth_tx_edge[dport];
+	return rdma_nm->eth_tx_edge[dport][queue];
 }
 
 static inline rte_edge_t
-rdma_next_edge_for_rdma(struct rte_mbuf *mbuf)
+rdma_next_edge_for_rdma(struct rte_mbuf *mbuf, uint16_t queue)
 {
 	uint16_t dport = rdma_nm->rdma_fwd_tbl[mbuf->port];
 
-	return rdma_nm->eth_tx_edge[dport];
+	return rdma_nm->eth_tx_edge[dport][queue];
 }
 
 /* Process node for ETH RX path: handles host->RDMA responder and normal forwarding */
@@ -73,7 +73,7 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 	void **to_next, **from = objs;
 	rte_edge_t next_index, next;
 	void *tx_next[APP_RDMA_ETH_DEQ_BURST_MAX] = {NULL};
-	uint16_t last_spec = 0;
+	uint16_t last_spec = 0, q = 0;
 	struct rte_mbuf *mbuf;
 	bool burst_start = true;
 	uint16_t held = 0;
@@ -83,12 +83,14 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 		return 0;
 
 	/* Speculate normal host forwarding edge based on first packet */
-	next_index = rdma_next_edge_for_host((struct rte_mbuf *)objs[0]);
+	q = node_mbuf_priv1((struct rte_mbuf *)objs[0], dyn)->queue;
+	next_index = rdma_next_edge_for_host((struct rte_mbuf *)objs[0], q);
+
 	to_next = tx_next;
 
 	for (i = 0; i < nb_objs; i++) {
 		mbuf = (struct rte_mbuf *)objs[i];
-		next = rdma_next_edge_for_host(mbuf);
+		next = rdma_next_edge_for_host(mbuf, node_mbuf_priv1(mbuf, dyn)->queue);
 
 		if (!dao_rdma_pkt_check(mbuf)) {
 			uint16_t dport = rdma_nm->rdma_fwd_tbl[mbuf->port];
@@ -152,7 +154,8 @@ rdma_rx_node_process(struct rte_graph *graph, struct rte_node *node, void **objs
 			} else if (ret == RDMA_RESPONDER_MBUF_UPDATED) {
 				/* Responder updated mbuf for forwarding to RDMA path */
 				objs[i] = mbuf;
-				next = rdma_next_edge_for_rdma(mbuf);
+				next = rdma_next_edge_for_rdma(mbuf,
+							       node_mbuf_priv1(mbuf, dyn)->queue);
 			} else {
 				/* RDMA_COMPLETION_DONE or RDMA_RESPONDER_MBUF_DROP: drop original
 				 * mbuf */
@@ -210,8 +213,9 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 	{
 		struct rte_mbuf *m0 = (struct rte_mbuf *)objs[0];
 		uint16_t dport0 = rdma_nm->rdma_fwd_tbl[m0->port];
+		uint16_t q0 = node_mbuf_priv1(m0, dyn)->queue;
 
-		next_index = (dport0 < RTE_MAX_ETHPORTS) ? rdma_nm->eth_tx_edge[dport0] :
+		next_index = (dport0 < RTE_MAX_ETHPORTS) ? rdma_nm->eth_tx_edge[dport0][q0] :
 							   RDMA_NEXT_PKT_DROP;
 	}
 
@@ -259,7 +263,7 @@ rdma_pts_node_process(struct rte_graph *graph, struct rte_node *node, void **obj
 				dport_i = rdma_nm->rdma_fwd_tbl[mbuf->port];
 				mbuf->port = dport_i;
 				next = (dport_i < RTE_MAX_ETHPORTS) ?
-					       rdma_nm->eth_tx_edge[dport_i] :
+					       rdma_nm->eth_tx_edge[dport_i][queue] :
 					       RDMA_NEXT_PKT_DROP;
 			}
 
@@ -384,9 +388,9 @@ fail:
 	return errno;
 }
 
-/* Setting up the next edge for the eth tx node . */
+/* Setting up the next edge for the eth tx node */
 int
-rdma_set_eth_tx_edge_idx(uint16_t port_id, uint16_t next_index)
+rdma_set_eth_tx_edge_idx(uint16_t port_id, uint16_t queue_id, uint16_t next_index)
 {
 	if (rdma_nm == NULL) {
 		rdma_nm = rte_zmalloc("flow_mapper", sizeof(struct rdma_node_main),
@@ -395,8 +399,33 @@ rdma_set_eth_tx_edge_idx(uint16_t port_id, uint16_t next_index)
 			return -ENOMEM;
 	}
 
-	rdma_nm->eth_tx_edge[port_id] = next_index;
-	dao_dbg("port_idx %d eth_tx_edge %d", port_id, next_index);
+	if (port_id >= RTE_MAX_ETHPORTS * 2 || queue_id >= RDMA_ETH_TX_MAX_QUEUES)
+		return -EINVAL;
+
+	rdma_nm->eth_tx_edge[port_id][queue_id] = next_index;
+	dao_dbg("port_idx %d queue %d eth_tx_edge %d", port_id, queue_id, next_index);
+
+	return 0;
+}
+
+int
+rdma_set_eth_tx_edge_idx_all_queues(uint16_t port_id, uint16_t next_index)
+{
+	int i;
+
+	if (rdma_nm == NULL) {
+		rdma_nm = rte_zmalloc("flow_mapper", sizeof(struct rdma_node_main),
+				      RTE_CACHE_LINE_SIZE);
+		if (rdma_nm == NULL)
+			return -ENOMEM;
+	}
+
+	if (port_id >= RTE_MAX_ETHPORTS * 2)
+		return -EINVAL;
+
+	for (i = 0; i < RDMA_ETH_TX_MAX_QUEUES; i++)
+		rdma_nm->eth_tx_edge[port_id][i] = next_index;
+	dao_dbg("port_idx %d eth_tx_edge (all queues) %d", port_id, next_index);
 
 	return 0;
 }
@@ -451,8 +480,8 @@ static struct rte_node_register rdma_rx_node = {
 	.init = rdma_node_init,
 	.nb_edges = RDMA_NEXT_MAX,
 	.next_nodes = {
-		[RDMA_NEXT_PKT_DROP] = "pkt_drop",
-	},
+			[RDMA_NEXT_PKT_DROP] = "pkt_drop",
+		},
 };
 
 static struct rte_node_register rdma_pts_node = {
@@ -461,8 +490,8 @@ static struct rte_node_register rdma_pts_node = {
 	.init = rdma_node_init,
 	.nb_edges = RDMA_NEXT_MAX,
 	.next_nodes = {
-		[RDMA_NEXT_PKT_DROP] = "pkt_drop",
-	},
+			[RDMA_NEXT_PKT_DROP] = "pkt_drop",
+		},
 };
 
 struct rte_node_register *

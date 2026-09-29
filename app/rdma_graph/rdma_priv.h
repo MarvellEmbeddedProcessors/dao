@@ -5,7 +5,8 @@
 #ifndef __RDMA_PRIV_H__
 #define __RDMA_PRIV_H__
 
-#define RDMA_FWD_TBL_MAX_IDX 256
+#define RDMA_FWD_TBL_MAX_IDX   256
+#define RDMA_ETH_TX_MAX_QUEUES 128
 
 /**
  * @internal
@@ -16,8 +17,8 @@ struct rdma_node_main {
 	/* Port mapping between host port and mac ports */
 	uint32_t nrml_fwd_tbl[RTE_MAX_ETHPORTS * 2];
 	uint32_t rdma_fwd_tbl[RTE_MAX_ETHPORTS * 2];
-	/* Next eth tx edge */
-	uint16_t eth_tx_edge[RTE_MAX_ETHPORTS * 2];
+	/* Next eth tx edge by [port][queue] */
+	uint16_t eth_tx_edge[RTE_MAX_ETHPORTS * 2][RDMA_ETH_TX_MAX_QUEUES];
 };
 
 typedef struct rdma_node_ctx {
@@ -46,14 +47,28 @@ struct rte_node_register *rdma_pts_node_get(void);
 /**
  * @internal
  *
- * Set the Edge index of a given port_id.
+ * Set the Edge index of a given port_id and queue_id.
+ *
+ * @param port_id
+ *   port identifier.
+ * @param queue_id
+ *   queue identifier.
+ * @param next_index
+ *   Edge index of the Given Tx node.
+ */
+int rdma_set_eth_tx_edge_idx(uint16_t port_id, uint16_t queue_id, uint16_t next_index);
+
+/**
+ * @internal
+ *
+ * Set the Edge index of a given port_id for all queues.
  *
  * @param port_id
  *   port identifier.
  * @param next_index
  *   Edge index of the Given Tx node.
  */
-int rdma_set_eth_tx_edge_idx(uint16_t port_id, uint16_t next_index);
+int rdma_set_eth_tx_edge_idx_all_queues(uint16_t port_id, uint16_t next_index);
 
 /**
  * @internal

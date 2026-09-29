@@ -27,10 +27,23 @@ struct rdma_eth_tx_node_ctx {
 /**
  * @internal
  *
+ * Ethernet Tx node element structure.
+ */
+struct rdma_eth_tx_node_elem {
+	struct rdma_eth_tx_node_elem *next;
+	struct rdma_eth_tx_node_ctx ctx;
+	rte_node_t nid;
+};
+
+typedef struct rdma_eth_tx_node_elem rdma_eth_tx_node_elem_t;
+
+/**
+ * @internal
+ *
  * Ethernet Tx node main structure.
  */
 struct rdma_eth_tx_node_main {
-	uint32_t nodes[RTE_MAX_ETHPORTS]; /**< Tx nodes for each nic port. */
+	rdma_eth_tx_node_elem_t *head;
 };
 
 /**
