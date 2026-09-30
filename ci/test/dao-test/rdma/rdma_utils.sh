@@ -16,6 +16,10 @@ if [[ -n "${EP_REMOTE_RDMA_PATH:-}" ]] && [[ -n "${EP_HOST_RDMA_PATH:-}" ]]; the
 	HOST_ENV="export PATH=\"${EP_HOST_RDMA_PATH}/bin\":\$PATH;export LD_LIBRARY_PATH=\"${EP_HOST_RDMA_PATH}/lib:\${LD_LIBRARY_PATH:-}\";"
 fi
 
+source "$RDMA_UTILS_SCRIPT_PATH/rdma_topo.sh"
+source "$RDMA_UTILS_SCRIPT_PATH/rdma_pingpong.sh"
+source "$RDMA_UTILS_SCRIPT_PATH/rdma_ci.sh"
+
 function rdma_app_launch()
 {
 	local dao_rdma_app
@@ -29,11 +33,12 @@ function rdma_app_launch()
 	local port_mask="0x1"
 	local num_queues=1
 	local file_prefix="ep"
+	local dma_ops_mode=0
 	local log_path="${EP_LOG_PATH:-/tmp}"
 	local pid_file="$log_path/dao_rdma_graph_pid.tmp"
 
 	if ! opts=$(getopt \
-		-l "pci-devs:,max-pkt-len:,num-mbufs:,dma-nb-desc:" \
+		-l "pci-devs:,max-pkt-len:,num-mbufs:,dma-nb-desc:,dma-ops-mode" \
 		-- rdma_app_launch $@); then
 			echo "Failed to parse arguments"
 			exit 1
@@ -46,6 +51,7 @@ function rdma_app_launch()
 			--max-pkt-len) shift; maxpktlen=$1;;
 			--num-mbufs) shift; num_mbuf=$1;;
 			--dma-nb-desc) shift; num_dma_desc=$1;;
+			--dma-ops-mode) dma_ops_mode=1;;
 			*) echo "Unknown argument $1"; exit 1;;
 		esac
 		shift
@@ -71,10 +77,12 @@ function rdma_app_launch()
 	fi
 
 	free -h
-	cat /proc/meminfo
-	cat /proc/cmdline
 	# Add DPDK options.
 	app_cmd="$app_cmd --file-prefix=$file_prefix -- -p $port_mask -P --max-pkt-len=$maxpktlen -n $num_queues -r 0x1 --num-mbufs $num_mbuf --dma-nb-desc $num_dma_desc"
+
+	if [[ "$dma_ops_mode" == "1" ]]; then
+		app_cmd="$app_cmd --dma-ops-mode"
+	fi
 
 	echo "Launching RDMA application..."
 	echo "Command: $app_cmd"
@@ -134,6 +142,7 @@ function rdma_launch_graph_on_device()
 	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
 	read -r -a tmp <<< "$(form_split_args "--num-mbufs"   "$num_mbufs")"   ; args+=("${tmp[@]}")
 	read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "$dma_nb_desc")" ; args+=("${tmp[@]}")
+	[[ "${RDMA_DMA_OPS_MODE:-0}" == "1" ]] && args+=("--dma-ops-mode")
 	rdma_app_launch "${args[@]}"
 
 	# Wait for mailbox ready; fail if not.
@@ -180,6 +189,7 @@ function rdma_launch_graph_on_remote()
 	read -r -a tmp <<< "$(form_split_args "--pci-devs"    "$pci_devs")"    ; args+=("${tmp[@]}")
 	read -r -a tmp <<< "$(form_split_args "--num-mbufs"   "$num_mbufs")"   ; args+=("${tmp[@]}")
 	read -r -a tmp <<< "$(form_split_args "--dma-nb-desc" "$dma_nb_desc")" ; args+=("${tmp[@]}")
+	[[ "${RDMA_DMA_OPS_MODE:-0}" == "1" ]] && args+=("--dma-ops-mode")
 	serialized_args=$(printf '%q ' "${args[@]}")
 
 	rdma_utils=$EP_DIR/ci/test/dao-test/rdma/rdma_utils.sh
@@ -227,7 +237,7 @@ function rdma_setup_host_endpoint()
 		sleep 1
 	done
 
-	$host_op if_configure --pcie-addr "$vfs" --ip "$ip"
+	$host_op if_configure --pcie-addr "$vfs" --ip "$ip" --mtu "$(rdma_topo_mtu)"
 }
 
 # Bring up native Mellanox endpoint on EP_REMOTE_HOST (IP + link wait). $1=BDF, $2=IP.
@@ -242,13 +252,18 @@ function rdma_setup_mlx_endpoint()
 	fi
 
 	ep_remote_host_op if_configure --pcie-addr "$mlx_iface" --down
-	ep_remote_host_op if_configure --pcie-addr "$mlx_iface" --ip "$ip"
+	ep_remote_host_op if_configure --pcie-addr "$mlx_iface" --ip "$ip" --mtu "$(rdma_topo_mtu)"
 	ep_remote_host_op link_wait "$mlx_iface" 15 >/dev/null
 }
 
-# Best-effort idempotent teardown; scenario-specific steps guarded.
+# Best-effort idempotent teardown; test-specific steps guarded.
 function rdma_tests_cleanup()
 {
+	if [[ "${RDMA_CLEANUP_RUNNING:-}" == 1 ]]; then
+		return 0
+	fi
+
+	RDMA_CLEANUP_RUNNING=1
 	set +e
 
 	echo "CLEANUP: ===== rdma_tests_cleanup START ====="
@@ -286,6 +301,7 @@ function rdma_tests_cleanup()
 	fi
 
 	echo "CLEANUP: ===== rdma_tests_cleanup END ====="
+	RDMA_CLEANUP_RUNNING=0
 	set -e
 	return 0
 }
@@ -296,6 +312,11 @@ function rdma_sig_handler()
 	local sig=$1
 
 	set +e
+
+	if [[ "${RDMA_CLEANUP_RUNNING:-}" == 1 ]]; then
+		return 0
+	fi
+
 	trap - ERR
 	trap - INT
 	trap - TERM
@@ -306,7 +327,20 @@ function rdma_sig_handler()
 		echo "$sig Handler"
 	fi
 
+	if [[ ${#RDMA_CI_RESULTS[@]} -gt 0 ]]; then
+		rdma_ci_results_print "interrupted"
+	fi
+
 	rdma_tests_cleanup
+}
+
+function rdma_ci_config_label()
+{
+	case "${RDMA_TOPO:-}" in
+	mlx) echo "Octeon-Mellanox" ;;
+	octeon) echo "Octeon-Octeon" ;;
+	*) echo "${RDMA_TOPO:-unknown}" ;;
+	esac
 }
 
 function rdma_register_sig_handler()

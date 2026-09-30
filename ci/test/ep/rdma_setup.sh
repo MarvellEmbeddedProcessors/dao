@@ -290,7 +290,7 @@ function verify_rdma_octeon_datapath()
 
 function verify_rdma_setup()
 {
-	# Verify whichever scenario(s) the bench supports; require at least one.
+	# Verify whichever test(s) the bench supports; require at least one.
 	local did_verify=0
 
 	# EP_DEVICE <-> EP_REMOTE (Octeon <-> Octeon) - needs EP_REMOTE.
@@ -317,7 +317,7 @@ function verify_rdma_setup()
 	fi
 
 	if [[ $did_verify -eq 0 ]]; then
-		echo "No RDMA scenario available (need EP_REMOTE and/or a Mellanox on EP_REMOTE_HOST)"
+		echo "No RDMA test available (need EP_REMOTE and/or a Mellanox on EP_REMOTE_HOST)"
 		exit 1
 	fi
 
