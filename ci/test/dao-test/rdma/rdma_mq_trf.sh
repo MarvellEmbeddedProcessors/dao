@@ -8,12 +8,13 @@
 #   2. RC Mode - SEND, WRITE, WRITE_IMM, READ operations
 # EP_HOST (Octeon) is always the server; EP_REMOTE_HOST (octep VF for
 # Octeon<->Octeon, Mellanox for Octeon<->Mellanox) is always the client.
-# Runs over every scenario the bench supports (guards: EP_REMOTE / MLX ifaces).
+# Runs over every test the bench supports (guards: EP_REMOTE / MLX ifaces).
 
 set -euo pipefail
 
 SCRIPT_DIR="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 source "$SCRIPT_DIR/rdma_utils.sh"
+source "$SCRIPT_DIR/rdma_mq_matrix.sh"
 
 function cleanup_stuck_processes()
 {
@@ -30,22 +31,10 @@ function cleanup_stuck_processes()
 	sleep 1
 }
 
-# Relaunch dao-rdma_graph + bring up endpoints for the current scenario.
-# mq_scenario / host_ip / remote_host_ip come from the caller (rdma_mq_trf).
-function mq_scenario_setup()
+# Relaunch dao-rdma_graph + bring up endpoints for the current topology.
+function mq_topo_setup()
 {
-	if [[ "$mq_scenario" == "Octeon<->Mellanox" ]]; then
-		rdma_launch_graph_on_device "${EP_DEVICE_MLX_IFACE},force_tail_drop=1" # graph on EP_DEVICE MLX port (force_tail_drop for O<->MLX)
-		rdma_setup_mlx_endpoint "$EP_REMOTE_HOST_MLX_IFACE" "$remote_host_ip" # Mellanox IP (native)
-		sleep 2
-		rdma_setup_host_endpoint ep_host_op "$host_ip"                        # octep VF on EP_HOST - last
-	else
-		rdma_launch_graph_on_device                                          # graph on EP_DEVICE
-		rdma_launch_graph_on_remote                                          # graph on EP_REMOTE
-		rdma_setup_host_endpoint ep_remote_host_op "$remote_host_ip"         # octep VF on EP_REMOTE_HOST
-		sleep 1
-		rdma_setup_host_endpoint ep_host_op "$host_ip"                       # octep VF on EP_HOST - last
-	fi
+	rdma_topo_start "$rdma_topo_id"
 	sleep 1
 }
 
@@ -68,20 +57,22 @@ function run_mq_test()
 	#   MQ_TEST_FILTER=Repeated_UD_SEND_SGE_Host_Server
 	if [[ -n "${MQ_TEST_FILTER:-}" && "$test_name" != *"$MQ_TEST_FILTER"* ]]; then
 		echo "Skipping $test_name (MQ_TEST_FILTER=$MQ_TEST_FILTER)"
+		rdma_ci_result_add "$test_name" "Skip"
 		return 0
 	fi
 
 	# TEMPORARY: all Octeon<->Octeon MQ trf tests disabled for now.
-	if [[ "$mq_scenario" == "Octeon<->Octeon" ]]; then
+	if [[ "$rdma_topo_id" == "octeon" ]]; then
 		echo "Skipping $test_name on Octeon<->Octeon (temporarily disabled)"
+		rdma_ci_result_add "$test_name" "Skip"
 		return 0
 	fi
 
-	# Cleanup previous test state and relaunch the graph for this scenario before each test
+	# Cleanup previous test state and relaunch the graph before each test
 	cleanup_stuck_processes
 	rdma_tests_cleanup
 	sleep 1
-	mq_scenario_setup
+	mq_topo_setup
 	sleep 1
 
 	# Re-fetch RDMA device info: server = EP_HOST octep, client = EP_REMOTE_HOST (octep/MLX)
@@ -120,7 +111,7 @@ function run_mq_test()
 		sge_arg="--nb-sge=$nb_sge"
 	fi
 
-	echo "Running Test: $test_name"
+	rdma_ci_running_line "$test_name" "$num_qp"
 	if [[ -n "$loop_count" ]]; then
 		echo "  QP Type: $qp_type, Op Type: $op_type, Loop: $loop_count, Server Max Conn: $server_max_conn"
 	else
@@ -211,223 +202,51 @@ function run_mq_test()
 		cleanup_stuck_processes
 	done
 
+	if [[ $overall_status -eq 0 ]]; then
+		rdma_ci_result_add "$test_name" "Pass"
+	else
+		rdma_ci_result_add "$test_name" "Fail"
+		rdma_ci_results_print_interim
+	fi
+
 	return $overall_status
 }
 
-# Print a scenario-tagged test banner so each test's topology
-# (Octeon<->Octeon vs Octeon<->Mellanox) is clear from the log alone.
 function mq_banner()
 {
 	echo "=========================================================================================="
-	echo "[$mq_scenario] $1"
+	echo "[$rdma_topo_label] $1"
 	echo "=========================================================================================="
 }
 
-# Run the full MQ test matrix for the current scenario. Every banner is tagged
-# with $mq_scenario (via mq_banner) and the failed_tests label carries the
-# scenario, so both the streaming log and the summary stay clear.
 function run_all_mq_tests()
 {
-	echo "MQ matrix ($mq_scenario): EP_HOST server @ $host_ip <-> EP_REMOTE_HOST client @ $remote_host_ip"
-
-	mq_banner "Test 1: UD SEND - Host Server -> Remote Client"
-	if ! run_mq_test "UD_SEND_Host_Server" "UD" "SEND" 100 8 1000 1024; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 1: UD_SEND_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 2: RC SEND - Host Server -> Remote Client"
-	if ! run_mq_test "RC_SEND_Host_Server" "RC" "SEND" 100 8 1000 1024; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 2: RC_SEND_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 3: RC WRITE - Host Server -> Remote Client"
-	if ! run_mq_test "RC_WRITE_Host_Server" "RC" "WRITE" 100 8 1000 1024; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 3: RC_WRITE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 4: RC WRITE_IMM - Host Server -> Remote Client"
-	if ! run_mq_test "RC_WRITE_IMM_Host_Server" "RC" "WRITE_IMM" 100 8 1000 1024; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 4: RC_WRITE_IMM_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 5: RC READ - Host Server -> Remote Client"
-	if ! run_mq_test "RC_READ_Host_Server" "RC" "READ" 100 8 1000 1024; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 5: RC_READ_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 6: UD SEND SGE=2 - Host Server -> Remote Client"
-	if ! run_mq_test "UD_SEND_SGE_Host_Server" "UD" "SEND" 100 8 1000 1024 2; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 6: UD_SEND_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 7: RC SEND SGE=2 - Host Server -> Remote Client"
-	if ! run_mq_test "RC_SEND_SGE_Host_Server" "RC" "SEND" 100 8 1000 1024 2; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 7: RC_SEND_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 8: RC WRITE SGE=2 - Host Server -> Remote Client"
-	if ! run_mq_test "RC_WRITE_SGE_Host_Server" "RC" "WRITE" 100 8 1000 1024 2; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 8: RC_WRITE_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 9: RC WRITE_IMM SGE=2 - Host Server -> Remote Client"
-	if ! run_mq_test "RC_WRITE_IMM_SGE_Host_Server" "RC" "WRITE_IMM" 100 8 1000 1024 2; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 9: RC_WRITE_IMM_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 10: RC READ SGE=2 - Host Server -> Remote Client"
-	if ! run_mq_test "RC_READ_SGE_Host_Server" "RC" "READ" 100 8 1000 1024 2; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 10: RC_READ_SGE_Host_Server"
-	fi
-	echo ""
-
-	# DISABLED: fails on Octeon<->Mellanox (repeated UD SEND, 1000 connections).
-	# TODO: re-enable and validate on both scenarios once the underlying issue is fixed.
-	# mq_banner "Test 11: Repeated Connect UD SEND - Host Server (1000 conn)"
-	# if ! run_mq_test "Repeated_UD_SEND_Host_Server" \
-	# 		"UD" "SEND" 1 1 1000 1024 "" 1000 1000 true; then
-	# 	failed_tests="$failed_tests\n  [$mq_scenario] Test 11: Repeated_UD_SEND_Host_Server"
-	# fi
-	# echo ""
-
-	mq_banner "Test 12: Repeated Connect RC SEND - Host Server (1000 conn)"
-	if ! run_mq_test "Repeated_RC_SEND_Host_Server" "RC" "SEND" 1 1 1000 1024 "" 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 12: Repeated_RC_SEND_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 13: Repeated Connect RC WRITE - Host Server (1000 conn)"
-	if ! run_mq_test "Repeated_RC_WRITE_Host_Server" \
-			"RC" "WRITE" 1 1 1000 1024 "" 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 13: Repeated_RC_WRITE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 14: Repeated Connect RC WRITE_IMM - Host Server (1000 conn)"
-	if ! run_mq_test "Repeated_RC_WRITE_IMM_Host_Server" \
-			"RC" "WRITE_IMM" 1 1 1000 1024 "" 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 14: Repeated_RC_WRITE_IMM_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 15: Repeated Connect RC READ - Host Server (1000 conn)"
-	if ! run_mq_test "Repeated_RC_READ_Host_Server" "RC" "READ" 1 1 1000 1024 "" 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 15: Repeated_RC_READ_Host_Server"
-	fi
-	echo ""
-
-	# Test 16: Repeated Connect UD SEND SGE=2 - Host Server
-	# DISABLED: fails on Octeon<->Mellanox (repeated UD SEND with multi-SGE).
-	# TODO: re-enable and validate on both scenarios once the underlying issue is fixed.
-	# mq_banner "Test 16: Repeated Connect UD SEND SGE=2 - Host Server"
-	# if ! run_mq_test "Repeated_UD_SEND_SGE_Host_Server" \
-	# 		"UD" "SEND" 1 1 1000 1024 2 1000 1000 true; then
-	# 	failed_tests="$failed_tests\n  [$mq_scenario] Test 16: Repeated_UD_SEND_SGE_Host_Server"
-	# fi
-	# echo ""
-
-	mq_banner "Test 17: Repeated Connect RC SEND SGE=2 - Host Server"
-	if ! run_mq_test "Repeated_RC_SEND_SGE_Host_Server" \
-			"RC" "SEND" 1 1 1000 1024 2 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 17: Repeated_RC_SEND_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 18: Repeated Connect RC WRITE SGE=2 - Host Server"
-	if ! run_mq_test "Repeated_RC_WRITE_SGE_Host_Server" \
-			"RC" "WRITE" 1 1 1000 1024 2 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 18: Repeated_RC_WRITE_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 19: Repeated Connect RC WRITE_IMM SGE=2 - Host Server"
-	if ! run_mq_test "Repeated_RC_WRITE_IMM_SGE_Host_Server" \
-			"RC" "WRITE_IMM" 1 1 1000 1024 2 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 19: Repeated_RC_WRITE_IMM_SGE_Host_Server"
-	fi
-	echo ""
-
-	mq_banner "Test 20: Repeated Connect RC READ SGE=2 - Host Server"
-	if ! run_mq_test "Repeated_RC_READ_SGE_Host_Server" \
-			"RC" "READ" 1 1 1000 1024 2 1000 1000; then
-		failed_tests="$failed_tests\n  [$mq_scenario] Test 20: Repeated_RC_READ_SGE_Host_Server"
-	fi
-	echo ""
+	echo "MQ matrix ($rdma_topo_label): EP_HOST server @ $host_ip <-> EP_REMOTE_HOST client @ $remote_host_ip"
+	rdma_mq_run_matrix
 }
 
-# Main test function
+function mq_topo_run()
+{
+	run_all_mq_tests
+}
+
 function rdma_mq_trf()
 {
-	local host_ip host_env host_rdma_dev host_gid
-	local remote_host_ip remote_host_env remote_rdma_dev remote_gid
-	local mq_scenario failed_tests="" ran=0
+	rdma_ci_results_reset
 
-	# Register signal handler
 	rdma_register_sig_handler
+	rdma_ci_running_line "RDMA mq_trf" "100"
 
-	# EP_HOST is always octep; EP_REMOTE_HOST is octep (O<->O) or Mellanox (O<->MLX).
-	host_env=$HOST_ENV
-	remote_host_env=$REMOTE_ENV
+	rdma_foreach_topo mq_topo_run vars || true
 
-	echo "========================================"
-	echo "RDMA Multi-Queue Traffic Tests Starting"
-	echo "========================================"
-
-	# ============ Scenario 1: Octeon <-> Octeon (needs EP_REMOTE) ============
-	if [[ "${RDMA_SCENARIO:-both}" != "mlx" && -n "${EP_REMOTE:-}" ]]; then
-		mq_scenario="Octeon<->Octeon"
-		host_ip="30.0.0.3"
-		remote_host_ip="30.0.0.11"
-		echo ""
-		echo "==================== SCENARIO: Octeon <-> Octeon ===================="
-		echo "  EP_HOST octep VF (30.0.0.3) <-> EP_REMOTE_HOST octep VF (30.0.0.11)"
-		run_all_mq_tests
-		ran=1
-	fi
-
-	# ================= Scenario 2: Octeon <-> Mellanox =================
-	if [[ "${RDMA_SCENARIO:-both}" != "octeon" && -n "${EP_DEVICE_MLX_IFACE:-}" && -n "${EP_REMOTE_HOST_MLX_IFACE:-}" ]]; then
-		mq_scenario="Octeon<->Mellanox"
-		host_ip="21.0.0.3"
-		remote_host_ip="21.0.0.11"
-		echo ""
-		echo "=================== SCENARIO: Octeon <-> Mellanox ==================="
-		echo "  EP_HOST octep VF (21.0.0.3) <-> EP_REMOTE_HOST Mellanox (21.0.0.11)"
-		run_all_mq_tests
-		ran=1
-	fi
-
-	if [[ $ran -eq 0 ]]; then
-		echo "No RDMA scenario selected/available (RDMA_SCENARIO=${RDMA_SCENARIO:-both})"
-		exit 77
-	fi
-
-	# Cleanup
 	echo "Performing final cleanup..."
 	cleanup_stuck_processes
 	rdma_tests_cleanup
 
-	# Final summary
-	echo "========================================"
-	echo "RDMA Multi-Queue Traffic Tests Summary"
-	echo "========================================"
-
-	if [[ -z "$failed_tests" ]]; then
-		echo "All tests PASSED"
+	if rdma_ci_suite_finish; then
 		return 0
-	else
-		echo -e "Failed tests:$failed_tests"
-		exit 1
 	fi
+	exit 1
 }
 
 # Execute with retry logic
