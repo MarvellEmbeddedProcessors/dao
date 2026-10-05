@@ -813,13 +813,15 @@ int octep_rdma_req_notify_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 		if (arm_val == OCTEP_RDMA_CQ_ARM_NEXT_COMP) {
 			if (old != OCTEP_RDMA_CQ_ARM_NEXT_COMP)
 				atomic_inc(&rdma_dev->armed_nc);
-			/*
-			 * (Re)start the watchdog for this arm. Done after the
-			 * inc so the watchdog can never observe this CQ armed
-			 * yet remain stopped: schedule_delayed_work() re-queues
-			 * even a work that just self-stopped.
-			 */
+				/*
+				 * (Re)start the watchdog for this arm. Done after the
+				 * inc so the watchdog can never observe this CQ armed
+				 * yet remain stopped: schedule_delayed_work() re-queues
+				 * even a work that just self-stopped.
+				 */
+#ifndef CONFIG_OCTEP_RDMA_OCTTERM
 			octep_rdma_cq_watchdog_kick(rdma_dev);
+#endif
 		} else if (old == OCTEP_RDMA_CQ_ARM_NEXT_COMP) {
 			atomic_dec(&rdma_dev->armed_nc);
 		}
