@@ -3074,6 +3074,13 @@ dao_lc_sym_prepare_ops_single_auth_only(struct liquid_crypto_qp *qp, struct dao_
 	w4.u64 = sess_meta->w4;
 	w4.s.dlen = dlen;
 
+	/* cSHAKE/KMAC output length is per-operation; override param2[7:0] here. */
+	if (sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128 ||
+	    sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256 ||
+	    sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE128 ||
+	    sess_meta->hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE256)
+		w4.s.param2 = (w4.s.param2 & 0xFF00) | (digest_len & 0xFF);
+
 	if (sess_meta->hash_type == DAO_LC_HASH_TYPE_GMAC) {
 		req->is_gmac = 1;
 		w4.s.param1 = 0;
