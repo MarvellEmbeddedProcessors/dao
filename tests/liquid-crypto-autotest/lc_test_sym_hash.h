@@ -1581,4 +1581,81 @@ static const struct test_sym_params cshake256_test_data = {
 	.output_len = 255,
 };
 
+static const uint8_t digest_cshake128_zero_dlen_13B[] = {
+	0x7F, 0x9C, 0x2B, 0xA4, 0xE8, 0x8F, 0x82, 0x7D,
+	0x61, 0x60, 0x45, 0x50, 0x76
+};
+
+static const struct test_sym_params cshake128_zero_dlen_13B = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HASH,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_CSHAKE128,
+			.hmac_key_len = 0,
+			.digest_len = 0,
+		},
+	},
+	.plaintext = { .data = plaintext_hash, .len = 0 },
+	.digest_data = digest_cshake128_zero_dlen_13B,
+	.output_len = 13,
+};
+
+static const uint8_t digest_cshake256_zero_dlen_13B[] = {
+	0x46, 0xB9, 0xDD, 0x2B, 0x0B, 0xA8, 0x8D, 0x13,
+	0x23, 0x3B, 0x3F, 0xEB, 0x74
+};
+
+static const struct test_sym_params cshake256_zero_dlen_13B = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HASH,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_CSHAKE256,
+			.hmac_key_len = 0,
+			.digest_len = 0,
+		},
+	},
+	.plaintext = { .data = plaintext_hash, .len = 0 },
+	.digest_data = digest_cshake256_zero_dlen_13B,
+	.output_len = 13,
+};
+
+static const uint8_t digest_kmac128_zero_dlen_13B[] = {
+	0x76, 0x0A, 0xB9, 0x5E, 0xB9, 0xF1, 0xFA, 0xFE,
+	0x01, 0x01, 0xDF, 0x9C, 0xD1
+};
+
+static const struct test_sym_params kmac128_zero_dlen_13B = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HMAC,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_KMAC128,
+			.hmac_key_len = 4,
+			.hmac_auth_key = { 0xF8, 0x2A, 0xC7, 0x54 },
+			.digest_len = 0,
+		},
+	},
+	.plaintext = { .data = plaintext_hash, .len = 0 },
+	.digest_data = digest_kmac128_zero_dlen_13B,
+	.output_len = 13,
+};
+
+static const uint8_t digest_kmac256_zero_dlen_13B[] = {
+	0x29, 0xEB, 0xE3, 0xBF, 0x3B, 0x56, 0x80, 0xA6,
+	0xBA, 0xC4, 0x7E, 0xB3, 0x35
+};
+
+static const struct test_sym_params kmac256_zero_dlen_13B = {
+	.ctx = {
+		.opcode = DAO_LC_SYM_OPCODE_HMAC,
+		.hash = {
+			.hmac_hash_type = DAO_LC_HASH_TYPE_SHA3_KMAC256,
+			.hmac_key_len = 4,
+			.hmac_auth_key = { 0xF8, 0x2A, 0xC7, 0x54 },
+			.digest_len = 0,
+		},
+	},
+	.plaintext = { .data = plaintext_hash, .len = 0 },
+	.digest_data = digest_kmac256_zero_dlen_13B,
+	.output_len = 13,
+};
 #endif /* __LC_TEST_SYM_HASH_H__ */
