@@ -274,6 +274,8 @@ struct rdma_req_info {
 	bool stop_psn;
 	bool in_retransmission;
 	bool is_read_qp;
+	bool flush_pending;
+	uint32_t flush_status;
 	int32_t unacked_window; /* Cached: RDMA_MAX_UNACKED_PSNS - (req.psn - comp.psn) */
 };
 

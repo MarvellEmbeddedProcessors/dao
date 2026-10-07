@@ -76,21 +76,12 @@ rdma_setup_retransmission(rdma_qp_t *qp)
 static inline void
 rdma_reset_and_send_cqe(rdma_qp_t *qp, int status)
 {
-	struct rdma_send_wqe *wqe_next, *tmp;
-
 	qp->req.cur_wqe = NULL;
 	qp->state = QP_STATE_ERROR;
 	qp->comp.retry_cnt = qp->attr.max_retry_cnt;
 	qp->comp.rnr_retry = qp->attr.max_rnr_retry;
-	rte_timer_stop(&qp->timer_data->retrans_timer);
 
-	STAILQ_FOREACH_SAFE(wqe_next, &qp->req.wqe_head, next, tmp)
-	{
-		wqe_next->status = status;
-		dao_send_cqe(qp, false, wqe_next);
-	}
-
-	rdma_delete_all_wqe(qp);
+	rdma_flush_sq(qp, (uint32_t)status);
 }
 
 int
@@ -124,6 +115,9 @@ rdma_timeout_handler_cb(struct rte_timer *tim, void *arg)
 		rte_free(data);
 		return;
 	}
+
+	if (qp->state == QP_STATE_ERROR)
+		return;
 
 	if (data->timer_type & RDMA_RNR_TIMER) {
 		qp->req.wait_rnr_exp = 0;
@@ -162,7 +156,7 @@ dao_rdma_get_retransmition_pkts(int qp_id, int dev_id, int num_pkts, struct rte_
 	struct rdma_mbufs *rmbuf;
 
 	qp = rdma_qp_query_fast(qp_id, dev_id);
-	if (!qp || !qp->req.in_retransmission)
+	if (!qp || !qp->valid || qp->state == QP_STATE_ERROR || !qp->req.in_retransmission)
 		return 0;
 
 	wqe = qp->req.retransmit.curr_wqe;

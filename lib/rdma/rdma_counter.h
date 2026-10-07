@@ -261,6 +261,8 @@ rdma_counter_update_lcore(void)
 	X(RDMA_RX_QP_RSP_RESPST_ERR)                                                               \
 	/** RDMA responder failed during RX processing */                                          \
 	X(RDMA_RX_QP_RX_PROC_RESPONDER_FAIL)                                                       \
+	/** Packet dropped in RX processing because QP is in Error state. */                       \
+	X(RDMA_RX_QP_RX_PROC_QP_ERR_DROP)                                                          \
 	/** WQE already completed when fetched during ACK processing. */                           \
 	X(RDMA_RX_QP_GET_WQE_WQE_STATE_DONE)                                                       \
 	/** WQE in error state when fetched during ACK processing. */                              \

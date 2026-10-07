@@ -137,6 +137,7 @@ rdma_qp_destroy(uint8_t portid, uint32_t qid)
 		return -1;
 	}
 
+	rdma_flush_sq_state(qp);
 	rdma_delete_all_wqe(qp);
 
 	/* Free the RC fast-path sentinel mbuf allocated during QP creation.
@@ -174,6 +175,7 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 	qp->resp.opcode = -1;
 	qp->valid = 0;
 	qp_status_cb(port, qp->qid, false);
+	rdma_flush_sq_state(qp);
 	rdma_delete_all_wqe(qp);
 	/* Release the old sentinel mbuf before the QP is re-enabled;
 	 * a fresh one will be allocated on the next RC SEND.
@@ -380,6 +382,8 @@ rdma_qp_update_from_attr(struct rdma_qp *qp, struct octep_rdma_user_qp_modify_re
 			qp->attr.sq_draining = 1;
 		if (qp->state == QP_STATE_RESET)
 			rdma_qp_reset(qp, port);
+		if (qp->state == QP_STATE_ERROR)
+			rdma_flush_sq_defer(qp, RDMA_WC_WR_FLUSH_ERR);
 	}
 
 	return 0;

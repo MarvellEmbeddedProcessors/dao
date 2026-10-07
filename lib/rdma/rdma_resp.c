@@ -127,9 +127,8 @@ queue_check(struct rdma_qp *qp)
 	uint32_t qp_id = qp->qid;
 
 	if (qp->state == QP_STATE_ERROR) {
-		/* Go drain recv wr queue */
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_QUEUE_CHK_QP_STATE_ERR);
-		return RDMA_RESPST_CHK_RESOURCE;
+		return RDMA_RESPST_EXIT;
 	}
 
 	return RDMA_RESPST_CHK_PSN;
@@ -635,6 +634,7 @@ rdma_read_d2m_chain_drop(struct rte_mbuf *head)
 	for (m = head; m; m = next) {
 		next = m->next;
 		m->next = NULL;
+		m->ol_flags &= ~(0x7ULL << OFFLD_UPPER_BITS);
 		/* Undo the prep refcnt bump from rdma_read_build_d2m_chain(). */
 		rte_mbuf_refcnt_update(m, -1);
 		rte_pktmbuf_free(m);
@@ -807,7 +807,7 @@ dao_rdma_read_chunk_flush_pending(uint32_t qp_id, int devid)
 	uint32_t prep_len;
 	uint16_t ret;
 
-	if (!qp || !qp->resp.read_chunk.needs_pts_enqueue)
+	if (!qp || qp->state == QP_STATE_ERROR || !qp->resp.read_chunk.needs_pts_enqueue)
 		return 0;
 
 	rc = &qp->resp.read_chunk;
@@ -842,7 +842,7 @@ dao_rdma_read_chunk_retry(uint32_t qp_id, int devid)
 	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
 	struct rdma_read_chunk_state *rc;
 
-	if (!qp || !qp->resp.read_chunk.needs_chunk_retry)
+	if (!qp || qp->state == QP_STATE_ERROR || !qp->resp.read_chunk.needs_chunk_retry)
 		return 0;
 
 	rc = &qp->resp.read_chunk;
@@ -943,7 +943,7 @@ dao_rdma_read_service_pending(uint32_t qp_id, int devid)
 {
 	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
 
-	if (!qp)
+	if (!qp || qp->state == QP_STATE_ERROR)
 		return 0;
 	return rdma_read_start_pending(qp);
 }
@@ -2114,6 +2114,7 @@ rdma_responder(struct pkt_info *pinfo)
 		case RDMA_RESPST_ERROR:
 			qp->resp.goto_error = 0;
 			qp->state = QP_STATE_ERROR;
+			rdma_flush_sq(qp, RDMA_WC_WR_FLUSH_ERR);
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RSP_RESPST_ERR);
 			goto exit;
 
@@ -2139,7 +2140,8 @@ dao_rdma_ack_dequeue_until_read(uint32_t qp_id, int devid, struct rte_mbuf **mbu
 	struct rdma_ack *ack;
 	uint16_t n = 0;
 
-	if (!qp || !mbufs || !max_pkts || STAILQ_EMPTY(&qp->resp.ack_pending_list))
+	if (!qp || qp->state == QP_STATE_ERROR || !mbufs || !max_pkts ||
+	    STAILQ_EMPTY(&qp->resp.ack_pending_list))
 		return 0;
 
 	while (n < max_pkts) {

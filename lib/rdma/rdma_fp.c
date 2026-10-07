@@ -155,6 +155,11 @@ dao_rdma_rx_process(struct rte_mbuf **mbuf_p, uint16_t rx_queue, uint32_t *qpn, 
 
 	qp_id = ((struct rdma_qp *)pinfo.rinfo.qp)->qid;
 
+	if (unlikely(((struct rdma_qp *)pinfo.rinfo.qp)->state == QP_STATE_ERROR)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RX_PROC_QP_ERR_DROP);
+		return -1;
+	}
+
 	/* Fetch PTS resource budget once per QP per graph iteration */
 	if (!qp_res_status[qp_id]) {
 		struct rdma_qp *qp = (struct rdma_qp *)pinfo.rinfo.qp;
@@ -247,7 +252,8 @@ rdma_requester_error(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 	int first_skip = 1;
 	struct rdma_mbufs *rmbuf = NULL, *rmbuf_next = NULL;
 
-	wqe->status = RDMA_WC_LOC_QP_OP_ERR;
+	if (wqe->status != RDMA_WC_WR_FLUSH_ERR)
+		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 	dao_send_cqe(qp, false, wqe);
 	STAILQ_REMOVE(&qp->req.wqe_head, wqe, rdma_send_wqe, next);
 	STAILQ_FOREACH_SAFE(rmbuf, &wqe->mbuf_list, next, rmbuf_next)
@@ -274,7 +280,8 @@ rdma_requester_error2(struct rdma_qp *qp, struct rdma_send_wqe *wqe)
 
 	RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 			    RDMA_TX_QP_PROC_REMAINING_SEGS_REQUESTER_FAIL);
-	wqe->status = RDMA_WC_LOC_QP_OP_ERR;
+	if (wqe->status != RDMA_WC_WR_FLUSH_ERR)
+		wqe->status = RDMA_WC_LOC_QP_OP_ERR;
 	dao_send_cqe(qp, false, wqe);
 	qp->req.cur_wqe = NULL;
 	qp->req.cur_mbuf = NULL;
@@ -322,6 +329,8 @@ dao_rdma_process_remaining_segs(struct rdma_qp *qp, struct rte_mbuf **mbufs, uin
 			rdma_requester_error2(qp, wqe);
 			*n_mbufs = 0;
 			rte_mbuf_refcnt_update(qp->req.dummy_mbuf, 1);
+			if (unlikely(qp->state == QP_STATE_ERROR))
+				rdma_flush_sq(qp, RDMA_WC_WR_FLUSH_ERR);
 			return -1;
 		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
 			qp->req.cur_mbuf = rmbuf;
@@ -457,6 +466,8 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 			*n_mbufs = 0;
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_TX_QP_PROC_RC_REQUESTER_FAIL);
+			if (unlikely(qp->state == QP_STATE_ERROR))
+				rdma_flush_sq(qp, RDMA_WC_WR_FLUSH_ERR);
 			return -1;
 		} else if (ret == RDMA_REQUESTER_POSTPONED_RC) {
 			qp->req.cur_mbuf = rmbuf;
@@ -476,6 +487,9 @@ rdma_process_rc_packets(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rte_mb
 	return 0;
 }
 
+static int rdma_free_mbuf_generate_cqe(struct rdma_qp *qp, struct rdma_send_wr *wr,
+				       uint32_t status);
+
 int
 dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte_mbuf **mbufs,
 		    uint16_t *n_mbufs, uint16_t burst_limit)
@@ -488,8 +502,17 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 	unsigned int lcore_id = rte_lcore_id();
 
 	qp = rdma_qp_query_fast(qp_id, devid);
-	if (qp == NULL || qp->state == QP_STATE_ERROR) {
+	if (unlikely(qp == NULL)) {
 		RDMA_INC_PORT_COUNTER(lcore_id, devid, RDMA_TX_PORT_TX_PROC_QP_INV);
+		return -1;
+	}
+
+	if (unlikely(qp->state == QP_STATE_ERROR)) {
+		if (mbuf == qp->req.dummy_mbuf || mbuf == qp->resp.resp_dummy_mbuf ||
+		    mbuf->packet_type == DAO_PTS_RDMA_D2M_COMPL)
+			return RDMA_TX_PROC_CONSUMED;
+		RDMA_INC_PORT_COUNTER(lcore_id, devid, RDMA_TX_PORT_TX_PROC_QP_INV);
+		rdma_free_mbuf_generate_cqe(qp, rdma_tx_priv_wr(mbuf), RDMA_WC_WR_FLUSH_ERR);
 		return -1;
 	}
 
@@ -527,6 +550,12 @@ dao_rdma_tx_process(struct rte_mbuf *mbuf, uint32_t qp_id, int devid, struct rte
 		if (ret < 0) {
 			RDMA_INC_QP_COUNTER(lcore_id, devid, qp_id,
 					    RDMA_TX_QP_TX_PROC_UD_REQUESTER_FAIL);
+			if (unlikely(qp->state == QP_STATE_ERROR)) {
+				if (wqe.status == RDMA_WC_SUCCESS)
+					wqe.status = RDMA_WC_LOC_QP_OP_ERR;
+				dao_send_cqe(qp, false, &wqe);
+				rdma_flush_sq(qp, RDMA_WC_WR_FLUSH_ERR);
+			}
 			goto error;
 		}
 		dao_send_cqe(qp, false, &wqe);
@@ -605,7 +634,7 @@ rdma_free_mbuf_generate_cqe(struct rdma_qp *qp, struct rdma_send_wr *wr, uint32_
 	cqe.status = status;
 	cqe.opcode = rdma_wr_to_wc_opcode(wr->opcode);
 	cqe.byte_len = 0;
-	cqe.qp_id = qp->dest_qp_num;
+	cqe.qp_id = qp->qid;
 
 	dao_pts_rdma_enqueue_cqe(qp->dev_id, qp->qid, false, &cqe, 1);
 
@@ -858,8 +887,17 @@ dao_rdma_need_qp_schedule(uint32_t qp_id, int devid)
 {
 	struct rdma_qp *qp = rdma_qp_query_fast(qp_id, devid);
 
-	if (unlikely(!qp || qp->state == QP_STATE_ERROR))
+	if (unlikely(!qp))
 		return NULL;
+
+	if (unlikely(qp->state == QP_STATE_ERROR)) {
+		if (qp->req.flush_pending) {
+			rte_smp_rmb();
+			qp->req.flush_pending = 0;
+			rdma_flush_sq(qp, qp->req.flush_status);
+		}
+		return NULL;
+	}
 
 	if (qp->type != RDMA_QPT_RC)
 		return NULL;
