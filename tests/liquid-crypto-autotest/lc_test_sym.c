@@ -86,10 +86,19 @@ test_hash_only(const void *data, const bool is_auth_gen)
 	op[0].auth_gen = is_auth_gen;
 
 	if (params->ctx.opcode == DAO_LC_SYM_OPCODE_HMAC ||
-	    params->ctx.opcode == DAO_LC_SYM_OPCODE_HASH)
-		digest_len = params->ctx.hash.digest_len;
-	else
+	    params->ctx.opcode == DAO_LC_SYM_OPCODE_HASH) {
+		/* cSHAKE/KMAC are XOFs: use per-op output_len for digest comparison,
+		 * not session digest_len which may be 0. */
+		if (params->ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC128 ||
+		    params->ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_KMAC256 ||
+		    params->ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE128 ||
+		    params->ctx.hash.hmac_hash_type == DAO_LC_HASH_TYPE_SHA3_CSHAKE256)
+			digest_len = params->output_len;
+		else
+			digest_len = params->ctx.hash.digest_len;
+	} else {
 		digest_len = params->ctx.fc.mac_len;
+	}
 
 	for (i = 0; i < max_offset; i++) {
 		if (is_auth_gen)
@@ -1570,6 +1579,18 @@ struct unit_test_suite lc_testsuite_sym = {
 					  test_hash_gen, &cshake256_test_data),
 		TEST_CASE_NAMED_WITH_DATA("cSHAKE256 Digest Verify", ut_setup, ut_teardown,
 					  test_hash_verify, &cshake256_test_data),
+		TEST_CASE_NAMED_WITH_DATA(
+			"cSHAKE128 digest_len=0 output_len=13",
+			ut_setup, ut_teardown, test_hash_gen, &cshake128_zero_dlen_13B),
+		TEST_CASE_NAMED_WITH_DATA(
+			"cSHAKE256 digest_len=0 output_len=13",
+			ut_setup, ut_teardown, test_hash_gen, &cshake256_zero_dlen_13B),
+		TEST_CASE_NAMED_WITH_DATA(
+			"KMAC128 digest_len=0 output_len=13",
+			ut_setup, ut_teardown, test_hash_gen, &kmac128_zero_dlen_13B),
+		TEST_CASE_NAMED_WITH_DATA(
+			"KMAC256 digest_len=0 output_len=13",
+			ut_setup, ut_teardown, test_hash_gen, &kmac256_zero_dlen_13B),
 		TEST_CASE_NAMED_WITH_DATA("Wrap 128 bit key data with 128 bit KEK", ut_setup,
 					  ut_teardown, test_aes_key_wrap,
 					  &aes_keywrap_128B_kek_128B_key),
