@@ -148,8 +148,8 @@ int dao_pem_ctrl_region_unregister(uint16_t pem_devid, uintptr_t base, uint32_t 
  * @return
  *    Zero on success.
  */
-int dao_pem_vf_region_info_get(uint16_t pem_devid, uint16_t dev_id, uint8_t bar_idx,
-			       uint64_t *addr, uint64_t *size);
+int dao_pem_vf_region_info_get(uint16_t pem_devid, uint16_t dev_id, uint8_t bar_idx, uint64_t *addr,
+			       uint64_t *size);
 
 /**
  * PEM host page size get.
@@ -276,5 +276,43 @@ int dao_pem_fw_cleanup_notify(uint16_t pem_devid);
  *    Zero on success.
  */
 int dao_pem_get_sec_strm_id(uint8_t *sec_strm_id);
+
+/**
+ * Map a memory region in to current process.
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param key
+ *    memory region key
+ * @param va
+ *    atomic va address
+ * @param length
+ *    MR length in bytes
+ * @return
+ *    Zero on success, negative errno on failure.
+ */
+int dao_pem_map_mr(uint16_t pem_devid, uint32_t key, uint64_t va, uint64_t length);
+
+/**
+ * Unmap the MR region
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param key
+ *    memory region key
+ */
+void dao_pem_unmap_mr(uint16_t pem_devid, uint32_t key);
+
+/**
+ * Translate MR VA address to Phsyical address
+ *
+ * @param pem_devid
+ *    PEM device ID
+ * @param key
+ *    memory region key
+ * @param va
+ *    atomic va address
+ */
+void *dao_pem_mr_va_to_phy(uint16_t pem_devid, uint32_t key, uint64_t va);
 
 #endif /* __INCLUDE_DAO_PEM_H__ */

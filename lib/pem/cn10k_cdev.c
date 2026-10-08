@@ -5,6 +5,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -26,10 +27,8 @@
 #define OCTEON_CDEV_GET_SIZE    _IOR(OCTEON_CDEV_IOC_MAGIC, 1, size_t)
 #define OCTEON_CDEV_GET_STRM_ID _IOR(OCTEON_CDEV_IOC_MAGIC, 2, uint32_t)
 #define OCTEON_CDEV_GET_MAX_VFS _IOR(OCTEON_CDEV_IOC_MAGIC, 3, uint32_t)
-
-/* Keep at the end  */
-#define OCTEON_CDEV_FW_READY   _IO(OCTEON_CDEV_IOC_MAGIC, 4)
-#define OCTEON_CDEV_FW_CLEANUP _IO(OCTEON_CDEV_IOC_MAGIC, 5)
+#define OCTEON_CDEV_FW_READY    _IO(OCTEON_CDEV_IOC_MAGIC, 4)
+#define OCTEON_CDEV_FW_CLEANUP  _IO(OCTEON_CDEV_IOC_MAGIC, 5)
 
 int dao_pem_fw_ready_notify(uint16_t pem_devid);
 
@@ -152,6 +151,39 @@ cn10k_cdev_init(struct cn10k_cdev_device *dev)
 	dao_info("  fd=%d, addr=%p, size=%zu, per_dev=%zu, max_vfs=%u, sec_strm_id=%u", fd,
 		 dev->base, map_size, dev->size_per_dev, max_vfs, sec_strm_id);
 
+	return 0;
+}
+
+int
+cn10k_cdev_map_mr(struct cn10k_cdev_device *dev, uint32_t key, uint64_t length,
+		  uint64_t *mapped_base, uint64_t *mapped_size)
+{
+	uint64_t mask;
+	long page_size;
+	size_t map_len;
+	void *addr;
+
+	if (!dev || dev->fd < 0 || !mapped_base || !mapped_size || !length || !key)
+		return -EINVAL;
+
+	page_size = sysconf(_SC_PAGESIZE);
+	if (page_size <= 0)
+		return -EINVAL;
+
+	mask = (uint64_t)page_size - 1;
+	map_len = (size_t)((length + mask) & ~mask);
+	/* use key as index in to map offset */
+	addr = mmap(NULL, map_len, PROT_READ | PROT_WRITE, MAP_SHARED, dev->fd,
+		    (off_t)key * page_size);
+	if (addr == MAP_FAILED) {
+		dao_err("mmap MR key 0x%x len 0x%zx failed: %s", key, map_len, strerror(errno));
+		return -errno;
+	}
+
+	*mapped_base = (uint64_t)(uintptr_t)addr;
+	*mapped_size = map_len;
+	dao_info("Mapped MR key 0x%x at VA 0x%" PRIx64 " size 0x%" PRIx64, key, *mapped_base,
+		 *mapped_size);
 	return 0;
 }
 

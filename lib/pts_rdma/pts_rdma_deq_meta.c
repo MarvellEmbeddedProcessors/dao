@@ -14,6 +14,9 @@
 
 #define PTS_RDMA_M2D_MASK (1 << DAO_PTS_RDMA_READ)
 
+#define PTS_RDMA_ATOMIC_MASK                                                                       \
+	((1 << DAO_PTS_RDMA_ATOMIC_CMP_AND_SWP) | (1 << DAO_PTS_RDMA_ATOMIC_FETCH_AND_ADD))
+
 #define PTS_RDMA_SQE_HDR_SZ offsetof(union dao_pts_rdma_sqe, sges0)
 #define PTS_RDMA_DATA_OFF   (RTE_PKTMBUF_HEADROOM)
 
@@ -59,8 +62,12 @@ post_process_data(uint16_t devid, struct pts_rdma_qp_sq *sq, struct rte_mbuf **d
 		rte_memcpy(mbuf_priv, SQ_DESC_PTR_OFF(desc_base, off, 0), PTS_RDMA_SQE_HDR_SZ);
 
 		if (DAO_BIT(opcode) & PTS_RDMA_M2D_MASK) {
-			/* Copy SGEs to mbuf */
-			len = sizeof(struct dao_pts_rdma_sge) * num_sges;
+			if (DAO_BIT(opcode) & PTS_RDMA_ATOMIC_MASK)
+				len = sizeof(union dao_pts_rdma_sqe) - PTS_RDMA_SQE_HDR_SZ;
+			else
+				/* Copy SGEs to mbuf */
+				len = sizeof(struct dao_pts_rdma_sge) * num_sges;
+
 			rte_memcpy((uint8_t *)((uintptr_t)mbuf_priv + PTS_RDMA_SQE_HDR_SZ),
 				   SQ_DESC_PTR_OFF(desc_base, off, PTS_RDMA_SQE_HDR_SZ), len);
 			/* Update mbuf length */
