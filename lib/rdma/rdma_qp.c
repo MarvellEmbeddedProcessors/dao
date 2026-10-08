@@ -111,7 +111,7 @@ rdma_qp_destroy(uint8_t portid, uint32_t qid)
 	if (qid >= RDMA_QP_MAX)
 		return -1;
 
-	port = rdma_port_lookup(portid);
+	port = rdma_port_get(portid);
 	if (port == NULL) {
 		dao_err("Invalid RDMA portid for QP destroy");
 		return -1;

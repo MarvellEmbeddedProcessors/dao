@@ -145,16 +145,24 @@ rdma_cleanup_resources(uint16_t port_num)
 		 rport->state == RDMA_PORT_ST_DOWN ? "RDMA_PORT_ST_DOWN" : "RDMA_PORT_ST_UP");
 }
 
-inline struct rdma_port *
-rdma_port_lookup(uint8_t port_num)
+struct rdma_port *
+rdma_port_get(uint8_t port_num)
 {
 	if (port_num >= RDMA_PORT_MAX)
 		return NULL;
 
-	if (port[port_num].state != RDMA_PORT_ST_ACTIVE)
+	return &port[port_num];
+}
+
+inline struct rdma_port *
+rdma_port_lookup(uint8_t port_num)
+{
+	struct rdma_port *rport = rdma_port_get(port_num);
+
+	if (!rport || rport->state != RDMA_PORT_ST_ACTIVE)
 		return NULL;
 
-	return &port[port_num];
+	return rport;
 }
 
 struct pd_entry **
