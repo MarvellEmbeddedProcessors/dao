@@ -548,6 +548,36 @@ dao_pts_rdma_meta_data_get(uint16_t devid, void *dest, uint16_t len)
 }
 
 int
+dao_pts_rdma_atomic_fetch_add(uint32_t rkey, uint64_t va, uint64_t add_val, uint64_t *orig)
+{
+	volatile uint64_t *dest;
+
+	dest = dao_pem_mr_va_to_phy(0 /* PEM ID */, rkey, va);
+	if (!dest || !orig || ((uintptr_t)dest & 0x7))
+		return -EINVAL;
+
+	*orig = __atomic_fetch_add(dest, add_val, __ATOMIC_SEQ_CST);
+	return 0;
+}
+
+int
+dao_pts_rdma_atomic_cmp_swap(uint32_t rkey, uint64_t va, uint64_t comp_val, uint64_t swap_val,
+			     uint64_t *orig)
+{
+	volatile uint64_t *dest;
+	uint64_t old_val = comp_val;
+
+	dest = dao_pem_mr_va_to_phy(0 /* PEM ID */, rkey, va);
+	if (!dest || !orig || ((uintptr_t)dest & 0x7))
+		return -EINVAL;
+
+	__atomic_compare_exchange_n(dest, &old_val, swap_val, false, __ATOMIC_SEQ_CST,
+				    __ATOMIC_RELAXED);
+	*orig = old_val;
+	return 0;
+}
+
+int
 dao_pts_rdma_desc_manage_with_meta(uint16_t devid)
 {
 	struct dao_pts_rdma_dev *dao_dev = &dao_pts_rdma_devs[devid];

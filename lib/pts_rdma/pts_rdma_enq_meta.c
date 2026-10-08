@@ -323,6 +323,50 @@ read_resp_enqueue(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf,
 }
 
 static inline int
+atomic_ack_data_enqueue(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
+{
+	struct dao_pts_rdma_sge *sge;
+	uint64_t len;
+
+	sge = DAO_PTS_RDMA_MBUF_TO_SGES(mbuf);
+	len = RTE_MIN(mbuf->pkt_len, sge->length);
+
+	if (unlikely(!dao_dma_desc_avail_get(mem2dev, 1, 1)))
+		return -1;
+
+	dao_dma_enq_dst_x1(mem2dev, sge->addr & PTS_RDMA_DEV_IOVA_MASK, len);
+	dao_dma_enq_src_x1(mem2dev, (uintptr_t)rte_pktmbuf_mtod(mbuf, uint64_t *), len);
+	mbuf->next = NULL;
+	mbuf->nb_segs = 1;
+	PTS_RDMA_ENQ_UPDATE_COOKIE(mbuf, 0);
+	return 0;
+}
+
+static inline int
+process_atomic_ack_data_enqueue(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem2dev,
+				struct rte_mbuf *mbuf)
+{
+	struct pts_rdma_cq_data *cq_data = &qp->sq.cq_data;
+	struct dao_pts_rdma_cqe *cqe;
+
+	if (unlikely(is_queue_full(cq_data->pi_data, cq_data->ci, cq_data->qmask)))
+		return -1;
+
+	if (unlikely(atomic_ack_data_enqueue(mem2dev, mbuf)))
+		return -1;
+
+	cqe = DAO_PTS_RDMA_MBUF_TO_CQE(mbuf);
+	pts_rdma_enqueue_cqe(cq_data, cqe, 1, true);
+	return 0;
+}
+
+static inline int
+process_atomic_ack_data_enqueue_no_cqe(struct dao_dma_vchan_state *mem2dev, struct rte_mbuf *mbuf)
+{
+	return atomic_ack_data_enqueue(mem2dev, mbuf);
+}
+
+static inline int
 process_rdma_read_resp(struct pts_rdma_qp *qp, struct dao_dma_vchan_state *mem2dev,
 		       struct rte_mbuf *mbuf)
 {
@@ -861,6 +905,19 @@ push_enq_buffers(uint16_t devid, struct pts_rdma_qp *qp, struct rte_mbuf **mbufs
 				goto exit;
 			}
 			nb_read_cqe++;
+		} else if (type == DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK_WITH_CQE) {
+			ret = process_atomic_ack_data_enqueue(qp, mem2dev, mbuf);
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
+				goto exit;
+			}
+			nb_read_cqe++;
+		} else if (type == DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK) {
+			ret = process_atomic_ack_data_enqueue_no_cqe(mem2dev, mbuf);
+			if (ret) {
+				mbuf->ol_flags |= ((uint64_t)type << 60);
+				goto exit;
+			}
 		} else if (type == DAO_PTS_RDMA_ENQ_M2D_SQE) {
 			ret = process_rdma_read_resp_no_cqe(mem2dev, mbuf);
 			if (ret) {

@@ -82,4 +82,10 @@ int cn10k_cdev_fw_cleanup_notify(struct cn10k_cdev_device *dev);
  */
 int cn10k_cdev_name_get(char *name, size_t len);
 
+/**
+ * Map memory region into current process
+ */
+int cn10k_cdev_map_mr(struct cn10k_cdev_device *dev, uint32_t key, uint64_t length,
+		      uint64_t *mapped_base, uint64_t *mapped_size);
+
 #endif /* __CN10K_CDEV_H__ */

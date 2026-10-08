@@ -20,6 +20,19 @@
 #define PEM_DT_PFX_LEN         13
 #define PEM_CTRL_POLL_DELAY_US 100
 
+#define PEM_MR_KEY_SHIFT 20
+#define PEM_MR_MAP_MAX   1024
+
+struct pem_mr_map {
+	uint32_t key;
+	uint64_t map_base;
+	uint64_t map_len;
+	uintptr_t va_to_phy;
+};
+
+/* Each PEM can have max PEM_MR_MAP_MAX entries */
+static struct pem_mr_map pem_mr_maps[DAO_PEM_DEV_ID_MAX][PEM_MR_MAP_MAX];
+
 struct pem pem_devices[DAO_PEM_DEV_ID_MAX];
 
 static uint32_t
@@ -857,4 +870,85 @@ dao_pem_get_sec_strm_id(uint8_t *sec_strm_id)
 		return -EINVAL;
 
 	return cn10k_cdev_sec_strm_id_get_early(sec_strm_id);
+}
+
+int
+dao_pem_map_mr(uint16_t pem_devid, uint32_t key, uint64_t va, uint64_t length)
+{
+	uint64_t mapped_base, mapped_size, pg_mask;
+	struct pem_mr_map *m;
+	struct pem *pem;
+	uint32_t idx;
+	long pg_sz;
+	int rc;
+
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX)
+		return -EINVAL;
+
+	idx = key >> PEM_MR_KEY_SHIFT;
+	if (idx >= PEM_MR_MAP_MAX)
+		return -EINVAL;
+
+	pem = &pem_devices[pem_devid];
+	if (pem->platform != DAO_PLATFORM_CN10K || !pem->cdev_inuse)
+		return -ENOTSUP;
+	if (pem->cn10k.device_type != CN10K_DEVICE_TYPE_CDEV)
+		return -ENOTSUP;
+	if (pem->cn10k.cdev.fd < 0)
+		return -ENODEV;
+
+	pg_sz = sysconf(_SC_PAGESIZE);
+	if (pg_sz <= 0)
+		return -EINVAL;
+	pg_mask = (uint64_t)pg_sz - 1;
+
+	m = &pem_mr_maps[pem_devid][idx];
+	if (__atomic_load_n(&m->key, __ATOMIC_ACQUIRE))
+		return -EEXIST;
+
+	rc = cn10k_cdev_map_mr(&pem->cn10k.cdev, key, (va & pg_mask) + length, &mapped_base,
+			       &mapped_size);
+	if (rc < 0)
+		return rc;
+
+	m->map_base = mapped_base;
+	m->map_len = mapped_size;
+	m->va_to_phy = (uintptr_t)(mapped_base - (va & ~pg_mask));
+	__atomic_store_n(&m->key, key, __ATOMIC_RELEASE);
+	return 0;
+}
+
+void
+dao_pem_unmap_mr(uint16_t pem_devid, uint32_t key)
+{
+	struct pem_mr_map *m;
+	uint32_t idx;
+
+	idx = key >> PEM_MR_KEY_SHIFT;
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX || idx >= PEM_MR_MAP_MAX)
+		return;
+
+	m = &pem_mr_maps[pem_devid][idx];
+	if (__atomic_load_n(&m->key, __ATOMIC_ACQUIRE) != key)
+		return;
+
+	__atomic_store_n(&m->key, 0, __ATOMIC_RELEASE);
+	munmap((void *)(uintptr_t)m->map_base, (size_t)m->map_len);
+}
+
+void *
+dao_pem_mr_va_to_phy(uint16_t pem_devid, uint32_t key, uint64_t va)
+{
+	struct pem_mr_map *m;
+	uint32_t idx;
+
+	idx = key >> PEM_MR_KEY_SHIFT;
+	if (pem_devid >= DAO_PEM_DEV_ID_MAX || idx >= PEM_MR_MAP_MAX)
+		return NULL;
+
+	m = &pem_mr_maps[pem_devid][idx];
+	if (__atomic_load_n(&m->key, __ATOMIC_ACQUIRE) != key)
+		return NULL;
+
+	return (void *)(uintptr_t)(va + m->va_to_phy);
 }

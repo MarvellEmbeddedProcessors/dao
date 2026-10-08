@@ -75,13 +75,15 @@ enum dao_pts_rdma_send_flags {
 };
 
 /* BIT 63:60 used for the direction */
-#define DAO_PTS_RDMA_ENQ_M2D              (0X1ULL) /* RDMA_WRITE */
-#define DAO_PTS_RDMA_ENQ_D2M              (0X2ULL) /* RDMA_READ */
-#define DAO_PTS_RDMA_ENQ_M2D_RQE          (0X3ULL)
-#define DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE (0X4ULL) /* SEND or RDMA_WRITE_WITH_IMM */
-#define DAO_PTS_RDMA_ENQ_M2D_WITH_CQE     (0X5ULL) /* RDMA_WRITE_WITH_IMM */
-#define DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE (0X6ULL) /* RDMA_READ_RESPONSE */
-#define DAO_PTS_RDMA_ENQ_M2D_SQE          (0X7ULL) /* RDMA_READ_RESPONSE_WITHOUT_CQE */
+#define DAO_PTS_RDMA_ENQ_M2D                     (0X1ULL) /* RDMA_WRITE */
+#define DAO_PTS_RDMA_ENQ_D2M                     (0X2ULL) /* RDMA_READ */
+#define DAO_PTS_RDMA_ENQ_M2D_RQE                 (0X3ULL)
+#define DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE        (0X4ULL) /* SEND or RDMA_WRITE_WITH_IMM */
+#define DAO_PTS_RDMA_ENQ_M2D_WITH_CQE            (0X5ULL) /* RDMA_WRITE_WITH_IMM */
+#define DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE        (0X6ULL) /* RDMA_READ_RESPONSE */
+#define DAO_PTS_RDMA_ENQ_M2D_SQE                 (0X7ULL) /* RDMA_READ_RESPONSE_WITHOUT_CQE */
+#define DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK_WITH_CQE (0X8ULL) /* Atomic ack response */
+#define DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK          (0X9ULL) /* Atomic ack response without cqe*/
 
 /* Structure for PTS RDMA CQE DESCRIPTOR */
 struct dao_pts_rdma_cqe {
@@ -138,8 +140,17 @@ union dao_pts_rdma_sqe {
 				uint32_t reserved;
 			} rdma;
 		};
-		/* WORD 4-7 */
-		struct dao_pts_rdma_sge sges0[2];
+		union {
+			/* WORD 4-7 */
+			struct dao_pts_rdma_sge sges0[2];
+			struct {
+				/* For CASP new value; For FAA, add value */
+				uint64_t swap;
+				/* For CASP compare value; For FAA - 0 */
+				uint64_t compare;
+				uint64_t rsvd[2];
+			} atomic;
+		};
 	};
 	/* WORD 0-7 */
 	struct dao_pts_rdma_sge sges1[4];
@@ -420,7 +431,9 @@ int32_t dao_pts_rdma_mgmt_qp_id_get(uint16_t devid);
  *      rte_mbuf::ol_flags :
  *           DAO_PTS_RDMA_ENQ_M2D | DAO_PTS_RDMA_ENQ_D2M |
  *           DAO_PTS_RDMA_ENQ_M2D_RQE | DAO_PTS_RDMA_ENQ_M2D_RQE_WITH_CQE |
- *           DAO_PTS_RDMA_ENQ_M2D_WITH_CQE | DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE
+ *           DAO_PTS_RDMA_ENQ_M2D_WITH_CQE | DAO_PTS_RDMA_ENQ_M2D_SQE_WITH_CQE |
+ *	     DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK_WITH_CQE |
+ *	     DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK
  *
  * @param devid
  *   RDMA TR device id
@@ -518,4 +531,39 @@ void dao_pts_rdma_ops_mode_set(bool enable);
  *   0 on success, negative on error
  */
 int dao_pts_rdma_dma_flush(void);
+
+/**
+ * Perform an atomic fetch and add on a memory address.
+ *
+ *  @param rkey
+ *    MR key
+ *  @param va
+ *    MR va
+ *  @param add_val
+ *    value to add
+ *  @param orig
+ *    original value before this op
+ *  @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_atomic_fetch_add(uint32_t rkey, uint64_t va, uint64_t add_val, uint64_t *orig);
+
+/**
+ * Perform an atomic compare and swap on a memory address.
+ *  @param rkey
+ *    MR key
+ *  @param va
+ *    MR va
+ *  @param cmp_val
+ *    value to compare
+ *  @param swap_val
+ *    value to swap after compare
+ *  @param orig
+ *    original value before this op
+ *  @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_atomic_cmp_swap(uint32_t rkey, uint64_t va, uint64_t comp_val, uint64_t swap_val,
+				 uint64_t *orig);
+
 #endif /* __INCLUDE_DAO_PTS_RDMA_DEV_H__ */
