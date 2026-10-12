@@ -57,6 +57,8 @@ struct pkt_info {
 
 #define RDMA_ICRC_SIZE      (4)
 #define RDMA_MAX_HDR_LENGTH (80)
+/* IBTA atomics always operate on a single 8B, naturally-aligned target. */
+#define RDMA_ATOMIC_DATA_SIZE (8)
 
 /* Maximum L3 overhead added to RDMA data payload on the wire:
  * IPv6(40) + UDP(8) + BTH(12) + RETH(16) + IMMDT(4) + pad(3) + ICRC(4) = 87

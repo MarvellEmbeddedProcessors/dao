@@ -67,6 +67,19 @@ struct rdma_wr_opcode_info rdma_wr_opcode_info[] = {
 			[RDMA_QPT_RC] = WR_READ_MASK,
 		},
 	},
+	[RDMA_WR_ATOMIC_CMP_AND_SWP] = {
+		.name = "RDMA_WR_ATOMIC_CMP_AND_SWP",
+		.mask = {
+			/* Shares READ/ATOMIC credit pool. */
+			[RDMA_QPT_RC] = WR_READ_MASK,
+		},
+	},
+	[RDMA_WR_ATOMIC_FETCH_AND_ADD] = {
+		.name = "RDMA_WR_ATOMIC_FETCH_AND_ADD",
+		.mask = {
+			[RDMA_QPT_RC] = WR_READ_MASK,
+		},
+	},
 	[RDMA_WR_SEND_WITH_INV] = {
 		.name = "RDMA_WR_SEND_WITH_INV",
 		.mask = {
@@ -660,6 +673,11 @@ dao_rdma_preprocess_dequeued_pkts(rdma_qp_t *qp, struct rte_mbuf *mbuf)
 	} else {
 		if (wr->opcode == RDMA_WR_RDMA_READ) {
 			wqe->dma_length = rdma_get_sge_length(wr);
+			rte_pktmbuf_reset(mbuf);
+		} else if (wr->opcode == RDMA_WR_ATOMIC_CMP_AND_SWP ||
+			   wr->opcode == RDMA_WR_ATOMIC_FETCH_AND_ADD) {
+			/* Atomics carry no SQE payload. */
+			wqe->dma_length = RDMA_ATOMIC_DATA_SIZE;
 			rte_pktmbuf_reset(mbuf);
 		} else {
 			wqe->dma_length = mbuf->pkt_len;

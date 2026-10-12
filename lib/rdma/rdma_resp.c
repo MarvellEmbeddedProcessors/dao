@@ -254,7 +254,9 @@ check_op_valid(struct rdma_qp *qp, struct rdma_pkt_info *pkt)
 		if (((pkt->mask & RDMA_READ_MASK) &&
 		     !(qp->attr.qp_access_flags & RDMA_ACCESS_REMOTE_READ)) ||
 		    ((pkt->mask & RDMA_WRITE_MASK) &&
-		     !(qp->attr.qp_access_flags & RDMA_ACCESS_REMOTE_WRITE))) {
+		     !(qp->attr.qp_access_flags & RDMA_ACCESS_REMOTE_WRITE)) ||
+		    ((pkt->mask & RDMA_ATOMIC_MASK) &&
+		     !(qp->attr.qp_access_flags & RDMA_ACCESS_REMOTE_ATOMIC))) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_RX_QP_CHK_OP_VALID_UNSUPP_OP_ERR);
 			return RDMA_RESPST_ERR_UNSUPPORTED_OPCODE;
@@ -338,6 +340,16 @@ check_resource(struct rdma_qp *qp, struct pkt_info *pinfo)
 		return RDMA_RESPST_CHK_LENGTH;
 	}
 
+	if (pkt->mask & RDMA_ATOMIC_MASK) {
+		/* Shares the responder read/atomic credit availability gate. */
+		if (unlikely(qp->resp.resp_read_rq_bal <= 0)) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_RX_QP_CHK_RES_NO_READ_REQ_RES);
+			return RDMA_RESPST_ERR_TOO_MANY_RDMA_ATM_REQ;
+		}
+		return RDMA_RESPST_CHK_LENGTH;
+	}
+
 	if (pkt->mask & RDMA_WRITE_OR_SEND_MASK) {
 		if (likely(check_rq_resource(qp, pinfo)))
 			return RDMA_RESPST_CHK_LENGTH;
@@ -413,6 +425,55 @@ validate_rkey(struct pkt_info *pinfo)
 	return 0;
 }
 
+/* Validate AtomicETH target. Returns 0 on success, -1 on rkey/access violation, -2 misaligned. */
+static inline int
+validate_atomic_rkey(struct pkt_info *pinfo)
+{
+	struct rdma_pkt_info *pkt = &pinfo->rinfo;
+	struct rdma_qp *qp = pkt->qp;
+	struct octep_rdma_mr_data *mr;
+	struct pd_entry *pd;
+	uint64_t va = atmeth_va(pkt);
+	uint32_t rkey = atmeth_rkey(pkt);
+	uint32_t index = rkey >> RDMA_MR_KEY_SHIFT;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
+
+	if (unlikely(va & (RDMA_ATOMIC_DATA_SIZE - 1)))
+		return -2;
+
+	if (index >= RDMA_MAX_MR) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_VAL_RKEY_INV_RKEY_INDEX);
+		return -1;
+	}
+
+	pd = pd_find_by_id(qp->pd_id, pinfo->port_num);
+	if (!pd) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_VAL_RKEY_PD_NOT_FOUND);
+		return -1;
+	}
+
+	mr = pd->mr_pool[index];
+	if (!mr || mr->key != rkey) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_VAL_RKEY_MR_NOT_FOUND);
+		return -1;
+	}
+
+	if (!(mr->access_flags & RDMA_ACCESS_REMOTE_ATOMIC)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_VAL_RKEY_ACC_VIOL);
+		return -1;
+	}
+
+	if (RDMA_ATOMIC_DATA_SIZE > mr->length || va < mr->va ||
+	    va + RDMA_ATOMIC_DATA_SIZE > mr->va + mr->length) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_VAL_RKEY_LEN_VIOL);
+		return -1;
+	}
+
+	return 0;
+}
+
 static resp_states_t
 check_rkey(struct rdma_qp *qp, struct pkt_info *pkt)
 {
@@ -427,6 +488,17 @@ check_rkey(struct rdma_qp *qp, struct pkt_info *pkt)
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_RKEY_INV_RKEY);
 			return RDMA_RESPST_ERR_RKEY_VIOLATION;
 		}
+	} else if (pkt->rinfo.mask & RDMA_ATOMIC_MASK) {
+		int rc = validate_atomic_rkey(pkt);
+
+		if (unlikely(rc == -2)) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+					    RDMA_RX_QP_CHK_RKEY_ATOMIC_MISALIGNED);
+			return RDMA_RESPST_ERR_MISALIGNED_ATOMIC;
+		} else if (unlikely(rc < 0)) {
+			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_CHK_RKEY_INV_RKEY);
+			return RDMA_RESPST_ERR_RKEY_VIOLATION;
+		}
 	}
 
 	return RDMA_RESPST_EXECUTE;
@@ -434,7 +506,8 @@ check_rkey(struct rdma_qp *qp, struct pkt_info *pkt)
 
 static inline int
 prepare_ack_packet_with_mbuf(struct rdma_qp *qp, int opcode, int payload, uint32_t psn,
-			     uint8_t syndrome, struct rte_mbuf *mbuf, uint32_t msn, bool is_read)
+			     uint8_t syndrome, struct rte_mbuf *mbuf, uint32_t msn, bool is_read,
+			     uint64_t atomic_val)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
@@ -469,6 +542,10 @@ prepare_ack_packet_with_mbuf(struct rdma_qp *qp, int opcode, int payload, uint32
 		aeth_set_msn(&ainfo, msn);
 	}
 
+	/* Only RDMA_OPCODE_RC_ATOMIC_ACKNOWLEDGE carries AtomicAckETH. */
+	if (ainfo.mask & RDMA_ATMACK_MASK)
+		atmack_set_orig(&ainfo, atomic_val);
+
 	if (rdma_net_hdr_insert(mbuf, &qp->av, qp->sport) < 0) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_QP_NET_HDR_INSERT_FAIL);
 		return -1;
@@ -481,7 +558,7 @@ prepare_ack_packet_with_mbuf(struct rdma_qp *qp, int opcode, int payload, uint32
 
 static inline struct rte_mbuf *
 prepare_ack_packet(struct rdma_qp *qp, int opcode, int payload, uint32_t psn, uint8_t syndrome,
-		   struct rte_mempool *pool)
+		   struct rte_mempool *pool, uint64_t atomic_val)
 {
 	uint32_t port_id = qp->port_id;
 	uint32_t lcore_id = qp->lcore;
@@ -496,7 +573,7 @@ prepare_ack_packet(struct rdma_qp *qp, int opcode, int payload, uint32_t psn, ui
 	}
 
 	if (prepare_ack_packet_with_mbuf(qp, opcode, payload, psn, syndrome, mbuf, qp->resp.msn,
-					 false) < 0) {
+					 false, atomic_val) < 0) {
 		rte_pktmbuf_free(mbuf);
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_PREP_ACK_PKT_FAIL);
 		return NULL;
@@ -530,7 +607,7 @@ rdma_prep_read_ack(struct rdma_qp *qp, struct rte_mbuf *mbuf, struct rdma_ack *a
 {
 	opcode = read_next_opcode(opcode, m_segs);
 	prepare_ack_packet_with_mbuf(qp, opcode, mbuf->data_len, *psn, ack->aeth_syndrome, mbuf,
-				     ack->msn, true);
+				     ack->msn, true, 0);
 	(*psn)++;
 
 	return opcode;
@@ -1412,6 +1489,86 @@ rdma_handle_read_request(struct rdma_qp *qp, struct pkt_info *pinfo)
 	return RDMA_RESPST_DONE;
 }
 
+/* Build and queue an Atomic Acknowledge carrying orig_val. */
+static inline int
+rdma_send_atomic_ack(struct rdma_qp *qp, struct pkt_info *pinfo, uint64_t orig_val)
+{
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
+	struct rte_mbuf *mbuf;
+
+	mbuf = prepare_ack_packet(qp, RDMA_OPCODE_RC_ATOMIC_ACKNOWLEDGE, 0, pinfo->rinfo.psn,
+				  AETH_ACK_UNLIMITED, pinfo->mbuf->pool, orig_val);
+	if (!mbuf)
+		return -ENOMEM;
+
+	mbuf->port = pinfo->mbuf->port;
+	mbuf->hash.fdir.hi = pinfo->rx_queue;
+
+	if (rdma_update_ack_pending_list(qp, mbuf, pinfo->rinfo.psn, AETH_ACK_UNLIMITED, false) <
+	    0) {
+		rte_pktmbuf_free(mbuf);
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_SEND_ACK_UPDATE_ACK_PENDING_LIST_ERR);
+		return -ENOMEM;
+	}
+
+	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ACK_QUEUED);
+	return 0;
+}
+
+/* Execute a CMP_AND_SWP/FETCH_ADD request via PTS and ACK the original value. */
+static inline resp_states_t
+rdma_handle_atomic_request(struct rdma_qp *qp, struct pkt_info *pinfo)
+{
+	struct rdma_pkt_info *rinfo = &pinfo->rinfo;
+	uint32_t port_id = qp->port_id;
+	uint32_t lcore_id = qp->lcore;
+	uint32_t qp_id = qp->qid;
+	uint64_t swap_add = atmeth_swap_add(rinfo);
+	uint64_t orig_val = 0;
+	int ret;
+
+	/* rkey and va are passed as received from the wire. */
+	if (rinfo->opcode == RDMA_OPCODE_RC_FETCH_ADD) {
+		ret = dao_pts_rdma_atomic_fetch_add(atmeth_rkey(rinfo), atmeth_va(rinfo), swap_add,
+						    &orig_val);
+	} else {
+		uint64_t comp_val = atmeth_comp(rinfo);
+
+		ret = dao_pts_rdma_atomic_cmp_swap(atmeth_rkey(rinfo), atmeth_va(rinfo), comp_val,
+						   swap_add, &orig_val);
+	}
+
+	if (unlikely(ret < 0)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ATOMIC_PTS_OP_FAIL);
+		/* No dedicated resp_state; use the closest NAK available. */
+		return RDMA_RESPST_ERR_RKEY_VIOLATION;
+	}
+
+	qp->resp.msn++;
+	qp->resp.opcode = rinfo->opcode;
+	qp->resp.status = RDMA_WC_SUCCESS;
+	qp->resp.psn = (rinfo->psn + 1) & BTH_PSN_MASK;
+	qp->resp.ack_psn = qp->resp.psn;
+
+	if (unlikely(rdma_send_atomic_ack(qp, pinfo, orig_val) < 0)) {
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ATOMIC_ACK_PREP_FAIL);
+		return RDMA_RESPST_CLEANUP;
+	}
+
+	/* Cache for duplicate-request replay without re-executing. */
+	qp->resp.atomic_res[qp->resp.atomic_res_idx].psn = rinfo->psn;
+	qp->resp.atomic_res[qp->resp.atomic_res_idx].orig_val = orig_val;
+	qp->resp.atomic_res[qp->resp.atomic_res_idx].valid = true;
+	qp->resp.atomic_res_idx = (qp->resp.atomic_res_idx + 1) % RDMA_MAX_ATOMIC_RES;
+
+	RDMA_DBG_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_ATOMIC_REQ_RCVD);
+
+	return RDMA_RESPST_CLEANUP;
+}
+
 static resp_states_t
 execute(struct rdma_qp *qp, struct pkt_info *pinfo)
 {
@@ -1450,6 +1607,8 @@ execute(struct rdma_qp *qp, struct pkt_info *pinfo)
 		}
 	} else if (rinfo->mask & RDMA_READ_MASK) {
 		return rdma_handle_read_request(qp, pinfo);
+	} else if (rinfo->mask & RDMA_ATOMIC_MASK) {
+		return rdma_handle_atomic_request(qp, pinfo);
 	} else {
 		return RDMA_RESPST_CLEANUP;
 	}
@@ -1515,7 +1674,7 @@ send_ack(struct rdma_qp *qp, uint8_t syndrome, struct pkt_info *pinfo, int opcod
 
 	RTE_SET_USED(msg);
 
-	mbuf = prepare_ack_packet(qp, opcode, 0, pinfo->rinfo.psn, syndrome, pinfo->mbuf->pool);
+	mbuf = prepare_ack_packet(qp, opcode, 0, pinfo->rinfo.psn, syndrome, pinfo->mbuf->pool, 0);
 	if (!mbuf)
 		return -ENOMEM;
 
@@ -1651,12 +1810,32 @@ send_dup_ack(struct rdma_qp *qp, uint8_t syndrome, struct pkt_info *pinfo, uint3
 	uint32_t qp_id = qp->qid;
 	struct rte_mbuf *mbuf;
 
-	mbuf = prepare_ack_packet(qp, opcode, 0, psn, syndrome, pinfo->mbuf->pool);
+	mbuf = prepare_ack_packet(qp, opcode, 0, psn, syndrome, pinfo->mbuf->pool, 0);
 	if (!mbuf || pinfo->mbuf->port >= RTE_MAX_ETHPORTS)
 		return -ENOMEM;
 
 	if (rte_eth_tx_burst(pinfo->mbuf->port, pinfo->rx_queue, &mbuf, 1) != 1) {
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
+				    RDMA_RX_QP_SEND_DUP_ACK_TX_BURST_FAIL);
+		rte_pktmbuf_free(mbuf);
+	}
+
+	return 0;
+}
+
+/* Re-send a cached Atomic Acknowledge for a duplicate request. */
+static int
+send_dup_atomic_ack(struct rdma_qp *qp, struct pkt_info *pinfo, uint32_t psn, uint64_t orig_val)
+{
+	struct rte_mbuf *mbuf;
+
+	mbuf = prepare_ack_packet(qp, RDMA_OPCODE_RC_ATOMIC_ACKNOWLEDGE, 0, psn, AETH_ACK_UNLIMITED,
+				  pinfo->mbuf->pool, orig_val);
+	if (!mbuf || pinfo->mbuf->port >= RTE_MAX_ETHPORTS)
+		return -ENOMEM;
+
+	if (rte_eth_tx_burst(pinfo->mbuf->port, pinfo->rx_queue, &mbuf, 1) != 1) {
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 				    RDMA_RX_QP_SEND_DUP_ACK_TX_BURST_FAIL);
 		rte_pktmbuf_free(mbuf);
 	}
@@ -1780,6 +1959,18 @@ duplicate_request(struct rdma_qp *qp, struct pkt_info *pkt)
 			RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
 						RDMA_RX_QP_READ_DUP_REQ);
 		}
+	} else if (pkt->rinfo.mask & RDMA_ATOMIC_MASK) {
+		/* Never re-run the PTS atomic op on a duplicate; find its cached result. */
+		uint32_t i;
+
+		for (i = 0; i < RDMA_MAX_ATOMIC_RES; i++) {
+			if (qp->resp.atomic_res[i].valid &&
+			    qp->resp.atomic_res[i].psn == pkt->rinfo.psn) {
+				send_dup_atomic_ack(qp, pkt, pkt->rinfo.psn,
+						    qp->resp.atomic_res[i].orig_val);
+				break;
+			}
+		}
 	}
 	return RDMA_RESPST_CLEANUP;
 }
@@ -1873,6 +2064,7 @@ rdma_responder(struct pkt_info *pinfo)
 		case RDMA_RESPST_ERR_MISSING_OPCODE_LAST_C:
 		case RDMA_RESPST_ERR_UNSUPPORTED_OPCODE:
 		case RDMA_RESPST_ERR_LENGTH:
+		case RDMA_RESPST_ERR_MISALIGNED_ATOMIC:
 			/* RC Only - Class C. */
 			do_class_ac_error(qp, AETH_NAK_INVALID_REQ, RDMA_WC_REM_INV_REQ_ERR);
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_RX_QP_RSP_CLASS_C_ERR);

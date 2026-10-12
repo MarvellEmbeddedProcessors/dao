@@ -183,6 +183,20 @@ rdma_check_ack(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *w
 		reset_retry_counters(qp);
 		return RDMA_COMPST_READ;
 
+	case RDMA_OPCODE_RC_ATOMIC_ACKNOWLEDGE:
+		syn = aeth_syn(&pkt->rinfo);
+
+		if ((syn & AETH_TYPE_MASK) != AETH_ACK)
+			return CHK_ACK_SEQ_ERR(wqe);
+
+		if (wqe->wr->opcode != RDMA_WR_ATOMIC_CMP_AND_SWP &&
+		    wqe->wr->opcode != RDMA_WR_ATOMIC_FETCH_AND_ADD) {
+			wqe->status = RDMA_WC_FATAL_ERR;
+			return RDMA_COMPST_ERROR;
+		}
+		reset_retry_counters(qp);
+		return RDMA_COMPST_ATOMIC;
+
 	case RDMA_OPCODE_RC_ACKNOWLEDGE:
 		syn = aeth_syn(&pkt->rinfo);
 		switch (syn & AETH_TYPE_MASK) {
@@ -390,6 +404,64 @@ rdma_do_read(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe
 	}
 
 	return RDMA_COMPST_UPDATE_COMP;
+}
+
+/* Deliver the atomic ACK's original value to the WR's local completion SGE. */
+static inline int
+rdma_populate_atomic_result(struct pkt_info *pkt, struct rdma_qp *qp, struct rdma_send_wqe *wqe,
+			    uint64_t orig_val)
+{
+	struct rte_mbuf *mbuf = pkt->mbuf;
+	struct dao_pts_rdma_sge *dst;
+	uint64_t enq_flag;
+	uint64_t *data;
+
+	if (!mbuf)
+		return -1;
+
+	rte_pktmbuf_reset(mbuf);
+	data = (uint64_t *)rte_pktmbuf_append(mbuf, RDMA_ATOMIC_DATA_SIZE);
+	if (!data)
+		return -1;
+
+	*data = orig_val;
+
+	dst = rdma_rx_priv_sge_base(mbuf);
+	dst[0].addr = wqe->wr->atomic.local_sge.addr;
+	dst[0].length = RDMA_ATOMIC_DATA_SIZE;
+	dst[0].lkey = wqe->wr->atomic.local_sge.lkey;
+
+	pkt->mbuf = mbuf;
+	mbuf->l2_len = 1;
+	pkt->mbuf_flags = RDMA_RESPONDER_MBUF_UPDATED;
+
+	enq_flag = DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK;
+	if ((qp->sq_sig_type == RDMA_SIGNAL_ALL_WR) || (wqe->wr->send_flags & RDMA_SEND_SIGNALED)) {
+		populate_cqe(rdma_rx_priv_cqe(mbuf), qp, wqe->wr);
+		enq_flag = DAO_PTS_RDMA_ENQ_M2D_ATOMIC_ACK_WITH_CQE;
+	}
+	mbuf->ol_flags |= enq_flag << OFFLD_UPPER_BITS;
+
+	return 0;
+}
+
+static inline comp_state_t
+rdma_do_atomic(struct rdma_qp *qp, struct pkt_info *pkt, struct rdma_send_wqe *wqe)
+{
+	uint64_t orig_val;
+
+	RDMA_DBG_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid, RDMA_RX_QP_ATOMIC_RSP_RCVD);
+
+	orig_val = atmack_orig(&pkt->rinfo);
+
+	if (unlikely(rdma_populate_atomic_result(pkt, qp, wqe, orig_val) < 0)) {
+		RDMA_INC_QP_COUNTER(qp->lcore, qp->port_id, qp->qid,
+				    RDMA_RX_QP_ATOMIC_RESULT_MBUF_FAIL);
+		wqe->status = RDMA_WC_LOC_PROT_ERR;
+		return RDMA_COMPST_ERROR;
+	}
+
+	return RDMA_COMPST_COMP_ACK;
 }
 
 static inline void
@@ -704,7 +776,7 @@ state_func_t comp_state_funcs[] = {
 	[RDMA_COMPST_CHECK_PSN] = rdma_check_psn,
 	[RDMA_COMPST_CHECK_ACK] = rdma_check_ack,
 	[RDMA_COMPST_READ] = rdma_do_read,
-	[RDMA_COMPST_ATOMIC] = NULL, /* Dont support */
+	[RDMA_COMPST_ATOMIC] = rdma_do_atomic,
 	[RDMA_COMPST_WRITE_SEND] = rdma_write_send,
 	[RDMA_COMPST_COMP_ACK] = rdma_complete_ack,
 	[RDMA_COMPST_COMP_WQE] = rdma_complete_wqe,

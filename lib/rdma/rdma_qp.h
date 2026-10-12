@@ -189,10 +189,22 @@ typedef struct rdma_send_wr {
 				uint32_t qkey;
 			} ud;
 		};
-		/* WORD 4-7 */
-		struct octep_rdma_sge sges0[2];
+		/* WORD 4-7: overlaid with AtomicETH operands for atomic WRs.
+		 * Only these 32B are copied from the SQE for atomics (sges1
+		 * below is NOT populated); local_sge carries the local
+		 * completion target for the orig value, sized to exactly
+		 * fill PTS's "rsvd[2]" slot.
+		 */
+		union {
+			struct octep_rdma_sge sges0[2];
+			struct {
+				uint64_t swap;    /* CASP new value; FAA add value */
+				uint64_t compare; /* CASP compare value; FAA - 0 */
+				struct octep_rdma_sge local_sge;
+			} atomic;
+		};
 	};
-	/* WORD 0-7 */
+	/* WORD 0-7; not populated for atomic WRs. */
 	struct octep_rdma_sge sges1[4];
 } rdma_send_wr_t;
 
@@ -336,6 +348,18 @@ struct rdma_pending_read {
 	bool valid;            /* a chunked READ is queued */
 };
 
+/* Cached atomic ACKs, replayed on duplicate requests without re-executing.
+ * Sized to RDMA_MAX_RES_RD_ATOM since READ/ATOMIC share that credit pool,
+ * so up to that many atomic requests can be outstanding at once.
+ */
+#define RDMA_MAX_ATOMIC_RES RDMA_MAX_RES_RD_ATOM
+
+struct rdma_atomic_res {
+	uint32_t psn;
+	uint64_t orig_val;
+	bool valid;
+};
+
 struct rdma_resp_info {
 	enum rdma_wc_status status;
 	struct rdma_recv_wqe wqe;
@@ -361,6 +385,8 @@ struct rdma_resp_info {
 
 	struct rdma_read_chunk_state read_chunk;
 	struct rdma_pending_read pending_read;
+	struct rdma_atomic_res atomic_res[RDMA_MAX_ATOMIC_RES];
+	uint8_t atomic_res_idx; /* next slot to overwrite, round-robin */
 
 	STAILQ_HEAD(ack_list, rdma_ack) ack_pending_list;
 };
