@@ -137,7 +137,13 @@ rdma_counter_update_lcore(void)
 	/** A queued chunked READ was started once the in-flight READ drained. */                  \
 	X(RDMA_RX_QP_READ_PENDING_SERVICED)                                                        \
 	/** Retransmit of an already-queued chunked READ dropped (slot occupied). */               \
-	X(RDMA_RX_QP_READ_PENDING_DROP_DUP)
+	X(RDMA_RX_QP_READ_PENDING_DROP_DUP)                                                        \
+	/** Responder: atomic (CMP_SWAP/FETCH_ADD) request accepted and executed via PTS. */       \
+	X(RDMA_RX_QP_ATOMIC_REQ_RCVD)                                                              \
+	/** Requester: Atomic Acknowledge received and original value DMA'd to host. */            \
+	X(RDMA_RX_QP_ATOMIC_RSP_RCVD)                                                              \
+	/** Requester TX: atomic request packet sent (credit consumed). */                         \
+	X(RDMA_TX_QP_ATOMIC_REQ_PKT_SENT)
 #else
 #define RDMA_QP_DBG_COUNTER_LIST
 #endif
@@ -217,6 +223,14 @@ rdma_counter_update_lcore(void)
 	X(RDMA_RX_QP_VAL_RKEY_LEN_VIOL)                                                            \
 	/** RKEY violation during responder rkey validation */                                     \
 	X(RDMA_RX_QP_CHK_RKEY_INV_RKEY)                                                            \
+	/** Atomic target address not 8B aligned (IBTA misaligned atomic). */                      \
+	X(RDMA_RX_QP_CHK_RKEY_ATOMIC_MISALIGNED)                                                   \
+	/** PTS atomic fetch-add/cmp-swap operation failed. */                                     \
+	X(RDMA_RX_QP_ATOMIC_PTS_OP_FAIL)                                                           \
+	/** Failed to allocate/queue the Atomic Acknowledge packet. */                             \
+	X(RDMA_RX_QP_ATOMIC_ACK_PREP_FAIL)                                                         \
+	/** Failed to append atomic result bytes to the completion mbuf. */                        \
+	X(RDMA_RX_QP_ATOMIC_RESULT_MBUF_FAIL)                                                      \
 	/** RDMA READ request length exceeds maximum allowed size. */                              \
 	X(RDMA_RX_QP_HANDLE_READ_REQ_DMA_LEN_EXC)                                                  \
 	/** Failed to allocate mbuf during RDMA read preparation */                                \

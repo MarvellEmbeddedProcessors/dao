@@ -6,7 +6,11 @@
 
 #include "rdma_kernel_abi.h"
 #include <dao_log.h>
+#include <dao_pem.h>
 #include <rdma_qp.h>
+
+/* PEM device used by PTS for atomic MR lookups. */
+#define RDMA_ATOMIC_PEM_ID 0
 
 extern rcu_cb_t rcu_cb;
 
@@ -24,6 +28,13 @@ pd_find_by_id(uint32_t pd_id, uint32_t port_num)
 	}
 
 	return pd_array[pd_id];
+}
+
+static void
+mr_atomic_unmap(struct octep_rdma_mr_data *mr)
+{
+	if (mr->access_flags & RDMA_ACCESS_REMOTE_ATOMIC)
+		dao_pem_unmap_mr(RDMA_ATOMIC_PEM_ID, mr->key);
 }
 
 int
@@ -58,8 +69,19 @@ pd_add(void *add)
 	 * requiring complex retry or deferred-cleanup logic in the kmod.
 	 */
 	if (pd_array[pd_id]) {
+		struct pd_entry *old = pd_array[pd_id];
+
 		dao_warn("PD %u already exists, replacing stale entry", pd_id);
-		rte_free(pd_array[pd_id]);
+		pd_array[pd_id] = NULL;
+		rcu_cb();
+		for (uint32_t i = 0; i < RDMA_MAX_MR; ++i) {
+			if (old->mr_pool[i]) {
+				mr_atomic_unmap(old->mr_pool[i]);
+				rte_free(old->mr_pool[i]);
+				old->mr_pool[i] = NULL;
+			}
+		}
+		rte_free(old);
 		pd_array[pd_id] = NULL;
 	}
 
@@ -111,6 +133,7 @@ pd_delete(void *del)
 				req->pd_id, mr);
 			pd->mr_pool[i] = NULL;
 			rcu_cb();
+			mr_atomic_unmap(mr);
 			rte_free(mr);
 		}
 	}
@@ -163,6 +186,18 @@ mr_reg(void *reg)
 		return -1;
 	}
 	*new_mr = req->mr;
+
+	/* Map the MR so PTS can execute atomics on it. */
+	if (new_mr->access_flags & RDMA_ACCESS_REMOTE_ATOMIC) {
+		int rc =
+			dao_pem_map_mr(RDMA_ATOMIC_PEM_ID, new_mr->key, new_mr->va, new_mr->length);
+
+		if (rc < 0) {
+			dao_err("PEM map MR key %u failed: %d", new_mr->key, rc);
+			rte_free(new_mr);
+			return -1;
+		}
+	}
 	pd->mr_pool[index] = new_mr;
 	dao_dbg("Registered MR with key %u in PD %u addre %lu index %u", req->mr.key, req->pd_id,
 		new_mr->va, index);
@@ -209,6 +244,7 @@ mr_dereg(void *dreg)
 	mr = pd->mr_pool[index];
 	pd->mr_pool[index] = NULL;
 	rcu_cb();
+	mr_atomic_unmap(mr);
 	rte_free(mr);
 	dao_dbg("Deregistered MR with key %u from PD %u index %u", req->key, req->pd_id, index);
 	return 0;
@@ -228,6 +264,7 @@ rdma_pd_free(struct pd_entry **pd_array)
 
 			for (uint32_t j = 0; j < RDMA_MAX_MR; ++j) {
 				if (pd->mr_pool[j]) {
+					mr_atomic_unmap(pd->mr_pool[j]);
 					rte_free(pd->mr_pool[j]);
 					pd->mr_pool[j] = NULL;
 				}

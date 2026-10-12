@@ -190,6 +190,13 @@ rdma_proto_hdr_insert(struct rte_mbuf *pkt, struct rdma_pkt_info *pinfo, uint32_
 	if (pinfo->mask & RDMA_IMMDT_MASK)
 		immdt_set_imm(pinfo, wr->imm_data);
 
+	if (pinfo->mask & RDMA_ATMETH_MASK) {
+		atmeth_set_va(pinfo, wr->rdma.remote_addr);
+		atmeth_set_rkey(pinfo, wr->rdma.rkey);
+		atmeth_set_swap_add(pinfo, wr->atomic.swap);
+		atmeth_set_comp(pinfo, wr->atomic.compare);
+	}
+
 	return 0;
 }
 
@@ -424,7 +431,8 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 		}
 	}
 
-	if (unlikely(mask & (RDMA_READ_MASK))) {
+	/* READ and atomics share the same outstanding credit pool. */
+	if (unlikely(mask & RDMA_READ_OR_ATOMIC_MASK)) {
 		if (check_init_depth(qp, wqe)) {
 			RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id,
 					    RDMA_TX_QP_REQ_READ_CREDIT_EXHAUSTED);
@@ -496,6 +504,8 @@ rdma_requester(struct rdma_qp *qp, struct rdma_send_wqe *wqe, struct rte_mbuf *m
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_WRITE_REQ_PKT_SENT);
 	else if (mask & RDMA_READ_MASK)
 		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_READ_REQ_PKT_SENT);
+	else if (mask & RDMA_ATOMIC_MASK)
+		RDMA_INC_QP_COUNTER(lcore_id, port_id, qp_id, RDMA_TX_QP_ATOMIC_REQ_PKT_SENT);
 #endif
 
 done:

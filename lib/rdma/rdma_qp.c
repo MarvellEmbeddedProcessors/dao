@@ -191,6 +191,8 @@ rdma_qp_reset(struct rdma_qp *qp, int port)
 	qp->resp.resp_read_requeue_inflight = 0;
 	qp->resp.read_reply_opcode = -1;
 	qp->resp.read_reply_psn = 0;
+	memset(qp->resp.atomic_res, 0, sizeof(qp->resp.atomic_res));
+	qp->resp.atomic_res_idx = 0;
 
 	/* Reinitialize DCQCN state so stale rate/alpha/timers from the
 	 * previous flow do not carry over into the next use of this QP.
