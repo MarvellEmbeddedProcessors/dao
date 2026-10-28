@@ -36,27 +36,78 @@ pts_rdma_qp_mem_free(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 }
 
 static void
-pts_rdma_qp_sq_flush(struct pts_rdma_qp *qp)
+pts_rdma_qp_flush_cqe(uint16_t devid, struct pts_rdma_qp *qp, bool recv, uint64_t wr_id,
+		      uint8_t opcode)
 {
+	struct dao_pts_rdma_cqe cqe = {0};
+
+	cqe.wr_id = wr_id;
+	cqe.opcode = opcode;
+	cqe.status = PTS_RDMA_WC_WR_FLUSH_ERR;
+	cqe.qp_id = qp->qp_id;
+	dao_pts_rdma_enqueue_cqe(devid, qp->qp_id, recv, &cqe, 1);
+}
+
+static void
+pts_rdma_qp_sq_flush(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp, bool is_err_cqe)
+{
+	uint32_t last_off, dma_off, off, nb_desc, nb_avail, end;
 	struct pts_rdma_qp_sq *sq = &qp->sq;
-	uint32_t sd_mbuf_dma_off, last_off = sq->last_off, q_sz = sq->q_sz;
-	uint32_t off;
-	uint32_t nb_avail, end;
+	uintptr_t sd_base = (uintptr_t)sq->sd_desc_base;
+	union dao_pts_rdma_sqe *sqe;
+	uint32_t q_sz = sq->q_sz;
+	uint8_t num_sges, wc_op;
+	uint32_t next_desc;
+	uint64_t d_flags;
 
 	if (!qp)
 		return;
-	/* No pending DMAs at this stage */
-	sd_mbuf_dma_off = __atomic_load_n(&sq->sd_mbuf_dma_off, __ATOMIC_ACQUIRE);
-	nb_avail = desc_off_diff32(sd_mbuf_dma_off, last_off, q_sz);
-	if (unlikely(!nb_avail))
-		return;
+
+	last_off = sq->last_off;
+	dma_off = sq->sd_desc_off;
 	off = last_off;
-	do {
-		end = (off + nb_avail > q_sz) ? (uint32_t)(q_sz - off) : nb_avail;
+	nb_desc = desc_off_diff32(dma_off, off, q_sz);
+	while (is_err_cqe && nb_desc) {
+		d_flags = *SQ_DESC_PTR_OFF(sd_base, off, 0);
+		num_sges = (d_flags >> 24) & 0xFF;
+		next_desc = num_sges > 2 ? RTE_ALIGN_CEIL(num_sges - 2, 4) / 4 : 0;
+		if (unlikely(next_desc + 1 > nb_desc))
+			next_desc = 0;
+
+		sqe = (union dao_pts_rdma_sqe *)SQ_DESC_PTR_OFF(sd_base, off, 0);
+
+		if (sqe->opcode <= DAO_PTS_RDMA_WRITE_WITH_IMM)
+			wc_op = PTS_RDMA_WC_RDMA_WRITE;
+		else if (sqe->opcode <= DAO_PTS_RDMA_SEND_WITH_IMM)
+			wc_op = PTS_RDMA_WC_SEND;
+		else if (sqe->opcode == DAO_PTS_RDMA_READ)
+			wc_op = PTS_RDMA_WC_RDMA_READ;
+		else
+			wc_op = sqe->opcode;
+
+		pts_rdma_qp_flush_cqe(dev->dev_id, qp, false, sqe->wr_id, wc_op);
+		off = desc_off_add32(off, next_desc + 1, q_sz);
+		nb_desc -= next_desc + 1;
+	}
+
+	nb_avail = desc_off_diff32(dma_off, last_off, q_sz);
+	off = last_off;
+	while (nb_avail) {
+		end = (off + nb_avail > q_sz) ? (q_sz - off) : nb_avail;
 		rte_pktmbuf_free_bulk(&sq->mbuf_arr[off], end);
 		off = (off + end) & (q_sz - 1);
 		nb_avail -= end;
-	} while (nb_avail);
+	}
+
+	if (!is_err_cqe)
+		return;
+
+	sq->last_off = dma_off;
+	sq->sd_mbuf_off = dma_off;
+	sq->sd_desc_off = dma_off;
+	__atomic_store_n(&sq->sd_desc_dma_off, dma_off, __ATOMIC_RELEASE);
+	__atomic_store_n(&sq->sd_mbuf_dma_off, dma_off, __ATOMIC_RELEASE);
+	__atomic_store_n(sq->ci_addr, dma_off, __ATOMIC_RELEASE);
 }
 
 static void
@@ -93,40 +144,66 @@ pts_rdma_qp_read_ring_flush(struct pts_rdma_qp *qp)
 		off = (off + end) & (q_sz - 1);
 		nb_avail -= end;
 	} while (nb_avail);
+
+	qp->r_last_off = mbuf_dma_off;
+	__atomic_store_n(&qp->r_mbuf_off, mbuf_dma_off, __ATOMIC_RELEASE);
 }
 
 static void
-pts_rdma_qp_rq_flush(struct pts_rdma_qp *qp)
+pts_rdma_qp_rq_flush(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp, bool is_err_cqe)
 {
-	/* Post DMA completion, all buffers are freed by DPI */
-	RTE_SET_USED(qp);
+	struct pts_rdma_qp_rq *rq = &qp->rq;
+	uintptr_t sd_base = (uintptr_t)rq->sd_desc_base;
+	uint32_t q_sz = rq->q_sz;
+	uint32_t off, dma_off, nb_desc, next_desc;
+	uint16_t num_sges;
+	uint64_t w0, wr_id;
+
+	if (!qp || !is_err_cqe)
+		return;
+
+	off = rq->sd_mbuf_off;
+	dma_off = rq->sd_desc_off;
+	nb_desc = desc_off_diff32(dma_off, off, q_sz);
+	while (nb_desc) {
+		w0 = *RQ_DESC_PTR_OFF(sd_base, off, 0);
+		num_sges = (w0 >> 48) & 0xFFFF;
+		next_desc = num_sges > 1 ? RTE_ALIGN_CEIL(num_sges - 1, 2) / 2 : 0;
+		if (unlikely(next_desc + 1 > nb_desc))
+			next_desc = 0;
+		wr_id = *RQ_DESC_PTR_OFF(sd_base, off, 8);
+		pts_rdma_qp_flush_cqe(dev->dev_id, qp, true, wr_id, PTS_RDMA_WC_RECV);
+		off = desc_off_add32(off, next_desc + 1, q_sz);
+		nb_desc -= next_desc + 1;
+	}
+
+	rq->sd_mbuf_off = dma_off;
+	rq->sd_desc_off = dma_off;
+	__atomic_store_n(&rq->sd_desc_dma_off, dma_off, __ATOMIC_RELEASE);
+	__atomic_store_n(rq->ci_addr, dma_off, __ATOMIC_RELAXED);
 }
 
 static void
 pts_rdma_qp_buf_free(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 {
-	RTE_SET_USED(dev);
-
 	if (!qp)
 		return;
-	pts_rdma_qp_sq_flush(qp);
-	pts_rdma_qp_rq_flush(qp);
+	pts_rdma_qp_sq_flush(dev, qp, false);
+	pts_rdma_qp_rq_flush(dev, qp, false);
 	pts_rdma_qp_read_ring_flush(qp);
 }
 
 static void
 pts_rdma_qp_dma_finish(struct pts_rdma_dev *dev, struct pts_rdma_qp *qp)
 {
-	struct pts_rdma_qp_rq *rq;
 	uint16_t dma_vchan;
 
 	RTE_SET_USED(dev);
 	if (!qp)
 		return;
 
-	rq = &qp->rq;
 	/* All the QPs (in turn CQ/RQ/SQ) of a RDMA device  belong to the same DMA vchan */
-	dma_vchan = rq->dma_vchan;
+	dma_vchan = qp->rq.dma_vchan;
 	dao_dma_compl_wait_inflight(dma_vchan);
 }
 
@@ -581,4 +658,27 @@ pts_rdma_dev_mbox_fini(struct pts_rdma_dev *dev)
 {
 	dao_pem_ctrl_region_unregister(dev->pem_devid, (uintptr_t)dev->mbox_mem, 8,
 				       pts_rdma_dev_mbox_process_cb, dev);
+}
+
+int
+dao_pts_rdma_qp_flush(uint16_t devid, uint16_t qp_id)
+{
+	struct dao_pts_rdma_dev *dao_dev;
+	struct pts_rdma_dev *dev;
+	struct pts_rdma_qp *qp;
+
+	if (devid >= DAO_PTS_RDMA_MAX_DEVS || qp_id >= DAO_PTS_RDMA_MAX_QPS)
+		return -EINVAL;
+
+	dao_dev = &dao_pts_rdma_devs[devid];
+	qp = dao_dev->qps[qp_id];
+	if (!qp)
+		return -EINVAL;
+
+	dev = pts_rdma_dev_priv(dao_dev);
+	pts_rdma_qp_dma_finish(dev, qp);
+	pts_rdma_qp_rq_flush(dev, qp, true);
+	pts_rdma_qp_sq_flush(dev, qp, true);
+	pts_rdma_qp_read_ring_flush(qp);
+	return 0;
 }
