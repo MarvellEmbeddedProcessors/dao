@@ -97,6 +97,10 @@ struct pts_rdma_dev_cfg {
 	uint8_t opaque_data[PTS_RDMA_DEV_CFG_OPAQUE_DATA_SIZE];
 };
 
+/* Host kmod reads the port MAC at this offset (kmod/rdma/octep_rdma/octep_dev_cfg.h). */
+_Static_assert(offsetof(struct pts_rdma_dev_cfg, opaque_data) == 17,
+	       "pts_rdma_dev_cfg opaque_data offset must match host kmod MAC_OFFSET");
+
 struct pts_rdma_cq {
 	uintptr_t desc_base __rte_cache_aligned;
 	uint32_t *pi_addr;

@@ -17,6 +17,7 @@ octep_rdma_sources = files(
 		'octep_ah.c',
 		'octep_pd.c',
 		'Kbuild',
+		'octep_dev_cfg.h',
 		)
 
 # Mode-specific source files

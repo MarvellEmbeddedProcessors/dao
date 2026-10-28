@@ -10,6 +10,7 @@
 
 #include "octep_qp.h"
 #include "octep_rdma.h"
+#include "octep_dev_cfg.h"
 #include "octep_rdma_netdev.h"
 #include "octep_verbs.h"
 #ifndef CONFIG_OCTEP_RDMA_OCTTERM
@@ -20,7 +21,6 @@
 #include "octterm_cdev.h"
 #endif
 
-#define MAC_OFFSET 9
 #define OCTEP_INTR_POLL_TIME_MSECS 100
 
 #ifdef CONFIG_OCTEP_RDMA_OCTTERM

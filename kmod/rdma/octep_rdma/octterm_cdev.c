@@ -22,11 +22,10 @@
 #include <linux/etherdevice.h>
 
 #include "octep_rdma.h"
+#include "octep_dev_cfg.h"
 #include "octterm_cdev.h"
 #include "octep_rdma_netdev.h"
 #include "octep_verbs.h"
-
-#define MAC_OFFSET 9
 
 static struct class *octterm_class;
 static atomic_t octterm_next_id = ATOMIC_INIT(0);

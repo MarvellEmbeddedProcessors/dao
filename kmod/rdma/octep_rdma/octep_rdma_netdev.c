@@ -16,12 +16,11 @@
 
 #include "octep_rdma_netdev.h"
 #include "octep_rdma.h"
+#include "octep_dev_cfg.h"
 #include "octep_qp.h"
 #include "octep_cq.h"
 #include "octep_verbs.h"
 #include "octep_ep.h"
-
-#define MAC_OFFSET 9
 
 static void mgmt_destroy_qp(struct octep_rdma_dev *rdma_dev, struct octep_rdma_qp *qp);
 
