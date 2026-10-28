@@ -303,6 +303,8 @@ Step 2 -- configure the data interface and start the target
 .. note::
    * Before assigning the IP address, run ``dmesg -w`` and confirm that the expected data interface
      (for example ``enp6s0v22``) has been detected.
+   * If the graph runs on an RPM VF, first set the interface MAC address as
+     described in :doc:`./rdma`'s **Octeon RDMA Termination Mode -> Bring up the Interface** section.
    * After assigning the address, verify that the interface is reachable from the NVMe-oF initiator
      with ``ping``.
 
