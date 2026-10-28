@@ -39,6 +39,12 @@
 
 #define PTS_RDMA_MAX_READ_REQ 1024
 
+#define PTS_RDMA_WC_SEND         0
+#define PTS_RDMA_WC_RDMA_WRITE   1
+#define PTS_RDMA_WC_RDMA_READ    2
+#define PTS_RDMA_WC_WR_FLUSH_ERR 5
+#define PTS_RDMA_WC_RECV         (1 << 7)
+
 PTS_RDMA_STATIC_ASSERT(PTS_RDMA_DEV_CQE_SIZE == sizeof(struct dao_pts_rdma_cqe));
 PTS_RDMA_STATIC_ASSERT(PTS_RDMA_DEV_RQE_SIZE == sizeof(union dao_pts_rdma_rqe));
 PTS_RDMA_STATIC_ASSERT(PTS_RDMA_DEV_SQE_SIZE == sizeof(union dao_pts_rdma_sqe));

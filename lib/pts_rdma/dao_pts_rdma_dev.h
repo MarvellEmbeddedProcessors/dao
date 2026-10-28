@@ -251,6 +251,18 @@ int dao_pts_rdma_max_read_req_get(void);
 int dao_pts_rdma_qp_mtu_set(uint16_t devid, uint16_t qp_id, uint16_t mtu);
 
 /**
+ * Flush sq/rq wqe of QP
+ *
+ * @param devid
+ *   RDMA TR device id
+ * @param qp_id
+ *   RDMA TR qp id
+ * @return
+ *   0 on success, negative on error
+ */
+int dao_pts_rdma_qp_flush(uint16_t devid, uint16_t qp_id);
+
+/**
  * Get RDMA dev RQ depth.
  *
  * @param devid
