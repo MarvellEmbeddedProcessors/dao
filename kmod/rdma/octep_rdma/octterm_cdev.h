@@ -25,6 +25,32 @@
 
 #define OCTTERM_MAX_VFS           8
 
+/*
+ * MR mmap (atomics support).
+ *
+ * The FW can map the whole MR into its address space with a single mmap() on
+ * the octterm cdev, from the moment it receives the MR register mbox (the kmod
+ * makes the MR mappable before sending it):
+ *
+ *	mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_SHARED, fd, lkey * page_size)
+ *
+ * i.e. vm_pgoff is the MR lkey.  File offset 0 is the DDR region; any other
+ * offset is looked up as an MR lkey (an unknown lkey fails with -ENOENT).
+ * len is the page-aligned MR length, between one page and the number of
+ * pages of the MR.  The pages are physically scattered, the FW gets them as
+ * one virtually contiguous window that starts at the page-aligned start of
+ * the MR.
+ *
+ * To reach a remote address "va" inside an MR that starts at "mr_va":
+ *	ptr = mapped_base + (va - (mr_va & ~(page_size - 1)))
+ * The mapping is shared and cacheable so CPU atomics stay coherent with the
+ * application.  The MR must have been registered with IBV_ACCESS_REMOTE_ATOMIC;
+ * mmap of anything else fails.  If the register mbox fails the entry is removed
+ * again.  The
+ * kmod zaps these mappings at MR dereg (stale access gets SIGBUS), but the FW
+ * should munmap them itself before it deregisters or drops the MR.
+ */
+
 struct octep_rdma_dev;
 struct octep_caps_region;
 
@@ -38,6 +64,14 @@ struct octterm_cdev {
 	/* Character device */
 	struct cdev cdev;
 	struct device *cdev_device;
+	/*
+	 * Single address_space shared by every open of the cdev (any device
+	 * node), used to zap MR page mappings at dereg.  It belongs to the
+	 * inode pinned by @inode, set on first open, released at destroy.
+	 */
+	struct inode *inode;
+	struct address_space *mapping;
+	struct mutex open_lock; /* protects first-open pinning of @inode */
 	dev_t devno;
 	int instance_id;
 

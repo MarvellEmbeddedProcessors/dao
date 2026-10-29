@@ -824,6 +824,7 @@ octep_rdma_modify_qp_attr_populate(struct octep_rdma_qp *qp, struct ib_qp_attr *
 	if (qp_attr_mask & IB_QP_ACCESS_FLAGS) {
 		OCTEP_RDMA_SET_FIELD(&qp_mod_attr->modify_mask, OCTEP_RDMA_QP_MOD_ACCESS_FLAGS, 1);
 		qp_mod_attr->qp_access_flags = qp_attr->qp_access_flags;
+		qp->attrs.access_flags = qp_attr->qp_access_flags;
 	}
 
 	if (qp_attr_mask & IB_QP_PATH_MTU) {

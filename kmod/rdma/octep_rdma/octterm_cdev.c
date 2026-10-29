@@ -36,6 +36,24 @@ static int octterm_dev_open(struct inode *inode, struct file *fp)
 	struct octterm_cdev *odev = container_of(inode->i_cdev,
 						 struct octterm_cdev, cdev);
 	fp->private_data = odev;
+
+	/*
+	 * Pin the first opened inode and make every file share its mapping,
+	 * so MR mappings created through any device node are found and
+	 * zapped at dereg, and the mapping stays valid until destroy.
+	 */
+	mutex_lock(&odev->open_lock);
+	if (!odev->inode) {
+		odev->inode = igrab(inode);
+		if (!odev->inode) {
+			mutex_unlock(&odev->open_lock);
+			return -ENOENT;
+		}
+		/* publish after the inode is pinned */
+		smp_store_release(&odev->mapping, odev->inode->i_mapping);
+	}
+	fp->f_mapping = odev->mapping;
+	mutex_unlock(&odev->open_lock);
 	return 0;
 }
 
@@ -66,6 +84,13 @@ static int octterm_dev_mmap(struct file *fp, struct vm_area_struct *vma)
 
 	if (!odev || !odev->ddr_region)
 		return -EINVAL;
+
+	/* Offset 0 is the DDR region, any other offset is an MR lkey */
+	if (vma->vm_pgoff) {
+		if (!odev->ibdev_registered || !odev->rdma_dev)
+			return -ENODEV;
+		return octep_rdma_mr_mmap(odev->rdma_dev, vma);
+	}
 
 	if (size > OCTTERM_DDR_REGION_SIZE)
 		return -EINVAL;
@@ -124,6 +149,8 @@ static void octterm_fw_ready_work_handler(struct work_struct *work)
 	rdma_dev->port.port_num = 0;
 	rdma_dev->caps_rgn = caps_rgn;
 	rdma_dev->octterm = odev;
+	xa_init(&rdma_dev->mr_map_xa);
+	mutex_init(&rdma_dev->mr_map_lock);
 	atomic_set(&rdma_dev->status, OCTEP_RDMA_DEV_STATUS_ALLOC);
 
 	odev->rdma_dev = rdma_dev;
@@ -335,6 +362,9 @@ int octterm_cdev_init(struct octterm_cdev *odev, struct pci_dev *pdev,
 	odev->ibdev_registered = false;
 	odev->fw_ready_scheduled = false;
 	odev->fw_gone = false;
+	odev->inode = NULL;
+	odev->mapping = NULL;
+	mutex_init(&odev->open_lock);
 	INIT_WORK(&odev->fw_ready_work, octterm_fw_ready_work_handler);
 
 	/* Allocate 64MB DDR region with BAR4-identical layout */
@@ -414,6 +444,12 @@ void octterm_cdev_destroy(struct octterm_cdev *odev)
 
 	cdev_del(&odev->cdev);
 	unregister_chrdev_region(odev->devno, 1);
+
+	if (odev->inode) {
+		odev->mapping = NULL;
+		iput(odev->inode);
+		odev->inode = NULL;
+	}
 
 	if (odev->ddr_region) {
 		if (odev->caps_rgn) {

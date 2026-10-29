@@ -83,10 +83,14 @@ octep_rdma_port_state_to_ib(enum octep_rdma_port_state state)
 	return (enum ib_port_state)state;
 }
 
-static enum ib_atomic_cap
-octep_rdma_atomic_cap_to_ib(enum octep_rdma_atomic_cap cap)
+static enum ib_atomic_cap octep_rdma_atomic_cap_to_ib(enum octep_rdma_atomic_cap cap)
 {
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
 	return (enum ib_atomic_cap)cap;
+#else
+	/* The FW can execute atomics only in OCTTERM mode (it needs the MR mmap) */
+	return IB_ATOMIC_NONE;
+#endif
 }
 
 /* initialize octep_rdma device parameters */
@@ -1355,6 +1359,8 @@ octep_rdma_probe_octterm(struct pci_dev *pdev)
 		goto err_free_device;
 	}
 	rdma_dev->octterm = odev;
+	xa_init(&rdma_dev->mr_map_xa);
+	mutex_init(&rdma_dev->mr_map_lock);
 
 	ret = octterm_cdev_init(odev, pdev, rdma_dev, caps_rgn);
 	if (ret) {

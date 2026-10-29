@@ -509,6 +509,12 @@ octep_rdma_reg_user_mr(struct ib_pd *ibpd, u64 start, u64 length, u64 iova, int 
 	uint64_t *pa;
 	int ret, mrn;
 
+	/* Atomics are not supported: do not accept an MR that is an atomic target */
+	if ((access & IB_ACCESS_REMOTE_ATOMIC) && rdma_dev->attr.atomic_cap == IB_ATOMIC_NONE) {
+		ibdev_err(ibpd->device, "REMOTE_ATOMIC MR not supported by this device\n");
+		return ERR_PTR(-EOPNOTSUPP);
+	}
+
 	mr = kzalloc(sizeof(*mr), GFP_KERNEL);
 	if (!mr)
 		return ERR_PTR(-ENOMEM);
@@ -531,9 +537,23 @@ octep_rdma_reg_user_mr(struct ib_pd *ibpd, u64 start, u64 length, u64 iova, int 
 		goto error;
 	}
 
+	/*
+	 * Make the MR mmappable before the register mbox: the FW maps it while
+	 * handling that mbox.  Removed again below if the mbox fails.
+	 */
+	if (access & IB_ACCESS_REMOTE_ATOMIC) {
+		ret = octep_rdma_mr_map_add(rdma_dev, mr, pd->pdn);
+		if (ret) {
+			ibdev_err(ibpd->device, "octep_rdma_mr_map_add failed\n");
+			release_mem_trans_tbl(rdma_dev, &mr->mrbuf_mtt);
+			goto error;
+		}
+	}
+
 	ret = octep_rdma_prepare_mr_register_cmd(rdma_dev, mr, pd->pdn);
 	if (ret) {
 		ibdev_err(ibpd->device, "octep_rdma_prepare_mr_reg_cmd failed\n");
+		octep_rdma_mr_map_remove(rdma_dev, mr);
 		release_mem_trans_tbl(rdma_dev, &mr->mrbuf_mtt);
 		goto error;
 	}
@@ -571,6 +591,12 @@ octep_rdma_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata)
 	} else {
 		ibdev_info(ibmr->device, "Device inactive, skipping remote MR cleanup\n");
 	}
+
+	/*
+	 * Stop new MR page mmaps and zap existing ones before the pages are
+	 * unpinned.  The FW has already dropped the MR above.
+	 */
+	octep_rdma_mr_map_remove(rdma_dev, mr);
 
 	/* Always continue with local cleanup */
 	if (!rdma_is_kernel_res(&ibmr->res))
@@ -1147,8 +1173,11 @@ octep_rdma_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr, int qp_attr_
 
 	qp_attr->path_mtu = ib_mtu_int_to_enum(dev->netdev->mtu);
 
-	qp_attr->qp_access_flags = IB_ACCESS_LOCAL_WRITE | IB_ACCESS_REMOTE_WRITE |
-				   IB_ACCESS_REMOTE_READ;
+	/* Report what modify_qp programmed (e.g. REMOTE_ATOMIC); default before that */
+	qp_attr->qp_access_flags = qp->attrs.access_flags ?
+					   qp->attrs.access_flags :
+					   (IB_ACCESS_LOCAL_WRITE | IB_ACCESS_REMOTE_WRITE |
+					    IB_ACCESS_REMOTE_READ);
 
 	/* Connection parameters from qp_mod_attr (allocated at create_qp with
 	 * device-capability defaults, updated by each modify_qp call). */

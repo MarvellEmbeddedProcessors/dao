@@ -38,6 +38,11 @@ struct octep_rdma_mem {
 	u64 size;
 	u32 iommu_mapped_cnt;
 
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	/* Real physical address of every pinned page (page_cnt entries) */
+	u64 *pa;
+#endif
+
 	u64 mtt_entry[OCTEP_RDMA_MAX_INLINE_MTT_ENTRIES];
 };
 
@@ -64,6 +69,8 @@ struct octep_rdma_mr {
 	u32 num_buf;
 	u32 nbuf;
 	u32 mrn;
+	u32 pdn;
+	bool mmap_added; /* entry present in rdma_dev->mr_map_xa */
 
 	struct octep_rdma_mem mrbuf_mtt;
 
@@ -100,4 +107,22 @@ int octep_rdma_prepare_mr_register_cmd(struct octep_rdma_dev *rdma_dev, struct o
 				       u32 pdn);
 int octep_rdma_prepare_mr_deregister_cmd(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mr *mr,
 					 u32 pdn);
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+/* MR page mmap through the octterm cdev (atomics support) */
+int octep_rdma_mr_map_add(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mr *mr, u32 pdn);
+void octep_rdma_mr_map_remove(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mr *mr);
+int octep_rdma_mr_mmap(struct octep_rdma_dev *rdma_dev, struct vm_area_struct *vma);
+#else
+static inline int octep_rdma_mr_map_add(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mr *mr,
+					u32 pdn)
+{
+	return 0;
+}
+
+static inline void octep_rdma_mr_map_remove(struct octep_rdma_dev *rdma_dev,
+					    struct octep_rdma_mr *mr)
+{
+}
+#endif
 #endif /* __OCTEP_MR_H__ */
