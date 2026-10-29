@@ -6,6 +6,7 @@
 
 #include "octep_verbs.h"
 #include "octep_plat.h"
+#include "octterm_cdev.h"
 
 #define OCTEP_RDMA_IOVA_AS_VA_MASK 39
 
@@ -102,6 +103,9 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 	size_t total_size = 0;
 	size_t mapped_size = 0;
 	int mapped_cnt = 0;
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	u32 pg_idx = 0;
+#endif
 	int j;
 
 	__sg_page_iter_start(&sg_iter, sgt->sgl, sgt->orig_nents, 0);
@@ -125,6 +129,13 @@ octep_iommu_mapping(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 	do {
 		page = sg_page_iter_page(&sg_iter);
 		phys = page_to_phys(page);
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+		/* Remember the real PA of every page (also already-mapped ones) */
+		if (mem->pa && pg_idx < mem->page_cnt)
+			mem->pa[pg_idx] = phys;
+		pg_idx++;
+#endif
 
 		/* Check if IOVA is already mapped */
 		phys_addr_t existing_phys = iommu_iova_to_phys(domain, iova);
@@ -231,6 +242,17 @@ setup_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem,
 		  MTT_SIZE(mem->page_cnt), mem->umem, mem->mtt_buf ? *((u64 *)mem->mtt_buf) : 0,
 		  mem->mtt_entry[0]);
 
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	/* Real PAs are only needed for MRs that can be the target of atomics */
+	if (access & IB_ACCESS_REMOTE_ATOMIC) {
+		mem->pa = kvmalloc_array(mem->page_cnt, sizeof(u64), GFP_KERNEL | __GFP_ZERO);
+		if (!mem->pa) {
+			ret = -ENOMEM;
+			goto error_iommu_mapping;
+		}
+	}
+#endif
+
 	ret = octep_iommu_mapping(rdma_dev, mem);
 	if (ret) {
 		ibdev_err(&rdma_dev->ibdev, "octep_iommu_mapping failed\n");
@@ -240,6 +262,10 @@ setup_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem,
 	return 0;
 
 error_iommu_mapping:
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	kvfree(mem->pa);
+	mem->pa = NULL;
+#endif
 	if (mem->mtt_buf) {
 		kvfree(mem->mtt_buf);
 		mem->mtt_buf = NULL;
@@ -254,10 +280,13 @@ error_ret:
 	return ret;
 }
 
-void
-release_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
+void release_mem_trans_tbl(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mem *mem)
 {
 	octep_iommu_unmapping(rdma_dev, mem);
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+	kvfree(mem->pa);
+	mem->pa = NULL;
+#endif
 	if (mem->mtt_buf) {
 		kvfree(mem->mtt_buf);
 		mem->mtt_buf = NULL;
@@ -369,3 +398,148 @@ done:
 	kfree(mr_req);
 	return ret;
 }
+
+#ifdef CONFIG_OCTEP_RDMA_OCTTERM
+
+/*
+ * Make an MR mmappable through the octterm cdev.  Called before the MR
+ * register mbox is sent, because the FW maps the MR while it handles that
+ * mbox.  If the mbox fails the caller removes the entry again with
+ * octep_rdma_mr_map_remove().  mr_map_lock is not held across the mbox.
+ */
+int octep_rdma_mr_map_add(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mr *mr, u32 pdn)
+{
+	unsigned long key = mr->lkey;
+	void *old;
+	int ret = 0;
+
+	/* lkey 0 would collide with the DDR region offset */
+	if (!key)
+		return -EINVAL;
+
+	mr->pdn = pdn;
+
+	mutex_lock(&rdma_dev->mr_map_lock);
+	if (xa_load(&rdma_dev->mr_map_xa, key)) {
+		ret = -EBUSY;
+	} else {
+		old = xa_store(&rdma_dev->mr_map_xa, key, mr, GFP_KERNEL);
+		if (xa_is_err(old))
+			ret = xa_err(old);
+		else
+			mr->mmap_added = true;
+	}
+	mutex_unlock(&rdma_dev->mr_map_lock);
+
+	return ret;
+}
+
+/*
+ * Drop the MR from the lookup table and zap every user mapping of its pages.
+ * Must run before the pages are unpinned (release_mem_trans_tbl()).
+ * Safe for MRs that were never added.
+ */
+void octep_rdma_mr_map_remove(struct octep_rdma_dev *rdma_dev, struct octep_rdma_mr *mr)
+{
+	struct octterm_cdev *odev = rdma_dev->octterm;
+	unsigned long key = mr->lkey;
+	struct address_space *mapping;
+
+	if (!mr->mmap_added)
+		return;
+
+	mutex_lock(&rdma_dev->mr_map_lock);
+	xa_erase(&rdma_dev->mr_map_xa, key);
+
+	/* pairs with smp_store_release() in octterm_dev_open() */
+	mapping = odev ? smp_load_acquire(&odev->mapping) : NULL;
+	if (mapping) {
+		if (mr->mrbuf_mtt.page_cnt)
+			unmap_mapping_range(mapping, (loff_t)key << PAGE_SHIFT,
+					    (loff_t)mr->mrbuf_mtt.page_cnt << PAGE_SHIFT, 1);
+	}
+	mutex_unlock(&rdma_dev->mr_map_lock);
+
+	mr->mmap_added = false;
+}
+
+/*
+ * A VMA without vm_ops is treated as anonymous memory by the core MM, so after
+ * the dereg-time zap a stale access would silently get a zero page.  Install a
+ * fault handler that always fails so a stale mapping raises SIGBUS instead.
+ */
+static vm_fault_t octep_mr_vm_fault(struct vm_fault *vmf)
+{
+	return VM_FAULT_SIGBUS;
+}
+
+static const struct vm_operations_struct octep_mr_vm_ops = {
+	.fault = octep_mr_vm_fault,
+};
+
+/*
+ * mmap() of a registered MR.  vm_pgoff is the MR lkey, the length is the
+ * number of MR pages to map (1 .. page_cnt) starting at the first MR page.
+ */
+int octep_rdma_mr_mmap(struct octep_rdma_dev *rdma_dev, struct vm_area_struct *vma)
+{
+	unsigned long lkey = vma->vm_pgoff;
+	unsigned long npages = (vma->vm_end - vma->vm_start) >> PAGE_SHIFT;
+	struct octep_rdma_mr *mr;
+	unsigned long i;
+	int ret;
+
+	/* Must be a shared mapping (no COW) */
+	if (!(vma->vm_flags & VM_SHARED))
+		return -EINVAL;
+
+	mutex_lock(&rdma_dev->mr_map_lock);
+	mr = xa_load(&rdma_dev->mr_map_xa, lkey);
+	if (!mr) {
+		/* Not registered (yet), or already deregistered */
+		ret = -ENOENT;
+		goto out;
+	}
+
+	if (!(mr->access & IB_ACCESS_REMOTE_ATOMIC)) {
+		ret = -EACCES;
+		goto out;
+	}
+
+	if (!mr->mrbuf_mtt.pa || !npages || npages > mr->mrbuf_mtt.page_cnt) {
+		ret = -EINVAL;
+		goto out;
+	}
+
+	for (i = 0; i < npages; i++) {
+		if (!mr->mrbuf_mtt.pa[i]) {
+			ret = -EFAULT;
+			goto out;
+		}
+	}
+
+	/*
+	 * The pages are pinned user memory (anonymous), which vm_insert_page()
+	 * refuses.  Map the PFNs directly; the umem pin keeps the pages alive
+	 * and the dereg path zaps the mapping before unpinning.  The pages are
+	 * physically scattered but end up virtually contiguous.
+	 */
+	vma->vm_ops = &octep_mr_vm_ops;
+	vm_flags_set(vma, VM_DONTCOPY);
+	for (i = 0; i < npages; i++) {
+		ret = remap_pfn_range(vma, vma->vm_start + (i << PAGE_SHIFT),
+				      PHYS_PFN(mr->mrbuf_mtt.pa[i]), PAGE_SIZE, vma->vm_page_prot);
+		if (ret) {
+			ibdev_err(&rdma_dev->ibdev, "MR mmap lkey 0x%lx page %lu failed %d\n", lkey,
+				  i, ret);
+			goto out;
+		}
+	}
+
+	ibdev_dbg(&rdma_dev->ibdev, "MR mmap lkey 0x%lx pages %lu\n", lkey, npages);
+out:
+	mutex_unlock(&rdma_dev->mr_map_lock);
+	return ret;
+}
+
+#endif /* CONFIG_OCTEP_RDMA_OCTTERM */

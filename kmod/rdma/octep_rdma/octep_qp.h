@@ -131,6 +131,7 @@ struct octep_rdma_qp_attrs {
 	int mtu;
 	struct octep_rdma_av cur_av;
 	bool ah_attr_valid;
+	int access_flags; /* last IB_QP_ACCESS_FLAGS, survives later modifies */
 	struct octep_rdma_qp_mod_attrs *qp_mod_attr;
 };
 

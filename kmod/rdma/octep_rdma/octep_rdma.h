@@ -123,6 +123,9 @@ struct octep_rdma_dev {
 #ifdef CONFIG_OCTEP_RDMA_OCTTERM
 	struct octterm_cdev *octterm;
 	struct device *dma_dev;
+	/* Registered MRs that the FW may mmap, key = (pdn << 12) | mrn */
+	struct xarray mr_map_xa;
+	struct mutex mr_map_lock; /* serializes MR mmap vs dereg/zap */
 #endif
 
 	/* CQ interrupt notification support */
