@@ -25,7 +25,7 @@ option('virtio_debug', type: 'boolean', value: false, description:
        'Enable virtio debug.')
 option('virtio_blk_debug', type: 'boolean', value: false, description:
        'Enable virtio blk debug.')
-option('rdma_build', type: 'boolean', value: true, description:
+option('rdma_build', type: 'boolean', value: false, description:
        'RDMA kmod build')
 option('rdma_debug', type: 'boolean', value: false, description:
        'Enable RDMA debug logs (defines DAO_RDMA_DEBUG).')
