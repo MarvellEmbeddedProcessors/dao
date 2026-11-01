@@ -56,6 +56,9 @@
 
 #define DEFAULT_QUEUES_PER_PORT 1
 
+/* Max queue pairs for a net_virtio_user port (the PMD uses an eventfd per queue) */
+#define VIRTIO_USER_MAX_QPS 4
+
 #define MAX_ETHDEV_RX_PER_LCORE 128
 #define MAX_VIRTIO_RX_PER_LCORE 128
 
@@ -3011,12 +3014,23 @@ setup_virtio_devices(void)
 								eth_dev_info[portid].reta_size);
 			rte_eth_dev_get_name_by_port(portid, ethdev_pmd_name);
 
-			/* Tap PMD supports only 1 queue. Virtio user PMD uses an eventfd per queue,
-			 * so limit the max queues to avoid running out of eventfds */
-			if (!strcmp(ethdev_pmd_name, "net_tap0"))
+			/* Tap PMD supports only 1 queue. Virtio user PMD cannot grow its queues
+			 * beyond what the user created it with, so publish that count. For
+			 * net_virtio_user, dev_info.max_rx_queues is set by the PMD from the
+			 * 'queues' devarg of the vdev (default 1).
+			 */
+			if (!strcmp(ethdev_pmd_name, "net_tap0")) {
 				netdev_conf.max_virt_qps_limit = 1;
-			else if (strstr(ethdev_pmd_name, "net_virtio_user"))
-				netdev_conf.max_virt_qps_limit = 4;
+			} else if (strstr(ethdev_pmd_name, "net_virtio_user")) {
+				/* Virtio user PMD uses an eventfd per queue, so limit the queue
+				 * pairs to avoid running out of eventfds.
+				 */
+				if (eth_dev_info[portid].max_rx_queues > VIRTIO_USER_MAX_QPS)
+					rte_exit(EXIT_FAILURE, "Port %u: %u queues > max %u\n",
+						 portid, eth_dev_info[portid].max_rx_queues,
+						 VIRTIO_USER_MAX_QPS);
+				netdev_conf.max_virt_qps_limit = eth_dev_info[portid].max_rx_queues;
+			}
 
 			netdev_conf.hash_key_size = eth_dev_info[portid].hash_key_size;
 			overhd = eth_dev_get_overhead_len(eth_dev_info[portid].max_rx_pktlen,
