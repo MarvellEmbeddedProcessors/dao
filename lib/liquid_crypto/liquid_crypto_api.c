@@ -5039,8 +5039,8 @@ dao_liquid_crypto_enq_op_rsa_oaep_enc(uint8_t dev_id, uint16_t qp_id, uint8_t *l
 		return -EINVAL;
 	}
 
-	if (msg == NULL) {
-		dao_err("Invalid argument. msg cannot be NULL.");
+	if (msg == NULL && msg_len != 0) {
+		dao_err("Invalid argument. msg cannot be NULL when msg_len is non-zero.");
 		return -EINVAL;
 	}
 
@@ -6016,13 +6016,13 @@ dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (em == NULL) {
-		dao_err("Invalid argument. em cannot be NULL.");
+	if (msg == NULL && msg_len != 0) {
+		dao_err("Invalid argument. msg cannot be NULL when msg_len is non-zero.");
 		return -EINVAL;
 	}
 
-	if (msg == NULL) {
-		dao_err("Invalid argument. msg cannot be NULL.");
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
 		return -EINVAL;
 	}
 
@@ -6139,7 +6139,8 @@ dao_liquid_crypto_enq_op_rsa_pss_pvt_exp_enc(uint8_t dev_id, uint16_t qp_id,
 	memcpy(dptr, &ctrl_word, sizeof(ctrl_word));
 	dptr += 8;
 
-	memcpy(dptr, msg, msg_len);
+	if (msg_len)
+		memcpy(dptr, msg, msg_len);
 	dptr += msg_len;
 
 	if (salt_len)
@@ -6232,13 +6233,13 @@ dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (em == NULL) {
-		dao_err("Invalid argument. em cannot be NULL.");
+	if (msg == NULL && msg_len != 0) {
+		dao_err("Invalid argument. msg cannot be NULL when msg_len is non-zero.");
 		return -EINVAL;
 	}
 
-	if (msg == NULL) {
-		dao_err("Invalid argument. msg cannot be NULL.");
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
 		return -EINVAL;
 	}
 
@@ -6361,7 +6362,8 @@ dao_liquid_crypto_enq_op_rsa_pss_pvt_crt_enc(uint8_t dev_id, uint16_t qp_id,
 	memcpy(dptr, &ctrl_word, sizeof(ctrl_word));
 	dptr += 8;
 
-	memcpy(dptr, msg, msg_len);
+	if (msg_len)
+		memcpy(dptr, msg, msg_len);
 	dptr += msg_len;
 
 	if (salt_len)
@@ -6459,13 +6461,13 @@ dao_liquid_crypto_enq_op_rsa_pss_pub_dec(uint8_t dev_id, uint16_t qp_id,
 		return -EINVAL;
 	}
 
-	if (em == NULL) {
-		dao_err("Invalid argument. em cannot be NULL.");
+	if (msg == NULL && msg_len != 0) {
+		dao_err("Invalid argument. msg cannot be NULL when msg_len is non-zero.");
 		return -EINVAL;
 	}
 
-	if (msg == NULL) {
-		dao_err("Invalid argument. msg cannot be NULL.");
+	if (em == NULL) {
+		dao_err("Invalid argument. em cannot be NULL.");
 		return -EINVAL;
 	}
 
@@ -6562,7 +6564,8 @@ dao_liquid_crypto_enq_op_rsa_pss_pub_dec(uint8_t dev_id, uint16_t qp_id,
 	memcpy(dptr, &ctrl_word, sizeof(ctrl_word));
 	dptr += 8;
 
-	memcpy(dptr, msg, msg_len);
+	if (msg_len)
+		memcpy(dptr, msg, msg_len);
 	dptr += msg_len;
 
 	memcpy(dptr, mod, mod_len);
