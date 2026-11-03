@@ -744,7 +744,8 @@ test_rsa_oaep_enc_dec_exp(const void *data)
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
 	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
-	TEST_ASSERT(memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
+	TEST_ASSERT(params->plaintext.len == 0 ||
+		    memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
 
 	return TEST_SUCCESS;
@@ -804,7 +805,8 @@ test_rsa_oaep_enc_dec_crt(const void *data)
 	TEST_ASSERT(res.res.cn9k.compcode == DAO_CPT_COMP_GOOD, "Crypto operation failed");
 	TEST_ASSERT(res.res.cn9k.uc_compcode == DAO_UC_SUCCESS, "RSA operation failed");
 	TEST_ASSERT(res.rsa.data_out_len == params->plaintext.len, "Invalid result length");
-	TEST_ASSERT(memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
+	TEST_ASSERT(params->plaintext.len == 0 ||
+		    memcmp(decrypt, params->plaintext.data, params->plaintext.len) == 0,
 		    "Invalid result");
 
 	return TEST_SUCCESS;
@@ -1191,6 +1193,14 @@ struct unit_test_suite lc_testsuite_asym = {
 			"RSA OAEP Encrypt/Decrypt with pvt CRT and label, zero message length (2048 bits)",
 			ut_setup, ut_teardown, test_rsa_oaep_enc_dec_crt,
 			&rsa_oaep_params_1K_label_2k_mod_empty_string),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt exp and label, NULL message with zero length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_oaep_enc_dec_exp,
+			&rsa_oaep_params_1K_label_2k_mod_zero_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA OAEP Encrypt/Decrypt with pvt CRT and label, NULL message with zero length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_oaep_enc_dec_crt,
+			&rsa_oaep_params_1K_label_2k_mod_zero_msg),
 		TEST_CASE_NAMED_WITH_DATA("Modex encrypt/decrypt with exponent(1024 bits)",
 					  ut_setup, ut_teardown, test_rsa_modex_enc_dec_exp,
 					  &rsa_modex_params),
@@ -1346,6 +1356,22 @@ struct unit_test_suite lc_testsuite_asym = {
 			"RSA PSS Sign/Verify with pvt CRT and 48B salt with 4096 bits modulus and max message length with SHA256 hash",
 			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
 			&rsa_pss_params_48B_salt_4096_mod_max_msg_sha256),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 5B salt, zero message length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_5B_salt_2048_mod_zero_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 5B salt, zero message length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_5B_salt_2048_mod_zero_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt exp and 5B salt, valid pointer with zero length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_pss_exp_sign_verify,
+			&rsa_pss_params_5B_salt_2048_mod_valid_ptr_zero_msg),
+		TEST_CASE_NAMED_WITH_DATA(
+			"RSA PSS Sign/Verify with pvt CRT and 5B salt, valid pointer with zero length (2048 bits)",
+			ut_setup, ut_teardown, test_rsa_pss_crt_sign_verify,
+			&rsa_pss_params_5B_salt_2048_mod_valid_ptr_zero_msg),
 		TEST_CASES_END() /**< NULL terminate unit test array */
 	}
 };
