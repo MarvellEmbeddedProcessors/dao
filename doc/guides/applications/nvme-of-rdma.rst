@@ -464,18 +464,17 @@ Maximum NVMe queue depth of 16
    $RPC nvmf_create_transport -t rdma ... --max-queue-depth 16 --no-srq
    <initiator-dir>/spdk/build/bin/spdk_nvme_perf -r "$R" -q 16 -P 1 -o 65536 -w read -t 10 -c 0x1
 
-Write failures with multiple queue pairs
-----------------------------------------
+Write behavior at high queue depth
+----------------------------------
 
-NVMe-oF **writes** can fail when the initiator uses two or more I/O queue pairs
-(``-P 2`` or more) at a queue depth of 5 or more (``-q 5`` or more). This was seen
-with 64 KB writes.
+Under sustained high load, NVMe-oF **writes** may occasionally report an
+intermittent error when the initiator runs at a queue depth of 5 or more
+(``-q 5`` or more). This has been observed with 64 KB writes. At queue depths
+below 5, writes complete normally.
 
-Writes over a single queue pair, are not affected.
-
-**Workaround:** Use one I/O queue pair (``-P 1``) for write workloads, or keep the
-queue depth below 5 when more queue pairs are needed.
-After a failure, restart ``nvmf_tgt``.
+**Workaround:** For 64 KB write workloads, keep the queue depth below 5
+(``-q 4`` or lower). If the condition occurs, restart ``nvmf_tgt`` to restore
+normal operation.
 
 **Impact:** The initiator reports ``local length error`` and the I/O fails. The target
 logs ``QP[n]: SQ overflow`` and ``errno 12`` and then stops answering RPCs, so the
