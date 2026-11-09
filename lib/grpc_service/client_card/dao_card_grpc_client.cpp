@@ -12,6 +12,7 @@
 #include <grpcpp/channel.h>
 #include <grpcpp/client_context.h>
 #include <grpcpp/create_channel.h>
+#include <grpcpp/support/channel_arguments.h>
 #include <grpcpp/security/credentials.h>
 #include <openssl/evp.h>
 #include <errno.h>
@@ -95,7 +96,18 @@ dao_card_grpc_client_init(const char *server_ip, uint16_t server_port)
 	server_addr += ":";
 	server_addr += std::to_string(server_port);
 
-	auto channel = grpc::CreateChannel(server_addr, grpc::InsecureChannelCredentials());
+	/* Cap the reconnect backoff. While the card reboots every connection attempt fails, and
+	 * with the default backoff (1s growing x1.6 up to 120s) the channel may not retry until
+	 * well after the card is back up, which makes callers time out on a healthy card.
+	 */
+	grpc::ChannelArguments args;
+
+	args.SetInt(GRPC_ARG_INITIAL_RECONNECT_BACKOFF_MS, 500);
+	args.SetInt(GRPC_ARG_MIN_RECONNECT_BACKOFF_MS, 500);
+	args.SetInt(GRPC_ARG_MAX_RECONNECT_BACKOFF_MS, 1000);
+
+	auto channel = grpc::CreateCustomChannel(server_addr, grpc::InsecureChannelCredentials(),
+						 args);
 
 	ctx->stub = DaoCardService::NewStub(channel);
 
