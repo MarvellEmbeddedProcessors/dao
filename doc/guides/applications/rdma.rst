@@ -464,34 +464,12 @@ Export the DPI device list and launch ``dao-rdma_graph`` with
 Bring up the Interface
 ~~~~~~~~~~~~~~~~~~~~~~
 Find the VF interface name (format ``enp6s0vxx``, where ``xx`` is a number)
-using ``ifconfig``.
-
-.. note::
-
-   When running on the RPM PF, this step is not required.
-
-   When ``dao-rdma_graph`` runs on an RPM VF, first set the interface MAC
-   address to the MAC address of the RDMA port. The application prints it at
-   start-up, for example::
-
-      [lcore 17] DAO_INFO: Port 0 MAC: da 9f 63 f3 a7 4a
-
-   Enter the same six bytes separated by colons.
-
-.. admonition:: Example
-
-   .. code-block:: bash
-
-      VF=enp6s0vxx
-      P0=da:9f:63:f3:a7:4a
-      ip link set $VF down
-      ip link set $VF address $P0
-
-Assign an IP address in the same subnet as the remote machine:
+using ``ifconfig``, then assign an IP address in the same subnet as the remote
+machine:
 
 .. code-block:: bash
 
-   ifconfig $VF 30.0.0.3/24 up
+   ifconfig enp6s0v22 30.0.0.3/24 up
 
 Run UD Ping-Pong Test
 ~~~~~~~~~~~~~~~~~~~~~
