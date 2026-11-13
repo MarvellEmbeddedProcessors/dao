@@ -147,7 +147,7 @@ jobs:
                                 "pydata-sphinx-theme>=0.16" \
                                 "sphinx-multiversion==0.2.4" \
                                 "sphinx-copybutton" \
-                                "sphinx-design"
+                                "sphinx-design==0.6.1"
           DISTRO=ubuntu-`lsb_release -rs`
           echo "DISTRO=${DISTRO}" >> artifacts/env
           source artifacts/env

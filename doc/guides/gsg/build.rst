@@ -49,7 +49,7 @@ Before compiling DAO, install the required packages:
                            "pydata-sphinx-theme>=0.16" \
                            "sphinx-multiversion>=0.2.4" \
                            "sphinx-copybutton" \
-                           "sphinx-design"
+                           "sphinx-design==0.6.1"
 
 Compiling and Installing
 ------------------------
