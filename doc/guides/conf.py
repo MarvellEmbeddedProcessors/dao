@@ -16,6 +16,8 @@ extensions = [
     "sphinx_design",
 ]
 
+suppress_warnings = ["design.card_legacy"]
+
 # Build policy for SMV
 smv_remote_whitelist = r"^origin$"
 smv_branch_whitelist = r"^(dao\-.*|dao\-devel|nvmeof\-.*)$"
