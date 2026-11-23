@@ -663,9 +663,12 @@ pts_rdma_dev_mbox_fini(struct pts_rdma_dev *dev)
 int
 dao_pts_rdma_qp_flush(uint16_t devid, uint16_t qp_id)
 {
+	struct dao_dma_vchan_state *dev2mem, *mem2dev;
+	struct dao_dma_vchan_info *vchan_info;
 	struct dao_pts_rdma_dev *dao_dev;
 	struct pts_rdma_dev *dev;
 	struct pts_rdma_qp *qp;
+	uint16_t dma_vchan;
 
 	if (devid >= DAO_PTS_RDMA_MAX_DEVS || qp_id >= DAO_PTS_RDMA_MAX_QPS)
 		return -EINVAL;
@@ -676,6 +679,17 @@ dao_pts_rdma_qp_flush(uint16_t devid, uint16_t qp_id)
 		return -EINVAL;
 
 	dev = pts_rdma_dev_priv(dao_dev);
+	vchan_info = RTE_PER_LCORE(dao_dma_vchan_info);
+	if (vchan_info) {
+		dma_vchan = qp->rq.dma_vchan;
+		dev2mem = &vchan_info->dev2mem[dma_vchan];
+		mem2dev = &vchan_info->mem2dev[dma_vchan];
+		dao_dma_flush_submit_v2();
+		while (dev2mem->head != dev2mem->tail)
+			dao_dma_check_meta_compl_v2(dev2mem, 1);
+		while (mem2dev->head != mem2dev->tail)
+			dao_dma_check_meta_compl_v2(mem2dev, 1);
+	}
 	pts_rdma_qp_dma_finish(dev, qp);
 	pts_rdma_qp_rq_flush(dev, qp, true);
 	pts_rdma_qp_sq_flush(dev, qp, true);
