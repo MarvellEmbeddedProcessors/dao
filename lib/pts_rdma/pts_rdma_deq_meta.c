@@ -296,6 +296,25 @@ process_multi_mbuf(uint16_t devid, struct dao_dma_vchan_state *dev2mem, struct p
 	return 0;
 }
 
+static __rte_always_inline bool
+update_dma_offsets(struct dao_dma_vchan_state *vchan, uint32_t *ptr, uint32_t val)
+{
+	uint16_t idx;
+
+	if (vchan->src_i || vchan->dst_i) {
+		idx = vchan->tail;
+	} else if (vchan->tail != vchan->head) {
+		idx = vchan->tail - 1;
+		if (unlikely(!dao_dma_cmpl_meta_avail(vchan, idx)))
+			return false;
+	} else {
+		__atomic_store_n(ptr, val, __ATOMIC_RELEASE);
+		return true;
+	}
+	dao_dma_update_cmpl_meta_v2(vchan, ptr, val, idx);
+	return true;
+}
+
 static __rte_always_inline uint16_t
 fetch_host_data(uint16_t devid, struct pts_rdma_qp *qp, struct dao_dma_vchan_state *vchan,
 		uint16_t hint, const uint16_t flags)
@@ -310,13 +329,12 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp *qp, struct dao_dma_vchan_sta
 	uint16_t buf_len = sq->buf_len;
 	uint16_t mtu = sq->mtu;
 	struct rte_mbuf *mbuf;
-	uint32_t used = 0, num_sges;
+	uint32_t num_sges;
 	uint32_t nb_mbufs, nb_desc;
 	uint32_t i = 0, slen, dlen, len;
 	struct rte_mbuf **mbuf_arr;
 	uint8_t opcode, next_desc;
 	uint32_t off, mbuf_off;
-	int last_idx = 0;
 	uint32_t j, n_dst_mbufs;
 	uint64_t d_flags;
 
@@ -419,8 +437,6 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp *qp, struct dao_dma_vchan_sta
 		}
 		i += (next_desc + 1);
 		off = (off + next_desc + 1) & (q_sz - 1);
-		used = i;
-		last_idx = vchan->tail;
 		if (!dao_dma_flush(vchan, 1)) {
 			qp->err.deq_flush_single_fail++;
 			break;
@@ -430,11 +446,8 @@ fetch_host_data(uint16_t devid, struct pts_rdma_qp *qp, struct dao_dma_vchan_sta
 exit:
 	if (i > 0) {
 		mbuf_off = desc_off_add32(sq->sd_mbuf_off, i, sq->q_sz);
-		if (used)
-			dao_dma_update_cmpl_meta_v2(vchan, &sq->sd_mbuf_dma_off, mbuf_off,
-						    last_idx);
-		else
-			__atomic_store_n(&sq->sd_mbuf_dma_off, mbuf_off, __ATOMIC_RELEASE);
+		if (!update_dma_offsets(vchan, &sq->sd_mbuf_dma_off, mbuf_off))
+			return 0;
 		sq->sd_mbuf_off = mbuf_off;
 	}
 	return 0;

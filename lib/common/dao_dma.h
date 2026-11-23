@@ -898,6 +898,25 @@ dao_dma_check_meta_compl_v2(struct dao_dma_vchan_state *vchan, const int mem_ord
 }
 
 /**
+ * Check meta slot availability
+ *
+ * @param vchan
+ *    Vchan state pointer
+ * @param tail
+ *    Meta data index to store
+ * @return
+ *    True if space available, false otherwise
+ */
+static __rte_always_inline bool
+dao_dma_cmpl_meta_avail(struct dao_dma_vchan_state *vchan, uint16_t tail)
+{
+	uint16_t idx;
+
+	idx = tail % DAO_DMA_MAX_INFLIGHT_MDATA;
+	return vchan->mdata[idx].cnt < DAO_DMA_MAX_META_POINTER;
+}
+
+/**
  * Update DMA op index metadata version2.
  *
  * @param vchan
