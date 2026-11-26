@@ -705,6 +705,16 @@ Server examples (no destination IP):
    ib_send_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F --report_gbits -a
    ib_write_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F --report_gbits -a -n 40
    ib_read_lat  -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F --report_gbits -a -o 2
+   ib_atomic_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F -A FETCH_AND_ADD -n 100
+   ib_atomic_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F -A CMP_AND_SWAP -n 100
+
+.. note::
+
+   RDMA atomic operations (``FETCH_AND_ADD`` and ``CMP_AND_SWAP``) are
+   supported only in Octeon termination (octterm) mode. They are available
+   only over RC (``-c RC``). ``-A`` selects the atomic opcode. Atomic
+   operations are fixed at 8 bytes, so ``-a`` and ``--report_gbits`` do not
+   apply to ``ib_atomic_lat``.
 
 Client counterparts (add server IP):
 
@@ -715,6 +725,10 @@ Client counterparts (add server IP):
    ib_write_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F --report_gbits -a 20.10.10.3 -n 40
    ib_read_lat  -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F --report_gbits -a 20.10.10.3 -o 2
    ib_read_lat  -d mlx5_1        -c RC -i 1 --gid-index 3 -F -a -o 2 20.10.10.2
+   ib_atomic_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F -A FETCH_AND_ADD -n 100 20.10.10.3
+   ib_atomic_lat -d octep_rdma_0 -c RC -i 1 --gid-index 1 -F -A CMP_AND_SWAP -n 100 20.10.10.3
+   ib_atomic_lat -d mlx5_1       -c RC -i 1 --gid-index 3 -F -A FETCH_AND_ADD -n 100 20.10.10.2
+   ib_atomic_lat -d mlx5_1       -c RC -i 1 --gid-index 3 -F -A CMP_AND_SWAP -n 100 20.10.10.2
 
 Bandwidth Tests (UD / RC SEND, WRITE, READ):
 --------------------------------------------
